@@ -112,23 +112,6 @@
             50% { transform: scale(1.08); text-shadow: 0 0 30px gold; }
             100% { transform: scale(1); }
         }
-        .input-group input {
-            width: 85%;
-            padding: 16px;
-            font-size: 1.3rem;
-            border-radius: 60px;
-            border: none;
-            text-align: center;
-            background: rgba(255,255,255,0.12);
-            color: #ffffff;
-            font-weight: 700;
-            outline: none;
-            transition: 0.2s;
-        }
-        .input-group input:focus {
-            background: rgba(255,255,255,0.22);
-            box-shadow: 0 0 12px cyan;
-        }
         button {
             border: none;
             padding: 15px 28px;
@@ -148,10 +131,6 @@
             opacity: 0.5;
             transform: none;
             cursor: not-allowed;
-        }
-        .btn-start {
-            background: linear-gradient(135deg, #9b59b6, #8e44ad);
-            box-shadow: 0 6px 0 #6c3483;
         }
         .btn-cashout {
             background: linear-gradient(135deg, #2ecc71, #27ae60);
@@ -238,11 +217,7 @@
         <div class="multiplier" id="counter">x1.00</div>
         
         <div class="flex-col">
-            <div id="startGroup" class="input-group">
-                <input type="number" id="betInput" placeholder="Сумма (100–50000)" min="100" max="50000" step="100" value="1000">
-                <button id="startBtn" class="btn-start">🚀 НАЧАТЬ ИГРУ</button>
-            </div>
-            <div id="gameGroup" class="hidden">
+            <div id="gameGroup">
                 <button id="cashoutBtn" class="btn-cashout">💰 ЗАБРАТЬ</button>
                 <div class="auto-input">
                     <label>🎯 АВТО-ЗАБОР при x</label>
@@ -253,7 +228,7 @@
             </div>
         </div>
         
-        <div class="status" id="status">💎 Готов к игре!</div>
+        <div class="status" id="status">💎 Загрузка...</div>
         <div class="history" id="historyPanel">📜 ПОСЛЕДНИЕ ВЫИГРЫШИ: —</div>
         <footer>⚡ множитель растёт | забери до краха | авто-забор включи заранее</footer>
     </div>
@@ -266,11 +241,12 @@
     tg.MainButton.hide();
     tg.BackButton.hide();
 
-    // DOM
-    const startGroup = document.getElementById('startGroup');
-    const gameGroup = document.getElementById('gameGroup');
-    const betInput = document.getElementById('betInput');
-    const startBtn = document.getElementById('startBtn');
+    // Читаем параметры из URL (ставка и точка краша от бота)
+    const urlParams = new URLSearchParams(window.location.search);
+    let currentBet = parseInt(urlParams.get('bet')) || 0;
+    let crashPoint = parseFloat(urlParams.get('crash')) || 1.10;
+    
+    // DOM элементы
     const cashoutBtn = document.getElementById('cashoutBtn');
     const repeatBtn = document.getElementById('repeatBtn');
     const changeBetBtn = document.getElementById('changeBetBtn');
@@ -281,13 +257,10 @@
     const autoMultiplierInput = document.getElementById('autoMultiplier');
     const historyPanel = document.getElementById('historyPanel');
 
-    let currentBet = 0;
-    let crashPoint = 1.0;
     let currentMultiplier = 1.0;
     let gameActive = false;
     let intervalId = null;
     let pendingCashout = false;
-    let timeoutId = null;
     let autoTarget = 2.0;
     let lastWins = [];
 
@@ -299,8 +272,7 @@
 
     function showError(msg) {
         statusDiv.innerHTML = `<span style="color:#ff8888;">❌ ${msg}</span>`;
-        startBtn.disabled = false;
-        if (timeoutId) clearTimeout(timeoutId);
+        cashoutBtn.disabled = true;
     }
     
     function showSuccess(msg) {
@@ -311,17 +283,17 @@
         gameCard.classList.remove('crash-active', 'win-active');
     }
 
-    function startGameUI(bet, point) {
+    function startGameUI() {
         if (intervalId) clearInterval(intervalId);
-        currentBet = bet;
-        crashPoint = point;
+        if (!currentBet || currentBet <= 0) {
+            statusDiv.innerHTML = '❌ Ошибка: ставка не задана';
+            return;
+        }
         currentMultiplier = 1.0;
         gameActive = true;
         pendingCashout = false;
         betDisplay.innerText = currentBet;
         updateCounterDisplay();
-        startGroup.classList.add('hidden');
-        gameGroup.classList.remove('hidden');
         cashoutBtn.disabled = false;
         repeatBtn.classList.add('hidden');
         changeBetBtn.classList.add('hidden');
@@ -376,29 +348,6 @@
         statusDiv.innerHTML = '⏳ ОЖИДАНИЕ ПОДТВЕРЖДЕНИЯ...';
     }
 
-    startBtn.onclick = () => {
-        if (startBtn.disabled) return;
-        let bet = parseInt(betInput.value);
-        if (isNaN(bet)) bet = 1000;
-        if (bet < 100) bet = 100;
-        if (bet > 50000) bet = 50000;
-        currentBet = bet;
-
-        statusDiv.innerHTML = '⏳ ОБРАБОТКА СТАВКИ...';
-        startBtn.disabled = true;
-
-        if (timeoutId) clearTimeout(timeoutId);
-        timeoutId = setTimeout(() => {
-            if (startBtn.disabled) {
-                showError('СЕРВЕР НЕ ОТВЕЧАЕТ. ПОПРОБУЙТЕ ПОЗЖЕ.');
-                startBtn.disabled = false;
-            }
-            timeoutId = null;
-        }, 10000);
-
-        tg.sendData(JSON.stringify({ action: 'start', bet: currentBet }));
-    };
-
     cashoutBtn.onclick = () => {
         cashout();
     };
@@ -413,16 +362,7 @@
 
     changeBetBtn.onclick = () => {
         tg.sendData(JSON.stringify({ action: 'change_bet' }));
-        startGroup.classList.remove('hidden');
-        gameGroup.classList.add('hidden');
-        betInput.value = currentBet;
-        statusDiv.innerHTML = '💰 ВВЕДИТЕ НОВУЮ СУММУ И НАЖМИТЕ НАЧАТЬ';
-        if (intervalId) clearInterval(intervalId);
-        intervalId = null;
-        gameActive = false;
-        pendingCashout = false;
-        clearEffects();
-        autoTarget = parseFloat(autoMultiplierInput.value) || 2.0;
+        tg.close();
     };
 
     autoMultiplierInput.addEventListener('change', () => {
@@ -437,23 +377,20 @@
     });
     autoTarget = parseFloat(autoMultiplierInput.value) || 2.0;
 
+    // Обработка ответов от бота
     tg.onEvent('web_app_data', (event) => {
         try {
             const response = JSON.parse(event.data);
-            if (timeoutId) {
-                clearTimeout(timeoutId);
-                timeoutId = null;
-            }
             if (response.action === 'start_ready') {
-                startBtn.disabled = false;
-                startGameUI(response.bet, response.crash_point);
-                showSuccess(`СТАВКА ${response.bet}₽ ПРИНЯТА!`);
+                // Это уже не нужно — игра стартует сразу
             }
             else if (response.action === 'repeat_ready') {
+                currentBet = response.bet;
+                crashPoint = response.crash_point;
                 repeatBtn.disabled = false;
                 changeBetBtn.disabled = false;
-                startGameUI(response.bet, response.crash_point);
-                showSuccess(`НОВЫЙ РАУНД! СТАВКА ${response.bet}₽`);
+                startGameUI();
+                showSuccess(`НОВЫЙ РАУНД! СТАВКА ${currentBet}₽`);
             }
             else if (response.action === 'cashout_ok') {
                 const winAmount = response.win || Math.floor(currentBet * currentMultiplier);
@@ -470,27 +407,27 @@
                 changeBetBtn.classList.remove('hidden');
                 pendingCashout = false;
             }
-            else if (response.action === 'error') {
+            else if (response.action === 'change_bet_ok') {
+                tg.close();
+            }
+            else if (response.status === 'error') {
                 showError(response.message);
-                if (repeatBtn.classList.contains('hidden') && !gameActive) {
-                    startBtn.disabled = false;
-                } else {
-                    repeatBtn.disabled = false;
-                    changeBetBtn.disabled = false;
-                }
+                repeatBtn.disabled = false;
+                changeBetBtn.disabled = false;
                 pendingCashout = false;
-                if (!gameActive) {
-                    startGroup.classList.remove('hidden');
-                    gameGroup.classList.add('hidden');
-                }
             }
         } catch(e) {
             console.error(e);
             showError('ОШИБКА СВЯЗИ С СЕРВЕРОМ');
-            startBtn.disabled = false;
-            if (timeoutId) clearTimeout(timeoutId);
         }
     });
+
+    // Запускаем игру сразу, если ставка передана
+    if (currentBet > 0 && crashPoint >= 1.0) {
+        startGameUI();
+    } else {
+        statusDiv.innerHTML = '❌ Ошибка: не удалось получить данные ставки. Закройте и откройте игру заново.';
+    }
 </script>
 </body>
 </html>
