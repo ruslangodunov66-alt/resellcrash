@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>РУЛЕТКА | R-Game</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+        body {
+            min-height: 100vh;
+            background: radial-gradient(circle at 30% 20%, #0a0e1a, #020408);
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .game-container { width: 100%; max-width: 450px; }
+        .game-card {
+            background: linear-gradient(145deg, rgba(20,28,40,0.95), rgba(10,15,25,0.98));
+            backdrop-filter: blur(8px);
+            border-radius: 50px;
+            padding: 30px 20px;
+            text-align: center;
+            border: 2px solid rgba(0,255,255,0.4);
+        }
+        h2 { font-size: 32px; background: linear-gradient(135deg, #ffcc44, #ff6644); background-clip: text; -webkit-background-clip: text; color: transparent; margin-bottom: 20px; }
+        .result { font-size: 48px; margin: 20px 0; }
+        .bet-buttons { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin: 20px 0; }
+        .bet-btn {
+            padding: 10px 15px;
+            border-radius: 30px;
+            border: none;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .red { background: #e74c3c; color: white; }
+        .black { background: #2c3e50; color: white; }
+        .green { background: #27ae60; color: white; }
+        .number { background: #3498db; color: white; }
+        .bet-info { font-size: 18px; margin: 15px 0; color: #ddd; }
+        .bet-info span { color: #ffcc44; font-size: 24px; }
+        button {
+            border: none;
+            padding: 15px 25px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 50px;
+            color: white;
+            cursor: pointer;
+            width: 80%;
+            margin: 10px auto;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            background: rgba(0,0,0,0.5);
+            border-radius: 30px;
+            font-size: 14px;
+        }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+<div class="game-container">
+    <div class="game-card">
+        <h2>🎡 РУЛЕТКА</h2>
+        <div class="bet-info">💰 СТАВКА: <span id="betDisplay">0</span> ₽</div>
+        <div class="result" id="result">🎲 ?</div>
+        <div class="bet-buttons">
+            <button class="bet-btn red" onclick="makeBet('red')">🔴 КРАСНОЕ (x2)</button>
+            <button class="bet-btn black" onclick="makeBet('black')">⚫ ЧЁРНОЕ (x2)</button>
+            <button class="bet-btn green" onclick="makeBet('green')">🟢 ЗЕЛЁНОЕ (x14)</button>
+        </div>
+        <div>
+            <input type="number" id="numberInput" placeholder="Число 0-36" min="0" max="36" style="padding: 10px; border-radius: 30px; text-align: center; width: 120px;">
+            <button class="bet-btn number" onclick="makeBet('number')">🔢 СТАВКА (x35)</button>
+        </div>
+        <div class="status" id="status">💎 Загрузка...</div>
+    </div>
+</div>
+
+<script>
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+    tg.ready();
+    
+    const urlParams = new URLSearchParams(window.location.search);
+    let currentBet = parseInt(urlParams.get('bet')) || 0;
+    let currentBetType = null;
+    let currentBetValue = null;
+    
+    const betDisplay = document.getElementById('betDisplay');
+    const resultDiv = document.getElementById('result');
+    const statusDiv = document.getElementById('status');
+    const numberInput = document.getElementById('numberInput');
+    
+    betDisplay.innerText = currentBet;
+    
+    function spin(number, color) {
+        let win = false;
+        let multiplier = 0;
+        
+        if (currentBetType === 'red' && color === 'красный') { win = true; multiplier = 2; }
+        else if (currentBetType === 'black' && color === 'черный') { win = true; multiplier = 2; }
+        else if (currentBetType === 'green' && color === 'зеленый') { win = true; multiplier = 14; }
+        else if (currentBetType === 'number' && currentBetValue === number) { win = true; multiplier = 35; }
+        
+        const winAmount = win ? currentBet * multiplier : 0;
+        resultDiv.innerHTML = `🎲 ${number} (${color})`;
+        
+        if (win) {
+            statusDiv.innerHTML = `🎉 ВЫИГРЫШ! +${winAmount}₽`;
+            tg.sendData(JSON.stringify({ action: 'win', game: 'roulette', win: winAmount, bet: currentBet }));
+        } else {
+            statusDiv.innerHTML = `❌ ПРОИГРЫШ! -${currentBet}₽`;
+            tg.sendData(JSON.stringify({ action: 'lose', game: 'roulette', bet: currentBet }));
+        }
+    }
+    
+    function makeBet(type) {
+        if (currentBet === 0) {
+            statusDiv.innerHTML = '❌ Введите ставку в боте';
+            return;
+        }
+        currentBetType = type;
+        if (type === 'number') {
+            currentBetValue = parseInt(numberInput.value);
+            if (isNaN(currentBetValue) || currentBetValue < 0 || currentBetValue > 36) {
+                statusDiv.innerHTML = '❌ Введите число от 0 до 36';
+                return;
+            }
+        }
+        
+        statusDiv.innerHTML = '⏳ КРУТИМ РУЛЕТКУ...';
+        
+        const num = Math.floor(Math.random() * 37);
+        let color = 'красный';
+        if (num === 0) color = 'зеленый';
+        else if (num % 2 === 0) color = 'черный';
+        
+        setTimeout(() => spin(num, color), 500);
+    }
+</script>
+</body>
+</html>

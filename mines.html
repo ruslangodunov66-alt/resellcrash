@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>МАЙНЁР | R-Game</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+        body {
+            min-height: 100vh;
+            background: radial-gradient(circle at 30% 20%, #0a0e1a, #020408);
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .game-container { width: 100%; max-width: 450px; }
+        .game-card {
+            background: linear-gradient(145deg, rgba(20,28,40,0.95), rgba(10,15,25,0.98));
+            backdrop-filter: blur(8px);
+            border-radius: 50px;
+            padding: 30px 20px;
+            text-align: center;
+            border: 2px solid rgba(0,255,255,0.4);
+        }
+        h2 { font-size: 32px; background: linear-gradient(135deg, #ffcc44, #ff6644); background-clip: text; -webkit-background-clip: text; color: transparent; margin-bottom: 20px; }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 10px;
+            margin: 20px 0;
+        }
+        .cell {
+            aspect-ratio: 1;
+            background: rgba(0,0,0,0.6);
+            border-radius: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            cursor: pointer;
+            transition: 0.1s;
+            border: 1px solid rgba(0,255,255,0.3);
+        }
+        .cell:active { transform: scale(0.95); }
+        .cell.revealed { background: rgba(0,255,0,0.3); }
+        .cell.mine { background: rgba(255,0,0,0.6); }
+        .bet-info { font-size: 18px; margin: 15px 0; color: #ddd; }
+        .bet-info span { color: #ffcc44; font-size: 24px; }
+        .info { margin: 15px 0; }
+        button {
+            border: none;
+            padding: 15px 25px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 50px;
+            color: white;
+            cursor: pointer;
+            width: 80%;
+            margin: 10px auto;
+        }
+        .btn-cashout { background: linear-gradient(135deg, #2ecc71, #27ae60); }
+        .btn-repeat { background: linear-gradient(135deg, #f39c12, #e67e22); }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            background: rgba(0,0,0,0.5);
+            border-radius: 30px;
+            font-size: 14px;
+        }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+<div class="game-container">
+    <div class="game-card">
+        <h2>💣 МАЙНЁР</h2>
+        <div class="bet-info">💰 СТАВКА: <span id="betDisplay">0</span> ₽</div>
+        <div class="info">💎 БЕЗОПАСНЫХ: <span id="safeCount">0</span>/24 | 🎯 МНОЖИТЕЛЬ: <span id="multiplier">1.00</span>x</div>
+        <div class="grid" id="grid"></div>
+        <button id="cashoutBtn" class="btn-cashout hidden">💰 ЗАБРАТЬ</button>
+        <button id="repeatBtn" class="btn-repeat hidden">🔄 ИГРАТЬ СНОВА</button>
+        <div class="status" id="status">💎 Загрузка...</div>
+    </div>
+</div>
+
+<script>
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+    tg.ready();
+    
+    const urlParams = new URLSearchParams(window.location.search);
+    let currentBet = parseInt(urlParams.get('bet')) || 0;
+    let minesCount = 5;
+    
+    let field = [];
+    let opened = [];
+    let openedSafe = 0;
+    let gameActive = true;
+    let multiplier = 1.0;
+    
+    const betDisplay = document.getElementById('betDisplay');
+    const safeCountSpan = document.getElementById('safeCount');
+    const multiplierSpan = document.getElementById('multiplier');
+    const gridDiv = document.getElementById('grid');
+    const cashoutBtn = document.getElementById('cashoutBtn');
+    const repeatBtn = document.getElementById('repeatBtn');
+    const statusDiv = document.getElementById('status');
+    
+    betDisplay.innerText = currentBet;
+    
+    function initGame() {
+        const total = 25;
+        const minesPositions = new Set();
+        while (minesPositions.size < minesCount) {
+            minesPositions.add(Math.floor(Math.random() * total));
+        }
+        field = Array(total).fill(false);
+        for (let pos of minesPositions) {
+            field[pos] = true;
+        }
+        opened = Array(total).fill(false);
+        openedSafe = 0;
+        gameActive = true;
+        multiplier = 1.0;
+        updateUI();
+        cashoutBtn.classList.add('hidden');
+        repeatBtn.classList.add('hidden');
+        renderGrid();
+        statusDiv.innerHTML = '💣 НАЖИМАЙТЕ НА КЛЕТКИ';
+    }
+    
+    function renderGrid() {
+        gridDiv.innerHTML = '';
+        for (let i = 0; i < 25; i++) {
+            const cell = document.createElement('div');
+            cell.className = 'cell';
+            if (opened[i]) {
+                if (field[i]) {
+                    cell.className = 'cell mine';
+                    cell.innerText = '💣';
+                } else {
+                    cell.className = 'cell revealed';
+                    cell.innerText = '💎';
+                }
+            } else {
+                cell.innerText = '❓';
+            }
+            cell.onclick = () => revealCell(i);
+            gridDiv.appendChild(cell);
+        }
+    }
+    
+    function updateUI() {
+        safeCountSpan.innerText = `${openedSafe}/24`;
+        multiplierSpan.innerText = multiplier.toFixed(2);
+    }
+    
+    function revealCell(pos) {
+        if (!gameActive || opened[pos]) return;
+        
+        if (field[pos]) {
+            gameActive = false;
+            for (let i = 0; i < 25; i++) {
+                if (field[i]) opened[i] = true;
+            }
+            renderGrid();
+            statusDiv.innerHTML = `💥 МИНА! ВЫ ПРОИГРАЛИ ${currentBet}₽`;
+            tg.sendData(JSON.stringify({ action: 'lose', game: 'mines', bet: currentBet }));
+            repeatBtn.classList.remove('hidden');
+            return;
+        }
+        
+        opened[pos] = true;
+        openedSafe++;
+        multiplier = 1 + (openedSafe * 0.1);
+        updateUI();
+        renderGrid();
+        
+        if (openedSafe === 24) {
+            const winAmount = Math.floor(currentBet * multiplier);
+            gameActive = false;
+            statusDiv.innerHTML = `🎉 ПОБЕДА! +${winAmount}₽`;
+            tg.sendData(JSON.stringify({ action: 'win', game: 'mines', win: winAmount, bet: currentBet }));
+            repeatBtn.classList.remove('hidden');
+        } else {
+            cashoutBtn.classList.remove('hidden');
+        }
+    }
+    
+    cashoutBtn.onclick = () => {
+        if (!gameActive) return;
+        const winAmount = Math.floor(currentBet * multiplier);
+        gameActive = false;
+        statusDiv.innerHTML = `💰 ВЫ ЗАБРАЛИ ${winAmount}₽`;
+        tg.sendData(JSON.stringify({ action: 'win', game: 'mines', win: winAmount, bet: currentBet }));
+        cashoutBtn.classList.add('hidden');
+        repeatBtn.classList.remove('hidden');
+    };
+    
+    repeatBtn.onclick = () => {
+        initGame();
+        tg.sendData(JSON.stringify({ action: 'repeat', game: 'mines', bet: currentBet }));
+    };
+    
+    if (currentBet === 0) {
+        statusDiv.innerHTML = '❌ Введите ставку в боте';
+    } else {
+        initGame();
+    }
+</script>
+</body>
+</html>

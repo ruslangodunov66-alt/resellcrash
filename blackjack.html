@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>БЛЭКДЖЕК | R-Game</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+        body {
+            min-height: 100vh;
+            background: radial-gradient(circle at 30% 20%, #0a0e1a, #020408);
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .game-container { width: 100%; max-width: 450px; }
+        .game-card {
+            background: linear-gradient(145deg, rgba(20,28,40,0.95), rgba(10,15,25,0.98));
+            backdrop-filter: blur(8px);
+            border-radius: 50px;
+            padding: 30px 20px;
+            text-align: center;
+            border: 2px solid rgba(0,255,255,0.4);
+        }
+        h2 { font-size: 32px; background: linear-gradient(135deg, #ffcc44, #ff6644); background-clip: text; -webkit-background-clip: text; color: transparent; margin-bottom: 20px; }
+        .hand { margin: 15px 0; padding: 15px; background: rgba(0,0,0,0.5); border-radius: 20px; }
+        .hand-title { font-size: 14px; color: #aaa; margin-bottom: 10px; }
+        .cards { font-size: 28px; letter-spacing: 10px; }
+        .value { font-size: 18px; color: #ffcc44; margin-top: 10px; }
+        .bet-info { font-size: 18px; margin: 15px 0; color: #ddd; }
+        .bet-info span { color: #ffcc44; font-size: 24px; }
+        button {
+            border: none;
+            padding: 12px 20px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 50px;
+            color: white;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .btn-hit { background: #2ecc71; }
+        .btn-stand { background: #e74c3c; }
+        .btn-repeat { background: #f39c12; }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            background: rgba(0,0,0,0.5);
+            border-radius: 30px;
+            font-size: 14px;
+        }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+<div class="game-container">
+    <div class="game-card">
+        <h2>🃏 БЛЭКДЖЕК</h2>
+        <div class="bet-info">💰 СТАВКА: <span id="betDisplay">0</span> ₽</div>
+        <div class="hand">
+            <div class="hand-title">ВАШИ КАРТЫ</div>
+            <div class="cards" id="playerCards">🎴 🎴</div>
+            <div class="value" id="playerValue">Очки: 0</div>
+        </div>
+        <div class="hand">
+            <div class="hand-title">КАРТЫ ДИЛЕРА</div>
+            <div class="cards" id="dealerCards">🎴 🎴</div>
+            <div class="value" id="dealerValue">Очки: ?</div>
+        </div>
+        <div>
+            <button id="hitBtn" class="btn-hit">🃏 ВЗЯТЬ</button>
+            <button id="standBtn" class="btn-stand">✋ СТОП</button>
+        </div>
+        <button id="repeatBtn" class="btn-repeat hidden">🔄 ИГРАТЬ СНОВА</button>
+        <div class="status" id="status">💎 Загрузка...</div>
+    </div>
+</div>
+
+<script>
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+    tg.ready();
+    
+    const urlParams = new URLSearchParams(window.location.search);
+    let currentBet = parseInt(urlParams.get('bet')) || 0;
+    
+    let deck = [];
+    let playerHand = [];
+    let dealerHand = [];
+    let gameActive = true;
+    
+    const betDisplay = document.getElementById('betDisplay');
+    const playerCardsDiv = document.getElementById('playerCards');
+    const dealerCardsDiv = document.getElementById('dealerCards');
+    const playerValueDiv = document.getElementById('playerValue');
+    const dealerValueDiv = document.getElementById('dealerValue');
+    const hitBtn = document.getElementById('hitBtn');
+    const standBtn = document.getElementById('standBtn');
+    const repeatBtn = document.getElementById('repeatBtn');
+    const statusDiv = document.getElementById('status');
+    
+    betDisplay.innerText = currentBet;
+    
+    function createDeck() {
+        const suits = ['♠️', '♥️', '♣️', '♦️'];
+        const values = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
+        const newDeck = [];
+        for (let suit of suits) {
+            for (let value of values) {
+                let points = 10;
+                if (value === 'A') points = 11;
+                else if (['2','3','4','5','6','7','8','9','10'].includes(value)) points = parseInt(value);
+                newDeck.push({ card: `${value}${suit}`, value: points, name: value });
+            }
+        }
+        for (let i = newDeck.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [newDeck[i], newDeck[j]] = [newDeck[j], newDeck[i]];
+        }
+        return newDeck;
+    }
+    
+    function handValue(hand) {
+        let sum = hand.reduce((s, c) => s + c.value, 0);
+        let aces = hand.filter(c => c.name === 'A').length;
+        while (sum > 21 && aces > 0) {
+            sum -= 10;
+            aces--;
+        }
+        return sum;
+    }
+    
+    function updateDisplay() {
+        playerCardsDiv.innerHTML = playerHand.map(c => c.card).join(' ');
+        playerValueDiv.innerText = `Очки: ${handValue(playerHand)}`;
+        if (gameActive) {
+            dealerCardsDiv.innerHTML = `${dealerHand[0].card} 🎴`;
+            dealerValueDiv.innerText = 'Очки: ?';
+        } else {
+            dealerCardsDiv.innerHTML = dealerHand.map(c => c.card).join(' ');
+            dealerValueDiv.innerText = `Очки: ${handValue(dealerHand)}`;
+        }
+    }
+    
+    function dealerPlay() {
+        while (handValue(dealerHand) < 17) {
+            dealerHand.push(deck.pop());
+        }
+        const playerVal = handValue(playerHand);
+        const dealerVal = handValue(dealerHand);
+        gameActive = false;
+        updateDisplay();
+        
+        if (dealerVal > 21 || playerVal > dealerVal) {
+            const winAmount = currentBet * 2;
+            statusDiv.innerHTML = `🎉 ВЫ ВЫИГРАЛИ! +${winAmount}₽`;
+            tg.sendData(JSON.stringify({ action: 'win', game: 'blackjack', win: winAmount, bet: currentBet }));
+        } else if (playerVal === dealerVal) {
+            statusDiv.innerHTML = `🤝 НИЧЬЯ! Ставка возвращена`;
+            tg.sendData(JSON.stringify({ action: 'push', game: 'blackjack', bet: currentBet }));
+        } else {
+            statusDiv.innerHTML = `❌ ВЫ ПРОИГРАЛИ! -${currentBet}₽`;
+            tg.sendData(JSON.stringify({ action: 'lose', game: 'blackjack', bet: currentBet }));
+        }
+        hitBtn.disabled = true;
+        standBtn.disabled = true;
+        repeatBtn.classList.remove('hidden');
+    }
+    
+    function startGame() {
+        deck = createDeck();
+        playerHand = [deck.pop(), deck.pop()];
+        dealerHand = [deck.pop(), deck.pop()];
+        gameActive = true;
+        hitBtn.disabled = false;
+        standBtn.disabled = false;
+        repeatBtn.classList.add('hidden');
+        updateDisplay();
+        statusDiv.innerHTML = '🎲 ВАШ ХОД';
+        
+        if (handValue(playerHand) === 21) {
+            stand();
+        }
+    }
+    
+    function hit() {
+        if (!gameActive) return;
+        playerHand.push(deck.pop());
+        updateDisplay();
+        if (handValue(playerHand) > 21) {
+            statusDiv.innerHTML = `❌ ПЕРЕБОР! ВЫ ПРОИГРАЛИ -${currentBet}₽`;
+            tg.sendData(JSON.stringify({ action: 'lose', game: 'blackjack', bet: currentBet }));
+            gameActive = false;
+            hitBtn.disabled = true;
+            standBtn.disabled = true;
+            dealerCardsDiv.innerHTML = dealerHand.map(c => c.card).join(' ');
+            dealerValueDiv.innerText = `Очки: ${handValue(dealerHand)}`;
+            repeatBtn.classList.remove('hidden');
+        }
+    }
+    
+    function stand() {
+        if (!gameActive) return;
+        hitBtn.disabled = true;
+        standBtn.disabled = true;
+        dealerPlay();
+    }
+    
+    hitBtn.onclick = hit;
+    standBtn.onclick = stand;
+    repeatBtn.onclick = () => {
+        startGame();
+        tg.sendData(JSON.stringify({ action: 'repeat', game: 'blackjack', bet: currentBet }));
+    };
+    
+    if (currentBet === 0) {
+        statusDiv.innerHTML = '❌ Введите ставку в боте';
+    } else {
+        startGame();
+    }
+</script>
+</body>
+</html>
