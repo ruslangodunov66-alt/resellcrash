@@ -9,56 +9,34 @@
         * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
         body {
             min-height: 100vh;
-            background: radial-gradient(circle at 30% 20%, #0a0e1a, #020408);
+            background: radial-gradient(circle at 30% 20%, #0a0e1a, #010101);
             font-family: 'Segoe UI', system-ui, sans-serif;
             padding: 20px;
             display: flex;
             justify-content: center;
             align-items: center;
         }
-        .game-container { width: 100%; max-width: 450px; }
+        .game-container { width: 100%; max-width: 480px; }
         .game-card {
-            background: linear-gradient(145deg, rgba(20,28,40,0.95), rgba(10,15,25,0.98));
-            backdrop-filter: blur(8px);
-            border-radius: 50px;
+            background: linear-gradient(145deg, rgba(20,28,40,0.96), rgba(10,15,25,0.98));
+            backdrop-filter: blur(12px);
+            border-radius: 60px;
             padding: 30px 20px;
             text-align: center;
-            border: 2px solid rgba(0,255,255,0.4);
+            border: 2px solid rgba(0,255,255,0.3);
         }
-        h2 { font-size: 32px; background: linear-gradient(135deg, #ffcc44, #ff6644); background-clip: text; -webkit-background-clip: text; color: transparent; margin-bottom: 20px; }
-        .result { font-size: 48px; margin: 20px 0; }
-        .bet-buttons { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin: 20px 0; }
-        .bet-btn {
-            padding: 10px 15px;
-            border-radius: 30px;
-            border: none;
-            font-weight: bold;
-            cursor: pointer;
-        }
+        h2 { font-size: 36px; background: linear-gradient(135deg, #ffcc44, #ff6644); background-clip: text; -webkit-background-clip: text; color: transparent; margin-bottom: 20px; }
+        .bet-input { margin: 20px 0; }
+        .bet-input input { padding: 12px 20px; font-size: 20px; width: 160px; background: rgba(0,0,0,0.7); border: 2px solid #ffaa44; color: #ffcc44; border-radius: 50px; text-align: center; font-weight: bold; }
+        .result { font-size: 56px; margin: 20px 0; font-weight: bold; text-shadow: 0 0 15px cyan; }
+        .bet-buttons { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin: 20px 0; }
+        .bet-btn { padding: 12px 20px; border-radius: 40px; border: none; font-weight: bold; font-size: 16px; cursor: pointer; transition: 0.1s; }
+        .bet-btn:active { transform: scale(0.95); }
         .red { background: #e74c3c; color: white; }
         .black { background: #2c3e50; color: white; }
         .green { background: #27ae60; color: white; }
         .number { background: #3498db; color: white; }
-        .bet-info { font-size: 18px; margin: 15px 0; color: #ddd; }
-        .bet-info span { color: #ffcc44; font-size: 24px; }
-        button {
-            border: none;
-            padding: 15px 25px;
-            font-size: 18px;
-            font-weight: bold;
-            border-radius: 50px;
-            color: white;
-            cursor: pointer;
-            width: 80%;
-            margin: 10px auto;
-        }
-        .status {
-            margin-top: 20px;
-            padding: 10px;
-            background: rgba(0,0,0,0.5);
-            border-radius: 30px;
-            font-size: 14px;
-        }
+        .status { margin-top: 20px; padding: 12px; background: rgba(0,0,0,0.6); border-radius: 40px; font-weight: bold; color: #ffdd99; }
         .hidden { display: none; }
     </style>
 </head>
@@ -66,7 +44,9 @@
 <div class="game-container">
     <div class="game-card">
         <h2>🎡 РУЛЕТКА</h2>
-        <div class="bet-info">💰 СТАВКА: <span id="betDisplay">0</span> ₽</div>
+        <div class="bet-input">
+            <input type="number" id="betInput" min="100" max="50000" step="100" value="1000">
+        </div>
         <div class="result" id="result">🎲 ?</div>
         <div class="bet-buttons">
             <button class="bet-btn red" onclick="makeBet('red')">🔴 КРАСНОЕ (x2)</button>
@@ -74,10 +54,10 @@
             <button class="bet-btn green" onclick="makeBet('green')">🟢 ЗЕЛЁНОЕ (x14)</button>
         </div>
         <div>
-            <input type="number" id="numberInput" placeholder="Число 0-36" min="0" max="36" style="padding: 10px; border-radius: 30px; text-align: center; width: 120px;">
+            <input type="number" id="numberInput" placeholder="Число 0-36" min="0" max="36" style="padding: 10px; border-radius: 40px; text-align: center; width: 130px;">
             <button class="bet-btn number" onclick="makeBet('number')">🔢 СТАВКА (x35)</button>
         </div>
-        <div class="status" id="status">💎 Загрузка...</div>
+        <div class="status" id="status">💎 Введите ставку и выберите тип ставки</div>
     </div>
 </div>
 
@@ -86,22 +66,27 @@
     tg.expand();
     tg.ready();
     
-    const urlParams = new URLSearchParams(window.location.search);
-    let currentBet = parseInt(urlParams.get('bet')) || 0;
+    let currentBet = 1000;
     let currentBetType = null;
     let currentBetValue = null;
     
-    const betDisplay = document.getElementById('betDisplay');
+    const betInput = document.getElementById('betInput');
     const resultDiv = document.getElementById('result');
     const statusDiv = document.getElementById('status');
     const numberInput = document.getElementById('numberInput');
     
-    betDisplay.innerText = currentBet;
+    betInput.addEventListener('change', () => {
+        let val = parseInt(betInput.value);
+        if (isNaN(val) || val < 100) val = 100;
+        if (val > 50000) val = 50000;
+        currentBet = val;
+        betInput.value = currentBet;
+        statusDiv.innerHTML = `💎 Ставка: ${currentBet}₽. Выберите тип ставки`;
+    });
     
     function spin(number, color) {
         let win = false;
         let multiplier = 0;
-        
         if (currentBetType === 'red' && color === 'красный') { win = true; multiplier = 2; }
         else if (currentBetType === 'black' && color === 'черный') { win = true; multiplier = 2; }
         else if (currentBetType === 'green' && color === 'зеленый') { win = true; multiplier = 14; }
@@ -120,8 +105,8 @@
     }
     
     function makeBet(type) {
-        if (currentBet === 0) {
-            statusDiv.innerHTML = '❌ Введите ставку в боте';
+        if (currentBet < 100) {
+            statusDiv.innerHTML = '❌ Минимальная ставка 100₽';
             return;
         }
         currentBetType = type;
@@ -132,14 +117,11 @@
                 return;
             }
         }
-        
         statusDiv.innerHTML = '⏳ КРУТИМ РУЛЕТКУ...';
-        
         const num = Math.floor(Math.random() * 37);
         let color = 'красный';
         if (num === 0) color = 'зеленый';
         else if (num % 2 === 0) color = 'черный';
-        
         setTimeout(() => spin(num, color), 500);
     }
 </script>
