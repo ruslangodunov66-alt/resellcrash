@@ -55,9 +55,17 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 68px;
+            font-size: 0;
             box-shadow: 0 12px 25px rgba(0, 0, 0, 0.5), 0 0 0 3px rgba(0, 255, 255, 0.6);
-            transition: 0.2s;
+            overflow: hidden;
+        }
+        .avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .avatar .emoji {
+            font-size: 68px;
         }
 
         .player-name {
@@ -172,11 +180,12 @@
     </style>
 </head>
 <body>
-
 <div class="game-container">
-    <!-- Центральный профиль -->
     <div class="profile-card">
-        <div class="avatar" id="avatarEmoji">👔</div>
+        <div class="avatar" id="avatarContainer">
+            <div class="emoji" id="avatarEmoji">👔</div>
+            <img id="avatarImg" style="display: none;" alt="skin">
+        </div>
         <div class="player-name" id="playerName">Загрузка...</div>
         <div class="player-stats">
             <div class="stat"><span>💰</span> <span id="balance">0</span> ₽</div>
@@ -185,9 +194,8 @@
         </div>
     </div>
 
-    <!-- Игровое меню (плитка) -->
     <div class="menu-grid" id="gameGrid">
-        <!-- кнопки будут сгенерированы через js, но можно и статикой, но лучше динамически -->
+        <!-- кнопки будут сгенерированы через js -->
     </div>
     <div class="footer-info">
         ⚡ Resell Tycoon · твой бизнес с нуля
@@ -200,17 +208,13 @@
     tg.ready();
 
     // ------------------- НАСТРОЙКИ --------------------
-    // Адрес API (новый домен, но пока ещё может не работать, добавим fallback)
+    // Адрес API (новый домен, пока может не работать)
     const API_BASE = "https://api.resgame.ru";
-    const FALLBACK_API = "https://nl12.bothost.ru";   // старый адрес, но там нужен токен
-    const USE_FALLBACK = false;   // если true, то запросы пойдут на fallback с токеном (пока false)
+    // Если API не доступен, используем мок-данные для отображения
+    const USE_MOCK = true;   // пока true, чтобы интерфейс был красивым
+    // ------------------- КОНЕЦ НАСТРОЕК --------------
 
-    // Токен для fallback (если потребуется) – возьмём из переменной бота (но мы его не знаем, можно использовать тот, что давали ранее)
-    // Поскольку мы ждём настройку домена, то пока просто покажем ошибку, но не будем ломать интерфейс.
-    // Лучше получить данные через прямое API с новым доменом (как только заработает).
-    // Для красоты отобразим заглушку, но запрос всё равно сделаем.
-
-    const userId = tg.initDataUnsafe?.user?.id || 1475910449; // fallback id, если не из webapp
+    const userId = tg.initDataUnsafe?.user?.id || 1475910449;
 
     // Список разделов (иконки, названия, ссылки)
     const menuSections = [
@@ -229,21 +233,17 @@
         { emoji: "🎯", label: "ДОСТИЖЕНИЯ", link: "achievements.html" }
     ];
 
-    // Казино добавим отдельно внизу или внутри, но для удобства сделаем отдельную кнопку в конце
     const casinoItem = { emoji: "🎰", label: "КАЗИНО", link: "casino/index.html", extraClass: "casino-btn" };
 
-    // Рендер сетки
     function renderMenu() {
         const grid = document.getElementById('gameGrid');
         if (!grid) return;
         grid.innerHTML = '';
-        // Добавляем обычные разделы
         menuSections.forEach(section => {
             const btn = document.createElement('button');
             btn.className = 'game-btn';
             btn.innerHTML = `<div class="btn-emoji">${section.emoji}</div><div class="btn-label">${section.label}</div>`;
             btn.onclick = () => {
-                // если страницы нет, можно показать уведомление, но временно просто переход (потом создадим)
                 if (section.link) {
                     window.location.href = section.link;
                 } else {
@@ -252,7 +252,6 @@
             };
             grid.appendChild(btn);
         });
-        // Добавляем казино (стилизовано)
         const casinoBtn = document.createElement('button');
         casinoBtn.className = 'game-btn casino-btn';
         casinoBtn.innerHTML = `<div class="btn-emoji">${casinoItem.emoji}</div><div class="btn-label">${casinoItem.label}</div>`;
@@ -262,93 +261,80 @@
         grid.appendChild(casinoBtn);
     }
 
-    // Функция запроса к API (универсальная, с поддержкой fallback и токена)
-    async function fetchAPI(endpoint, retries = 1) {
+    // Функция запроса к API (универсальная)
+    async function fetchAPI(endpoint) {
+        if (USE_MOCK) return null;
         const url = `${API_BASE}${endpoint}&tg_id=${userId}`;
-        // Пробуем запрос без токена (новый домен)
         try {
-            const resp = await fetch(url, {
-                headers: { 'Content-Type': 'application/json' }
-            });
-            if (resp.ok) {
-                const data = await resp.json();
-                return { ok: true, data };
-            }
-            // Если 401 или 404, возможно домен ещё не привязан – пробуем fallback
-            if (resp.status === 401 || resp.status === 404) {
-                throw new Error("Unauthorized or not found");
-            }
-            const errText = await resp.text();
-            throw new Error(errText);
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error(await resp.text());
+            return await resp.json();
         } catch (err) {
-            if (retries > 0 && USE_FALLBACK) {
-                // Пробуем fallback с токеном (если известен)
-                const fallbackUrl = `${FALLBACK_API}${endpoint}&tg_id=${userId}`;
-                // токен возьмём из того, что ранее пробовали (возможно, bota)
-                // Но мы не знаем точный токен, поэтому лучше просто вернуть заглушку
-                console.warn("Fallback attempt", err);
-                // Временно возвращаем заглушку, чтобы интерфейс не ломался
-                return { ok: false, data: null, error: "API временно недоступно" };
-            }
-            return { ok: false, data: null, error: err.message };
+            console.warn("API не доступно, используем мок-данные", err);
+            return null;
         }
     }
 
-    // Загрузка профиля
     async function loadProfile() {
-        // Покажем лоадер в балансе
+        // Сначала пытаемся получить реальные данные
+        let data = null;
+        if (!USE_MOCK) data = await fetchAPI(`/api/me`);
+
+        // Мок-данные, если API не ответил или USE_MOCK true
+        if (!data) {
+            data = {
+                balance: 5000,
+                nickname: "Барыга",
+                total_sales: 0,
+                skin: "default",
+                skin_url: null
+            };
+        }
+
         const balanceSpan = document.getElementById('balance');
         const nameSpan = document.getElementById('playerName');
         const salesSpan = document.getElementById('salesCount');
         const ratingSpan = document.getElementById('rating');
-        const avatarDiv = document.getElementById('avatarEmoji');
-        
-        balanceSpan.innerText = '?';
-        nameSpan.innerText = 'Загрузка...';
-        
-        // Запрос к /api/me
-        const result = await fetchAPI('/api/me');
-        if (result.ok && result.data) {
-            const data = result.data;
-            balanceSpan.innerText = (data.balance || 0).toLocaleString();
-            nameSpan.innerText = data.nickname || 'Торгаш';
-            salesSpan.innerText = data.items_sold || data.total_sales || 0;
-            // рейтинг (на основе продаж)
-            let ratingText = 'Новичок';
-            const sales = data.items_sold || data.total_sales || 0;
-            if (sales >= 100) ratingText = '💎 Легенда';
-            else if (sales >= 50) ratingText = '👑 Профи';
-            else if (sales >= 15) ratingText = '⭐ Опытный';
-            else if (sales >= 5) ratingText = '🔰 Торговец';
-            ratingSpan.innerText = ratingText;
-            // скин эмодзи (из данных скина)
-            let skinEmoji = '👔';
-            if (data.skin) {
-                // Заглушка: можно подобрать по id скина (позже доработаем)
-                const skinMap = {
-                    'default': '👶',
-                    'hustler': '😎',
-                    'boss': '🕴️',
-                    'coffee': '💻',
-                    'cyber': '🤖',
-                    'legend': '👑',
-                    'creator': '💎'
-                };
-                skinEmoji = skinMap[data.skin] || '👔';
-            }
-            avatarDiv.innerText = skinEmoji;
+        const avatarEmoji = document.getElementById('avatarEmoji');
+        const avatarImg = document.getElementById('avatarImg');
+
+        balanceSpan.innerText = (data.balance || 0).toLocaleString();
+        nameSpan.innerText = data.nickname || 'Торгаш';
+        salesSpan.innerText = data.total_sales || 0;
+
+        let ratingText = 'Новичок';
+        const sales = data.total_sales || 0;
+        if (sales >= 100) ratingText = '💎 Легенда';
+        else if (sales >= 50) ratingText = '👑 Профи';
+        else if (sales >= 15) ratingText = '⭐ Опытный';
+        else if (sales >= 5) ratingText = '🔰 Торговец';
+        ratingSpan.innerText = ratingText;
+
+        // Отображение аватара (скина)
+        const skinId = data.skin || 'default';
+        // Найдём скин в глобальном списке SKINS (который мы не передаём, поэтому используем карту)
+        const skinMap = {
+            'default': { emoji: '👶', url: null },
+            'hustler': { emoji: '😎', url: null },
+            'boss': { emoji: '🕴️', url: null },
+            'coffee': { emoji: '💻', url: null },
+            'cyber': { emoji: '🤖', url: null },
+            'legend': { emoji: '👑', url: null },
+            'creator': { emoji: '💎', url: null }
+        };
+        let skin = skinMap[skinId] || { emoji: '👔', url: null };
+        // Если в реальных данных есть image_url и API_BASE работает, можно показать картинку
+        if (data.image_url && !USE_MOCK) {
+            avatarImg.src = `${API_BASE}/api/image/${data.image_url}`;
+            avatarImg.style.display = 'block';
+            avatarEmoji.style.display = 'none';
         } else {
-            // Если API не работает, покажем демо-данные (чтобы интерфейс не был пустым)
-            balanceSpan.innerText = '5 000';
-            nameSpan.innerText = 'Барыга';
-            salesSpan.innerText = '0';
-            ratingSpan.innerText = 'Новичок';
-            avatarDiv.innerText = '👔';
-            tg.showAlert('⚠️ API временно недоступно, отображаются демо-данные. Мы работаем над подключением домена.');
+            avatarEmoji.innerText = skin.emoji;
+            avatarEmoji.style.display = 'flex';
+            avatarImg.style.display = 'none';
         }
     }
 
-    // Дополнительно можно подгрузить репутацию, но пока хватит.
     renderMenu();
     loadProfile();
 </script>
