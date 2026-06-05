@@ -352,8 +352,8 @@
 
         // ----- 3D СЦЕНА -----
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x0a1030);
-        scene.fog = new THREE.FogExp2(0x0a1030, 0.002);
+        scene.background = new THREE.Color(0x87CEEB); // Голубое небо
+        scene.fog = new THREE.FogExp2(0x87CEEB, 0.002);
         
         // Камера сзади-сверху
         const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.3, 1000);
@@ -373,39 +373,34 @@
         sunLight.shadow.mapSize.height = 1024;
         scene.add(sunLight);
         
-        // Заполняющий свет
         const ambient = new THREE.AmbientLight(0x404060);
         scene.add(ambient);
-        const fillLight = new THREE.PointLight(0x4488ff, 0.4);
-        fillLight.position.set(-2, 3, 4);
+        const fillLight = new THREE.PointLight(0x88aaff, 0.5);
+        fillLight.position.set(-2, 5, 4);
         scene.add(fillLight);
         
-        // Небо – большой куб с текстурой градиента (простая имитация)
-        const skyGeometry = new THREE.BoxGeometry(500, 500, 500);
-        const skyMaterial = new THREE.MeshBasicMaterial({ color: 0x0a1030, side: THREE.BackSide });
-        const skyBox = new THREE.Mesh(skyGeometry, skyMaterial);
-        scene.add(skyBox);
-        
-        // Облака – несколько полупрозрачных сфер
-        const cloudMat = new THREE.MeshStandardMaterial({ color: 0xccccdd, transparent: true, opacity: 0.7 });
+        // ---- Облака (простые сферы) ----
+        const cloudMat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
+        const clouds = [];
         const cloudPositions = [
-            [-30, 25, -40], [10, 28, -50], [40, 22, -30], [-20, 30, -60], [0, 26, -70], [30, 24, -45]
+            [-30, 22, -40], [-15, 24, -35], [0, 23, -50], [20, 25, -45], [35, 21, -55],
+            [-40, 26, -20], [-10, 27, -60], [15, 20, -70], [40, 24, -30]
         ];
-        const clouds = cloudPositions.map(pos => {
-            const cloudGroup = new THREE.Group();
-            const parts = [0.8, 1.0, 0.7, 0.9];
+        cloudPositions.forEach(pos => {
+            const group = new THREE.Group();
+            const parts = [0.8, 1.1, 0.9, 0.7];
             parts.forEach(size => {
                 const part = new THREE.Mesh(new THREE.SphereGeometry(size, 7, 7), cloudMat);
-                part.position.set((Math.random() - 0.5) * 1.5, (Math.random() - 0.5) * 0.8, (Math.random() - 0.5) * 1.2);
-                cloudGroup.add(part);
+                part.position.set((Math.random() - 0.5) * 1.5, (Math.random() - 0.5) * 0.7, (Math.random() - 0.5) * 1.2);
+                group.add(part);
             });
-            cloudGroup.position.set(pos[0], pos[1], pos[2]);
-            cloudGroup.castShadow = false;
-            scene.add(cloudGroup);
-            return cloudGroup;
+            group.position.set(pos[0], pos[1], pos[2]);
+            group.castShadow = false;
+            scene.add(group);
+            clouds.push(group);
         });
         
-        // Дорога и окружение (динамические)
+        // ---- Дорога (статичная, но разметка и объекты будут двигаться) ----
         const roadMat = new THREE.MeshStandardMaterial({ color: 0x2c3e50, roughness: 0.6 });
         const road = new THREE.Mesh(new THREE.PlaneGeometry(6, 200), roadMat);
         road.rotation.x = -Math.PI / 2;
@@ -425,10 +420,11 @@
         rightEdge.receiveShadow = true;
         scene.add(rightEdge);
         
-        // Динамические элементы (разметка, бордюры, деревья)
+        // ---- Динамические элементы: разметка, бордюры, знаки, дома ----
         let roadLines = [];
         let curbs = [];
-        let trees = [];
+        let trafficSigns = [];
+        let houses = [];
         
         function createRoadLine(z) {
             const lineMat = new THREE.MeshStandardMaterial({ color: 0xffdd99 });
@@ -452,35 +448,85 @@
             return [left, right];
         }
         
-        function createTree(z, side) { // side: -1 лево, 1 право
+        function createTrafficSign(z, side) {
             const group = new THREE.Group();
-            const trunkMat = new THREE.MeshStandardMaterial({ color: 0x8B5A2B });
-            const leavesMat = new THREE.MeshStandardMaterial({ color: 0x5A9E4E });
-            const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.5, 1.2, 6), trunkMat);
-            trunk.position.y = 0.6;
-            group.add(trunk);
-            const leaves = new THREE.Mesh(new THREE.ConeGeometry(0.7, 1.0, 8), leavesMat);
-            leaves.position.y = 1.2;
-            group.add(leaves);
-            group.position.set(side * 4.5, -0.5, z);
+            const poleMat = new THREE.MeshStandardMaterial({ color: 0x888888 });
+            const signMat = new THREE.MeshStandardMaterial({ color: 0xff6644 });
+            const pole = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.2, 0.2), poleMat);
+            pole.position.y = 0.6;
+            group.add(pole);
+            const sign = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.05), signMat);
+            sign.position.y = 1.2;
+            group.add(sign);
+            group.position.set(side * 3.8, -0.2, z);
             group.castShadow = true;
             scene.add(group);
             return group;
         }
         
-        // Инициализация динамических объектов (от -50 до 50)
-        for (let z = -48; z <= 50; z += 3) {
-            roadLines.push(createRoadLine(z));
-        }
-        for (let z = -50; z <= 50; z += 2.5) {
-            curbs.push(...createCurb(z));
-        }
-        for (let z = -45; z <= 45; z += 5) {
-            trees.push(createTree(z, -1));
-            trees.push(createTree(z, 1));
+        function createHouse(z, side) {
+            const group = new THREE.Group();
+            const wallMat = new THREE.MeshStandardMaterial({ color: 0xc9b6a0 });
+            const roofMat = new THREE.MeshStandardMaterial({ color: 0xaa6644 });
+            // Основание
+            const base = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.8, 2.2), wallMat);
+            base.position.y = 0.9;
+            base.castShadow = true;
+            group.add(base);
+            // Крыша
+            const roof = new THREE.Mesh(new THREE.ConeGeometry(1.4, 1.2, 4), roofMat);
+            roof.position.y = 1.8;
+            roof.castShadow = true;
+            group.add(roof);
+            // Дверь
+            const door = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.0, 0.1), new THREE.MeshStandardMaterial({ color: 0x8B5A2B }));
+            door.position.set(0, 0.5, 1.11);
+            door.castShadow = true;
+            group.add(door);
+            // Окна
+            const windowMat = new THREE.MeshStandardMaterial({ color: 0x88aaff });
+            const windowLeft = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.1), windowMat);
+            windowLeft.position.set(-0.8, 1.2, 1.11);
+            group.add(windowLeft);
+            const windowRight = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.1), windowMat);
+            windowRight.position.set(0.8, 1.2, 1.11);
+            group.add(windowRight);
+            // Текст R-Game на стене (используем CanvasTexture)
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#ffaa44';
+            ctx.font = 'Bold 40px "Segoe UI"';
+            ctx.fillText('R-GAME', 40, 60);
+            const texture = new THREE.CanvasTexture(canvas);
+            const signBoard = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.6, 0.05), new THREE.MeshStandardMaterial({ map: texture }));
+            signBoard.position.set(0, 1.3, -1.12);
+            group.add(signBoard);
+            
+            group.position.set(side * 5.2, -0.5, z);
+            group.castShadow = true;
+            scene.add(group);
+            return group;
         }
         
-        // Реалистичная машина игрока
+        // Инициализация объектов (от -60 до 60)
+        for (let z = -58; z <= 60; z += 3) {
+            roadLines.push(createRoadLine(z));
+        }
+        for (let z = -60; z <= 60; z += 2.5) {
+            curbs.push(...createCurb(z));
+        }
+        for (let z = -55; z <= 60; z += 10) {
+            trafficSigns.push(createTrafficSign(z, -1));
+            trafficSigns.push(createTrafficSign(z, 1));
+        }
+        for (let z = -50; z <= 60; z += 12) {
+            houses.push(createHouse(z, -1));
+            houses.push(createHouse(z, 1));
+        }
+        
+        // ---- МАШИНА ИГРОКА (реалистичная) ----
         const playerCar = new THREE.Group();
         
         // Кузов
@@ -491,7 +537,7 @@
         carBody.receiveShadow = true;
         playerCar.add(carBody);
         
-        // Стекла (тёмные)
+        // Стекла
         const glassMat = new THREE.MeshStandardMaterial({ color: 0x88aaff, metalness: 0.9, emissive: 0x001133 });
         const frontGlass = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.25, 0.3), glassMat);
         frontGlass.position.set(0, 0.25, 0.85);
@@ -506,15 +552,7 @@
         sideGlassR.position.set(0.55, 0.25, 0);
         playerCar.add(sideGlassR);
         
-        // Капот и спойлер
-        const hood = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.1, 0.5), bodyMat);
-        hood.position.set(0, 0.25, 0.7);
-        playerCar.add(hood);
-        const spoiler = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.08, 0.1), bodyMat);
-        spoiler.position.set(0, 0.3, -0.95);
-        playerCar.add(spoiler);
-        
-        // Фары (светящиеся)
+        // Фары и задние фонари
         const lightMat = new THREE.MeshStandardMaterial({ color: 0xffaa66, emissive: 0xff4400, emissiveIntensity: 0.8 });
         const leftLight = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 16), lightMat);
         leftLight.position.set(-0.45, 0.15, 0.98);
@@ -523,7 +561,6 @@
         rightLight.position.set(0.45, 0.15, 0.98);
         playerCar.add(rightLight);
         
-        // Задние фонари
         const tailMat = new THREE.MeshStandardMaterial({ color: 0xff3300, emissive: 0x550000 });
         const leftTail = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 16), tailMat);
         leftTail.position.set(-0.45, 0.15, -0.98);
@@ -531,17 +568,6 @@
         const rightTail = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 16), tailMat);
         rightTail.position.set(0.45, 0.15, -0.98);
         playerCar.add(rightTail);
-        
-        // Выхлопная труба
-        const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.3, 8), new THREE.MeshStandardMaterial({ color: 0xaa8866, metalness: 0.9 }));
-        exhaust.rotation.z = Math.PI / 2;
-        exhaust.position.set(0.5, 0.05, -0.9);
-        playerCar.add(exhaust);
-        
-        // Антенна
-        const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.25, 6), new THREE.MeshStandardMaterial({ color: 0xccccaa }));
-        antenna.position.set(0, 0.45, -0.6);
-        playerCar.add(antenna);
         
         // Колёса с дисками
         const wheelGeo = new THREE.CylinderGeometry(0.28, 0.28, 0.12, 24);
@@ -567,7 +593,7 @@
         playerCar.position.y = 0;
         playerCar.position.z = 0;
         
-        // Препятствия
+        // ---- Препятствия ----
         let obstacles = [];
         let opponents = new Map();
         
@@ -576,6 +602,7 @@
         let baseSpeed = 13;
         let currentSpeed = baseSpeed;
         
+        // ИСПРАВЛЕННОЕ УПРАВЛЕНИЕ: влево -> отрицательное смещение
         function moveLeft() { targetX = Math.max(-2.5, targetX - 0.9); }
         function moveRight() { targetX = Math.min(2.5, targetX + 0.9); }
         
@@ -635,27 +662,27 @@
             }
         }
         
-        // Движение разметки, бордюров и деревьев (имитация бесконечной дороги)
+        // Движение всех динамических объектов (разметка, бордюры, знаки, дома)
         function updateDynamicObjects(deltaTime) {
             const moveZ = -currentSpeed * deltaTime;
-            // Разметка
             roadLines.forEach(line => {
                 line.position.z += moveZ;
-                if (line.position.z < -50) line.position.z = 50;
+                if (line.position.z < -60) line.position.z = 60;
             });
-            // Бордюры
             curbs.forEach(curb => {
                 curb.position.z += moveZ;
-                if (curb.position.z < -50) curb.position.z = 50;
+                if (curb.position.z < -60) curb.position.z = 60;
             });
-            // Деревья
-            trees.forEach(tree => {
-                tree.position.z += moveZ;
-                if (tree.position.z < -50) tree.position.z = 50;
+            trafficSigns.forEach(sign => {
+                sign.position.z += moveZ;
+                if (sign.position.z < -60) sign.position.z = 60;
             });
-            // Облака (медленно)
+            houses.forEach(house => {
+                house.position.z += moveZ;
+                if (house.position.z < -60) house.position.z = 60;
+            });
             clouds.forEach(cloud => {
-                cloud.position.z += moveZ * 0.5;
+                cloud.position.z += moveZ * 0.4;
                 if (cloud.position.z < -70) cloud.position.z = 60;
             });
         }
@@ -697,7 +724,7 @@
             startBackgroundMusic();
         }
         
-        // Многопользовательский режим
+        // Многопользовательский режим (упрощённо, но работает)
         function initMultiMode() {
             currentMode = 'multi';
             modeMenu.classList.add('hidden');
@@ -815,8 +842,8 @@
                 updateDynamicObjects(dt);
                 updateEngineSound(currentSpeed);
             }
-            // Обновляем свет солнца (медленное вращение)
-            const time = Date.now() * 0.0005;
+            // Солнце медленно движется
+            const time = Date.now() * 0.0003;
             sunLight.position.x = 15 + Math.sin(time) * 3;
             sunLight.position.y = 20 + Math.cos(time * 0.7) * 2;
             renderer.render(scene, camera);
@@ -830,7 +857,7 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
         
-        console.log('Racing game loaded - enhanced version');
+        console.log('Racing game loaded - final enhanced version');
     </script>
 </body>
 </html>
