@@ -314,15 +314,14 @@
             }
         }
 
-        // ----- 3D СЦЕНА (ВЫСОКАЯ КАМЕРА, ОТЛИЧНЫЙ ОБЗОР) -----
+        // ----- 3D СЦЕНА (КАМЕРА СЗАДИ МАШИНЫ) -----
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x0a1030);
         scene.fog = new THREE.FogExp2(0x0a1030, 0.002);
         
-        // Камера очень высоко и далеко – видно всю дорогу на 50 метров вперёд
+        // Камера сзади-сверху (Z отрицательное – позади машины)
         const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.3, 1000);
-        camera.position.set(0, 7.5, 14);
-        camera.lookAt(0, 0.5, 35);
+        camera.position.set(0, 4.0, -6.0);
         
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -444,7 +443,7 @@
         });
         scene.add(playerCar);
         playerCar.position.y = 0;
-        playerCar.position.z = 0.5;
+        playerCar.position.z = 0;
         
         // Препятствия
         let obstacles = [];
@@ -500,7 +499,7 @@
                     playPointSound();
                     currentSpeed = baseSpeed + Math.floor(score / 8) * 1.2;
                 } else {
-                    if (Math.abs(currentX - obs.x) < 0.7 && Math.abs(obs.z - 1.8) < 1.0) {
+                    if (Math.abs(currentX - obs.x) < 0.7 && Math.abs(obs.z - 2.5) < 1.0) {
                         gameActive = false;
                         statusDiv.innerHTML = '💥 КРАШ! Игра окончена. Нажмите "Выход".';
                         playCrashSound();
@@ -651,7 +650,7 @@
             if (backgroundMusic) backgroundMusic.volume = e.target.value / 100;
         });
         
-        // Анимационный цикл
+        // Анимационный цикл (камера следит за машиной)
         let lastTime = performance.now();
         function animate() {
             const now = performance.now();
@@ -660,9 +659,11 @@
             if (gameActive) {
                 currentX += (targetX - currentX) * 0.25;
                 playerCar.position.x = currentX;
-                const targetCamX = currentX * 0.2;
-                camera.position.x += (targetCamX - camera.position.x) * 0.1;
-                camera.lookAt(currentX, 0.5, 40);
+                
+                // Камера плавно следует по X и всегда смотрит на машину
+                camera.position.x += (currentX * 0.8 - camera.position.x) * 0.1;
+                camera.lookAt(playerCar.position.x, 0.5, playerCar.position.z + 10);
+                
                 updateObstacles(dt);
             }
             renderer.render(scene, camera);
@@ -676,8 +677,7 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
         
-        // Принудительный сброс кэша через консоль (необязательно)
-        console.log('Racing game loaded - camera at Y=7.5, Z=14');
+        console.log('Racing game loaded - camera behind car');
     </script>
 </body>
 </html>
