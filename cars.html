@@ -57,7 +57,6 @@
             transition: 0.1s;
         }
         button:active { transform: scale(0.96); }
-        button.danger { background: #e74c3c; }
         button.secondary { background: #3498db; }
         .owned { background: #1e5631; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; display: inline-block; margin-top: 5px; }
         .current { background: #f39c12; }
@@ -67,7 +66,6 @@
             margin-top: 20px;
             width: 100%;
         }
-        .error { color: #ff8888; text-align: center; margin: 10px 0; }
     </style>
 </head>
 <body>
@@ -87,15 +85,28 @@
     tg.expand();
     tg.ready();
 
-    const API_BASE = "https://api.resgame.ru";  // ваш домен API
-    const userId = tg.initDataUnsafe.user.id;
+    const API_BASE = "https://api.resgame.ru";
+    const USE_MOCK = true;   // пока используем мок, потому что API не работает
+    const userId = tg.initDataUnsafe?.user?.id || 1475910449;
 
     let balance = 0;
     let allCars = [];
     let myCarsIds = [];
     let currentCarId = null;
 
+    // Мок-данные для машин и коллекции
+    const mockCars = [
+        { id: "zhiguli", name: "🚗 ВАЗ-2106 Жигули", price: 15000, speed_bonus: 10, income_per_hour: 50, image_url: "AgACAgIAAxkBAAIKH2n7eaZvhsyGLQOFcU8fmz7BKgWhAAIkGGsbH9_QS0gOkG0ns94lAQADAgADeQADOwQ" },
+        { id: "granta", name: "🚙 Лада Гранта", price: 35000, speed_bonus: 15, income_per_hour: 120, image_url: "AgACAgIAAxkBAAIKJWn7e2SPU9Y3sbCRzOFO9-nf5Dw5AAIlGGsbH9_QSzJxHsxEUqGUAQADAgADeQADOwQ" }
+    ];
+    const mockCollection = { cars: [{ id: "zhiguli", is_current: true }] };
+
     async function fetchAPI(endpoint, method = 'GET', body = null) {
+        if (USE_MOCK) {
+            if (endpoint.includes('/api/me')) return { balance: 15000 };
+            if (endpoint.includes('/api/car_collection')) return mockCollection;
+            return {};
+        }
         const url = `${API_BASE}${endpoint}&tg_id=${userId}`;
         const options = { method, headers: { 'Content-Type': 'application/json' } };
         if (body) options.body = JSON.stringify(body);
@@ -105,16 +116,27 @@
     }
 
     async function loadBalance() {
+        if (USE_MOCK) {
+            balance = 15000;
+            document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`;
+            return;
+        }
         const data = await fetchAPI(`/api/me`);
         balance = data.balance;
         document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`;
     }
 
     async function loadCars() {
-        // получаем список всех машин
+        if (USE_MOCK) {
+            allCars = mockCars;
+            const collection = mockCollection;
+            myCarsIds = collection.cars.map(c => c.id);
+            currentCarId = collection.cars.find(c => c.is_current)?.id || null;
+            renderCars();
+            return;
+        }
         const carsResp = await fetch(`${API_BASE}/api/cars`);
         allCars = await carsResp.json();
-        // получаем коллекцию игрока
         const collection = await fetchAPI(`/api/car_collection`);
         myCarsIds = collection.cars.map(c => c.id);
         currentCarId = collection.cars.find(c => c.is_current)?.id || null;
@@ -124,6 +146,12 @@
     async function buyCar(carId, price) {
         if (balance < price) {
             tg.showAlert(`❌ Не хватает денег! Нужно ${price.toLocaleString()}₽`);
+            return;
+        }
+        if (USE_MOCK) {
+            tg.showAlert(`✅ (МОК) Машина куплена!`);
+            myCarsIds.push(carId);
+            renderCars();
             return;
         }
         const result = await fetchAPI(`/api/buy_car&car_id=${carId}`, 'POST', { car_id: carId });
@@ -137,6 +165,12 @@
     }
 
     async function setCurrentCar(carId) {
+        if (USE_MOCK) {
+            tg.showAlert(`✅ (МОК) Машина изменена`);
+            currentCarId = carId;
+            renderCars();
+            return;
+        }
         await fetchAPI(`/api/set_current_car&car_id=${carId}`, 'POST', { car_id: carId });
         tg.showAlert(`✅ Текущая машина изменена`);
         await loadCars();
@@ -165,7 +199,7 @@
                         ${owned ? '<span class="owned">✅ В гараже</span>' : ''}
                         ${isCurrent ? '<span class="owned current">🚗 ТЕКУЩАЯ</span>' : ''}
                     </div>
-                    <div class="car-actions">
+                    <div>
                         ${!owned ? `<button onclick="buyCar('${car.id}', ${car.price})">🛒 Купить</button>` : ''}
                         ${owned && !isCurrent ? `<button class="secondary" onclick="setCurrentCar('${car.id}')">🚗 Сделать текущей</button>` : ''}
                     </div>
