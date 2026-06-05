@@ -3,27 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
-    <title>Реал Рейсинг | Resell Tycoon</title>
+    <title>Гонки | Resell Tycoon</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; font-family: 'Segoe UI', system-ui, sans-serif; }
         body {
             background: radial-gradient(circle at 30% 10%, #0c1120, #020408);
             display: flex;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
-            font-family: 'Segoe UI', system-ui, sans-serif;
             padding: 16px;
         }
         .race-container {
-            background: #0a0f1a;
+            background: rgba(20,30,45,0.7);
+            backdrop-filter: blur(12px);
             border-radius: 48px;
             padding: 20px;
             border: 2px solid rgba(0,255,255,0.4);
             box-shadow: 0 0 30px rgba(0,255,255,0.2);
             max-width: 100%;
-            overflow-x: auto;
         }
         canvas {
             display: block;
@@ -68,12 +67,44 @@
             font-size: 32px;
             cursor: pointer;
             transition: 0.05s linear;
-            user-select: none;
         }
         .ctrl-btn:active { transform: scale(0.92); background: #ffaa44; color: black; }
-        .status { font-size: 14px; margin-top: 12px; text-align: center; color: #ffcc88; }
-        button { background: #2ecc71; border: none; padding: 8px 20px; border-radius: 40px; font-weight: bold; cursor: pointer; }
-        .back-btn { background: #555; margin-top: 16px; width: 100%; }
+        .lobby {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .lobby input, .lobby button {
+            padding: 10px 20px;
+            border-radius: 40px;
+            border: none;
+            background: #1e2a3a;
+            color: white;
+            font-weight: bold;
+        }
+        .lobby button {
+            background: #2ecc71;
+            cursor: pointer;
+        }
+        .status {
+            text-align: center;
+            margin-top: 12px;
+            color: #ffcc88;
+            font-size: 14px;
+        }
+        .back-btn {
+            background: #555;
+            width: 100%;
+            margin-top: 20px;
+            border: none;
+            padding: 10px;
+            border-radius: 40px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+        }
         @media (max-width: 600px) {
             .ctrl-btn { width: 60px; height: 60px; font-size: 28px; }
         }
@@ -82,20 +113,25 @@
 <body>
 <div>
     <div class="race-container">
-        <canvas id="raceCanvas" width="800" height="600"></canvas>
-        <div class="info-panel">
+        <div class="lobby" id="lobby">
+            <input type="text" id="raceIdInput" placeholder="ID гонки">
+            <button id="joinBtn">🔗 ПРИСОЕДИНИТЬСЯ</button>
+            <button id="createBtn">🏁 СОЗДАТЬ НОВУЮ</button>
+        </div>
+        <canvas id="raceCanvas" width="800" height="600" style="display: none;"></canvas>
+        <div class="info-panel" id="infoPanel" style="display: none;">
             <div class="info-card">🏁 КРУГ: <span id="laps">0</span> / 3</div>
             <div class="info-card">🏎️ СКОРОСТЬ: <span id="speed">0</span> km/h</div>
             <div class="info-card">🥇 ЛИДЕР: <span id="leader">—</span></div>
         </div>
-        <div class="controls">
+        <div class="controls" id="controls" style="display: none;">
             <div class="ctrl-btn" id="btnUp">⬆️</div>
             <div class="ctrl-btn" id="btnLeft">⬅️</div>
             <div class="ctrl-btn" id="btnDown">⬇️</div>
             <div class="ctrl-btn" id="btnRight">➡️</div>
         </div>
-        <div class="status" id="status">Соединение...</div>
-        <button class="back-btn" onclick="window.location.href='index.html'">🏠 Выход</button>
+        <div class="status" id="status">⚡ Введите ID гонки или создайте новую</div>
+        <button class="back-btn" id="exitBtn">🔙 Выход</button>
     </div>
 </div>
 
@@ -107,21 +143,26 @@
 
     // ---------- НАСТРОЙКИ ----------
     const API_BASE = "https://nl12.bothost.ru";   // замените на api.resgame.ru позже
-    const USE_REAL_API = false;                   // пока false для теста, потом true
+    const USE_REAL_API = false;                   // после подключения API сменить на true
     const userId = tg.initDataUnsafe?.user?.id || 1475910449;
-    let raceId = new URLSearchParams(window.location.search).get('race_id');
-    if (!raceId) raceId = "demo_race";
+    let raceId = null;
+    let raceActive = false;
 
-    // ---------- ПАРАМЕТРЫ ИГРЫ ----------
+    // Элементы интерфейса
+    const lobbyDiv = document.getElementById('lobby');
     const canvas = document.getElementById('raceCanvas');
     const ctx = canvas.getContext('2d');
+    const infoPanel = document.getElementById('infoPanel');
+    const controlsDiv = document.getElementById('controls');
+    const statusDiv = document.getElementById('status');
+
+    // Параметры игры
     let width = 800, height = 600;
     canvas.width = width; canvas.height = height;
 
-    // Машина игрока
     let playerCar = {
         x: 400, y: 500,
-        angle: -90,   // градусы
+        angle: -90,
         speed: 0,
         lap: 0,
         checkpoint: 0,
@@ -137,16 +178,16 @@
     };
     let leader = "—";
 
-    // Трасса (простая oval)
+    // Трасса и контрольные точки
     const trackPoints = [
         {x: 300, y: 200}, {x: 500, y: 200}, {x: 600, y: 300}, {x: 600, y: 450},
         {x: 500, y: 550}, {x: 300, y: 550}, {x: 200, y: 450}, {x: 200, y: 300}
     ];
-    // Контрольные точки для круга (индексы)
     const checkpoints = [0,2,4,6];
     let trackSegments = [];
 
     function buildTrackSegments() {
+        trackSegments = [];
         for (let i = 0; i < trackPoints.length; i++) {
             const p1 = trackPoints[i];
             const p2 = trackPoints[(i+1)%trackPoints.length];
@@ -155,7 +196,6 @@
     }
     buildTrackSegments();
 
-    // Функция ближайшей точки на треке (для удержания на дороге)
     function clampToTrack(car) {
         let minDist = 1000;
         let closest = {x: car.x, y: car.y};
@@ -181,7 +221,6 @@
         }
     }
 
-    // Обновление кругов и контрольных точек
     function updateLap(car, isPlayer) {
         let cpIndex = -1;
         let minDist = 40;
@@ -203,7 +242,6 @@
         }
     }
 
-    // Физика
     function updateCar(car, throttle, steer, dt) {
         if (car.finished) return;
         const maxSpeed = 300;
@@ -222,10 +260,9 @@
         clampToTrack(car);
     }
 
-    // Управление (клавиши / кнопки)
     let throttle = 0, steering = 0;
-    function handleControls() {
-        updateCar(playerCar, throttle, steering, 1/30);
+    function handleControls(dt) {
+        updateCar(playerCar, throttle, steering, dt);
         updateLap(playerCar, true);
     }
 
@@ -233,9 +270,8 @@
     function drawTrack() {
         ctx.beginPath();
         for (let i = 0; i < trackPoints.length; i++) {
-            const p = trackPoints[i];
-            if (i===0) ctx.moveTo(p.x, p.y);
-            else ctx.lineTo(p.x, p.y);
+            if (i===0) ctx.moveTo(trackPoints[i].x, trackPoints[i].y);
+            else ctx.lineTo(trackPoints[i].x, trackPoints[i].y);
         }
         ctx.closePath();
         ctx.strokeStyle = "#ffaa44";
@@ -269,7 +305,7 @@
         ctx.restore();
     }
 
-    function drawLaps() {
+    function updateUI() {
         document.getElementById('laps').innerText = `${playerCar.lap}/3`;
         document.getElementById('speed').innerText = Math.floor(Math.abs(playerCar.speed));
         let lead = "Вы";
@@ -283,13 +319,13 @@
         drawTrack();
         drawCar(playerCar, "#2ecc71", "ВЫ");
         drawCar(opponentCar, "#e74c3c", "СОПЕРНИК");
-        drawLaps();
+        updateUI();
     }
 
     // ---------- СЕТЕВОЕ ВЗАИМОДЕЙСТВИЕ ----------
     let lastSendTime = 0;
     async function sendControl() {
-        if (!USE_REAL_API) return;
+        if (!USE_REAL_API || !raceId) return;
         const now = Date.now();
         if (now - lastSendTime < 100) return;
         lastSendTime = now;
@@ -298,15 +334,8 @@
         } catch(e) {}
     }
 
-    async function fetchState() {
-        if (!USE_REAL_API) {
-            // симуляция оппонента (бота)
-            opponentCar.speed += (Math.random() - 0.5) * 20;
-            opponentCar.speed = Math.min(200, Math.max(0, opponentCar.speed));
-            updateCar(opponentCar, opponentCar.speed > 50 ? 1 : 0, (Math.random()-0.5)*2, 1/30);
-            updateLap(opponentCar, false);
-            return;
-        }
+    async function fetchOpponentState() {
+        if (!USE_REAL_API || !raceId) return;
         try {
             const resp = await fetch(`${API_BASE}/api/race/state?tg_id=${userId}&race_id=${raceId}`);
             const data = await resp.json();
@@ -322,20 +351,17 @@
         } catch(e) {}
     }
 
-    // ---------- УПРАВЛЕНИЕ ----------
-    function setThrottle(val) { throttle = Math.max(-1, Math.min(1, val)); }
-    function setSteer(val) { steering = Math.max(-1, Math.min(1, val)); }
-
+    // Управление с клавиатуры и кнопок
     const keyState = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
     function updateFromKeys() {
         let thr = 0;
         if (keyState.ArrowUp) thr = 1;
         if (keyState.ArrowDown) thr = -0.6;
-        setThrottle(thr);
+        throttle = thr;
         let str = 0;
         if (keyState.ArrowLeft) str = -1;
         if (keyState.ArrowRight) str = 1;
-        setSteer(str);
+        steering = str;
     }
 
     window.addEventListener('keydown', (e) => {
@@ -351,47 +377,134 @@
         }
     });
 
-    // Тач-кнопки
-    document.getElementById('btnUp').addEventListener('touchstart', (e) => { e.preventDefault(); keyState.ArrowUp = true; });
-    document.getElementById('btnUp').addEventListener('touchend', () => { keyState.ArrowUp = false; });
-    document.getElementById('btnDown').addEventListener('touchstart', (e) => { e.preventDefault(); keyState.ArrowDown = true; });
-    document.getElementById('btnDown').addEventListener('touchend', () => { keyState.ArrowDown = false; });
-    document.getElementById('btnLeft').addEventListener('touchstart', (e) => { e.preventDefault(); keyState.ArrowLeft = true; });
-    document.getElementById('btnLeft').addEventListener('touchend', () => { keyState.ArrowLeft = false; });
-    document.getElementById('btnRight').addEventListener('touchstart', (e) => { e.preventDefault(); keyState.ArrowRight = true; });
-    document.getElementById('btnRight').addEventListener('touchend', () => { keyState.ArrowRight = false; });
-    // для мыши
-    document.getElementById('btnUp').onmousedown = () => { keyState.ArrowUp = true; };
-    document.getElementById('btnUp').onmouseup = () => { keyState.ArrowUp = false; };
-    document.getElementById('btnDown').onmousedown = () => { keyState.ArrowDown = true; };
-    document.getElementById('btnDown').onmouseup = () => { keyState.ArrowDown = false; };
-    document.getElementById('btnLeft').onmousedown = () => { keyState.ArrowLeft = true; };
-    document.getElementById('btnLeft').onmouseup = () => { keyState.ArrowLeft = false; };
-    document.getElementById('btnRight').onmousedown = () => { keyState.ArrowRight = true; };
-    document.getElementById('btnRight').onmouseup = () => { keyState.ArrowRight = false; };
+    function attachTouchControls() {
+        const btnUp = document.getElementById('btnUp');
+        const btnDown = document.getElementById('btnDown');
+        const btnLeft = document.getElementById('btnLeft');
+        const btnRight = document.getElementById('btnRight');
+        const setKey = (key, value) => { keyState[key] = value; };
+        btnUp.addEventListener('touchstart', (e) => { e.preventDefault(); setKey('ArrowUp', true); });
+        btnUp.addEventListener('touchend', () => setKey('ArrowUp', false));
+        btnDown.addEventListener('touchstart', (e) => { e.preventDefault(); setKey('ArrowDown', true); });
+        btnDown.addEventListener('touchend', () => setKey('ArrowDown', false));
+        btnLeft.addEventListener('touchstart', (e) => { e.preventDefault(); setKey('ArrowLeft', true); });
+        btnLeft.addEventListener('touchend', () => setKey('ArrowLeft', false));
+        btnRight.addEventListener('touchstart', (e) => { e.preventDefault(); setKey('ArrowRight', true); });
+        btnRight.addEventListener('touchend', () => setKey('ArrowRight', false));
+        // мышь
+        btnUp.onmousedown = () => setKey('ArrowUp', true);
+        btnUp.onmouseup = () => setKey('ArrowUp', false);
+        btnDown.onmousedown = () => setKey('ArrowDown', true);
+        btnDown.onmouseup = () => setKey('ArrowDown', false);
+        btnLeft.onmousedown = () => setKey('ArrowLeft', true);
+        btnLeft.onmouseup = () => setKey('ArrowLeft', false);
+        btnRight.onmousedown = () => setKey('ArrowRight', true);
+        btnRight.onmouseup = () => setKey('ArrowRight', false);
+    }
 
     // Игровой цикл
     let lastTimestamp = 0;
+    let animationId = null;
     function gameLoop(now) {
         let dt = Math.min(0.033, (now - lastTimestamp) / 1000);
-        if (dt <= 0) { lastTimestamp = now; requestAnimationFrame(gameLoop); return; }
+        if (dt <= 0) { lastTimestamp = now; animationId = requestAnimationFrame(gameLoop); return; }
         updateFromKeys();
-        handleControls();
+        handleControls(dt);
         sendControl();
-        fetchState();
+        if (!USE_REAL_API) {
+            // симуляция соперника-бота
+            opponentCar.speed += (Math.random() - 0.5) * 20;
+            opponentCar.speed = Math.min(200, Math.max(0, opponentCar.speed));
+            updateCar(opponentCar, opponentCar.speed > 50 ? 1 : 0, (Math.random()-0.5)*2, dt);
+            updateLap(opponentCar, false);
+        } else {
+            fetchOpponentState();
+        }
         render();
         lastTimestamp = now;
-        requestAnimationFrame(gameLoop);
+        animationId = requestAnimationFrame(gameLoop);
     }
 
-    // Инициализация
-    function init() {
-        document.getElementById('status').innerText = "Гонка началась! Управляй стрелками или кнопками.";
+    function startRace() {
+        raceActive = true;
+        lobbyDiv.style.display = 'none';
+        canvas.style.display = 'block';
+        infoPanel.style.display = 'flex';
+        controlsDiv.style.display = 'flex';
+        statusDiv.innerText = "🏎️ ГОНКА НАЧАЛАСЬ! Управляй стрелками или кнопками";
+        // сброс состояния машин
+        playerCar = { x: 400, y: 500, angle: -90, speed: 0, lap: 0, checkpoint: 0, finished: false };
+        opponentCar = { x: 400, y: 480, angle: -90, speed: 0, lap: 0, checkpoint: 0, finished: false };
         lastTimestamp = performance.now();
-        requestAnimationFrame(gameLoop);
-        setInterval(() => fetchState(), 200);
+        if (animationId) cancelAnimationFrame(animationId);
+        animationId = requestAnimationFrame(gameLoop);
+        attachTouchControls();
     }
-    init();
+
+    // Создание гонки
+    async function createRace() {
+        if (!USE_REAL_API) {
+            raceId = "demo_" + Date.now();
+            statusDiv.innerText = `✅ (ДЕМО) Гонка создана! ID: ${raceId}. Присоединяйтесь по нему.`;
+            startRace();
+            return;
+        }
+        try {
+            const resp = await fetch(`${API_BASE}/api/race/create?tg_id=${userId}&bet=5000`, { method: 'POST' });
+            const data = await resp.json();
+            if (data.race_id) {
+                raceId = data.race_id;
+                statusDiv.innerText = `✅ Гонка создана! ID: ${raceId}. Ожидаем соперника...`;
+                // Периодически проверяем, присоединился ли кто-то
+                const interval = setInterval(async () => {
+                    const stateResp = await fetch(`${API_BASE}/api/race/state?tg_id=${userId}&race_id=${raceId}`);
+                    const stateData = await stateResp.json();
+                    if (stateData.opponent) {
+                        clearInterval(interval);
+                        startRace();
+                    }
+                }, 2000);
+            } else {
+                statusDiv.innerText = `❌ Ошибка: ${data.message}`;
+            }
+        } catch(e) {
+            statusDiv.innerText = `❌ Ошибка: ${e.message}`;
+        }
+    }
+
+    async function joinRace() {
+        const inputRaceId = document.getElementById('raceIdInput').value.trim();
+        if (!inputRaceId) { tg.showAlert("Введите ID гонки"); return; }
+        if (!USE_REAL_API) {
+            raceId = inputRaceId;
+            statusDiv.innerText = `✅ (ДЕМО) Присоединились к гонке ${raceId}`;
+            startRace();
+            return;
+        }
+        try {
+            const resp = await fetch(`${API_BASE}/api/race/join?tg_id=${userId}&race_id=${inputRaceId}`, { method: 'POST' });
+            const data = await resp.json();
+            if (data.message) {
+                raceId = inputRaceId;
+                startRace();
+            } else {
+                statusDiv.innerText = `❌ ${data.message}`;
+            }
+        } catch(e) {
+            statusDiv.innerText = `❌ Ошибка: ${e.message}`;
+        }
+    }
+
+    document.getElementById('createBtn').onclick = createRace;
+    document.getElementById('joinBtn').onclick = joinRace;
+    document.getElementById('exitBtn').onclick = () => window.location.href = 'index.html';
+
+    // Для демо: если есть параметр race_id в URL, можно сразу присоединиться
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('race_id')) {
+        document.getElementById('raceIdInput').value = urlParams.get('race_id');
+        joinRace();
+    }
 </script>
 </body>
 </html>
