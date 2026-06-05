@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Недвижимость | Resell Tycoon</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: system-ui, sans-serif; }
+        body { background: radial-gradient(circle at 30% 10%, #0c1120, #020408); color: #ddd; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; }
+        .card { background: rgba(12,20,35,0.8); backdrop-filter: blur(12px); border-radius: 32px; padding: 20px; margin-bottom: 20px; border: 1px solid rgba(0,255,255,0.3); }
+        h2 { font-size: 28px; margin-bottom: 15px; background: linear-gradient(135deg, #ffcc44, #ff6644); background-clip: text; -webkit-background-clip: text; color: transparent; }
+        .balance { font-size: 18px; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 30px; margin-bottom: 20px; text-align: center; }
+        .house-item { background: rgba(0,0,0,0.5); border-radius: 24px; padding: 15px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+        .house-name { font-size: 18px; font-weight: bold; }
+        .house-price { color: #ffaa44; }
+        .house-income { font-size: 12px; color: #88ff88; }
+        button { background: #2ecc71; border: none; padding: 8px 16px; border-radius: 40px; font-weight: bold; cursor: pointer; }
+        button.danger { background: #e74c3c; }
+        .current-house { background: #1e5631; padding: 4px 12px; border-radius: 20px; font-size: 12px; display: inline-block; }
+        .back-btn { background: #555; margin-top: 20px; width: 100%; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="card">
+        <h2>🏠 Недвижимость</h2>
+        <div class="balance" id="balance">💰 Баланс: загрузка...</div>
+    </div>
+    <div class="card" id="housesList">Загрузка...</div>
+    <button class="back-btn" onclick="window.location.href='index.html'">🔙 На главную</button>
+</div>
+
+<script>
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+    tg.ready();
+    const API_BASE = "https://nl12.bothost.ru";
+    const USE_REAL_API = false;
+    const userId = tg.initDataUnsafe?.user?.id || 1475910449;
+
+    let balance = 0;
+    let currentHouseId = "room";
+    const mockHouses = [
+        {"id": "room", "name": "🏚 Комната в общаге", "price": 0, "income_bonus": 0},
+        {"id": "flat", "name": "🏢 Квартира", "price": 10000, "income_bonus": 150},
+        {"id": "house", "name": "🏠 Одноэтажный дом", "price": 35000, "income_bonus": 400},
+        {"id": "villa", "name": "🏰 Богатая вилла", "price": 100000, "income_bonus": 1200},
+        {"id": "yacht", "name": "🛥 Яхта", "price": 250000, "income_bonus": 3000},
+        {"id": "skyscraper", "name": "🏙 Небоскрёб", "price": 3000000, "income_bonus": 20000}
+    ];
+
+    async function fetchAPI(endpoint) {
+        if (!USE_REAL_API) return null;
+        try {
+            const resp = await fetch(`${API_BASE}${endpoint}&tg_id=${userId}`);
+            if (!resp.ok) throw new Error();
+            return await resp.json();
+        } catch (e) { return null; }
+    }
+
+    async function loadBalance() {
+        if (!USE_REAL_API) { balance = 500000; document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`; return; }
+        const data = await fetchAPI(`/api/me`);
+        balance = data?.balance || 0;
+        document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`;
+    }
+
+    async function loadCurrentHouse() {
+        if (!USE_REAL_API) { currentHouseId = "flat"; renderHouses(); return; }
+        const data = await fetchAPI(`/api/current_house`);
+        if (data?.house) currentHouseId = data.house.id;
+        renderHouses();
+    }
+
+    async function buyHouse(houseId, price) {
+        if (balance < price) { tg.showAlert(`❌ Не хватает денег! Нужно ${price.toLocaleString()}₽`); return; }
+        if (!USE_REAL_API) {
+            if (currentHouseId !== "room") {
+                const oldHouse = mockHouses.find(h=>h.id===currentHouseId);
+                const diff = price - oldHouse.price;
+                if (diff > 0 && balance < diff) { tg.showAlert(`❌ Не хватает доплаты`); return; }
+                balance -= diff;
+                currentHouseId = houseId;
+                document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`;
+                tg.showAlert(`✅ (МОК) ${mockHouses.find(h=>h.id===houseId).name} куплен!`);
+                renderHouses();
+            } else {
+                balance -= price;
+                currentHouseId = houseId;
+                document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`;
+                tg.showAlert(`✅ (МОК) ${mockHouses.find(h=>h.id===houseId).name} куплен!`);
+                renderHouses();
+            }
+            return;
+        }
+        // реальный API
+        const res = await fetch(`${API_BASE}/api/buy_house?tg_id=${userId}&house_id=${houseId}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.balance !== undefined) {
+            balance = data.balance;
+            document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`;
+            tg.showAlert(data.message);
+            await loadCurrentHouse();
+        } else { tg.showAlert(`❌ ${data.message}`); }
+    }
+
+    async function sellHouse() {
+        if (currentHouseId === "room") { tg.showAlert("❌ Нечего продавать"); return; }
+        if (!USE_REAL_API) {
+            const oldHouse = mockHouses.find(h=>h.id===currentHouseId);
+            balance += oldHouse.price;
+            currentHouseId = "room";
+            document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`;
+            tg.showAlert(`✅ (МОК) Дом продан за ${oldHouse.price}₽`);
+            renderHouses();
+            return;
+        }
+        const res = await fetch(`${API_BASE}/api/sell_house?tg_id=${userId}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.balance !== undefined) {
+            balance = data.balance;
+            document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`;
+            tg.showAlert(data.message);
+            await loadCurrentHouse();
+        } else { tg.showAlert(`❌ ${data.message}`); }
+    }
+
+    function renderHouses() {
+        const container = document.getElementById('housesList');
+        let html = '';
+        for (let house of mockHouses) {
+            const isCurrent = (house.id === currentHouseId);
+            let actionButton = '';
+            if (!isCurrent) {
+                if (house.price === 0) actionButton = `<button onclick="buyHouse('${house.id}', ${house.price})">🛒 Занять</button>`;
+                else actionButton = `<button onclick="buyHouse('${house.id}', ${house.price})">🛒 Купить (${house.price.toLocaleString()}₽)</button>`;
+            } else {
+                actionButton = `<span class="current-house">✅ ТЕКУЩЕЕ ЖИЛЬЁ</span>`;
+            }
+            html += `
+                <div class="house-item">
+                    <div>
+                        <div class="house-name">${house.name}</div>
+                        <div class="house-price">💰 ${house.price.toLocaleString()}₽</div>
+                        <div class="house-income">💵 Доход: +${house.income_bonus}₽/день</div>
+                    </div>
+                    <div>${actionButton}</div>
+                </div>
+            `;
+        }
+        if (currentHouseId !== "room") {
+            html += `<div style="text-align:center; margin-top:15px;"><button class="danger" onclick="sellHouse()">🏠 ПРОДАТЬ ТЕКУЩИЙ ДОМ</button></div>`;
+        }
+        container.innerHTML = html;
+    }
+
+    loadBalance();
+    loadCurrentHouse();
+</script>
+</body>
+</html>

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Таксопарк | Resell Tycoon</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: system-ui, sans-serif; }
+        body { background: radial-gradient(circle at 30% 10%, #0c1120, #020408); color: #ddd; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; }
+        .card { background: rgba(12,20,35,0.8); backdrop-filter: blur(12px); border-radius: 32px; padding: 20px; margin-bottom: 20px; border: 1px solid rgba(0,255,255,0.3); }
+        h2 { font-size: 28px; margin-bottom: 15px; background: linear-gradient(135deg, #ffcc44, #ff6644); background-clip: text; -webkit-background-clip: text; color: transparent; }
+        .balance { font-size: 18px; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 30px; margin-bottom: 20px; text-align: center; }
+        .level-item, .car-item { background: rgba(0,0,0,0.5); border-radius: 24px; padding: 15px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+        button { background: #2ecc71; border: none; padding: 8px 16px; border-radius: 40px; font-weight: bold; cursor: pointer; }
+        .back-btn { background: #555; margin-top: 20px; width: 100%; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="card">
+        <h2>🚕 Таксопарк</h2>
+        <div class="balance" id="balance">💰 Баланс: загрузка...</div>
+        <div id="taxoparkInfo">Текущий уровень: Нет</div>
+    </div>
+    <div class="card" id="levelsList"></div>
+    <div class="card" id="carsInPark"></div>
+    <button class="back-btn" onclick="window.location.href='index.html'">🔙 На главную</button>
+</div>
+
+<script>
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+    tg.ready();
+    const API_BASE = "https://nl12.bothost.ru";
+    const USE_REAL_API = false;
+    const userId = tg.initDataUnsafe?.user?.id || 1475910449;
+
+    let balance = 0;
+    let currentLevel = "none";
+    let carsInPark = [];
+    let myCars = ["zhiguli", "granta"]; // пример машин в гараже
+
+    const levels = [
+        {"id": "small", "name": "🚕 Маленький таксопарк", "price": 500000, "slots": 3, "income_per_car": 5000},
+        {"id": "medium", "name": "🚖 Средний таксопарк", "price": 2000000, "slots": 7, "income_per_car": 8000},
+        {"id": "large", "name": "🚗 Крупный таксопарк", "price": 10000000, "slots": 15, "income_per_car": 12000},
+        {"id": "elite", "name": "👑 Элитный таксопарк", "price": 50000000, "slots": 30, "income_per_car": 20000}
+    ];
+
+    async function fetchAPI(endpoint) {
+        if (!USE_REAL_API) return null;
+        try {
+            const resp = await fetch(`${API_BASE}${endpoint}&tg_id=${userId}`);
+            if (!resp.ok) throw new Error();
+            return await resp.json();
+        } catch(e) { return null; }
+    }
+
+    async function loadBalance() {
+        if (!USE_REAL_API) { balance = 10000000; document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`; return; }
+        const data = await fetchAPI(`/api/me`);
+        balance = data?.balance || 0;
+        document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`;
+    }
+
+    async function loadTaxopark() {
+        if (!USE_REAL_API) {
+            currentLevel = "small";
+            carsInPark = ["zhiguli"];
+            renderLevels();
+            renderCarsInPark();
+            return;
+        }
+        const data = await fetchAPI(`/api/my_taxopark`);
+        if (data) {
+            currentLevel = data.taxopark.level;
+            carsInPark = data.taxopark.cars;
+        }
+        renderLevels();
+        renderCarsInPark();
+    }
+
+    async function buyLevel(levelId, price, slots) {
+        if (balance < price) { tg.showAlert(`❌ Не хватает денег!`); return; }
+        if (!USE_REAL_API) {
+            currentLevel = levelId;
+            balance -= price;
+            document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`;
+            tg.showAlert(`✅ (МОК) ${levels.find(l=>l.id===levelId).name} куплен!`);
+            renderLevels();
+            return;
+        }
+        const res = await fetch(`${API_BASE}/api/buy_taxopark?tg_id=${userId}&level_id=${levelId}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.balance !== undefined) {
+            balance = data.balance;
+            document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`;
+            tg.showAlert(data.message);
+            await loadTaxopark();
+        } else { tg.showAlert(`❌ ${data.message}`); }
+    }
+
+    async function addCar(carId) {
+        if (!USE_REAL_API) {
+            if (carsInPark.length >= levels.find(l=>l.id===currentLevel)?.slots) { tg.showAlert(`❌ Нет свободных слотов`); return; }
+            carsInPark.push(carId);
+            tg.showAlert(`✅ (МОК) Машина добавлена в таксопарк`);
+            renderCarsInPark();
+            return;
+        }
+        const res = await fetch(`${API_BASE}/api/add_car_to_taxopark?tg_id=${userId}&car_id=${carId}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) { tg.showAlert(`✅ Машина добавлена`); await loadTaxopark(); }
+        else { tg.showAlert(`❌ ${data.message}`); }
+    }
+
+    async function removeCar(carId) {
+        if (!USE_REAL_API) {
+            carsInPark = carsInPark.filter(c => c !== carId);
+            tg.showAlert(`✅ (МОК) Машина убрана`);
+            renderCarsInPark();
+            return;
+        }
+        const res = await fetch(`${API_BASE}/api/remove_car_from_taxopark?tg_id=${userId}&car_id=${carId}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) { tg.showAlert(`✅ Машина убрана`); await loadTaxopark(); }
+        else { tg.showAlert(`❌ ${data.message}`); }
+    }
+
+    function renderLevels() {
+        const container = document.getElementById('levelsList');
+        let html = '<h3>📈 Уровни таксопарка</h3>';
+        for (let lvl of levels) {
+            const isCurrent = (currentLevel === lvl.id);
+            html += `
+                <div class="level-item">
+                    <div>
+                        <b>${lvl.name}</b><br>
+                        🚗 Слотов: ${lvl.slots}<br>
+                        💰 Доход: +${lvl.income_per_car}₽/час за машину<br>
+                        💵 Цена: ${lvl.price.toLocaleString()}₽
+                    </div>
+                    <div>
+                        ${isCurrent ? '<span style="background:#1e5631; padding:4px 12px; border-radius:20px;">✅ ТЕКУЩИЙ</span>' : `<button onclick="buyLevel('${lvl.id}', ${lvl.price}, ${lvl.slots})">🛒 Купить</button>`}
+                    </div>
+                </div>
+            `;
+        }
+        container.innerHTML = html;
+    }
+
+    function renderCarsInPark() {
+        const container = document.getElementById('carsInPark');
+        const level = levels.find(l=>l.id===currentLevel);
+        const slotsFree = level ? level.slots - carsInPark.length : 0;
+        let html = `<h3>🚗 Машины в таксопарке (${carsInPark.length}/${level?.slots || 0})</h3>`;
+        for (let car of carsInPark) {
+            html += `<div class="car-item"><span>🚙 ${car}</span><button class="danger" onclick="removeCar('${car}')">🗑 Убрать</button></div>`;
+        }
+        if (slotsFree > 0) {
+            let availableCars = myCars.filter(c => !carsInPark.includes(c));
+            if (availableCars.length) {
+                html += `<div style="margin-top:15px;"><b>➕ Добавить машину:</b><br>`;
+                for (let car of availableCars) {
+                    html += `<button style="margin:5px;" onclick="addCar('${car}')">🚙 ${car}</button>`;
+                }
+                html += `</div>`;
+            } else { html += `<p>❌ Нет свободных машин в гараже</p>`; }
+        }
+        container.innerHTML = html;
+    }
+
+    loadBalance();
+    loadTaxopark();
+</script>
+</body>
+</html>
