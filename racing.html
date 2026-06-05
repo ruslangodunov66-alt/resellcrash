@@ -60,8 +60,8 @@
             z-index: 20;
         }
         .ctrl-btn {
-            width: 70px;
-            height: 70px;
+            width: 80px;
+            height: 80px;
             border-radius: 50%;
             background: rgba(30,40,60,0.9);
             backdrop-filter: blur(8px);
@@ -69,12 +69,13 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 36px;
+            font-size: 40px;
             cursor: pointer;
             transition: 0.05s linear;
+            user-select: none;
         }
         .ctrl-btn:active { transform: scale(0.92); background: #ffaa44; color: black; }
-        @media (max-width: 600px) { .ctrl-btn { width: 60px; height: 60px; font-size: 30px; } }
+        @media (max-width: 600px) { .ctrl-btn { width: 70px; height: 70px; font-size: 36px; } }
         #status {
             position: absolute;
             bottom: 120px;
@@ -151,7 +152,7 @@
         </div>
         <div style="display: flex; gap: 10px; align-items: center;">
             <span>🔊</span>
-            <input type="range" id="volumeSlider" min="0" max="100" value="50" style="width: 140px;">
+            <input type="range" id="volumeSlider" min="0" max="100" value="50">
         </div>
     </div>
 
@@ -186,80 +187,107 @@
         const exitBtn = document.getElementById('exitBtn');
         const musicControls = document.getElementById('music-controls');
 
-        // ---------- ЗВУКИ (Web Audio API) ----------
-        let audioCtx = null;
-        function initAudio() {
-            if (!audioCtx && window.AudioContext) {
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                document.body.addEventListener('touchstart', () => { if (audioCtx) audioCtx.resume(); }, { once: true });
-                document.body.addEventListener('click', () => { if (audioCtx) audioCtx.resume(); }, { once: true });
+        // ---------- ЗВУК МОТОРА (непрерывный) ----------
+        let engineCtx = null;
+        let engineOsc = null;
+        let engineGain = null;
+        let engineRunning = false;
+        
+        function startEngineSound() {
+            if (!engineCtx && window.AudioContext) {
+                engineCtx = new (window.AudioContext || window.webkitAudioContext)();
+                // разблокируем по первому касанию
+                const unlock = () => {
+                    if (engineCtx && engineCtx.state === 'suspended') engineCtx.resume();
+                    document.body.removeEventListener('touchstart', unlock);
+                    document.body.removeEventListener('click', unlock);
+                };
+                document.body.addEventListener('touchstart', unlock);
+                document.body.addEventListener('click', unlock);
             }
+            if (!engineCtx) return;
+            
+            if (engineOsc) {
+                engineOsc.stop();
+                engineOsc.disconnect();
+            }
+            engineOsc = engineCtx.createOscillator();
+            engineGain = engineCtx.createGain();
+            engineOsc.connect(engineGain);
+            engineGain.connect(engineCtx.destination);
+            engineOsc.type = 'sawtooth';
+            engineOsc.frequency.value = 80;
+            engineGain.gain.value = 0.15;
+            engineOsc.start();
+            engineRunning = true;
         }
+        
+        function updateEngineSound(speed) {
+            if (!engineRunning || !engineOsc) return;
+            // частота мотора зависит от скорости (от 80 до 300 Гц)
+            const freq = 80 + Math.min(220, speed * 12);
+            engineOsc.frequency.value = freq;
+            // громкость тоже растёт со скоростью
+            if (engineGain) engineGain.gain.value = 0.1 + Math.min(0.3, speed * 0.02);
+        }
+        
+        function stopEngineSound() {
+            if (engineOsc) {
+                engineOsc.stop();
+                engineOsc = null;
+                engineGain = null;
+            }
+            engineRunning = false;
+        }
+        
+        // Короткие звуки (столкновение, очки)
         function playBeep(frequency, duration, volume = 0.2) {
-            if (!audioCtx) return;
-            const now = audioCtx.currentTime;
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
+            if (!engineCtx) return;
+            const now = engineCtx.currentTime;
+            const osc = engineCtx.createOscillator();
+            const gain = engineCtx.createGain();
             osc.connect(gain);
-            gain.connect(audioCtx.destination);
+            gain.connect(engineCtx.destination);
             osc.frequency.value = frequency;
             gain.gain.setValueAtTime(volume, now);
             gain.gain.exponentialRampToValueAtTime(0.00001, now + duration);
             osc.start();
             osc.stop(now + duration);
         }
-        function playCrashSound() { playBeep(150, 0.6, 0.3); }
-        function playPointSound() { playBeep(880, 0.15, 0.15); }
+        function playCrashSound() { playBeep(120, 0.8, 0.4); }
+        function playPointSound() { playBeep(1200, 0.12, 0.2); }
 
-        // ---------- МУЗЫКА (предустановленный трек MACAN) ----------
+        // ---------- МУЗЫКА ----------
         let backgroundMusic = null;
         let musicPlaying = false;
-
         function startBackgroundMusic() {
             if (backgroundMusic) return;
-            // Имя файла в той же папке, что и racing.html
             backgroundMusic = new Audio('MACAN_-_Veselyashhijj_gaz_64741091.mp3');
             backgroundMusic.loop = true;
             backgroundMusic.volume = document.getElementById('volumeSlider').value / 100;
-            const playPromise = backgroundMusic.play();
-            if (playPromise !== undefined) {
-                playPromise.then(() => {
-                    musicPlaying = true;
-                    document.getElementById('playMusicBtn').textContent = '⏸️ Пауза';
-                }).catch(e => {
-                    console.log("Автовоспроизведение заблокировано, нажмите 'Играть'");
-                    musicPlaying = false;
-                });
-            }
+            backgroundMusic.play().catch(e => console.log("Музыка заблокирована"));
+            musicPlaying = true;
+            if(document.getElementById('playMusicBtn')) document.getElementById('playMusicBtn').textContent = '⏸️ Пауза';
         }
-
         function loadMusicFromFile(file) {
-            if (backgroundMusic) {
-                backgroundMusic.pause();
-                backgroundMusic = null;
-            }
+            if (backgroundMusic) backgroundMusic.pause();
             const url = URL.createObjectURL(file);
             backgroundMusic = new Audio(url);
             backgroundMusic.loop = true;
             backgroundMusic.volume = document.getElementById('volumeSlider').value / 100;
-            backgroundMusic.play().catch(e => console.log("Ошибка загрузки файла"));
+            backgroundMusic.play();
             musicPlaying = true;
             document.getElementById('playMusicBtn').textContent = '⏸️ Пауза';
         }
-
         function loadMusicFromUrl(url) {
-            if (backgroundMusic) {
-                backgroundMusic.pause();
-                backgroundMusic = null;
-            }
+            if (backgroundMusic) backgroundMusic.pause();
             backgroundMusic = new Audio(url);
             backgroundMusic.loop = true;
             backgroundMusic.volume = document.getElementById('volumeSlider').value / 100;
-            backgroundMusic.play().catch(e => alert("Не удалось загрузить по URL"));
+            backgroundMusic.play();
             musicPlaying = true;
             document.getElementById('playMusicBtn').textContent = '⏸️ Пауза';
         }
-
         function toggleMusic() {
             if (!backgroundMusic) {
                 const url = document.getElementById('musicUrlInput').value;
@@ -272,12 +300,11 @@
                 musicPlaying = false;
                 document.getElementById('playMusicBtn').textContent = '▶️ Играть';
             } else {
-                backgroundMusic.play().catch(e => alert("Не удалось воспроизвести. Нажмите на экран."));
+                backgroundMusic.play();
                 musicPlaying = true;
                 document.getElementById('playMusicBtn').textContent = '⏸️ Пауза';
             }
         }
-
         function stopMusic() {
             if (backgroundMusic) {
                 backgroundMusic.pause();
@@ -287,14 +314,15 @@
             }
         }
 
-        // ----- 3D СЦЕНА (улучшенная) -----
+        // ----- 3D СЦЕНА (машина теперь в кадре) -----
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x0a1030);
-        scene.fog = new THREE.FogExp2(0x0a1030, 0.003);
+        scene.fog = new THREE.FogExp2(0x0a1030, 0.002);
 
-        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.set(0, 3.5, 6.5);
-        camera.lookAt(0, 0, 12);
+        // Камера смотрит на машину спереди-сверху
+        const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 2.2, 4.5);
+        camera.lookAt(0, 0.5, 3);
 
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -308,6 +336,8 @@
         const sunLight = new THREE.DirectionalLight(0xffeedd, 1.2);
         sunLight.position.set(10, 20, 5);
         sunLight.castShadow = true;
+        sunLight.shadow.mapSize.width = 1024;
+        sunLight.shadow.mapSize.height = 1024;
         scene.add(sunLight);
         const fillLight = new THREE.PointLight(0x4488ff, 0.5);
         fillLight.position.set(-2, 3, 4);
@@ -324,7 +354,7 @@
         road.receiveShadow = true;
         scene.add(road);
 
-        // Обочины
+        // Обочины и бордюры (как раньше, для краткости оставим без изменений, но важно для атмосферы)
         const edgeMat = new THREE.MeshStandardMaterial({ color: 0x556677 });
         const leftEdge = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 200), edgeMat);
         leftEdge.rotation.x = -Math.PI / 2;
@@ -337,7 +367,6 @@
         rightEdge.receiveShadow = true;
         scene.add(rightEdge);
 
-        // Бордюры
         const curbMat = new THREE.MeshStandardMaterial({ color: 0xaa8866 });
         for (let z = -50; z <= 50; z += 2.5) {
             const leftCurb = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 1.8), curbMat);
@@ -349,7 +378,7 @@
             rightCurb.castShadow = true;
             scene.add(rightCurb);
         }
-
+        
         // Разметка
         const lineMat = new THREE.MeshStandardMaterial({ color: 0xffdd99 });
         for (let z = -48; z <= 50; z += 3) {
@@ -359,31 +388,7 @@
             scene.add(line);
         }
 
-        // Знаки и деревья (упрощённо)
-        const signMatRed = new THREE.MeshStandardMaterial({ color: 0xff6644 });
-        const poleMat = new THREE.MeshStandardMaterial({ color: 0x888888 });
-        for (let z = -40; z <= 40; z += 12) {
-            const groupL = new THREE.Group();
-            const poleL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.2, 0.2), poleMat);
-            poleL.position.y = 0.6;
-            groupL.add(poleL);
-            const signL = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.05), signMatRed);
-            signL.position.y = 1.2;
-            groupL.add(signL);
-            groupL.position.set(-3.8, -0.2, z);
-            scene.add(groupL);
-
-            const groupR = new THREE.Group();
-            const poleR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.2, 0.2), poleMat);
-            poleR.position.y = 0.6;
-            groupR.add(poleR);
-            const signR = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.05), signMatRed);
-            signR.position.y = 1.2;
-            groupR.add(signR);
-            groupR.position.set(3.8, -0.2, z);
-            scene.add(groupR);
-        }
-
+        // Деревья и знаки (упрощённо)
         const treeTrunk = new THREE.MeshStandardMaterial({ color: 0x8B5A2B });
         const treeLeaves = new THREE.MeshStandardMaterial({ color: 0x5A9E4E });
         for (let z = -45; z <= 45; z += 5) {
@@ -397,7 +402,7 @@
             treeL.position.set(-4.5, -0.5, z);
             treeL.castShadow = true;
             scene.add(treeL);
-
+            
             const treeR = new THREE.Group();
             const trunkR = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.5, 1.2, 6), treeTrunk);
             trunkR.position.y = 0.6;
@@ -410,29 +415,33 @@
             scene.add(treeR);
         }
 
-        // Модель машины игрока (яркая)
+        // ========= МАШИНА ИГРОКА (увеличенная, яркая, в центре) =========
         const playerCar = new THREE.Group();
-        const bodyGeoCar = new THREE.BoxGeometry(1.1, 0.45, 2.0);
+        // Кузов
+        const bodyGeoCar = new THREE.BoxGeometry(1.2, 0.5, 2.2);
         const bodyMatCar = new THREE.MeshStandardMaterial({ color: 0xff6600, metalness: 0.8, roughness: 0.2, emissive: 0x442200 });
         const carBody = new THREE.Mesh(bodyGeoCar, bodyMatCar);
         carBody.castShadow = true;
         carBody.receiveShadow = true;
         playerCar.add(carBody);
+        // Крыша (стекло)
         const roofMat = new THREE.MeshStandardMaterial({ color: 0x88aaff, metalness: 0.9 });
-        const roof = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.3, 1.1), roofMat);
-        roof.position.set(0, 0.4, -0.3);
+        const roof = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.35, 1.2), roofMat);
+        roof.position.set(0, 0.45, -0.3);
         roof.castShadow = true;
         playerCar.add(roof);
+        // Фары
         const lightMat = new THREE.MeshStandardMaterial({ color: 0xffaa66, emissive: 0xff4400 });
-        const leftLight = new THREE.Mesh(new THREE.SphereGeometry(0.15, 16, 16), lightMat);
-        leftLight.position.set(-0.5, 0.2, 1.05);
+        const leftLight = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16), lightMat);
+        leftLight.position.set(-0.55, 0.2, 1.15);
         playerCar.add(leftLight);
-        const rightLight = new THREE.Mesh(new THREE.SphereGeometry(0.15, 16, 16), lightMat);
-        rightLight.position.set(0.5, 0.2, 1.05);
+        const rightLight = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16), lightMat);
+        rightLight.position.set(0.55, 0.2, 1.15);
         playerCar.add(rightLight);
-        const wheelGeoCar = new THREE.CylinderGeometry(0.28, 0.28, 0.12, 24);
+        // Колёса
+        const wheelGeoCar = new THREE.CylinderGeometry(0.32, 0.32, 0.15, 24);
         const wheelMatCar = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.9 });
-        const wheelPos = [[-0.65, -0.2, 0.75], [0.65, -0.2, 0.75], [-0.65, -0.2, -0.75], [0.65, -0.2, -0.75]];
+        const wheelPos = [[-0.75, -0.25, 0.85], [0.75, -0.25, 0.85], [-0.75, -0.25, -0.85], [0.75, -0.25, -0.85]];
         wheelPos.forEach(pos => {
             const wheel = new THREE.Mesh(wheelGeoCar, wheelMatCar);
             wheel.rotation.z = Math.PI / 2;
@@ -443,65 +452,74 @@
         scene.add(playerCar);
         playerCar.position.y = 0;
         playerCar.position.x = 0;
+        playerCar.position.z = 1.5; // чтобы была перед камерой
 
         // Препятствия
         let obstacles = [];
         let opponents = new Map();
 
+        // Управление (исправлено: влево -> отрицательное смещение)
         let targetX = 0;
         let currentX = 0;
-        const speed = 9;
+        const baseSpeed = 12; // увеличена скорость для экшена
+        let currentSpeed = baseSpeed;
 
-        function moveLeft() { targetX = Math.max(-2.4, targetX - 0.9); }
-        function moveRight() { targetX = Math.min(2.4, targetX + 0.9); }
+        function moveLeft() { targetX = Math.max(-2.8, targetX - 1.1); }
+        function moveRight() { targetX = Math.min(2.8, targetX + 1.1); }
 
         function spawnObstacle() {
             const r = Math.random();
             let mesh;
-            if (r < 0.4) {
-                const holeGeo = new THREE.CylinderGeometry(0.55, 0.55, 0.05, 16);
+            if (r < 0.35) {
+                // Яма
+                const holeGeo = new THREE.CylinderGeometry(0.6, 0.6, 0.05, 16);
                 const holeMat = new THREE.MeshStandardMaterial({ color: 0x1a1a2e, roughness: 0.9 });
                 mesh = new THREE.Mesh(holeGeo, holeMat);
                 mesh.rotation.x = Math.PI / 2;
                 mesh.position.y = -0.48;
-            } else if (r < 0.7) {
-                const coneGeo = new THREE.ConeGeometry(0.4, 0.8, 8);
+            } else if (r < 0.65) {
+                // Конус
+                const coneGeo = new THREE.ConeGeometry(0.45, 0.9, 8);
                 const coneMat = new THREE.MeshStandardMaterial({ color: 0xff8844 });
                 mesh = new THREE.Mesh(coneGeo, coneMat);
                 mesh.position.y = 0;
             } else {
-                const barrelGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.7, 10);
+                // Бочка
+                const barrelGeo = new THREE.CylinderGeometry(0.45, 0.45, 0.8, 10);
                 const barrelMat = new THREE.MeshStandardMaterial({ color: 0xaa5533 });
                 mesh = new THREE.Mesh(barrelGeo, barrelMat);
                 mesh.position.y = 0;
             }
-            const xPos = (Math.random() - 0.5) * 4.2;
-            mesh.position.set(xPos, 0, 28);
+            const xPos = (Math.random() - 0.5) * 4.5;
+            mesh.position.set(xPos, 0, 32);
             mesh.castShadow = true;
             mesh.receiveShadow = true;
             scene.add(mesh);
-            obstacles.push({ mesh, x: xPos, z: 28 });
+            obstacles.push({ mesh, x: xPos, z: 32 });
         }
 
         function updateObstacles(deltaTime) {
-            const moveZ = -speed * deltaTime;
+            const moveZ = -currentSpeed * deltaTime;
             for (let i = 0; i < obstacles.length; i++) {
                 const obs = obstacles[i];
                 obs.z += moveZ;
                 obs.mesh.position.z = obs.z;
-                if (obs.z < -10) {
+                if (obs.z < -8) {
                     scene.remove(obs.mesh);
                     obstacles.splice(i, 1);
                     i--;
                     score++;
                     scoreDiv.innerText = `🏆 ${score}`;
                     playPointSound();
+                    // увеличиваем скорость каждые 10 очков
+                    currentSpeed = baseSpeed + Math.floor(score / 10) * 1.5;
                 } else {
                     const carX = currentX;
-                    if (Math.abs(carX - obs.x) < 0.7 && Math.abs(obs.z - 1.2) < 0.9) {
+                    if (Math.abs(carX - obs.x) < 0.85 && Math.abs(obs.z - 2.2) < 1.2) {
                         gameActive = false;
                         statusDiv.innerHTML = '💥 КРАШ! Игра окончена. Нажмите "Выход".';
                         playCrashSound();
+                        stopEngineSound();
                         if (currentMode === 'multi' && socket && socket.readyState === WebSocket.OPEN) {
                             socket.send(JSON.stringify({ type: 'crash', raceId, userId, score }));
                         }
@@ -519,6 +537,7 @@
         function startRace() {
             gameActive = true;
             score = 0;
+            currentSpeed = baseSpeed;
             scoreDiv.innerText = `🏆 0`;
             clearObstacles();
             currentX = 0;
@@ -526,11 +545,11 @@
             playerCar.position.x = 0;
             camera.position.x = 0;
             statusDiv.innerHTML = currentMode === 'single' ? '🚗 ОДИНОЧНАЯ! Уклоняйтесь!' : '🌐 МНОГОПОЛЬЗОВАТЕЛЬСКАЯ!';
-            initAudio();
+            startEngineSound();
             if (window.obstacleInterval) clearInterval(window.obstacleInterval);
             window.obstacleInterval = setInterval(() => {
-                if (gameActive && Math.random() < 0.45) spawnObstacle();
-            }, 700);
+                if (gameActive && Math.random() < 0.5) spawnObstacle();
+            }, 650);
         }
 
         // Одиночный режим
@@ -544,10 +563,10 @@
             exitBtn.classList.remove('hidden');
             musicControls.classList.remove('hidden');
             startRace();
-            startBackgroundMusic(); // запускаем песню
+            startBackgroundMusic();
         }
 
-        // Многопользовательский режим (сокращён для ясности)
+        // Многопользовательский режим (упрощённо, без изменений управления)
         function initMultiMode() {
             currentMode = 'multi';
             modeMenu.classList.add('hidden');
@@ -583,12 +602,12 @@
                         let opp = opponents.get(p.id);
                         if (!opp) {
                             const carGroup = new THREE.Group();
-                            const body2 = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.4, 1.8), new THREE.MeshStandardMaterial({ color: 0xdd6644 }));
+                            const body2 = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.45, 2.0), new THREE.MeshStandardMaterial({ color: 0xdd6644 }));
                             body2.castShadow = true;
                             carGroup.add(body2);
-                            const wheelGeo2 = new THREE.CylinderGeometry(0.25, 0.25, 0.1, 16);
+                            const wheelGeo2 = new THREE.CylinderGeometry(0.28, 0.28, 0.12, 16);
                             const wheelMat2 = new THREE.MeshStandardMaterial({ color: 0x111111 });
-                            const wPos = [[-0.6, -0.2, 0.7], [0.6, -0.2, 0.7], [-0.6, -0.2, -0.7], [0.6, -0.2, -0.7]];
+                            const wPos = [[-0.7, -0.2, 0.8], [0.7, -0.2, 0.8], [-0.7, -0.2, -0.8], [0.7, -0.2, -0.8]];
                             wPos.forEach(pos => {
                                 const wheel = new THREE.Mesh(wheelGeo2, wheelMat2);
                                 wheel.rotation.z = Math.PI / 2;
@@ -601,10 +620,11 @@
                         }
                         opp.x = p.x;
                         opp.mesh.position.x = p.x;
-                        opp.mesh.position.z = 1.8;
+                        opp.mesh.position.z = 2.0;
                     }
                 } else if (data.type === 'race_end') {
                     gameActive = false;
+                    stopEngineSound();
                     statusDiv.innerHTML = `🏁 ГОНКА ЗАВЕРШЕНА! Счёт: ${score}`;
                     if (window.obstacleInterval) clearInterval(window.obstacleInterval);
                 }
@@ -635,11 +655,12 @@
         exitBtn.addEventListener('click', () => {
             if (window.obstacleInterval) clearInterval(window.obstacleInterval);
             if (socket && socket.readyState === WebSocket.OPEN) socket.close();
+            stopEngineSound();
             if (backgroundMusic) backgroundMusic.pause();
             window.location.href = 'index.html';
         });
 
-        // Управление музыкой
+        // Музыка
         document.getElementById('musicFileInput').addEventListener('change', (e) => {
             if (e.target.files.length > 0) loadMusicFromFile(e.target.files[0]);
         });
@@ -656,11 +677,12 @@
             let dt = Math.min(0.033, (now - lastTime) / 1000);
             lastTime = now;
             if (gameActive) {
-                currentX += (targetX - currentX) * 0.2;
+                currentX += (targetX - currentX) * 0.25;
                 playerCar.position.x = currentX;
-                camera.position.x += (currentX - camera.position.x) * 0.1;
-                camera.lookAt(currentX, 0.5, 12);
+                camera.position.x += (currentX - camera.position.x) * 0.15;
+                camera.lookAt(currentX, 0.6, playerCar.position.z + 3);
                 updateObstacles(dt);
+                updateEngineSound(currentSpeed);
             }
             renderer.render(scene, camera);
             requestAnimationFrame(animate);
