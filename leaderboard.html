@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Лидерборд | Resell Tycoon</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+        body { background: radial-gradient(circle at 30% 10%, #0c1120, #020408); color: #ddd; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; }
+        .glass-card { background: rgba(20,30,45,0.7); backdrop-filter: blur(12px); border-radius: 48px; padding: 20px; margin-bottom: 20px; border: 1px solid rgba(0,255,255,0.3); }
+        h2 { font-size: 28px; background: linear-gradient(135deg, #ffcc44, #ff6644); background-clip: text; -webkit-background-clip: text; color: transparent; margin-bottom: 15px; }
+        .leaderboard-entry { display: flex; justify-content: space-between; padding: 12px; border-bottom: 1px solid #2a3e55; }
+        .rank { font-weight: bold; width: 50px; }
+        .name { flex: 1; }
+        .value { color: #ffaa44; }
+        button { background: #2ecc71; border: none; padding: 8px 18px; border-radius: 40px; font-weight: bold; cursor: pointer; margin-right: 10px; }
+        .back-btn { background: #555; width: 100%; margin-top: 15px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="glass-card">
+        <h2>🏆 ЛИДЕРБОРД</h2>
+        <div>
+            <button onclick="loadLeaderboard('wealth')">💰 ПО БОГАТСТВУ</button>
+            <button onclick="loadLeaderboard('sales')">📦 ПО ПРОДАЖАМ</button>
+        </div>
+        <div id="leaderboardList">Загрузка...</div>
+    </div>
+    <button class="back-btn" onclick="window.location.href='index.html'">🔙 На главную</button>
+</div>
+
+<script>
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+    tg.ready();
+
+    const API_BASE = "https://nl12.bothost.ru";
+    const USE_REAL_API = false;
+    const userId = tg.initDataUnsafe?.user?.id || 1475910449;
+
+    let currentMode = 'wealth';
+
+    const mockWealth = [
+        { nickname: "Король", wealth: 12500000 },
+        { nickname: "Барыга", wealth: 5600000 },
+        { nickname: "Торгаш", wealth: 2100000 }
+    ];
+    const mockSales = [
+        { nickname: "Продавец", sales: 342 },
+        { nickname: "Торгаш", sales: 128 },
+        { nickname: "Барыга", sales: 97 }
+    ];
+
+    async function fetchAPI(endpoint) {
+        if (!USE_REAL_API) return null;
+        try {
+            const resp = await fetch(`${API_BASE}${endpoint}&tg_id=${userId}`);
+            if (!resp.ok) throw new Error();
+            return await resp.json();
+        } catch(e) { return null; }
+    }
+
+    async function loadLeaderboard(mode) {
+        currentMode = mode;
+        if (!USE_REAL_API) {
+            const data = mode === 'wealth' ? mockWealth : mockSales;
+            renderLeaderboard(data, mode);
+            return;
+        }
+        const endpoint = mode === 'wealth' ? '/api/leaderboard/wealth' : '/api/leaderboard/sales';
+        const data = await fetchAPI(endpoint);
+        if (data && data.leaderboard) renderLeaderboard(data.leaderboard, mode);
+        else renderLeaderboard([], mode);
+    }
+
+    function renderLeaderboard(data, mode) {
+        const container = document.getElementById('leaderboardList');
+        if (!data.length) { container.innerHTML = "<div>Нет данных</div>"; return; }
+        let html = '';
+        data.forEach((item, idx) => {
+            const rank = idx+1;
+            const medal = rank === 1 ? "🥇 " : (rank === 2 ? "🥈 " : (rank === 3 ? "🥉 " : ""));
+            const value = mode === 'wealth' ? `${item.wealth?.toLocaleString()}₽` : `${item.sales} продаж`;
+            html += `
+                <div class="leaderboard-entry">
+                    <div class="rank">${medal}${rank}</div>
+                    <div class="name">${item.nickname}</div>
+                    <div class="value">${value}</div>
+                </div>
+            `;
+        });
+        container.innerHTML = html;
+    }
+
+    loadLeaderboard('wealth');
+</script>
+</body>
+</html>
