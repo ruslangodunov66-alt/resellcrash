@@ -6,7 +6,7 @@
     <title>Автомобили | Resell Tycoon</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; font-family: system-ui, 'Segoe UI', sans-serif; }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', system-ui, sans-serif; }
         body {
             background: radial-gradient(circle at 30% 10%, #0c1120, #020408);
             color: #ddd;
@@ -14,52 +14,50 @@
             min-height: 100vh;
         }
         .container { max-width: 600px; margin: 0 auto; }
-        .card {
-            background: rgba(12,20,35,0.8);
+        .glass-card {
+            background: rgba(20,30,45,0.7);
             backdrop-filter: blur(12px);
-            border-radius: 32px;
+            border-radius: 48px;
             padding: 20px;
             margin-bottom: 20px;
             border: 1px solid rgba(0,255,255,0.3);
+            transition: transform 0.2s;
         }
         h2 { font-size: 28px; margin-bottom: 15px; background: linear-gradient(135deg, #ffcc44, #ff6644); background-clip: text; -webkit-background-clip: text; color: transparent; }
-        .balance { font-size: 18px; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 30px; margin-bottom: 20px; text-align: center; }
-        .filter-bar {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-            justify-content: center;
-        }
+        .balance { font-size: 18px; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 40px; text-align: center; margin-bottom: 20px; }
+        .filter-bar { display: flex; gap: 12px; justify-content: center; margin-bottom: 20px; flex-wrap: wrap; }
         .filter-btn {
             background: #1e2a3a;
             border: none;
-            padding: 6px 16px;
-            border-radius: 30px;
+            padding: 6px 20px;
+            border-radius: 40px;
             color: #c0e0ff;
             cursor: pointer;
-            transition: 0.1s;
+            transition: 0.2s;
         }
-        .filter-btn.active {
-            background: #ffaa44;
-            color: #0a0f1a;
-            font-weight: bold;
-        }
-        .car-item {
-            background: rgba(0,0,0,0.5);
-            border-radius: 24px;
-            padding: 15px;
-            margin-bottom: 15px;
+        .filter-btn.active { background: #ffaa44; color: #0a0f1a; font-weight: bold; }
+        .car-card {
+            background: rgba(0,0,0,0.55);
+            border-radius: 32px;
+            padding: 16px;
+            margin-bottom: 18px;
             display: flex;
             gap: 15px;
             align-items: center;
             flex-wrap: wrap;
+            transition: transform 0.25s ease, box-shadow 0.25s;
+            transform-style: preserve-3d;
+        }
+        .car-card:hover {
+            transform: translateY(-6px) rotateX(2deg);
+            box-shadow: 0 20px 25px -12px rgba(0,0,0,0.5);
+            border-color: rgba(0,255,255,0.6);
         }
         .car-image img {
-            width: 80px;
-            height: 80px;
+            width: 90px;
+            height: 90px;
             object-fit: cover;
-            border-radius: 20px;
+            border-radius: 28px;
             border: 1px solid rgba(0,255,255,0.5);
         }
         .car-info { flex: 1; }
@@ -69,27 +67,22 @@
         button {
             background: #2ecc71;
             border: none;
-            padding: 8px 16px;
+            padding: 8px 18px;
             border-radius: 40px;
             font-weight: bold;
             cursor: pointer;
             transition: 0.1s;
         }
-        button.secondary { background: #3498db; }
-        .owned { background: #1e5631; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; display: inline-block; margin-top: 5px; }
+        button:active { transform: scale(0.95); }
+        .owned { background: #1e5631; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; display: inline-block; }
         .current { background: #f39c12; }
-        .loading { text-align: center; padding: 40px; }
-        .back-btn {
-            background: #555;
-            margin-top: 20px;
-            width: 100%;
-        }
+        .back-btn { background: #555; width: 100%; margin-top: 10px; }
     </style>
 </head>
 <body>
 <div class="container">
-    <div class="card">
-        <h2>🚗 Автосалон и гараж</h2>
+    <div class="glass-card">
+        <h2>🚗 Автосалон</h2>
         <div class="balance" id="balance">💰 Баланс: загрузка...</div>
         <div class="filter-bar">
             <button class="filter-btn active" data-cat="all">Все</button>
@@ -98,9 +91,7 @@
             <button class="filter-btn" data-cat="luxury">🏎 Люкс</button>
         </div>
     </div>
-    <div class="card" id="carsList">
-        <div class="loading">Загрузка автомобилей...</div>
-    </div>
+    <div class="glass-card" id="carsList">Загрузка...</div>
     <button class="back-btn" onclick="window.location.href='index.html'">🔙 На главную</button>
 </div>
 
@@ -109,123 +100,94 @@
     tg.expand();
     tg.ready();
 
-    // ========= НАСТРОЙКИ =========
-    // Адрес API – пока оставляем старый, но если домен заработает, смените на https://api.resgame.ru
     const API_BASE = "https://nl12.bothost.ru";
-    const USE_REAL_API = false;  // пока false, используем полные мок-данные (все машины из CARS)
-    // =============================
-
+    const USE_REAL_API = false;
     const userId = tg.initDataUnsafe?.user?.id || 1475910449;
-    let currentFilter = "all";
+
     let balance = 0;
-    let allCars = [];      // полный список машин
-    let myCarsIds = [];    // id машин, которые есть у игрока
+    let allCars = [];
+    let myCarsIds = [];
     let currentCarId = null;
+    let currentFilter = "all";
 
-    // ---------- МОК-ДАННЫЕ (полный список из CARS вашего бота) ----------
     const mockCars = [
-        {"id": "zhiguli", "name": "🚗 ВАЗ-2106 Жигули", "price": 15000, "speed_bonus": 10, "income_per_hour": 50, "rarity": "обычный", "category": "economy", "image_url": "AgACAgIAAxkBAAIKH2n7eaZvhsyGLQOFcU8fmz7BKgWhAAIkGGsbH9_QS0gOkG0ns94lAQADAgADeQADOwQ"},
-        {"id": "granta", "name": "🚙 Лада Гранта", "price": 35000, "speed_bonus": 15, "income_per_hour": 120, "rarity": "обычный", "category": "economy", "image_url": "AgACAgIAAxkBAAIKJWn7e2SPU9Y3sbCRzOFO9-nf5Dw5AAIlGGsbH9_QSzJxHsxEUqGUAQADAgADeQADOwQ"},
-        {"id": "cclass", "name": "🚘 Mercedes C-Class 2014", "price": 160000, "speed_bonus": 35, "income_per_hour": 600, "rarity": "эпический", "category": "medium", "image_url": "AgACAgIAAxkBAAIKLWn7e3QVhA8tYDpJPzpERwRtMdF3AAIpGGsbH9_QS4t1p3Bhq0TwAQADAgADeQADOwQ"},
-        {"id": "mustang", "name": "🏎 Ford Mustang Кабриолет", "price": 120000, "speed_bonus": 30, "income_per_hour": 450, "rarity": "редкий", "category": "medium", "image_url": "AgACAgIAAxkBAAIKK2n7e3Ce7ti-KAq0As2CCsNvasMbAAIoGGsbH9_QS6URKdMbGfwQAQADAgADeQADOwQ"},
-        {"id": "w140", "name": "🚘 Mercedes W140", "price": 90000, "speed_bonus": 28, "income_per_hour": 350, "rarity": "редкий", "category": "medium", "image_url": "AgACAgIAAxkBAAIKJ2n7e2jABfB9rbxFh3g5wJsAAUj0CgACJhhrGx_f0Eto1dm5lBmv_AEAAwIAA3kAAzsE"},
-        {"id": "bmwm4", "name": "🏎 BMW M4", "price": 180000, "speed_bonus": 45, "income_per_hour": 700, "rarity": "эпический", "category": "medium", "image_url": "AgACAgIAAxkBAAIKKWn7e2wl9oHh_U4ygjOmTNZ-nAmfAAInGGsbH9_QS07bjw42tsNqAQADAgADeQADOwQ"},
-        {"id": "challenger", "name": "🏎 Dodge Challenger", "price": 300000, "speed_bonus": 55, "income_per_hour": 1200, "rarity": "легендарный", "category": "medium", "image_url": "AgACAgIAAxkBAAIKNWn7e5kR4aOlGwVlwdhsbw5fvc_CAAItGGsbH9_QS6hSbI8YfnInAQADAgADeQADOwQ"},
-        {"id": "ramtrx", "name": "🛻 Dodge Ram TRX", "price": 350000, "speed_bonus": 60, "income_per_hour": 1400, "rarity": "легендарный", "category": "medium", "image_url": "AgACAgIAAxkBAAIKM2n7e5NrhSVVTc2wUcRsOaBUHDoKAAIsGGsbH9_QS7sNrOC98FMGAQADAgADeQADOwQ"},
-        {"id": "bmwm5", "name": "🏎 BMW M5 F90", "price": 450000, "speed_bonus": 70, "income_per_hour": 1800, "rarity": "легендарный", "category": "medium", "image_url": "AgACAgIAAxkBAAIKL2n7e3dRS58kxBJIwMbQyfhgSbXHAAIqGGsbH9_QS4JTxjSqqMS3AQADAgADeQADOwQ"},
-        {"id": "sclass", "name": "🚘 Mercedes S-Class", "price": 650000, "speed_bonus": 75, "income_per_hour": 2600, "rarity": "легендарный", "category": "luxury", "image_url": "AgACAgIAAxkBAAIKMWn7e46bcc2IvFRWXnL99PAMfahNAAIrGGsbH9_QS8WFReLP1qWmAQADAgADeQADOwQ"},
-        {"id": "bmwx7", "name": "🚙 BMW X7", "price": 850000, "speed_bonus": 70, "income_per_hour": 3400, "rarity": "легендарный", "category": "luxury", "image_url": "AgACAgIAAxkBAAIKOWn7e6XgOfa0orm4ZHTXA7BEWqDoAAIvGGsbH9_QS633taC4w8RrAQADAgADeQADOwQ"},
-        {"id": "rollsroyce", "name": "👑 Rolls-Royce Phantom", "price": 1800000, "speed_bonus": 95, "income_per_hour": 7200, "rarity": "мифический", "category": "luxury", "image_url": "AgACAgIAAxkBAAIKN2n7e6AqWY0zFZGO2P9f4hsCdk8bAAIuGGsbH9_QSzUrOdo8uXGlAQADAgADeQADOwQ"},
-        {"id": "aventador", "name": "🏎 Lamborghini Aventador", "price": 5000000, "speed_bonus": 98, "income_per_hour": 20000, "rarity": "мифический", "category": "luxury", "image_url": "AgACAgIAAxkBAAIKPGn7f2Rs5K3TIz7TUtspqjTQ5WweAAJaE2sbhKXhSz4-e1I_GY--AQADAgADeQADOwQ"},
-        {"id": "brabus", "name": "👑 Brabus Mansory", "price": 20000000, "speed_bonus": 99, "income_per_hour": 80000, "rarity": "мифический", "category": "luxury", "image_url": "AgACAgIAAxkBAAIKPmn7f3zPq6X1RER7yHfJKjbkukAgAAJbE2sbhKXhS9npCM9WIdMXAQADAgADeQADOwQ"}
+        {"id": "zhiguli", "name": "🚗 ВАЗ-2106 Жигули", "price": 15000, "speed_bonus": 10, "income_per_hour": 50, "category": "economy", "image_url": "AgACAgIAAxkBAAIKH2n7eaZvhsyGLQOFcU8fmz7BKgWhAAIkGGsbH9_QS0gOkG0ns94lAQADAgADeQADOwQ"},
+        {"id": "granta", "name": "🚙 Лада Гранта", "price": 35000, "speed_bonus": 15, "income_per_hour": 120, "category": "economy", "image_url": "AgACAgIAAxkBAAIKJWn7e2SPU9Y3sbCRzOFO9-nf5Dw5AAIlGGsbH9_QSzJxHsxEUqGUAQADAgADeQADOwQ"},
+        {"id": "cclass", "name": "🚘 Mercedes C-Class 2014", "price": 160000, "speed_bonus": 35, "income_per_hour": 600, "category": "medium", "image_url": "AgACAgIAAxkBAAIKLWn7e3QVhA8tYDpJPzpERwRtMdF3AAIpGGsbH9_QS4t1p3Bhq0TwAQADAgADeQADOwQ"},
+        {"id": "mustang", "name": "🏎 Ford Mustang", "price": 120000, "speed_bonus": 30, "income_per_hour": 450, "category": "medium", "image_url": "AgACAgIAAxkBAAIKK2n7e3Ce7ti-KAq0As2CCsNvasMbAAIoGGsbH9_QS6URKdMbGfwQAQADAgADeQADOwQ"},
+        {"id": "w140", "name": "🚘 Mercedes W140", "price": 90000, "speed_bonus": 28, "income_per_hour": 350, "category": "medium", "image_url": "AgACAgIAAxkBAAIKJ2n7e2jABfB9rbxFh3g5wJsAAUj0CgACJhhrGx_f0Eto1dm5lBmv_AEAAwIAA3kAAzsE"},
+        {"id": "bmwm4", "name": "🏎 BMW M4", "price": 180000, "speed_bonus": 45, "income_per_hour": 700, "category": "medium", "image_url": "AgACAgIAAxkBAAIKKWn7e2wl9oHh_U4ygjOmTNZ-nAmfAAInGGsbH9_QS07bjw42tsNqAQADAgADeQADOwQ"},
+        {"id": "challenger", "name": "🏎 Dodge Challenger", "price": 300000, "speed_bonus": 55, "income_per_hour": 1200, "category": "medium", "image_url": "AgACAgIAAxkBAAIKNWn7e5kR4aOlGwVlwdhsbw5fvc_CAAItGGsbH9_QS6hSbI8YfnInAQADAgADeQADOwQ"},
+        {"id": "ramtrx", "name": "🛻 Dodge Ram TRX", "price": 350000, "speed_bonus": 60, "income_per_hour": 1400, "category": "medium", "image_url": "AgACAgIAAxkBAAIKM2n7e5NrhSVVTc2wUcRsOaBUHDoKAAIsGGsbH9_QS7sNrOC98FMGAQADAgADeQADOwQ"},
+        {"id": "bmwm5", "name": "🏎 BMW M5 F90", "price": 450000, "speed_bonus": 70, "income_per_hour": 1800, "category": "medium", "image_url": "AgACAgIAAxkBAAIKL2n7e3dRS58kxBJIwMbQyfhgSbXHAAIqGGsbH9_QS4JTxjSqqMS3AQADAgADeQADOwQ"},
+        {"id": "sclass", "name": "🚘 Mercedes S-Class", "price": 650000, "speed_bonus": 75, "income_per_hour": 2600, "category": "luxury", "image_url": "AgACAgIAAxkBAAIKMWn7e46bcc2IvFRWXnL99PAMfahNAAIrGGsbH9_QS8WFReLP1qWmAQADAgADeQADOwQ"},
+        {"id": "bmwx7", "name": "🚙 BMW X7", "price": 850000, "speed_bonus": 70, "income_per_hour": 3400, "category": "luxury", "image_url": "AgACAgIAAxkBAAIKOWn7e6XgOfa0orm4ZHTXA7BEWqDoAAIvGGsbH9_QS633taC4w8RrAQADAgADeQADOwQ"},
+        {"id": "rollsroyce", "name": "👑 Rolls-Royce Phantom", "price": 1800000, "speed_bonus": 95, "income_per_hour": 7200, "category": "luxury", "image_url": "AgACAgIAAxkBAAIKN2n7e6AqWY0zFZGO2P9f4hsCdk8bAAIuGGsbH9_QSzUrOdo8uXGlAQADAgADeQADOwQ"},
+        {"id": "aventador", "name": "🏎 Lamborghini Aventador", "price": 5000000, "speed_bonus": 98, "income_per_hour": 20000, "category": "luxury", "image_url": "AgACAgIAAxkBAAIKPGn7f2Rs5K3TIz7TUtspqjTQ5WweAAJaE2sbhKXhSz4-e1I_GY--AQADAgADeQADOwQ"},
+        {"id": "brabus", "name": "👑 Brabus Mansory", "price": 20000000, "speed_bonus": 99, "income_per_hour": 80000, "category": "luxury", "image_url": "AgACAgIAAxkBAAIKPmn7f3zPq6X1RER7yHfJKjbkukAgAAJbE2sbhKXhS9npCM9WIdMXAQADAgADeQADOwQ"}
     ];
+    const mockMyCars = [{ id: "zhiguli", is_current: true }];
 
-    // мок-коллекция игрока (для примера – куплена только Жигули)
-    let mockMyCars = [{ id: "zhiguli", is_current: true }];
-
-    async function fetchAPI(endpoint, method = 'GET', body = null) {
+    async function fetchAPI(endpoint) {
         if (!USE_REAL_API) return null;
-        const url = `${API_BASE}${endpoint}&tg_id=${userId}`;
-        const options = { method, headers: { 'Content-Type': 'application/json' } };
-        if (body) options.body = JSON.stringify(body);
         try {
-            const resp = await fetch(url);
-            if (!resp.ok) throw new Error(await resp.text());
+            const resp = await fetch(`${API_BASE}${endpoint}&tg_id=${userId}`);
+            if (!resp.ok) throw new Error();
             return await resp.json();
-        } catch (e) {
-            console.warn("API недоступно, используем мок-данные", e);
-            return null;
-        }
+        } catch(e) { return null; }
     }
 
     async function loadBalance() {
-        if (!USE_REAL_API) {
-            balance = 150000; // тестовый баланс
-            document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`;
-            return;
-        }
+        if (!USE_REAL_API) { balance = 1500000; document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`; return; }
         const data = await fetchAPI(`/api/me`);
-        if (data) balance = data.balance;
-        else balance = 150000;
+        balance = data?.balance || 0;
         document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`;
     }
 
     async function loadCars() {
         if (!USE_REAL_API) {
             allCars = mockCars;
-            // коллекция игрока – из мока
             myCarsIds = mockMyCars.map(c => c.id);
             currentCarId = mockMyCars.find(c => c.is_current)?.id || null;
             renderCars();
             return;
         }
-        // реальные запросы
         const carsResp = await fetch(`${API_BASE}/api/cars`);
         allCars = await carsResp.json();
         const collection = await fetchAPI(`/api/car_collection`);
-        if (collection) {
-            myCarsIds = collection.cars.map(c => c.id);
-            currentCarId = collection.cars.find(c => c.is_current)?.id || null;
-        } else {
-            myCarsIds = [];
-            currentCarId = null;
-        }
+        myCarsIds = collection?.cars?.map(c => c.id) || [];
+        currentCarId = collection?.cars?.find(c => c.is_current)?.id || null;
         renderCars();
     }
 
     async function buyCar(carId, price) {
-        if (balance < price) {
-            tg.showAlert(`❌ Не хватает денег! Нужно ${price.toLocaleString()}₽`);
-            return;
-        }
+        if (balance < price) { tg.showAlert(`❌ Не хватает ${price.toLocaleString()}₽`); return; }
         if (!USE_REAL_API) {
-            // мок-покупка
             myCarsIds.push(carId);
             balance -= price;
             document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`;
-            tg.showAlert(`✅ (МОК) ${allCars.find(c=>c.id===carId).name} куплена!`);
+            tg.showAlert(`✅ (МОК) Автомобиль куплен!`);
             renderCars();
             return;
         }
-        const result = await fetchAPI(`/api/buy_car&car_id=${carId}`, 'POST', { car_id: carId });
-        if (result.balance !== undefined) {
-            balance = result.balance;
+        const res = await fetch(`${API_BASE}/api/buy_car?tg_id=${userId}&car_id=${carId}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.balance !== undefined) {
+            balance = data.balance;
             document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`;
-            tg.showAlert(`✅ Машина куплена! Баланс: ${result.balance.toLocaleString()}₽`);
+            tg.showAlert(data.message);
             await loadCars();
-        } else {
-            tg.showAlert(`❌ Ошибка: ${result.message}`);
-        }
+        } else tg.showAlert(`❌ ${data.message}`);
     }
 
     async function setCurrentCar(carId) {
         if (!USE_REAL_API) {
             currentCarId = carId;
-            tg.showAlert(`✅ (МОК) Текущая машина изменена`);
+            tg.showAlert(`✅ (МОК) Машина изменена`);
             renderCars();
             return;
         }
-        await fetchAPI(`/api/set_current_car&car_id=${carId}`, 'POST', { car_id: carId });
+        await fetch(`${API_BASE}/api/set_current_car?tg_id=${userId}&car_id=${carId}`, { method: 'POST' });
         tg.showAlert(`✅ Текущая машина изменена`);
         await loadCars();
     }
@@ -233,30 +195,25 @@
     function renderCars() {
         const container = document.getElementById('carsList');
         let filtered = currentFilter === "all" ? allCars : allCars.filter(c => c.category === currentFilter);
-        if (!filtered.length) {
-            container.innerHTML = '<div class="loading">Нет автомобилей в этой категории</div>';
-            return;
-        }
-        let html = '<h2>🏎 Доступные автомобили</h2>';
+        if (!filtered.length) { container.innerHTML = '<div class="loading">Нет машин</div>'; return; }
+        let html = '';
         for (let car of filtered) {
             const owned = myCarsIds.includes(car.id);
             const isCurrent = (currentCarId === car.id);
             const imageUrl = car.image_url ? `${API_BASE}/api/image/${car.image_url}` : '';
             html += `
-                <div class="car-item">
-                    <div class="car-image">
-                        ${imageUrl ? `<img src="${imageUrl}" alt="${car.name}" loading="lazy" onerror="this.style.display='none'">` : '<div style="width:80px;height:80px;background:#333;border-radius:20px;"></div>'}
-                    </div>
+                <div class="car-card">
+                    <div class="car-image">${imageUrl ? `<img src="${imageUrl}" onerror="this.style.display='none'">` : '<div style="width:90px;height:90px;background:#333;border-radius:28px;"></div>'}</div>
                     <div class="car-info">
                         <div class="car-name">${car.name}</div>
                         <div class="car-price">💰 ${car.price.toLocaleString()}₽</div>
-                        <div class="car-income">⚡ +${car.speed_bonus}% к гонкам | 💰 +${car.income_per_hour}₽/час</div>
+                        <div class="car-income">⚡ +${car.speed_bonus}% | 💰 +${car.income_per_hour}₽/ч</div>
                         ${owned ? '<span class="owned">✅ В гараже</span>' : ''}
                         ${isCurrent ? '<span class="owned current">🚗 ТЕКУЩАЯ</span>' : ''}
                     </div>
                     <div>
                         ${!owned ? `<button onclick="buyCar('${car.id}', ${car.price})">🛒 Купить</button>` : ''}
-                        ${owned && !isCurrent ? `<button class="secondary" onclick="setCurrentCar('${car.id}')">🚗 Сделать текущей</button>` : ''}
+                        ${owned && !isCurrent ? `<button style="background:#3498db;" onclick="setCurrentCar('${car.id}')">🚗 Сделать текущей</button>` : ''}
                     </div>
                 </div>
             `;
@@ -264,7 +221,6 @@
         container.innerHTML = html;
     }
 
-    // Фильтрация
     document.querySelectorAll('.filter-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
