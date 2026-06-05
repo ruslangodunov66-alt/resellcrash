@@ -6,11 +6,49 @@
     <title>3D Гонки | Resell Tycoon</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', system-ui; }
-        #info {
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', system-ui;
+        }
+        /* Меню выбора режима */
+        #mode-menu {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.85);
+            backdrop-filter: blur(10px);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            gap: 30px;
+        }
+        .mode-btn {
+            background: linear-gradient(145deg, #2a3a55, #101826);
+            border: 2px solid #ffaa44;
+            border-radius: 60px;
+            padding: 16px 40px;
+            font-size: 24px;
+            font-weight: bold;
+            color: #ffdd99;
+            cursor: pointer;
+            transition: 0.2s;
+            width: 260px;
+            text-align: center;
+        }
+        .mode-btn:hover {
+            transform: scale(1.05);
+            background: #ffaa44;
+            color: #0a0f1a;
+            border-color: white;
+        }
+        #info, #score {
             position: absolute;
             top: 20px;
-            left: 20px;
             background: rgba(0,0,0,0.6);
             padding: 8px 16px;
             border-radius: 20px;
@@ -19,18 +57,8 @@
             pointer-events: none;
             backdrop-filter: blur(4px);
         }
-        #score {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            background: rgba(0,0,0,0.6);
-            padding: 8px 16px;
-            border-radius: 20px;
-            color: #ffaa44;
-            font-weight: bold;
-            z-index: 10;
-            pointer-events: none;
-        }
+        #info { left: 20px; }
+        #score { right: 20px; color: #ffaa44; font-weight: bold; }
         #controls {
             position: absolute;
             bottom: 30px;
@@ -90,17 +118,25 @@
             z-index: 20;
             font-weight: bold;
         }
+        .hidden {
+            display: none !important;
+        }
     </style>
 </head>
 <body>
-    <div id="info">🏎️ 3D RACE</div>
-    <div id="score">🏆 0</div>
-    <div id="controls">
+    <div id="mode-menu">
+        <div class="mode-btn" id="singleplayer-btn">🚗 ОДИНОЧНАЯ (ИИ)</div>
+        <div class="mode-btn" id="multiplayer-btn">🌐 МНОГОПОЛЬЗОВАТЕЛЬСКАЯ</div>
+    </div>
+
+    <div id="info" class="hidden">🏎️ 3D RACE</div>
+    <div id="score" class="hidden">🏆 0</div>
+    <div id="controls" class="hidden">
         <div class="ctrl-btn" id="btnLeft">◀</div>
         <div class="ctrl-btn" id="btnRight">▶</div>
     </div>
-    <div id="status">⚡ Подключение к серверу...</div>
-    <button class="back-btn" onclick="location.href='index.html'">🔙 Выход</button>
+    <div id="status" class="hidden">⚡ Игра загружается...</div>
+    <button class="back-btn hidden" id="exitBtn">🔙 Выход</button>
 
     <script type="importmap">
         {
@@ -117,14 +153,23 @@
         tg.expand();
         tg.ready();
 
-        // ---------- НАСТРОЙКИ ----------
-        const userId = tg.initDataUnsafe?.user?.id || Math.floor(Math.random() * 100000);
-        let socket;
-        let raceId = null;
+        // ---------- ОБЩИЕ ПАРАМЕТРЫ ----------
         let gameActive = false;
         let score = 0;
+        let currentMode = null; // 'single' или 'multi'
+        let socket = null;
+        let raceId = null;
+        let userId = tg.initDataUnsafe?.user?.id || Math.floor(Math.random() * 100000);
+        
+        // Элементы DOM
+        const modeMenu = document.getElementById('mode-menu');
+        const infoDiv = document.getElementById('info');
+        const scoreDiv = document.getElementById('score');
+        const controlsDiv = document.getElementById('controls');
+        const statusDiv = document.getElementById('status');
+        const exitBtn = document.getElementById('exitBtn');
 
-        // ----- ТРЁХМЕРНАЯ СЦЕНА -----
+        // ----- ТРЁХМЕРНАЯ СЦЕНА (общая для обоих режимов) -----
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x0a1030);
         scene.fog = new THREE.FogExp2(0x0a1030, 0.008);
@@ -149,7 +194,7 @@
         fillLight.position.set(-2, 3, 4);
         scene.add(fillLight);
 
-        // Дорога – простая полоса
+        // Дорога
         const roadMat = new THREE.MeshStandardMaterial({ color: 0x2c3e50, roughness: 0.7 });
         const road = new THREE.Mesh(new THREE.PlaneGeometry(6, 200), roadMat);
         road.rotation.x = -Math.PI / 2;
@@ -157,7 +202,7 @@
         road.receiveShadow = true;
         scene.add(road);
 
-        // Разметка (полосы)
+        // Разметка
         const lineMat = new THREE.MeshStandardMaterial({ color: 0xffaa44 });
         for (let z = -50; z <= 50; z += 2) {
             const line = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.1, 1.5), lineMat);
@@ -166,13 +211,12 @@
             scene.add(line);
         }
 
-        // Модель игрока (куб с колесами)
+        // Модель игрока
         const playerCar = new THREE.Group();
         const bodyGeo = new THREE.BoxGeometry(0.9, 0.4, 1.8);
         const bodyMat = new THREE.MeshStandardMaterial({ color: 0x33aa44, metalness: 0.6 });
         const body = new THREE.Mesh(bodyGeo, bodyMat);
         body.castShadow = true;
-        body.receiveShadow = true;
         playerCar.add(body);
         const wheelGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.1, 16);
         const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
@@ -188,27 +232,17 @@
         playerCar.position.y = 0;
         playerCar.position.x = 0;
 
-        // Машины соперников (будем добавлять/удалять)
-        const opponents = new Map(); // key: playerId, value: { mesh, x, z }
-
-        // Препятствия (динамические)
+        // Препятствия и соперники (общие)
         let obstacles = [];
+        let opponents = new Map(); // для мультиплеера
 
-        // --- УПРАВЛЕНИЕ ---
+        // Управление
         let targetX = 0;
         let currentX = 0;
-        const speed = 8; // скорость движения камеры (условно)
-        let lastTimestamp = 0;
+        const speed = 8;
 
         function moveLeft() { targetX = Math.max(-2.5, targetX - 1.2); }
         function moveRight() { targetX = Math.min(2.5, targetX + 1.2); }
-
-        document.getElementById('btnLeft').addEventListener('click', moveLeft);
-        document.getElementById('btnRight').addEventListener('click', moveRight);
-        window.addEventListener('keydown', (e) => {
-            if (e.key === 'ArrowLeft') moveLeft();
-            if (e.key === 'ArrowRight') moveRight();
-        });
 
         // Генерация препятствий
         function spawnObstacle() {
@@ -232,7 +266,6 @@
             obstacles.push({ mesh, x: xPos, z: 25 });
         }
 
-        // Обновление препятствий (движение к игроку)
         function updateObstacles(deltaTime) {
             const moveZ = -speed * deltaTime;
             for (let i = 0; i < obstacles.length; i++) {
@@ -244,14 +277,13 @@
                     obstacles.splice(i, 1);
                     i--;
                     score++;
-                    document.getElementById('score').innerText = `🏆 ${score}`;
+                    scoreDiv.innerText = `🏆 ${score}`;
                 } else {
-                    // проверка столкновения с игроком
                     const carX = currentX;
                     if (Math.abs(carX - obs.x) < 0.7 && Math.abs(obs.z - 1.5) < 1.0) {
                         gameActive = false;
-                        document.getElementById('status').innerHTML = '💥 КРАШ! Игра окончена. Обновите страницу для новой гонки.';
-                        if (socket && socket.readyState === WebSocket.OPEN) {
+                        statusDiv.innerHTML = '💥 КРАШ! Игра окончена. Нажмите "Выход", чтобы выбрать режим.';
+                        if (currentMode === 'multi' && socket && socket.readyState === WebSocket.OPEN) {
                             socket.send(JSON.stringify({ type: 'crash', raceId, userId, score }));
                         }
                     }
@@ -259,104 +291,163 @@
             }
         }
 
-        // Синхронизация соперников через WebSocket
-        function updateOpponents(playersData) {
-            // playersData: массив { id, x }
-            for (let [id, data] of opponents) {
-                if (!playersData.find(p => p.id == id)) {
-                    scene.remove(data.mesh);
-                    opponents.delete(id);
-                }
+        // Очистка препятствий
+        function clearObstacles() {
+            for (let obs of obstacles) {
+                scene.remove(obs.mesh);
             }
-            for (let p of playersData) {
-                if (p.id == userId) continue;
-                let opp = opponents.get(p.id);
-                if (!opp) {
-                    const carGroup = new THREE.Group();
-                    const body2 = new THREE.Mesh(bodyGeo, new THREE.MeshStandardMaterial({ color: 0xdd6644 }));
-                    body2.castShadow = true;
-                    carGroup.add(body2);
-                    positions.forEach(pos => {
-                        const wheel = new THREE.Mesh(wheelGeo, wheelMat);
-                        wheel.rotation.z = Math.PI / 2;
-                        wheel.position.set(pos[0], pos[1], pos[2]);
-                        carGroup.add(wheel);
-                    });
-                    scene.add(carGroup);
-                    opp = { mesh: carGroup, x: 0 };
-                    opponents.set(p.id, opp);
-                }
-                opp.x = p.x;
-                opp.mesh.position.x = p.x;
-                opp.mesh.position.z = 1.5;
-            }
+            obstacles = [];
         }
 
-        // ========== WEBSOCKET ==========
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${wsProtocol}//${window.location.host}/ws/race`;
-        socket = new WebSocket(wsUrl);
+        // Перезапуск игры (начало новой гонки)
+        function startRace() {
+            gameActive = true;
+            score = 0;
+            scoreDiv.innerText = `🏆 0`;
+            clearObstacles();
+            currentX = 0;
+            targetX = 0;
+            playerCar.position.x = 0;
+            statusDiv.innerHTML = currentMode === 'single' ? '🚗 ОДИНОЧНАЯ ГОНКА! Уклоняйтесь!' : '🌐 МНОГОПОЛЬЗОВАТЕЛЬСКАЯ ГОНКА!';
+            // Генерация препятствий с интервалом
+            if (window.obstacleInterval) clearInterval(window.obstacleInterval);
+            window.obstacleInterval = setInterval(() => {
+                if (gameActive && Math.random() < 0.4) spawnObstacle();
+            }, 800);
+        }
 
-        socket.onopen = () => {
-            document.getElementById('status').innerHTML = '✅ Подключено. Ищем гонку...';
-            socket.send(JSON.stringify({ type: 'join', userId }));
-        };
+        // ========== ОДИНОЧНЫЙ РЕЖИМ (против ИИ) ==========
+        // ИИ-машина: просто стоит на месте или имитирует движение? Сделаем для простоты соревнование по очкам.
+        // В одиночном режиме ИИ не рисуем, просто уклоняемся. Можно добавить простую машину соперника, но для упрощения – только игрок.
+        function initSingleMode() {
+            currentMode = 'single';
+            modeMenu.classList.add('hidden');
+            infoDiv.classList.remove('hidden');
+            scoreDiv.classList.remove('hidden');
+            controlsDiv.classList.remove('hidden');
+            statusDiv.classList.remove('hidden');
+            exitBtn.classList.remove('hidden');
+            startRace();
+        }
 
-        socket.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            if (data.type === 'race_start') {
-                raceId = data.raceId;
-                gameActive = true;
-                document.getElementById('status').innerHTML = '🏁 ГОНКА НАЧАЛАСЬ! Уклоняйтесь!';
-                // запускаем генерацию препятствий
-                setInterval(() => {
-                    if (gameActive && Math.random() < 0.4) spawnObstacle();
-                }, 800);
-            } else if (data.type === 'opponents') {
-                updateOpponents(data.players);
-            } else if (data.type === 'race_end') {
-                gameActive = false;
-                document.getElementById('status').innerHTML = `🏆 ГОНКА ЗАВЕРШЕНА! Ваш счёт: ${score}`;
-            }
-        };
+        // ========== МНОГОПОЛЬЗОВАТЕЛЬСКИЙ РЕЖИМ (WebSocket) ==========
+        function initMultiMode() {
+            currentMode = 'multi';
+            modeMenu.classList.add('hidden');
+            infoDiv.classList.remove('hidden');
+            scoreDiv.classList.remove('hidden');
+            controlsDiv.classList.remove('hidden');
+            statusDiv.classList.remove('hidden');
+            exitBtn.classList.remove('hidden');
+            
+            statusDiv.innerHTML = '🔄 Подключение к серверу...';
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.host}/ws/race`;
+            socket = new WebSocket(wsUrl);
+            
+            socket.onopen = () => {
+                statusDiv.innerHTML = '✅ Подключено. Ищем гонку...';
+                socket.send(JSON.stringify({ type: 'join', userId }));
+            };
+            
+            socket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === 'race_start') {
+                    raceId = data.raceId;
+                    startRace();
+                } else if (data.type === 'opponents') {
+                    // обновляем позиции соперников
+                    for (let [id, opp] of opponents) {
+                        if (!data.players.find(p => p.id == id)) {
+                            scene.remove(opp.mesh);
+                            opponents.delete(id);
+                        }
+                    }
+                    for (let p of data.players) {
+                        if (p.id == userId) continue;
+                        let opp = opponents.get(p.id);
+                        if (!opp) {
+                            const carGroup = new THREE.Group();
+                            const body2 = new THREE.Mesh(bodyGeo, new THREE.MeshStandardMaterial({ color: 0xdd6644 }));
+                            body2.castShadow = true;
+                            carGroup.add(body2);
+                            positions.forEach(pos => {
+                                const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+                                wheel.rotation.z = Math.PI / 2;
+                                wheel.position.set(pos[0], pos[1], pos[2]);
+                                carGroup.add(wheel);
+                            });
+                            scene.add(carGroup);
+                            opp = { mesh: carGroup, x: 0 };
+                            opponents.set(p.id, opp);
+                        }
+                        opp.x = p.x;
+                        opp.mesh.position.x = p.x;
+                        opp.mesh.position.z = 1.5;
+                    }
+                } else if (data.type === 'race_end') {
+                    gameActive = false;
+                    statusDiv.innerHTML = `🏁 ГОНКА ЗАВЕРШЕНА! Ваш счёт: ${score}`;
+                    if (window.obstacleInterval) clearInterval(window.obstacleInterval);
+                }
+            };
+            
+            socket.onerror = (err) => {
+                console.error(err);
+                statusDiv.innerHTML = '❌ Ошибка WebSocket. Переключение в одиночный режим...';
+                setTimeout(() => {
+                    if (socket) socket.close();
+                    initSingleMode();
+                }, 2000);
+            };
+            
+            // Отправка позиции
+            setInterval(() => {
+                if (socket && socket.readyState === WebSocket.OPEN && gameActive && currentMode === 'multi') {
+                    socket.send(JSON.stringify({ type: 'move', userId, x: currentX, raceId, score }));
+                }
+            }, 50);
+        }
 
-        socket.onerror = (err) => {
-            console.error(err);
-            document.getElementById('status').innerHTML = '❌ Ошибка WebSocket. Играем в одиночку.';
-        };
-
-        // Отправляем свою позицию каждые 50 мс
-        setInterval(() => {
-            if (socket && socket.readyState === WebSocket.OPEN && gameActive) {
-                socket.send(JSON.stringify({ type: 'move', userId, x: currentX, raceId, score }));
-            }
-        }, 50);
-
-        // ----- АНИМАЦИОННЫЙ ЦИКЛ -----
+        // Обработчики кнопок выбора режима
+        document.getElementById('singleplayer-btn').addEventListener('click', initSingleMode);
+        document.getElementById('multiplayer-btn').addEventListener('click', initMultiMode);
+        
+        // Кнопки управления
+        document.getElementById('btnLeft').addEventListener('click', moveLeft);
+        document.getElementById('btnRight').addEventListener('click', moveRight);
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') moveLeft();
+            if (e.key === 'ArrowRight') moveRight();
+        });
+        
+        // Выход на главную
+        exitBtn.addEventListener('click', () => {
+            if (window.obstacleInterval) clearInterval(window.obstacleInterval);
+            if (socket && socket.readyState === WebSocket.OPEN) socket.close();
+            window.location.href = 'index.html';
+        });
+        
+        // Анимационный цикл
         let lastTime = performance.now();
         function animate() {
             const now = performance.now();
             let dt = Math.min(0.033, (now - lastTime) / 1000);
             lastTime = now;
-
+            
             if (gameActive) {
-                // плавное перемещение машины
                 currentX += (targetX - currentX) * 0.2;
                 playerCar.position.x = currentX;
-                // камера слегка следует
                 camera.position.x += (currentX - camera.position.x) * 0.1;
                 camera.lookAt(currentX, 0, 10);
-
                 updateObstacles(dt);
             }
-
+            
             renderer.render(scene, camera);
             requestAnimationFrame(animate);
         }
-
         animate();
-
-        // Адаптация размера окна
+        
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
