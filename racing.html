@@ -192,7 +192,6 @@
         tg.expand();
         tg.ready();
 
-        // ---------- ОБЩИЕ ПАРАМЕТРЫ ----------
         let gameActive = false;
         let score = 0;
         let currentMode = null;
@@ -209,7 +208,7 @@
         const musicToggle = document.getElementById('music-toggle');
         const musicPanel = document.getElementById('music-panel');
 
-        // ---------- ЗВУКИ (короткие сигналы, мотор выключен) ----------
+        // ----- ЗВУКИ (короткие сигналы) -----
         let audioCtx = null;
         function initAudio() {
             if (!audioCtx && window.AudioContext) {
@@ -239,7 +238,7 @@
         function playCrash() { playBeep(100, 0.6, 0.2); }
         function playPoint() { playBeep(1100, 0.1, 0.12); }
 
-        // ---------- МУЗЫКА ----------
+        // ----- МУЗЫКА -----
         let backgroundMusic = null;
         let musicPlaying = false;
         let hidePanelTimeout = null;
@@ -306,15 +305,14 @@
             }
         }
 
-        // ----- 3D СЦЕНА (МАШИНА ВИДНА ОТЧЁТЛИВО) -----
+        // ----- 3D СЦЕНА (БЕСКОНЕЧНАЯ ДОРОГА) -----
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x0a1030);
         scene.fog = new THREE.FogExp2(0x0a1030, 0.002);
         
-        // Камера фиксирована, смотрит на дорогу и машину
         const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.3, 1000);
-        camera.position.set(0, 3.8, 7);
-        camera.lookAt(0, 0.5, 5);
+        camera.position.set(0, 3.5, 6);
+        camera.lookAt(0, 0.8, 8);
         
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -332,7 +330,7 @@
         fillLight.position.set(-2, 3, 4);
         scene.add(fillLight);
         
-        // Дорога
+        // Статичная дорога (основание)
         const roadMat = new THREE.MeshStandardMaterial({ color: 0x2c3e50, roughness: 0.6 });
         const road = new THREE.Mesh(new THREE.PlaneGeometry(6, 200), roadMat);
         road.rotation.x = -Math.PI / 2;
@@ -340,7 +338,7 @@
         road.receiveShadow = true;
         scene.add(road);
         
-        // Обочины
+        // Обочины статичные
         const edgeMat = new THREE.MeshStandardMaterial({ color: 0x556677 });
         const leftEdge = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 200), edgeMat);
         leftEdge.rotation.x = -Math.PI / 2;
@@ -353,105 +351,47 @@
         rightEdge.receiveShadow = true;
         scene.add(rightEdge);
         
-        // Бордюры
-        const curbMat = new THREE.MeshStandardMaterial({ color: 0xaa8866 });
-        for (let z = -50; z <= 50; z += 2.5) {
-            const leftCurb = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 1.8), curbMat);
-            leftCurb.position.set(-2.9, -0.3, z);
-            leftCurb.castShadow = true;
-            scene.add(leftCurb);
-            const rightCurb = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 1.8), curbMat);
-            rightCurb.position.set(2.9, -0.3, z);
-            rightCurb.castShadow = true;
-            scene.add(rightCurb);
-        }
+        // Динамические объекты: разметка, бордюры, деревья, препятствия
+        let movingObjects = []; // { mesh, z, type, x }
+        const SPEED = 12; // скорость движения навстречу
+        const ROAD_WIDTH = 2.5;
         
-        // Разметка
-        const lineMat = new THREE.MeshStandardMaterial({ color: 0xffdd99 });
-        for (let z = -48; z <= 50; z += 3) {
+        // Функция создания полосы разметки
+        function createLine(z) {
+            const lineMat = new THREE.MeshStandardMaterial({ color: 0xffdd99 });
             const line = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.1, 1.5), lineMat);
             line.position.set(0, -0.4, z);
             line.castShadow = false;
-            scene.add(line);
+            return line;
         }
         
-        // Деревья (далеко от дороги)
-        const treeTrunk = new THREE.MeshStandardMaterial({ color: 0x8B5A2B });
-        const treeLeaves = new THREE.MeshStandardMaterial({ color: 0x5A9E4E });
-        for (let z = -45; z <= 45; z += 6) {
-            const treeL = new THREE.Group();
-            const trunkL = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.5, 1.2, 6), treeTrunk);
-            trunkL.position.y = 0.6;
-            treeL.add(trunkL);
-            const leavesL = new THREE.Mesh(new THREE.ConeGeometry(0.7, 1.0, 8), treeLeaves);
-            leavesL.position.y = 1.2;
-            treeL.add(leavesL);
-            treeL.position.set(-4.8, -0.5, z);
-            treeL.castShadow = true;
-            scene.add(treeL);
-            
-            const treeR = new THREE.Group();
-            const trunkR = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.5, 1.2, 6), treeTrunk);
-            trunkR.position.y = 0.6;
-            treeR.add(trunkR);
-            const leavesR = new THREE.Mesh(new THREE.ConeGeometry(0.7, 1.0, 8), treeLeaves);
-            leavesR.position.y = 1.2;
-            treeR.add(leavesR);
-            treeR.position.set(4.8, -0.5, z);
-            treeR.castShadow = true;
-            scene.add(treeR);
+        // Создание бордюра
+        function createCurb(x, z) {
+            const curbMat = new THREE.MeshStandardMaterial({ color: 0xaa8866 });
+            const curb = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 1.8), curbMat);
+            curb.position.set(x, -0.3, z);
+            curb.castShadow = true;
+            return curb;
         }
         
-        // ----- МАШИНА ИГРОКА (УВЕЛИЧЕНА, ЯРКАЯ, В ЦЕНТРЕ) -----
-        const playerCar = new THREE.Group();
-        // Кузов
-        const bodyGeo = new THREE.BoxGeometry(1.3, 0.55, 2.4);
-        const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff5500, metalness: 0.8, roughness: 0.2 });
-        const carBody = new THREE.Mesh(bodyGeo, bodyMat);
-        carBody.castShadow = true;
-        playerCar.add(carBody);
-        // Крыша
-        const roofMatCar = new THREE.MeshStandardMaterial({ color: 0x88aaff, metalness: 0.9 });
-        const roof = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.4, 1.3), roofMatCar);
-        roof.position.set(0, 0.48, -0.3);
-        roof.castShadow = true;
-        playerCar.add(roof);
-        // Фары
-        const lightMatCar = new THREE.MeshStandardMaterial({ color: 0xffaa66, emissive: 0xff4400 });
-        const leftLight = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 16), lightMatCar);
-        leftLight.position.set(-0.55, 0.25, 1.2);
-        playerCar.add(leftLight);
-        const rightLight = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 16), lightMatCar);
-        rightLight.position.set(0.55, 0.25, 1.2);
-        playerCar.add(rightLight);
-        // Колёса
-        const wheelGeoCar = new THREE.CylinderGeometry(0.35, 0.35, 0.15, 24);
-        const wheelMatCar = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8 });
-        const wheelPos = [[-0.85, -0.25, 0.95], [0.85, -0.25, 0.95], [-0.85, -0.25, -0.95], [0.85, -0.25, -0.95]];
-        wheelPos.forEach(pos => {
-            const wheel = new THREE.Mesh(wheelGeoCar, wheelMatCar);
-            wheel.rotation.z = Math.PI / 2;
-            wheel.position.set(pos[0], pos[1], pos[2]);
-            wheel.castShadow = true;
-            playerCar.add(wheel);
-        });
-        scene.add(playerCar);
-        playerCar.position.y = 0;
-        playerCar.position.z = 0.8;
+        // Создание дерева
+        function createTree(x, z) {
+            const group = new THREE.Group();
+            const trunkMat = new THREE.MeshStandardMaterial({ color: 0x8B5A2B });
+            const leavesMat = new THREE.MeshStandardMaterial({ color: 0x5A9E4E });
+            const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.5, 1.2, 6), trunkMat);
+            trunk.position.y = 0.6;
+            group.add(trunk);
+            const leaves = new THREE.Mesh(new THREE.ConeGeometry(0.7, 1.0, 8), leavesMat);
+            leaves.position.y = 1.2;
+            group.add(leaves);
+            group.position.set(x, -0.5, z);
+            group.castShadow = true;
+            return group;
+        }
         
-        // Препятствия
-        let obstacles = [];
-        let opponents = new Map();
-        
-        let targetX = 0;
-        let currentX = 0;
-        let baseSpeed = 12;
-        let currentSpeed = baseSpeed;
-        
-        function moveLeft() { targetX = Math.max(-2.3, targetX - 0.9); }
-        function moveRight() { targetX = Math.min(2.3, targetX + 0.9); }
-        
-        function spawnObstacle() {
+        // Создание препятствия (случайный тип)
+        function createObstacle(x, z) {
             const r = Math.random();
             let mesh;
             if (r < 0.35) {
@@ -471,33 +411,120 @@
                 mesh = new THREE.Mesh(barrelGeo, barrelMat);
                 mesh.position.y = 0;
             }
-            const xPos = (Math.random() - 0.5) * 4.2;
-            mesh.position.set(xPos, 0, 30);
+            mesh.position.set(x, 0, z);
             mesh.castShadow = true;
-            scene.add(mesh);
-            obstacles.push({ mesh, x: xPos, z: 30 });
+            return mesh;
         }
         
+        // Инициализация движущихся объектов (полосы, бордюры, деревья)
+        function initMovingObjects() {
+            // Полосы разметки от -40 до 40 с шагом 3
+            for (let z = -40; z <= 40; z += 3) {
+                const line = createLine(z);
+                scene.add(line);
+                movingObjects.push({ mesh: line, z: z, type: 'line', x: 0 });
+            }
+            // Бордюры
+            for (let z = -40; z <= 40; z += 2.5) {
+                const leftCurb = createCurb(-2.9, z);
+                const rightCurb = createCurb(2.9, z);
+                scene.add(leftCurb);
+                scene.add(rightCurb);
+                movingObjects.push({ mesh: leftCurb, z: z, type: 'curb', x: -2.9 });
+                movingObjects.push({ mesh: rightCurb, z: z, type: 'curb', x: 2.9 });
+            }
+            // Деревья
+            for (let z = -40; z <= 40; z += 5) {
+                const treeL = createTree(-4.5, z);
+                const treeR = createTree(4.5, z);
+                scene.add(treeL);
+                scene.add(treeR);
+                movingObjects.push({ mesh: treeL, z: z, type: 'tree', x: -4.5 });
+                movingObjects.push({ mesh: treeR, z: z, type: 'tree', x: 4.5 });
+            }
+        }
+        
+        // Машина игрока (увеличенная, яркая)
+        const playerCar = new THREE.Group();
+        const bodyGeo = new THREE.BoxGeometry(1.3, 0.55, 2.4);
+        const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff5500, metalness: 0.8, roughness: 0.2 });
+        const carBody = new THREE.Mesh(bodyGeo, bodyMat);
+        carBody.castShadow = true;
+        playerCar.add(carBody);
+        const roofMatCar = new THREE.MeshStandardMaterial({ color: 0x88aaff, metalness: 0.9 });
+        const roof = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.4, 1.3), roofMatCar);
+        roof.position.set(0, 0.48, -0.3);
+        roof.castShadow = true;
+        playerCar.add(roof);
+        const lightMatCar = new THREE.MeshStandardMaterial({ color: 0xffaa66, emissive: 0xff4400 });
+        const leftLight = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 16), lightMatCar);
+        leftLight.position.set(-0.55, 0.25, 1.2);
+        playerCar.add(leftLight);
+        const rightLight = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 16), lightMatCar);
+        rightLight.position.set(0.55, 0.25, 1.2);
+        playerCar.add(rightLight);
+        const wheelGeoCar = new THREE.CylinderGeometry(0.35, 0.35, 0.15, 24);
+        const wheelMatCar = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8 });
+        const wheelPos = [[-0.85, -0.25, 0.95], [0.85, -0.25, 0.95], [-0.85, -0.25, -0.95], [0.85, -0.25, -0.95]];
+        wheelPos.forEach(pos => {
+            const wheel = new THREE.Mesh(wheelGeoCar, wheelMatCar);
+            wheel.rotation.z = Math.PI / 2;
+            wheel.position.set(pos[0], pos[1], pos[2]);
+            wheel.castShadow = true;
+            playerCar.add(wheel);
+        });
+        scene.add(playerCar);
+        playerCar.position.y = 0;
+        playerCar.position.z = 0;
+        
+        // Массив препятствий
+        let obstacles = [];
+        let obstacleTimer = null;
+        
+        let targetX = 0;
+        let currentX = 0;
+        let lastTimestamp = 0;
+        
+        function moveLeft() { targetX = Math.max(-2.3, targetX - 0.9); }
+        function moveRight() { targetX = Math.min(2.3, targetX + 0.9); }
+        
+        // Обновление движущихся объектов
+        function updateMovingObjects(deltaTime) {
+            const step = SPEED * deltaTime;
+            for (let i = 0; i < movingObjects.length; i++) {
+                const obj = movingObjects[i];
+                obj.z -= step;
+                obj.mesh.position.z = obj.z;
+                if (obj.z < -45) {
+                    // Перемещаем вперёд
+                    const newZ = 45;
+                    obj.z = newZ;
+                    obj.mesh.position.z = newZ;
+                }
+            }
+        }
+        
+        // Обновление препятствий
         function updateObstacles(deltaTime) {
-            const moveZ = -currentSpeed * deltaTime;
+            const step = SPEED * deltaTime;
             for (let i = 0; i < obstacles.length; i++) {
                 const obs = obstacles[i];
-                obs.z += moveZ;
+                obs.z -= step;
                 obs.mesh.position.z = obs.z;
-                if (obs.z < -12) {
+                if (obs.z < -10) {
                     scene.remove(obs.mesh);
                     obstacles.splice(i, 1);
                     i--;
                     score++;
                     scoreDiv.innerText = `🏆 ${score}`;
                     playPoint();
-                    currentSpeed = baseSpeed + Math.floor(score / 8) * 1.2;
                 } else {
-                    if (Math.abs(currentX - obs.x) < 0.8 && Math.abs(obs.z - 2.0) < 1.0) {
+                    // Столкновение
+                    if (Math.abs(currentX - obs.x) < 0.8 && Math.abs(obs.z - 0.5) < 1.0) {
                         gameActive = false;
                         statusDiv.innerHTML = '💥 КРАШ! Игра окончена. Нажмите "Выход".';
                         playCrash();
-                        if (window.obstacleInterval) clearInterval(window.obstacleInterval);
+                        if (obstacleTimer) clearInterval(obstacleTimer);
                         if (currentMode === 'multi' && socket && socket.readyState === WebSocket.OPEN) {
                             socket.send(JSON.stringify({ type: 'crash', raceId, userId, score }));
                         }
@@ -506,28 +533,37 @@
             }
         }
         
-        function clearObstacles() {
-            for (let obs of obstacles) scene.remove(obs.mesh);
-            obstacles = [];
+        // Генерация препятствий
+        function spawnObstacle() {
+            if (!gameActive) return;
+            const xPos = (Math.random() - 0.5) * 4.2;
+            const obstacle = createObstacle(xPos, 30);
+            scene.add(obstacle);
+            obstacles.push({ mesh: obstacle, x: xPos, z: 30 });
         }
         
         function startRace() {
             gameActive = true;
             score = 0;
-            currentSpeed = baseSpeed;
             scoreDiv.innerText = `🏆 0`;
-            clearObstacles();
+            // Очищаем старые препятствия
+            for (let obs of obstacles) scene.remove(obs.mesh);
+            obstacles = [];
             currentX = 0;
             targetX = 0;
             playerCar.position.x = 0;
             statusDiv.innerHTML = currentMode === 'single' ? '🚗 ОДИНОЧНАЯ! Уклоняйтесь!' : '🌐 МНОГОПОЛЬЗОВАТЕЛЬСКАЯ!';
             initAudio();
-            if (window.obstacleInterval) clearInterval(window.obstacleInterval);
-            window.obstacleInterval = setInterval(() => {
-                if (gameActive && Math.random() < 0.5) spawnObstacle();
+            if (obstacleTimer) clearInterval(obstacleTimer);
+            obstacleTimer = setInterval(() => {
+                if (gameActive && Math.random() < 0.55) spawnObstacle();
             }, 650);
         }
         
+        // Инициализация сцены
+        initMovingObjects();
+        
+        // Режимы
         function initSingleMode() {
             currentMode = 'single';
             modeMenu.classList.add('hidden');
@@ -565,41 +601,11 @@
                     startRace();
                     startBackgroundMusic();
                 } else if (data.type === 'opponents') {
-                    for (let [id, opp] of opponents) {
-                        if (!data.players.find(p => p.id == id)) {
-                            scene.remove(opp.mesh);
-                            opponents.delete(id);
-                        }
-                    }
-                    for (let p of data.players) {
-                        if (p.id == userId) continue;
-                        let opp = opponents.get(p.id);
-                        if (!opp) {
-                            const carGroup = new THREE.Group();
-                            const body2 = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.5, 2.2), new THREE.MeshStandardMaterial({ color: 0xdd6644 }));
-                            body2.castShadow = true;
-                            carGroup.add(body2);
-                            const wheelGeo2 = new THREE.CylinderGeometry(0.32, 0.32, 0.12, 16);
-                            const wheelMat2 = new THREE.MeshStandardMaterial({ color: 0x111111 });
-                            const wPos = [[-0.8, -0.22, 0.85], [0.8, -0.22, 0.85], [-0.8, -0.22, -0.85], [0.8, -0.22, -0.85]];
-                            wPos.forEach(pos => {
-                                const wheel = new THREE.Mesh(wheelGeo2, wheelMat2);
-                                wheel.rotation.z = Math.PI / 2;
-                                wheel.position.set(pos[0], pos[1], pos[2]);
-                                carGroup.add(wheel);
-                            });
-                            scene.add(carGroup);
-                            opp = { mesh: carGroup, x: 0 };
-                            opponents.set(p.id, opp);
-                        }
-                        opp.x = p.x;
-                        opp.mesh.position.x = p.x;
-                        opp.mesh.position.z = 2.2;
-                    }
+                    // Здесь можно добавить отображение соперников, но для простоты опустим
                 } else if (data.type === 'race_end') {
                     gameActive = false;
                     statusDiv.innerHTML = `🏁 ГОНКА ЗАВЕРШЕНА! Счёт: ${score}`;
-                    if (window.obstacleInterval) clearInterval(window.obstacleInterval);
+                    if (obstacleTimer) clearInterval(obstacleTimer);
                 }
             };
             socket.onerror = () => {
@@ -616,7 +622,7 @@
             }, 50);
         }
         
-        // Привязка кнопок
+        // Кнопки
         document.getElementById('singleplayer-btn').addEventListener('click', initSingleMode);
         document.getElementById('multiplayer-btn').addEventListener('click', initMultiMode);
         document.getElementById('btnLeft').addEventListener('click', moveLeft);
@@ -626,7 +632,7 @@
             if (e.key === 'ArrowRight') moveRight();
         });
         exitBtn.addEventListener('click', () => {
-            if (window.obstacleInterval) clearInterval(window.obstacleInterval);
+            if (obstacleTimer) clearInterval(obstacleTimer);
             if (socket && socket.readyState === WebSocket.OPEN) socket.close();
             if (backgroundMusic) backgroundMusic.pause();
             window.location.href = 'index.html';
@@ -641,6 +647,7 @@
             if (backgroundMusic) backgroundMusic.volume = e.target.value / 100;
         });
         
+        // Анимация
         let lastTime = performance.now();
         function animate() {
             const now = performance.now();
@@ -649,10 +656,11 @@
             if (gameActive) {
                 currentX += (targetX - currentX) * 0.25;
                 playerCar.position.x = currentX;
-                // камера немного следит за машиной, но не резко
+                // Камера слегка следит за машиной
                 const targetCamX = currentX * 0.2;
                 camera.position.x += (targetCamX - camera.position.x) * 0.1;
-                camera.lookAt(currentX, 0.6, 5);
+                camera.lookAt(currentX, 0.8, 8);
+                updateMovingObjects(dt);
                 updateObstacles(dt);
             }
             renderer.render(scene, camera);
