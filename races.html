@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Гонки | Resell Tycoon</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+        body { background: radial-gradient(circle at 30% 10%, #0c1120, #020408); color: #ddd; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; }
+        .glass-card { background: rgba(20,30,45,0.7); backdrop-filter: blur(12px); border-radius: 48px; padding: 20px; margin-bottom: 20px; border: 1px solid rgba(0,255,255,0.3); }
+        h2, h3 { font-size: 28px; background: linear-gradient(135deg, #ffcc44, #ff6644); background-clip: text; -webkit-background-clip: text; color: transparent; margin-bottom: 15px; }
+        .balance { font-size: 18px; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 40px; text-align: center; margin-bottom: 20px; }
+        .race-card { background: rgba(0,0,0,0.6); border-radius: 32px; padding: 16px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
+        button { background: #2ecc71; border: none; padding: 8px 18px; border-radius: 40px; font-weight: bold; cursor: pointer; margin: 5px; }
+        .create-btn { background: #f39c12; width: 100%; margin-top: 10px; }
+        .back-btn { background: #555; width: 100%; margin-top: 15px; }
+        .select-car { margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="glass-card">
+        <h2>🏎 ГОНКИ</h2>
+        <div class="balance" id="balance">💰 Баланс: загрузка...</div>
+        <button class="create-btn" onclick="showCreateForm()">🏁 СОЗДАТЬ ГОНКУ</button>
+        <div id="createForm" style="display:none; margin-top:15px;">
+            <select id="carSelect"></select>
+            <select id="betSelect">
+                <option value="5000">5 000 ₽</option>
+                <option value="25000">25 000 ₽</option>
+            </select>
+            <button onclick="createRace()">Создать</button>
+        </div>
+    </div>
+    <div class="glass-card" id="racesList">Загрузка...</div>
+    <button class="back-btn" onclick="window.location.href='index.html'">🔙 На главную</button>
+</div>
+
+<script>
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+    tg.ready();
+
+    const API_BASE = "https://nl12.bothost.ru";
+    const USE_REAL_API = false;
+    const userId = tg.initDataUnsafe?.user?.id || 1475910449;
+
+    let balance = 0;
+    let races = [];
+    let myCars = ["zhiguli", "granta"];
+
+    const mockRaces = [
+        { id: "race1", creator: 1475910449, bet: 5000, status: "wait", creator_car: "zhiguli" }
+    ];
+
+    async function fetchAPI(endpoint) {
+        if (!USE_REAL_API) return null;
+        try {
+            const resp = await fetch(`${API_BASE}${endpoint}&tg_id=${userId}`);
+            if (!resp.ok) throw new Error();
+            return await resp.json();
+        } catch(e) { return null; }
+    }
+
+    async function loadBalance() {
+        if (!USE_REAL_API) { balance = 150000; document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`; return; }
+        const data = await fetchAPI(`/api/me`);
+        balance = data?.balance || 0;
+        document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`;
+    }
+
+    async function loadRaces() {
+        if (!USE_REAL_API) { races = mockRaces; renderRaces(); return; }
+        const data = await fetchAPI(`/api/races`);
+        races = data?.races || [];
+        renderRaces();
+    }
+
+    function showCreateForm() {
+        const form = document.getElementById('createForm');
+        form.style.display = form.style.display === 'none' ? 'block' : 'none';
+        const select = document.getElementById('carSelect');
+        select.innerHTML = '';
+        myCars.forEach(car => {
+            const opt = document.createElement('option');
+            opt.value = car;
+            opt.innerText = car;
+            select.appendChild(opt);
+        });
+    }
+
+    async function createRace() {
+        const car = document.getElementById('carSelect').value;
+        const bet = parseInt(document.getElementById('betSelect').value);
+        if (!USE_REAL_API) {
+            tg.showAlert(`✅ (МОК) Гонка создана! Ставка ${bet}₽`);
+            races.push({ id: "mock_"+Date.now(), creator: userId, bet: bet, status: "wait", creator_car: car });
+            renderRaces();
+            return;
+        }
+        const res = await fetch(`${API_BASE}/api/race/create?tg_id=${userId}&car_id=${car}&bet=${bet}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.race_id) { tg.showAlert(`✅ Гонка создана! ID: ${data.race_id}`); await loadRaces(); }
+        else tg.showAlert(`❌ ${data.message}`);
+    }
+
+    async function joinRace(raceId) {
+        if (!USE_REAL_API) {
+            tg.showAlert(`✅ (МОК) Вы присоединились к гонке!`);
+            return;
+        }
+        const car = prompt("Введите ID вашей машины (например, zhiguli):");
+        if (!car) return;
+        const res = await fetch(`${API_BASE}/api/race/join?tg_id=${userId}&race_id=${raceId}&car_id=${car}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.message) tg.showAlert(data.message);
+        else tg.showAlert(`❌ ${data.message}`);
+    }
+
+    function renderRaces() {
+        const container = document.getElementById('racesList');
+        if (!races.length) { container.innerHTML = `<div>🏁 Нет активных гонок</div>`; return; }
+        let html = '<h3>🏎 Доступные гонки</h3>';
+        for (let r of races) {
+            html += `
+                <div class="race-card">
+                    <div>
+                        <b>Гонка ${r.id}</b><br>
+                        Ставка: ${r.bet}₽<br>
+                        Статус: ${r.status}<br>
+                        Машина: ${r.creator_car}
+                    </div>
+                    <div>
+                        ${r.status === 'wait' && r.creator !== userId ? `<button onclick="joinRace('${r.id}')">🏁 УЧАСТВОВАТЬ</button>` : ''}
+                    </div>
+                </div>
+            `;
+        }
+        container.innerHTML = html;
+    }
+
+    loadBalance();
+    loadRaces();
+</script>
+</body>
+</html>

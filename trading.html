@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Трейдинг | Resell Tycoon</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+        body { background: radial-gradient(circle at 30% 10%, #0c1120, #020408); color: #ddd; padding: 20px; }
+        .container { max-width: 550px; margin: 0 auto; }
+        .glass-card { background: rgba(20,30,45,0.7); backdrop-filter: blur(12px); border-radius: 48px; padding: 20px; margin-bottom: 20px; border: 1px solid rgba(0,255,255,0.3); }
+        h2 { font-size: 28px; background: linear-gradient(135deg, #ffcc44, #ff6644); background-clip: text; -webkit-background-clip: text; color: transparent; margin-bottom: 15px; }
+        .balance { font-size: 18px; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 40px; text-align: center; margin-bottom: 20px; }
+        .asset-card { background: rgba(0,0,0,0.6); border-radius: 32px; padding: 16px; margin-bottom: 20px; }
+        .asset-name { font-size: 22px; font-weight: bold; }
+        .price { font-size: 20px; color: #ffcc44; margin: 8px 0; }
+        .trend { font-size: 14px; }
+        .bet-area { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+        .bet-input { flex: 1; padding: 10px; border-radius: 40px; border: none; background: #1e2a3a; color: white; text-align: center; }
+        button { background: #2ecc71; border: none; padding: 8px 18px; border-radius: 40px; font-weight: bold; cursor: pointer; margin: 5px; }
+        .up { background: #2ecc71; }
+        .down { background: #e74c3c; }
+        .back-btn { background: #555; width: 100%; margin-top: 15px; }
+        .history { margin-top: 20px; }
+        .history-item { font-size: 12px; padding: 4px; border-bottom: 1px solid #2a3e55; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="glass-card">
+        <h2>📈 POCKET OPTION</h2>
+        <div class="balance" id="balance">💰 Баланс: загрузка...</div>
+    </div>
+    <div class="glass-card" id="assetsContainer">Загрузка...</div>
+    <div class="glass-card" id="historyContainer"></div>
+    <button class="back-btn" onclick="window.location.href='index.html'">🔙 На главную</button>
+</div>
+
+<script>
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+    tg.ready();
+
+    const API_BASE = "https://nl12.bothost.ru";
+    const USE_REAL_API = false;
+    const userId = tg.initDataUnsafe?.user?.id || 1475910449;
+
+    let balance = 0;
+    let prices = {};
+    let history = [];
+
+    const mockPrices = {
+        BTC: { price: 51200, trend: 0.02, history: [51000,51200,51500] },
+        ETH: { price: 3100, trend: -0.01, history: [3150,3120,3100] },
+        SOL: { price: 145, trend: 0.05, history: [140,142,145] },
+        DOGE: { price: 0.18, trend: -0.03, history: [0.19,0.185,0.18] }
+    };
+
+    async function fetchAPI(endpoint) {
+        if (!USE_REAL_API) return null;
+        try {
+            const resp = await fetch(`${API_BASE}${endpoint}&tg_id=${userId}`);
+            if (!resp.ok) throw new Error();
+            return await resp.json();
+        } catch(e) { return null; }
+    }
+
+    async function loadBalance() {
+        if (!USE_REAL_API) { balance = 100000; document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`; return; }
+        const data = await fetchAPI(`/api/me`);
+        balance = data?.balance || 0;
+        document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`;
+    }
+
+    async function loadPrices() {
+        if (!USE_REAL_API) { prices = mockPrices; renderAssets(); return; }
+        const data = await fetchAPI(`/api/trading/prices`);
+        prices = data?.prices || {};
+        renderAssets();
+    }
+
+    async function makeBet(asset, direction, amount) {
+        if (amount < 5 || amount > 10000) { tg.showAlert("❌ Сумма от 5 до 10000₽"); return; }
+        if (balance < amount) { tg.showAlert("❌ Недостаточно средств"); return; }
+        if (!USE_REAL_API) {
+            // симуляция результата
+            const currentPrice = prices[asset].price;
+            const win = (direction === 'up' && Math.random() > 0.5) || (direction === 'down' && Math.random() > 0.5);
+            const profit = win ? amount * (Math.random() * 1.5 + 1) : -amount;
+            balance += profit;
+            document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`;
+            history.unshift({ asset, direction, amount, profit, time: new Date().toLocaleTimeString() });
+            if (history.length > 10) history.pop();
+            renderHistory();
+            tg.showAlert(win ? `✅ Выигрыш! +${profit}₽` : `❌ Проигрыш -${amount}₽`);
+            return;
+        }
+        const res = await fetch(`${API_BASE}/api/trading/bet?tg_id=${userId}&asset=${asset}&direction=${direction}&amount=${amount}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.balance !== undefined) {
+            balance = data.balance;
+            document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`;
+            tg.showAlert(data.message);
+            await loadPrices();
+        } else tg.showAlert(`❌ ${data.message}`);
+    }
+
+    function renderAssets() {
+        const container = document.getElementById('assetsContainer');
+        let html = '';
+        for (let [asset, data] of Object.entries(prices)) {
+            const price = data.price;
+            const trend = data.trend;
+            const arrow = trend > 0 ? '📈' : (trend < 0 ? '📉' : '➡️');
+            html += `
+                <div class="asset-card">
+                    <div class="asset-name">${asset}</div>
+                    <div class="price">$${price.toFixed(2)}</div>
+                    <div class="trend">${arrow} ${Math.abs(trend*100).toFixed(2)}%</div>
+                    <div class="bet-area">
+                        <input type="number" id="amount_${asset}" class="bet-input" placeholder="Сумма ₽" min="5" max="10000" step="5">
+                        <button class="up" onclick="makeBet('${asset}', 'up', parseInt(document.getElementById('amount_${asset}').value))">🔺 ВВЕРХ</button>
+                        <button class="down" onclick="makeBet('${asset}', 'down', parseInt(document.getElementById('amount_${asset}').value))">🔻 ВНИЗ</button>
+                    </div>
+                </div>
+            `;
+        }
+        container.innerHTML = html;
+    }
+
+    function renderHistory() {
+        const container = document.getElementById('historyContainer');
+        if (!history.length) { container.innerHTML = `<div>📋 История ставок пуста</div>`; return; }
+        let html = `<h3>📋 Последние ставки</h3>`;
+        for (let h of history) {
+            const sign = h.profit > 0 ? '✅' : '❌';
+            html += `<div class="history-item">${sign} ${h.asset} ${h.direction} | ${Math.abs(h.profit)}₽ | ${h.time}</div>`;
+        }
+        container.innerHTML = html;
+    }
+
+    loadBalance();
+    loadPrices();
+    setInterval(() => loadPrices(), 30000); // обновление цен каждые 30 сек
+</script>
+</body>
+</html>

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Закуп | Resell Tycoon</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', system-ui, sans-serif; }
+        body { background: radial-gradient(circle at 30% 10%, #0c1120, #020408); color: #ddd; padding: 20px; }
+        .container { max-width: 650px; margin: 0 auto; }
+        .glass-card { background: rgba(20,30,45,0.7); backdrop-filter: blur(12px); border-radius: 48px; padding: 20px; margin-bottom: 20px; border: 1px solid rgba(0,255,255,0.3); }
+        h2 { font-size: 28px; background: linear-gradient(135deg, #ffcc44, #ff6644); background-clip: text; -webkit-background-clip: text; color: transparent; margin-bottom: 15px; }
+        .balance { font-size: 18px; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 40px; text-align: center; margin-bottom: 20px; }
+        .item-card { background: rgba(0,0,0,0.55); border-radius: 32px; padding: 16px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+        .item-name { font-size: 16px; font-weight: bold; }
+        .item-price { color: #ffaa44; }
+        .timer { font-size: 12px; color: #88ff88; }
+        button { background: #2ecc71; border: none; padding: 8px 18px; border-radius: 40px; font-weight: bold; cursor: pointer; }
+        .refresh-btn { background: #f39c12; margin-bottom: 15px; width: 100%; }
+        .back-btn { background: #555; width: 100%; margin-top: 15px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="glass-card">
+        <h2>🏭 ЗАКУП У ПОСТАВЩИКОВ</h2>
+        <div class="balance" id="balance">💰 Баланс: загрузка...</div>
+        <button class="refresh-btn" onclick="loadItems()">🔄 Обновить</button>
+    </div>
+    <div class="glass-card" id="suppliersList">Загрузка...</div>
+    <button class="back-btn" onclick="window.location.href='index.html'">🔙 На главную</button>
+</div>
+
+<script>
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+    tg.ready();
+
+    const API_BASE = "https://nl12.bothost.ru";
+    const USE_REAL_API = false;
+    const userId = tg.initDataUnsafe?.user?.id || 1475910449;
+
+    let balance = 0;
+    let items = [];
+
+    // мок-товары
+    const mockItems = [
+        { id: 1, name: "⬜ Levi's 501 Vintage", buy_price: 1800, market_price: 2400, end_time: Date.now()/1000 + 300 },
+        { id: 2, name: "🟦 Carhartt WIP Denim", buy_price: 3200, market_price: 4200, end_time: Date.now()/1000 + 400 },
+        { id: 3, name: "🟪 Nike ACG Fleece", buy_price: 2700, market_price: 3900, end_time: Date.now()/1000 + 200 }
+    ];
+
+    async function fetchAPI(endpoint) {
+        if (!USE_REAL_API) return null;
+        try {
+            const resp = await fetch(`${API_BASE}${endpoint}&tg_id=${userId}`);
+            if (!resp.ok) throw new Error();
+            return await resp.json();
+        } catch(e) { return null; }
+    }
+
+    async function loadBalance() {
+        if (!USE_REAL_API) { balance = 50000; document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`; return; }
+        const data = await fetchAPI(`/api/me`);
+        balance = data?.balance || 0;
+        document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`;
+    }
+
+    async function loadItems() {
+        if (!USE_REAL_API) { items = mockItems; renderItems(); return; }
+        const data = await fetchAPI(`/api/supplier/items`);
+        items = data?.suppliers || [];
+        renderItems();
+    }
+
+    async function buyItem(itemId, price) {
+        if (balance < price) { tg.showAlert(`❌ Не хватает ${price.toLocaleString()}₽`); return; }
+        if (!USE_REAL_API) {
+            const idx = items.findIndex(i => i.id == itemId);
+            if (idx === -1) { tg.showAlert("❌ Товар уже куплен"); return; }
+            items.splice(idx,1);
+            balance -= price;
+            document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`;
+            tg.showAlert(`✅ (МОК) Товар куплен!`);
+            renderItems();
+            return;
+        }
+        const res = await fetch(`${API_BASE}/api/supplier/buy?tg_id=${userId}&item_id=${itemId}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.balance !== undefined) {
+            balance = data.balance;
+            document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`;
+            tg.showAlert(data.message);
+            await loadItems();
+        } else tg.showAlert(`❌ ${data.message}`);
+    }
+
+    function renderItems() {
+        const container = document.getElementById('suppliersList');
+        if (!items.length) {
+            container.innerHTML = `<div class="empty">🏭 Товары закончились. Обновите через 5 минут.</div>`;
+            return;
+        }
+        let html = '';
+        for (let it of items) {
+            let timeLeft = Math.max(0, Math.floor(it.end_time - Date.now()/1000));
+            let mins = Math.floor(timeLeft / 60);
+            let secs = timeLeft % 60;
+            html += `
+                <div class="item-card">
+                    <div>
+                        <div class="item-name">${it.name}</div>
+                        <div class="item-price">💰 Цена: ${it.buy_price.toLocaleString()}₽</div>
+                        <div class="timer">⏳ ${mins}:${secs.toString().padStart(2,'0')}</div>
+                    </div>
+                    <div>
+                        <button onclick="buyItem(${it.id}, ${it.buy_price})">🛒 Купить</button>
+                    </div>
+                </div>
+            `;
+        }
+        container.innerHTML = html;
+        // обновляем таймеры каждую секунду
+        setTimeout(() => renderItems(), 1000);
+    }
+
+    loadBalance();
+    loadItems();
+</script>
+</body>
+</html>
