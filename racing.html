@@ -209,7 +209,7 @@
         const musicToggle = document.getElementById('music-toggle');
         const musicPanel = document.getElementById('music-panel');
 
-        // ---------- ЗВУК МОТОРА ----------
+        // ---------- ЗВУК МОТОРА (приятный, низкий, синус) ----------
         let engineCtx = null;
         let engineOsc = null;
         let engineGain = null;
@@ -235,18 +235,18 @@
             engineGain = engineCtx.createGain();
             engineOsc.connect(engineGain);
             engineGain.connect(engineCtx.destination);
-            engineOsc.type = 'sawtooth';
-            engineOsc.frequency.value = 100;
-            engineGain.gain.value = 0.2;
+            engineOsc.type = 'sine';           // мягкий тон
+            engineOsc.frequency.value = 70;    // низкий гул
+            engineGain.gain.value = 0.08;      // тихо
             engineOsc.start();
             engineRunning = true;
         }
         
         function updateEngineSound(speedVal) {
             if (!engineRunning || !engineOsc) return;
-            const freq = 100 + Math.min(200, speedVal * 8);
+            const freq = 70 + Math.min(90, speedVal * 4);
             engineOsc.frequency.value = freq;
-            if (engineGain) engineGain.gain.value = 0.15 + Math.min(0.25, speedVal * 0.015);
+            if (engineGain) engineGain.gain.value = 0.08 + Math.min(0.12, speedVal * 0.008);
         }
         
         function stopEngineSound() {
@@ -258,7 +258,7 @@
             engineRunning = false;
         }
         
-        function playBeep(frequency, duration, volume = 0.2) {
+        function playBeep(frequency, duration, volume = 0.15) {
             if (!engineCtx) return;
             const now = engineCtx.currentTime;
             const osc = engineCtx.createOscillator();
@@ -271,8 +271,8 @@
             osc.start();
             osc.stop(now + duration);
         }
-        function playCrashSound() { playBeep(100, 0.8, 0.4); }
-        function playPointSound() { playBeep(1200, 0.12, 0.2); }
+        function playCrashSound() { playBeep(90, 0.6, 0.2); }
+        function playPointSound() { playBeep(1100, 0.1, 0.12); }
 
         // ---------- МУЗЫКА ----------
         let backgroundMusic = null;
@@ -347,15 +347,15 @@
             }
         }
 
-        // ----- 3D СЦЕНА (исправленная камера) -----
+        // ----- 3D СЦЕНА (КАМЕРА ВЫШЕ, ДАЛЬШЕ) -----
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x0a1030);
-        scene.fog = new THREE.FogExp2(0x0a1030, 0.003);
+        scene.fog = new THREE.FogExp2(0x0a1030, 0.002);
         
-        // Камера сзади-сверху, смотрит на машину
-        const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.3, 1000);
-        camera.position.set(0, 2.5, 5);
-        camera.lookAt(0, 0.5, 2);
+        // Камера – высоко и далеко, видно всю дорогу
+        const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.3, 1000);
+        camera.position.set(0, 4.2, 8);
+        camera.lookAt(0, 0.8, 20);
         
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -416,7 +416,7 @@
             scene.add(line);
         }
         
-        // Деревья (атмосфера)
+        // Деревья – чуть дальше от дороги, не мешают обзору
         const treeTrunk = new THREE.MeshStandardMaterial({ color: 0x8B5A2B });
         const treeLeaves = new THREE.MeshStandardMaterial({ color: 0x5A9E4E });
         for (let z = -45; z <= 45; z += 6) {
@@ -427,7 +427,7 @@
             const leavesL = new THREE.Mesh(new THREE.ConeGeometry(0.7, 1.0, 8), treeLeaves);
             leavesL.position.y = 1.2;
             treeL.add(leavesL);
-            treeL.position.set(-4.2, -0.5, z);
+            treeL.position.set(-4.5, -0.5, z);
             treeL.castShadow = true;
             scene.add(treeL);
             
@@ -438,36 +438,36 @@
             const leavesR = new THREE.Mesh(new THREE.ConeGeometry(0.7, 1.0, 8), treeLeaves);
             leavesR.position.y = 1.2;
             treeR.add(leavesR);
-            treeR.position.set(4.2, -0.5, z);
+            treeR.position.set(4.5, -0.5, z);
             treeR.castShadow = true;
             scene.add(treeR);
         }
         
-        // МАШИНА ИГРОКА (чётко видна)
+        // МАШИНА ИГРОКА (уменьшена, чтобы не закрывать обзор)
         const playerCar = new THREE.Group();
-        const bodyGeoCar = new THREE.BoxGeometry(1.1, 0.45, 2.0);
+        const bodyGeoCar = new THREE.BoxGeometry(1.0, 0.4, 1.9);
         const bodyMatCar = new THREE.MeshStandardMaterial({ color: 0xff6600, metalness: 0.7, roughness: 0.3 });
         const carBody = new THREE.Mesh(bodyGeoCar, bodyMatCar);
         carBody.castShadow = true;
         playerCar.add(carBody);
         
         const roofMatCar = new THREE.MeshStandardMaterial({ color: 0x88aaff, metalness: 0.8 });
-        const roof = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.35, 1.1), roofMatCar);
-        roof.position.set(0, 0.38, -0.25);
+        const roof = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.3, 1.0), roofMatCar);
+        roof.position.set(0, 0.35, -0.2);
         roof.castShadow = true;
         playerCar.add(roof);
         
         const lightMatCar = new THREE.MeshStandardMaterial({ color: 0xffaa66, emissive: 0xff4400 });
-        const leftLight = new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 16), lightMatCar);
-        leftLight.position.set(-0.5, 0.2, 1.05);
+        const leftLight = new THREE.Mesh(new THREE.SphereGeometry(0.14, 16, 16), lightMatCar);
+        leftLight.position.set(-0.45, 0.18, 0.95);
         playerCar.add(leftLight);
-        const rightLight = new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 16), lightMatCar);
-        rightLight.position.set(0.5, 0.2, 1.05);
+        const rightLight = new THREE.Mesh(new THREE.SphereGeometry(0.14, 16, 16), lightMatCar);
+        rightLight.position.set(0.45, 0.18, 0.95);
         playerCar.add(rightLight);
         
-        const wheelGeoCar = new THREE.CylinderGeometry(0.28, 0.28, 0.12, 24);
+        const wheelGeoCar = new THREE.CylinderGeometry(0.26, 0.26, 0.1, 24);
         const wheelMatCar = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8 });
-        const wheelPos = [[-0.7, -0.2, 0.75], [0.7, -0.2, 0.75], [-0.7, -0.2, -0.75], [0.7, -0.2, -0.75]];
+        const wheelPos = [[-0.65, -0.18, 0.7], [0.65, -0.18, 0.7], [-0.65, -0.18, -0.7], [0.65, -0.18, -0.7]];
         wheelPos.forEach(pos => {
             const wheel = new THREE.Mesh(wheelGeoCar, wheelMatCar);
             wheel.rotation.z = Math.PI / 2;
@@ -524,7 +524,7 @@
                 const obs = obstacles[i];
                 obs.z += moveZ;
                 obs.mesh.position.z = obs.z;
-                if (obs.z < -8) {
+                if (obs.z < -10) {
                     scene.remove(obs.mesh);
                     obstacles.splice(i, 1);
                     i--;
@@ -533,8 +533,7 @@
                     playPointSound();
                     currentSpeed = baseSpeed + Math.floor(score / 8) * 1.2;
                 } else {
-                    // Столкновение
-                    if (Math.abs(currentX - obs.x) < 0.75 && Math.abs(obs.z - 1.2) < 0.9) {
+                    if (Math.abs(currentX - obs.x) < 0.7 && Math.abs(obs.z - 1.5) < 0.9) {
                         gameActive = false;
                         statusDiv.innerHTML = '💥 КРАШ! Игра окончена. Нажмите "Выход".';
                         playCrashSound();
@@ -625,7 +624,7 @@
                             carGroup.add(body2);
                             const wheelGeo2 = new THREE.CylinderGeometry(0.26, 0.26, 0.1, 16);
                             const wheelMat2 = new THREE.MeshStandardMaterial({ color: 0x111111 });
-                            const wPos = [[-0.65, -0.2, 0.7], [0.65, -0.2, 0.7], [-0.65, -0.2, -0.7], [0.65, -0.2, -0.7]];
+                            const wPos = [[-0.65, -0.18, 0.7], [0.65, -0.18, 0.7], [-0.65, -0.18, -0.7], [0.65, -0.18, -0.7]];
                             wPos.forEach(pos => {
                                 const wheel = new THREE.Mesh(wheelGeo2, wheelMat2);
                                 wheel.rotation.z = Math.PI / 2;
@@ -697,8 +696,10 @@
             if (gameActive) {
                 currentX += (targetX - currentX) * 0.25;
                 playerCar.position.x = currentX;
-                camera.position.x += (currentX - camera.position.x) * 0.1;
-                camera.lookAt(currentX, 0.6, playerCar.position.z + 2.5);
+                // камера плавно следует за машиной, но смотрит вперёд
+                const targetCamX = currentX * 0.3;
+                camera.position.x += (targetCamX - camera.position.x) * 0.1;
+                camera.lookAt(currentX, 0.8, 20);
                 updateObstacles(dt);
                 updateEngineSound(currentSpeed);
             }
