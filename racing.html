@@ -36,7 +36,7 @@
             text-align: center;
         }
         .mode-btn:hover { transform: scale(1.05); background: #ffaa44; color: #0a0f1a; }
-        #info, #score {
+        #info, #score, #km {
             position: absolute;
             top: 20px;
             background: rgba(0,0,0,0.7);
@@ -49,6 +49,7 @@
         }
         #info { left: 20px; }
         #score { right: 20px; color: #ffaa44; }
+        #km { left: 20px; top: 80px; background: rgba(0,0,0,0.5); font-size: 14px; }
         #controls {
             position: absolute;
             bottom: 30px;
@@ -107,7 +108,7 @@
         #music-toggle {
             position: absolute;
             top: 20px;
-            right: 20px;
+            left: 120px;
             width: 48px;
             height: 48px;
             background: rgba(0,0,0,0.7);
@@ -125,7 +126,7 @@
         #music-panel {
             position: absolute;
             top: 80px;
-            right: 20px;
+            left: 20px;
             background: rgba(0,0,0,0.85);
             backdrop-filter: blur(12px);
             border-radius: 24px;
@@ -158,6 +159,7 @@
     </div>
     <div id="info" class="hidden">🏎️ 3D RACE</div>
     <div id="score" class="hidden">🏆 0</div>
+    <div id="km" class="hidden">📏 0.0 км</div>
     <div id="controls" class="hidden">
         <div class="ctrl-btn" id="btnLeft">◀</div>
         <div class="ctrl-btn" id="btnRight">▶</div>
@@ -203,6 +205,7 @@
         const modeMenu = document.getElementById('mode-menu');
         const infoDiv = document.getElementById('info');
         const scoreDiv = document.getElementById('score');
+        const kmDiv = document.getElementById('km');
         const controlsDiv = document.getElementById('controls');
         const statusDiv = document.getElementById('status');
         const exitBtn = document.getElementById('exitBtn');
@@ -352,10 +355,10 @@
 
         // ----- 3D СЦЕНА -----
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x87CEEB); // Голубое небо
+        scene.background = new THREE.Color(0x87CEEB);
         scene.fog = new THREE.FogExp2(0x87CEEB, 0.002);
         
-        // Камера сзади-сверху
+        // Камера
         const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.3, 1000);
         camera.position.set(0, 4.2, -6.5);
         
@@ -365,12 +368,10 @@
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         document.body.appendChild(renderer.domElement);
         
-        // Солнце (основной свет)
+        // Солнце
         const sunLight = new THREE.DirectionalLight(0xffeedd, 1.2);
         sunLight.position.set(15, 20, 5);
         sunLight.castShadow = true;
-        sunLight.shadow.mapSize.width = 1024;
-        sunLight.shadow.mapSize.height = 1024;
         scene.add(sunLight);
         
         const ambient = new THREE.AmbientLight(0x404060);
@@ -379,7 +380,7 @@
         fillLight.position.set(-2, 5, 4);
         scene.add(fillLight);
         
-        // ---- Облака (простые сферы) ----
+        // ---- Облака ----
         const cloudMat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
         const clouds = [];
         const cloudPositions = [
@@ -388,19 +389,17 @@
         ];
         cloudPositions.forEach(pos => {
             const group = new THREE.Group();
-            const parts = [0.8, 1.1, 0.9, 0.7];
-            parts.forEach(size => {
+            [0.8, 1.1, 0.9, 0.7].forEach(size => {
                 const part = new THREE.Mesh(new THREE.SphereGeometry(size, 7, 7), cloudMat);
                 part.position.set((Math.random() - 0.5) * 1.5, (Math.random() - 0.5) * 0.7, (Math.random() - 0.5) * 1.2);
                 group.add(part);
             });
             group.position.set(pos[0], pos[1], pos[2]);
-            group.castShadow = false;
             scene.add(group);
             clouds.push(group);
         });
         
-        // ---- Дорога (статичная, но разметка и объекты будут двигаться) ----
+        // ---- Дорога (основа) ----
         const roadMat = new THREE.MeshStandardMaterial({ color: 0x2c3e50, roughness: 0.6 });
         const road = new THREE.Mesh(new THREE.PlaneGeometry(6, 200), roadMat);
         road.rotation.x = -Math.PI / 2;
@@ -412,19 +411,18 @@
         const leftEdge = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 200), edgeMat);
         leftEdge.rotation.x = -Math.PI / 2;
         leftEdge.position.set(-3.5, -0.5, 0);
-        leftEdge.receiveShadow = true;
         scene.add(leftEdge);
         const rightEdge = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 200), edgeMat);
         rightEdge.rotation.x = -Math.PI / 2;
         rightEdge.position.set(3.5, -0.5, 0);
-        rightEdge.receiveShadow = true;
         scene.add(rightEdge);
         
-        // ---- Динамические элементы: разметка, бордюры, знаки, дома ----
+        // ---- Динамические объекты ----
         let roadLines = [];
         let curbs = [];
+        let trees = [];
         let trafficSigns = [];
-        let houses = [];
+        let buildings = []; // дома, заправки
         
         function createRoadLine(z) {
             const lineMat = new THREE.MeshStandardMaterial({ color: 0xffdd99 });
@@ -448,6 +446,22 @@
             return [left, right];
         }
         
+        function createTree(z, side) {
+            const group = new THREE.Group();
+            const trunkMat = new THREE.MeshStandardMaterial({ color: 0x8B5A2B });
+            const leavesMat = new THREE.MeshStandardMaterial({ color: 0x5A9E4E });
+            const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.5, 1.2, 6), trunkMat);
+            trunk.position.y = 0.6;
+            group.add(trunk);
+            const leaves = new THREE.Mesh(new THREE.ConeGeometry(0.7, 1.0, 8), leavesMat);
+            leaves.position.y = 1.2;
+            group.add(leaves);
+            group.position.set(side * 4.5, -0.5, z);
+            group.castShadow = true;
+            scene.add(group);
+            return group;
+        }
+        
         function createTrafficSign(z, side) {
             const group = new THREE.Group();
             const poleMat = new THREE.MeshStandardMaterial({ color: 0x888888 });
@@ -464,115 +478,117 @@
             return group;
         }
         
-        function createHouse(z, side) {
+        function createHouse(z, side, type = 'house') {
             const group = new THREE.Group();
-            const wallMat = new THREE.MeshStandardMaterial({ color: 0xc9b6a0 });
-            const roofMat = new THREE.MeshStandardMaterial({ color: 0xaa6644 });
-            // Основание
-            const base = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.8, 2.2), wallMat);
-            base.position.y = 0.9;
-            base.castShadow = true;
-            group.add(base);
-            // Крыша
-            const roof = new THREE.Mesh(new THREE.ConeGeometry(1.4, 1.2, 4), roofMat);
-            roof.position.y = 1.8;
-            roof.castShadow = true;
-            group.add(roof);
-            // Дверь
-            const door = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.0, 0.1), new THREE.MeshStandardMaterial({ color: 0x8B5A2B }));
-            door.position.set(0, 0.5, 1.11);
-            door.castShadow = true;
-            group.add(door);
-            // Окна
-            const windowMat = new THREE.MeshStandardMaterial({ color: 0x88aaff });
-            const windowLeft = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.1), windowMat);
-            windowLeft.position.set(-0.8, 1.2, 1.11);
-            group.add(windowLeft);
-            const windowRight = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.1), windowMat);
-            windowRight.position.set(0.8, 1.2, 1.11);
-            group.add(windowRight);
-            // Текст R-Game на стене (используем CanvasTexture)
-            const canvas = document.createElement('canvas');
-            canvas.width = 256;
-            canvas.height = 128;
-            const ctx = canvas.getContext('2d');
-            ctx.fillStyle = '#ffaa44';
-            ctx.font = 'Bold 40px "Segoe UI"';
-            ctx.fillText('R-GAME', 40, 60);
-            const texture = new THREE.CanvasTexture(canvas);
-            const signBoard = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.6, 0.05), new THREE.MeshStandardMaterial({ map: texture }));
-            signBoard.position.set(0, 1.3, -1.12);
-            group.add(signBoard);
-            
+            if (type === 'house') {
+                const wallMat = new THREE.MeshStandardMaterial({ color: 0xc9b6a0 });
+                const roofMat = new THREE.MeshStandardMaterial({ color: 0xaa6644 });
+                const base = new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.8, 2.0), wallMat);
+                base.position.y = 0.9;
+                base.castShadow = true;
+                group.add(base);
+                const roof = new THREE.Mesh(new THREE.ConeGeometry(1.3, 1.2, 4), roofMat);
+                roof.position.y = 1.8;
+                roof.castShadow = true;
+                group.add(roof);
+                // дверь
+                const door = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.0, 0.1), new THREE.MeshStandardMaterial({ color: 0x8B5A2B }));
+                door.position.set(0, 0.5, 1.01);
+                group.add(door);
+                // окна
+                const windowMat = new THREE.MeshStandardMaterial({ color: 0x88aaff });
+                const win = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.1), windowMat);
+                win.position.set(-0.7, 1.2, 1.01);
+                group.add(win);
+                const win2 = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.1), windowMat);
+                win2.position.set(0.7, 1.2, 1.01);
+                group.add(win2);
+            } else if (type === 'gas') {
+                // Заправка
+                const baseMat = new THREE.MeshStandardMaterial({ color: 0xaa8866 });
+                const roofMat = new THREE.MeshStandardMaterial({ color: 0xccaa77 });
+                const base = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.6, 2.2), baseMat);
+                base.position.y = 0.3;
+                group.add(base);
+                const canopy = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.2, 3.0), roofMat);
+                canopy.position.y = 1.2;
+                group.add(canopy);
+                // колонка
+                const pump = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.0, 0.5), new THREE.MeshStandardMaterial({ color: 0xdd6644 }));
+                pump.position.set(1.0, 0.5, 0.8);
+                group.add(pump);
+                // знак R-Game
+                const canvas = document.createElement('canvas');
+                canvas.width = 256;
+                canvas.height = 128;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#ffaa44';
+                ctx.font = 'Bold 36px "Segoe UI"';
+                ctx.fillText('R-GAME', 60, 60);
+                const texture = new THREE.CanvasTexture(canvas);
+                const signBoard = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.6, 0.05), new THREE.MeshStandardMaterial({ map: texture }));
+                signBoard.position.set(0, 1.4, -1.2);
+                group.add(signBoard);
+            }
             group.position.set(side * 5.2, -0.5, z);
             group.castShadow = true;
             scene.add(group);
             return group;
         }
         
-        // Инициализация объектов (от -60 до 60)
+        // Инициализация объектов в диапазоне от -60 до 60
         for (let z = -58; z <= 60; z += 3) {
             roadLines.push(createRoadLine(z));
         }
         for (let z = -60; z <= 60; z += 2.5) {
             curbs.push(...createCurb(z));
         }
-        for (let z = -55; z <= 60; z += 10) {
+        // Деревья (постоянно, каждые 5 метров)
+        for (let z = -55; z <= 60; z += 5) {
+            trees.push(createTree(z, -1));
+            trees.push(createTree(z, 1));
+        }
+        // Дорожные знаки (каждые 12 метров)
+        for (let z = -50; z <= 60; z += 12) {
             trafficSigns.push(createTrafficSign(z, -1));
             trafficSigns.push(createTrafficSign(z, 1));
         }
-        for (let z = -50; z <= 60; z += 12) {
-            houses.push(createHouse(z, -1));
-            houses.push(createHouse(z, 1));
+        // Разнообразные здания: дома и заправки
+        let buildingTypes = ['house', 'house', 'gas', 'house']; // чередуем
+        let idx = 0;
+        for (let z = -45; z <= 60; z += 14) {
+            const type = buildingTypes[idx % buildingTypes.length];
+            buildings.push(createHouse(z, -1, type));
+            buildings.push(createHouse(z, 1, type));
+            idx++;
         }
         
         // ---- МАШИНА ИГРОКА (реалистичная) ----
         const playerCar = new THREE.Group();
-        
-        // Кузов
-        const bodyGeo = new THREE.BoxGeometry(1.0, 0.4, 1.9);
-        const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff6600, metalness: 0.85, roughness: 0.25, emissive: 0x331100 });
-        const carBody = new THREE.Mesh(bodyGeo, bodyMat);
+        const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff6600, metalness: 0.85, roughness: 0.25 });
+        const carBody = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.4, 1.9), bodyMat);
         carBody.castShadow = true;
-        carBody.receiveShadow = true;
         playerCar.add(carBody);
-        
-        // Стекла
-        const glassMat = new THREE.MeshStandardMaterial({ color: 0x88aaff, metalness: 0.9, emissive: 0x001133 });
+        // стёкла
+        const glassMat = new THREE.MeshStandardMaterial({ color: 0x88aaff, metalness: 0.9 });
         const frontGlass = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.25, 0.3), glassMat);
         frontGlass.position.set(0, 0.25, 0.85);
         playerCar.add(frontGlass);
         const backGlass = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.25, 0.3), glassMat);
         backGlass.position.set(0, 0.25, -0.85);
         playerCar.add(backGlass);
-        const sideGlassL = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.25, 0.9), glassMat);
-        sideGlassL.position.set(-0.55, 0.25, 0);
-        playerCar.add(sideGlassL);
-        const sideGlassR = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.25, 0.9), glassMat);
-        sideGlassR.position.set(0.55, 0.25, 0);
-        playerCar.add(sideGlassR);
-        
-        // Фары и задние фонари
-        const lightMat = new THREE.MeshStandardMaterial({ color: 0xffaa66, emissive: 0xff4400, emissiveIntensity: 0.8 });
+        // фары
+        const lightMat = new THREE.MeshStandardMaterial({ color: 0xffaa66, emissive: 0xff4400 });
         const leftLight = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 16), lightMat);
         leftLight.position.set(-0.45, 0.15, 0.98);
         playerCar.add(leftLight);
         const rightLight = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 16), lightMat);
         rightLight.position.set(0.45, 0.15, 0.98);
         playerCar.add(rightLight);
-        
-        const tailMat = new THREE.MeshStandardMaterial({ color: 0xff3300, emissive: 0x550000 });
-        const leftTail = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 16), tailMat);
-        leftTail.position.set(-0.45, 0.15, -0.98);
-        playerCar.add(leftTail);
-        const rightTail = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 16), tailMat);
-        rightTail.position.set(0.45, 0.15, -0.98);
-        playerCar.add(rightTail);
-        
-        // Колёса с дисками
+        // колёса
         const wheelGeo = new THREE.CylinderGeometry(0.28, 0.28, 0.12, 24);
-        const tireMat = new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.2, roughness: 0.8 });
-        const rimMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, metalness: 0.95, roughness: 0.3 });
+        const tireMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+        const rimMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, metalness: 0.95 });
         const wheelPos = [[-0.7, -0.18, 0.75], [0.7, -0.18, 0.75], [-0.7, -0.18, -0.75], [0.7, -0.18, -0.75]];
         wheelPos.forEach(pos => {
             const tire = new THREE.Mesh(wheelGeo, tireMat);
@@ -580,15 +596,11 @@
             tire.position.set(pos[0], pos[1], pos[2]);
             tire.castShadow = true;
             playerCar.add(tire);
-            
-            const rimGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.13, 8);
-            const rim = new THREE.Mesh(rimGeo, rimMat);
+            const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.13, 8), rimMat);
             rim.rotation.z = Math.PI / 2;
             rim.position.set(pos[0], pos[1], pos[2]);
-            rim.castShadow = true;
             playerCar.add(rim);
         });
-        
         scene.add(playerCar);
         playerCar.position.y = 0;
         playerCar.position.z = 0;
@@ -602,7 +614,6 @@
         let baseSpeed = 13;
         let currentSpeed = baseSpeed;
         
-        // ИСПРАВЛЕННОЕ УПРАВЛЕНИЕ: влево -> отрицательное смещение
         function moveLeft() { targetX = Math.max(-2.5, targetX - 0.9); }
         function moveRight() { targetX = Math.min(2.5, targetX + 0.9); }
         
@@ -645,6 +656,8 @@
                     i--;
                     score++;
                     scoreDiv.innerText = `🏆 ${score}`;
+                    // обновляем километры (1 км = 10 очков)
+                    kmDiv.innerText = `📏 ${(score / 10).toFixed(1)} км`;
                     playPointSound();
                     currentSpeed = baseSpeed + Math.floor(score / 8) * 1.2;
                 } else {
@@ -662,7 +675,6 @@
             }
         }
         
-        // Движение всех динамических объектов (разметка, бордюры, знаки, дома)
         function updateDynamicObjects(deltaTime) {
             const moveZ = -currentSpeed * deltaTime;
             roadLines.forEach(line => {
@@ -673,13 +685,17 @@
                 curb.position.z += moveZ;
                 if (curb.position.z < -60) curb.position.z = 60;
             });
+            trees.forEach(tree => {
+                tree.position.z += moveZ;
+                if (tree.position.z < -60) tree.position.z = 60;
+            });
             trafficSigns.forEach(sign => {
                 sign.position.z += moveZ;
                 if (sign.position.z < -60) sign.position.z = 60;
             });
-            houses.forEach(house => {
-                house.position.z += moveZ;
-                if (house.position.z < -60) house.position.z = 60;
+            buildings.forEach(building => {
+                building.position.z += moveZ;
+                if (building.position.z < -60) building.position.z = 60;
             });
             clouds.forEach(cloud => {
                 cloud.position.z += moveZ * 0.4;
@@ -697,6 +713,7 @@
             score = 0;
             currentSpeed = baseSpeed;
             scoreDiv.innerText = `🏆 0`;
+            kmDiv.innerText = `📏 0.0 км`;
             clearObstacles();
             currentX = 0;
             targetX = 0;
@@ -710,12 +727,13 @@
             }, 680);
         }
         
-        // Одиночный режим
+        // ---- Режимы ----
         function initSingleMode() {
             currentMode = 'single';
             modeMenu.classList.add('hidden');
             infoDiv.classList.remove('hidden');
             scoreDiv.classList.remove('hidden');
+            kmDiv.classList.remove('hidden');
             controlsDiv.classList.remove('hidden');
             statusDiv.classList.remove('hidden');
             exitBtn.classList.remove('hidden');
@@ -724,12 +742,12 @@
             startBackgroundMusic();
         }
         
-        // Многопользовательский режим (упрощённо, но работает)
         function initMultiMode() {
             currentMode = 'multi';
             modeMenu.classList.add('hidden');
             infoDiv.classList.remove('hidden');
             scoreDiv.classList.remove('hidden');
+            kmDiv.classList.remove('hidden');
             controlsDiv.classList.remove('hidden');
             statusDiv.classList.remove('hidden');
             exitBtn.classList.remove('hidden');
@@ -818,6 +836,7 @@
             window.location.href = 'index.html';
         });
         
+        // Музыкальные элементы
         document.getElementById('musicFileInput').addEventListener('change', (e) => {
             if (e.target.files.length > 0) loadMusicFromFile(e.target.files[0]);
         });
@@ -842,7 +861,7 @@
                 updateDynamicObjects(dt);
                 updateEngineSound(currentSpeed);
             }
-            // Солнце медленно движется
+            // Вращение солнца
             const time = Date.now() * 0.0003;
             sunLight.position.x = 15 + Math.sin(time) * 3;
             sunLight.position.y = 20 + Math.cos(time * 0.7) * 2;
@@ -856,8 +875,6 @@
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
-        
-        console.log('Racing game loaded - final enhanced version');
     </script>
 </body>
 </html>
