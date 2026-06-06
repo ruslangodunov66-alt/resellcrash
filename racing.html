@@ -250,9 +250,9 @@
         
         function updateEngineSound(speedVal) {
             if (!engineRunning || !engineOsc) return;
-            const freq = 70 + Math.min(100, speedVal * 6);
+            const freq = 70 + Math.min(100, speedVal * 5);
             engineOsc.frequency.value = freq;
-            engineGain.gain.value = 0.08 + Math.min(0.12, speedVal * 0.01);
+            engineGain.gain.value = 0.08 + Math.min(0.12, speedVal * 0.008);
         }
         
         function stopEngineSound() {
@@ -380,6 +380,14 @@
         fillLight.position.set(-2, 5, 4);
         scene.add(fillLight);
         
+        // ---- Трава (большая плоскость под дорогой) ----
+        const grassMat = new THREE.MeshStandardMaterial({ color: 0x5c9e4e, roughness: 0.9 });
+        const grassPlane = new THREE.Mesh(new THREE.PlaneGeometry(40, 200), grassMat);
+        grassPlane.rotation.x = -Math.PI / 2;
+        grassPlane.position.y = -0.6;
+        grassPlane.receiveShadow = true;
+        scene.add(grassPlane);
+        
         // ---- Облака ----
         const cloudMat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
         const clouds = [];
@@ -422,7 +430,8 @@
         let curbs = [];
         let trees = [];
         let trafficSigns = [];
-        let buildings = []; // дома, заправки
+        let buildings = [];
+        let people = [];
         
         function createRoadLine(z) {
             const lineMat = new THREE.MeshStandardMaterial({ color: 0xffdd99 });
@@ -491,11 +500,9 @@
                 roof.position.y = 1.8;
                 roof.castShadow = true;
                 group.add(roof);
-                // дверь
                 const door = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.0, 0.1), new THREE.MeshStandardMaterial({ color: 0x8B5A2B }));
                 door.position.set(0, 0.5, 1.01);
                 group.add(door);
-                // окна
                 const windowMat = new THREE.MeshStandardMaterial({ color: 0x88aaff });
                 const win = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.1), windowMat);
                 win.position.set(-0.7, 1.2, 1.01);
@@ -504,7 +511,6 @@
                 win2.position.set(0.7, 1.2, 1.01);
                 group.add(win2);
             } else if (type === 'gas') {
-                // Заправка
                 const baseMat = new THREE.MeshStandardMaterial({ color: 0xaa8866 });
                 const roofMat = new THREE.MeshStandardMaterial({ color: 0xccaa77 });
                 const base = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.6, 2.2), baseMat);
@@ -513,11 +519,9 @@
                 const canopy = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.2, 3.0), roofMat);
                 canopy.position.y = 1.2;
                 group.add(canopy);
-                // колонка
                 const pump = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.0, 0.5), new THREE.MeshStandardMaterial({ color: 0xdd6644 }));
                 pump.position.set(1.0, 0.5, 0.8);
                 group.add(pump);
-                // знак R-Game
                 const canvas = document.createElement('canvas');
                 canvas.width = 256;
                 canvas.height = 128;
@@ -536,25 +540,48 @@
             return group;
         }
         
-        // Инициализация объектов в диапазоне от -60 до 60
-        for (let z = -58; z <= 60; z += 3) {
-            roadLines.push(createRoadLine(z));
+        function createPerson(z, side) {
+            const group = new THREE.Group();
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0x44aa88 });
+            const headMat = new THREE.MeshStandardMaterial({ color: 0xffccaa });
+            // тело
+            const body = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.7, 0.3), bodyMat);
+            body.position.y = 0.35;
+            body.castShadow = true;
+            group.add(body);
+            // голова
+            const head = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 16), headMat);
+            head.position.y = 0.75;
+            head.castShadow = true;
+            group.add(head);
+            // ноги (два кубика)
+            const legMat = new THREE.MeshStandardMaterial({ color: 0x553322 });
+            const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.4, 0.15), legMat);
+            leftLeg.position.set(-0.12, 0.2, 0);
+            leftLeg.castShadow = true;
+            group.add(leftLeg);
+            const rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.4, 0.15), legMat);
+            rightLeg.position.set(0.12, 0.2, 0);
+            rightLeg.castShadow = true;
+            group.add(rightLeg);
+            group.position.set(side * 4.2, -0.3, z);
+            group.castShadow = true;
+            scene.add(group);
+            return group;
         }
-        for (let z = -60; z <= 60; z += 2.5) {
-            curbs.push(...createCurb(z));
-        }
-        // Деревья (постоянно, каждые 5 метров)
+        
+        // Инициализация объектов
+        for (let z = -58; z <= 60; z += 3) roadLines.push(createRoadLine(z));
+        for (let z = -60; z <= 60; z += 2.5) curbs.push(...createCurb(z));
         for (let z = -55; z <= 60; z += 5) {
             trees.push(createTree(z, -1));
             trees.push(createTree(z, 1));
         }
-        // Дорожные знаки (каждые 12 метров)
         for (let z = -50; z <= 60; z += 12) {
             trafficSigns.push(createTrafficSign(z, -1));
             trafficSigns.push(createTrafficSign(z, 1));
         }
-        // Разнообразные здания: дома и заправки
-        let buildingTypes = ['house', 'house', 'gas', 'house']; // чередуем
+        let buildingTypes = ['house', 'house', 'gas', 'house'];
         let idx = 0;
         for (let z = -45; z <= 60; z += 14) {
             const type = buildingTypes[idx % buildingTypes.length];
@@ -562,41 +589,69 @@
             buildings.push(createHouse(z, 1, type));
             idx++;
         }
+        // Люди (пешеходы) – идут по обочинам, каждые 15-20 метров
+        for (let z = -40; z <= 60; z += 18) {
+            people.push(createPerson(z, -1));
+            people.push(createPerson(z + 3, 1));
+        }
         
-        // ---- МАШИНА ИГРОКА (реалистичная) ----
+        // ---- НОВАЯ МАШИНА: MERCEDES G-CLASS (Гелик) ----
         const playerCar = new THREE.Group();
-        const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff6600, metalness: 0.85, roughness: 0.25 });
-        const carBody = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.4, 1.9), bodyMat);
-        carBody.castShadow = true;
-        playerCar.add(carBody);
-        // стёкла
-        const glassMat = new THREE.MeshStandardMaterial({ color: 0x88aaff, metalness: 0.9 });
-        const frontGlass = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.25, 0.3), glassMat);
-        frontGlass.position.set(0, 0.25, 0.85);
-        playerCar.add(frontGlass);
-        const backGlass = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.25, 0.3), glassMat);
-        backGlass.position.set(0, 0.25, -0.85);
-        playerCar.add(backGlass);
-        // фары
-        const lightMat = new THREE.MeshStandardMaterial({ color: 0xffaa66, emissive: 0xff4400 });
-        const leftLight = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 16), lightMat);
-        leftLight.position.set(-0.45, 0.15, 0.98);
+        // Кузов (брутальный прямоугольник)
+        const bodyMatCar = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, metalness: 0.7, roughness: 0.4 });
+        const mainBody = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.55, 1.9), bodyMatCar);
+        mainBody.position.y = 0.25;
+        mainBody.castShadow = true;
+        playerCar.add(mainBody);
+        // Крыша (чуть уже)
+        const roof = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.35, 1.5), bodyMatCar);
+        roof.position.set(0, 0.55, -0.1);
+        roof.castShadow = true;
+        playerCar.add(roof);
+        // Стекла
+        const glassMatCar = new THREE.MeshStandardMaterial({ color: 0x88aaff, metalness: 0.9 });
+        const frontWind = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.3, 0.2), glassMatCar);
+        frontWind.position.set(0, 0.45, 0.85);
+        playerCar.add(frontWind);
+        const sideWindL = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 1.2), glassMatCar);
+        sideWindL.position.set(-0.65, 0.45, 0);
+        playerCar.add(sideWindL);
+        const sideWindR = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 1.2), glassMatCar);
+        sideWindR.position.set(0.65, 0.45, 0);
+        playerCar.add(sideWindR);
+        // Фары (квадратные, характерные для G-класса)
+        const lightMatCar = new THREE.MeshStandardMaterial({ color: 0xffaa66, emissive: 0xff4400 });
+        const leftLight = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.2, 0.15), lightMatCar);
+        leftLight.position.set(-0.55, 0.25, 0.98);
         playerCar.add(leftLight);
-        const rightLight = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 16), lightMat);
-        rightLight.position.set(0.45, 0.15, 0.98);
+        const rightLight = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.2, 0.15), lightMatCar);
+        rightLight.position.set(0.55, 0.25, 0.98);
         playerCar.add(rightLight);
-        // колёса
-        const wheelGeo = new THREE.CylinderGeometry(0.28, 0.28, 0.12, 24);
-        const tireMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
-        const rimMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, metalness: 0.95 });
-        const wheelPos = [[-0.7, -0.18, 0.75], [0.7, -0.18, 0.75], [-0.7, -0.18, -0.75], [0.7, -0.18, -0.75]];
+        // Задние фонари
+        const tailMatCar = new THREE.MeshStandardMaterial({ color: 0xff3300, emissive: 0x550000 });
+        const leftTail = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.1), tailMatCar);
+        leftTail.position.set(-0.55, 0.25, -0.98);
+        playerCar.add(leftTail);
+        const rightTail = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.1), tailMatCar);
+        rightTail.position.set(0.55, 0.25, -0.98);
+        playerCar.add(rightTail);
+        // Запасное колесо на задней двери
+        const spareWheel = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.1, 16), new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8 }));
+        spareWheel.rotation.z = Math.PI / 2;
+        spareWheel.position.set(0, 0.35, -1.02);
+        playerCar.add(spareWheel);
+        // Колёса (большие, внедорожные)
+        const wheelGeoCar = new THREE.CylinderGeometry(0.32, 0.32, 0.14, 24);
+        const tireMatCar = new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.2 });
+        const rimMatCar = new THREE.MeshStandardMaterial({ color: 0xdddddd, metalness: 0.95 });
+        const wheelPos = [[-0.8, -0.18, 0.8], [0.8, -0.18, 0.8], [-0.8, -0.18, -0.8], [0.8, -0.18, -0.8]];
         wheelPos.forEach(pos => {
-            const tire = new THREE.Mesh(wheelGeo, tireMat);
+            const tire = new THREE.Mesh(wheelGeoCar, tireMatCar);
             tire.rotation.z = Math.PI / 2;
             tire.position.set(pos[0], pos[1], pos[2]);
             tire.castShadow = true;
             playerCar.add(tire);
-            const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.13, 8), rimMat);
+            const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.15, 8), rimMatCar);
             rim.rotation.z = Math.PI / 2;
             rim.position.set(pos[0], pos[1], pos[2]);
             playerCar.add(rim);
@@ -613,6 +668,7 @@
         let currentX = 0;
         let baseSpeed = 13;
         let currentSpeed = baseSpeed;
+        const MAX_SPEED = 26;   // максимальная скорость, чтобы не было гипер-быстро
         
         function moveLeft() { targetX = Math.max(-2.5, targetX - 0.9); }
         function moveRight() { targetX = Math.min(2.5, targetX + 0.9); }
@@ -656,10 +712,11 @@
                     i--;
                     score++;
                     scoreDiv.innerText = `🏆 ${score}`;
-                    // обновляем километры (1 км = 10 очков)
                     kmDiv.innerText = `📏 ${(score / 10).toFixed(1)} км`;
                     playPointSound();
-                    currentSpeed = baseSpeed + Math.floor(score / 8) * 1.2;
+                    // Ускорение: каждые 15 очков увеличиваем скорость, но не выше MAX_SPEED
+                    let targetSpeed = baseSpeed + Math.floor(score / 15) * 1.8;
+                    currentSpeed = Math.min(MAX_SPEED, targetSpeed);
                 } else {
                     if (Math.abs(currentX - obs.x) < 0.7 && Math.abs(obs.z - 1.8) < 1.0) {
                         gameActive = false;
@@ -677,30 +734,13 @@
         
         function updateDynamicObjects(deltaTime) {
             const moveZ = -currentSpeed * deltaTime;
-            roadLines.forEach(line => {
-                line.position.z += moveZ;
-                if (line.position.z < -60) line.position.z = 60;
-            });
-            curbs.forEach(curb => {
-                curb.position.z += moveZ;
-                if (curb.position.z < -60) curb.position.z = 60;
-            });
-            trees.forEach(tree => {
-                tree.position.z += moveZ;
-                if (tree.position.z < -60) tree.position.z = 60;
-            });
-            trafficSigns.forEach(sign => {
-                sign.position.z += moveZ;
-                if (sign.position.z < -60) sign.position.z = 60;
-            });
-            buildings.forEach(building => {
-                building.position.z += moveZ;
-                if (building.position.z < -60) building.position.z = 60;
-            });
-            clouds.forEach(cloud => {
-                cloud.position.z += moveZ * 0.4;
-                if (cloud.position.z < -70) cloud.position.z = 60;
-            });
+            roadLines.forEach(line => { line.position.z += moveZ; if (line.position.z < -60) line.position.z = 60; });
+            curbs.forEach(curb => { curb.position.z += moveZ; if (curb.position.z < -60) curb.position.z = 60; });
+            trees.forEach(tree => { tree.position.z += moveZ; if (tree.position.z < -60) tree.position.z = 60; });
+            trafficSigns.forEach(sign => { sign.position.z += moveZ; if (sign.position.z < -60) sign.position.z = 60; });
+            buildings.forEach(building => { building.position.z += moveZ; if (building.position.z < -60) building.position.z = 60; });
+            people.forEach(person => { person.position.z += moveZ; if (person.position.z < -60) person.position.z = 60; });
+            clouds.forEach(cloud => { cloud.position.z += moveZ * 0.4; if (cloud.position.z < -70) cloud.position.z = 60; });
         }
         
         function clearObstacles() {
@@ -836,7 +876,6 @@
             window.location.href = 'index.html';
         });
         
-        // Музыкальные элементы
         document.getElementById('musicFileInput').addEventListener('change', (e) => {
             if (e.target.files.length > 0) loadMusicFromFile(e.target.files[0]);
         });
@@ -861,7 +900,7 @@
                 updateDynamicObjects(dt);
                 updateEngineSound(currentSpeed);
             }
-            // Вращение солнца
+            // Солнце медленно движется
             const time = Date.now() * 0.0003;
             sunLight.position.x = 15 + Math.sin(time) * 3;
             sunLight.position.y = 20 + Math.cos(time * 0.7) * 2;
