@@ -2,382 +2,264 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Resell Tycoon</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
-            -webkit-tap-highlight-color: transparent;
+            transition: background-color 0.3s ease, color 0.2s ease, transform 0.2s ease;
         }
 
+        /* === ТЁМНАЯ ТЕМА (по умолчанию) === */
         body {
-            background: #0a0f1a;
-            font-family: 'Segoe UI', 'Poppins', system-ui, sans-serif;
+            font-family: 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background: #0a0a1a;
+            color: #f0f0f0;
+            padding: 20px;
             min-height: 100vh;
-            overflow-x: hidden;
+        }
+
+        /* === СВЕТЛАЯ ТЕМА (активируется классом .light) === */
+        body.light {
+            background: #f5f7fa;
+            color: #1e1e2a;
+        }
+        body.light .card {
+            background: #ffffff;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.05);
+        }
+        body.light button {
+            background: linear-gradient(135deg, #6b47dc, #3b82f6);
             color: white;
         }
+        body.light .toggle-theme {
+            background: #e0e0e0;
+            color: #1e1e2a;
+        }
 
-        /* Canvas для 2D фона с деньгами */
-        #canvas-bg {
+        /* === ПЕРЕКЛЮЧАТЕЛЬ ТЕМЫ === */
+        .toggle-theme {
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 0;
-            display: block;
-            pointer-events: none;
-        }
-
-        /* Основной контейнер с вертикальной прокруткой */
-        .game-container {
-            position: relative;
-            z-index: 1;
-            max-width: 550px;
-            margin: 0 auto;
-            padding: 20px 16px 40px;
-            height: 100vh;
-            overflow-y: auto;
-            scroll-snap-type: y mandatory;
-            scroll-behavior: smooth;
-        }
-
-        /* Стилизация скроллбара */
-        .game-container::-webkit-scrollbar {
-            width: 4px;
-        }
-        .game-container::-webkit-scrollbar-track {
-            background: rgba(0,0,0,0.3);
-            border-radius: 10px;
-        }
-        .game-container::-webkit-scrollbar-thumb {
-            background: #ffaa44;
-            border-radius: 10px;
-        }
-
-        /* Карточка профиля */
-        .profile-card {
-            background: rgba(20, 30, 45, 0.7);
-            backdrop-filter: blur(12px);
-            border-radius: 48px;
-            padding: 24px 20px;
-            text-align: center;
-            border: 1px solid rgba(0, 255, 255, 0.4);
-            box-shadow: 0 20px 35px -10px rgba(0,0,0,0.5);
-            transition: transform 0.3s ease;
-            scroll-snap-align: start;
-            margin-bottom: 30px;
-        }
-        .profile-card:hover {
-            transform: translateY(-5px);
-        }
-
-        .avatar {
-            width: 100px;
-            height: 100px;
-            margin: 0 auto 16px;
-            background: linear-gradient(145deg, #2a3a55, #101826);
-            border-radius: 60px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 8px 20px rgba(0,0,0,0.5), 0 0 0 3px rgba(0,255,255,0.6);
-            transition: transform 0.3s;
-        }
-        .avatar:hover {
-            transform: rotateY(8deg) scale(1.02);
-        }
-        .avatar .emoji {
-            font-size: 60px;
-        }
-        .avatar img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            border-radius: 60px;
-        }
-
-        .player-name {
-            font-size: 26px;
-            font-weight: 800;
-            background: linear-gradient(135deg, #FFD966, #FFA559);
-            background-clip: text;
-            -webkit-background-clip: text;
-            color: transparent;
-        }
-
-        .player-stats {
-            display: flex;
-            justify-content: center;
-            gap: 16px;
-            margin-top: 12px;
-            flex-wrap: wrap;
-        }
-        .stat {
-            background: rgba(0,0,0,0.5);
+            top: 20px;
+            right: 20px;
+            background: #2a2a3a;
+            border: none;
             border-radius: 40px;
-            padding: 6px 14px;
-            font-weight: bold;
+            padding: 10px 16px;
             font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            z-index: 1000;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
             backdrop-filter: blur(4px);
         }
-        .stat span:first-child {
-            color: #ffcc66;
-            margin-right: 6px;
+        .toggle-theme:active {
+            transform: scale(0.96);
         }
 
-        /* Горизонтальное меню (свайп влево-вправо) */
-        .menu-wrapper {
-            margin: 10px 0 30px;
-            scroll-snap-align: start;
+        /* === КАРТОЧКИ ТОВАРОВ === */
+        .card {
+            background: #1e1e2e;
+            border-radius: 20px;
+            padding: 18px;
+            margin-bottom: 16px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+            transition: transform 0.2s, box-shadow 0.2s;
+            animation: fadeInUp 0.4s ease;
         }
-        .menu-title {
-            font-size: 20px;
-            margin: 0 16px 12px;
-            color: #ffdd99;
-            letter-spacing: 1px;
+        .card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 28px rgba(0,0,0,0.5);
         }
-        .horizontal-menu {
+        .card h3 {
+            font-size: 18px;
+            margin-bottom: 8px;
             display: flex;
-            overflow-x: auto;
-            scroll-snap-type: x mandatory;
-            gap: 16px;
-            padding: 8px 16px 20px;
-            scrollbar-width: thin;
-            -webkit-overflow-scrolling: touch;
-        }
-        .horizontal-menu::-webkit-scrollbar {
-            height: 4px;
-        }
-        .horizontal-menu::-webkit-scrollbar-track {
-            background: rgba(0,0,0,0.3);
-            border-radius: 10px;
-        }
-        .horizontal-menu::-webkit-scrollbar-thumb {
-            background: #ffaa44;
-            border-radius: 10px;
-        }
-
-        /* Карточка функции (кнопка) */
-        .game-btn {
-            flex: 0 0 auto;
-            width: 100px;
-            background: rgba(25, 35, 55, 0.85);
-            backdrop-filter: blur(8px);
-            border: 1px solid rgba(0, 255, 255, 0.4);
-            border-radius: 32px;
-            padding: 16px 6px;
-            display: flex;
-            flex-direction: column;
             align-items: center;
-            gap: 10px;
-            cursor: pointer;
-            transition: all 0.25s cubic-bezier(0.2, 0.9, 0.4, 1.1);
-            scroll-snap-align: start;
-            transform: scale(1);
+            gap: 8px;
         }
-        .game-btn:hover {
-            transform: translateY(-8px) scale(1.02);
-            border-color: #ffaa88;
-            box-shadow: 0 15px 20px -8px rgba(0,0,0,0.4);
+        .card .price {
+            font-size: 22px;
+            font-weight: bold;
+            color: #f5b042;
+            margin: 8px 0;
         }
-        .btn-emoji {
-            font-size: 40px;
-            filter: drop-shadow(0 2px 4px black);
-        }
-        .btn-label {
-            font-size: 12px;
-            font-weight: 600;
-            color: #eef5ff;
-            text-align: center;
-        }
-        .casino-btn {
-            background: linear-gradient(145deg, #2a1e2a, #1a1022);
-            border-color: #ffaa66;
-        }
-        .casino-btn .btn-label {
-            color: #ffdd99;
+        .card .cat {
+            font-size: 13px;
+            opacity: 0.7;
+            margin-bottom: 12px;
         }
 
-        .footer {
+        /* === ГРАДИЕНТНЫЕ КНОПКИ === */
+        button, .btn {
+            background: linear-gradient(135deg, #8b5cf6, #3b82f6);
+            border: none;
+            border-radius: 40px;
+            padding: 12px 20px;
+            font-size: 16px;
+            font-weight: 600;
+            color: white;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        }
+        button:active {
+            transform: scale(0.97);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        .btn-secondary {
+            background: linear-gradient(135deg, #4a5568, #2d3748);
+        }
+
+        /* === АНИМАЦИИ === */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .loader {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* === КОНТЕЙНЕРЫ === */
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .balance {
+            font-size: 28px;
+            font-weight: bold;
             text-align: center;
-            font-size: 11px;
-            color: #5f7f9f;
-            margin: 20px 0 40px;
-            scroll-snap-align: end;
+            margin: 20px 0;
+            background: rgba(0,0,0,0.2);
+            padding: 12px;
+            border-radius: 60px;
+            backdrop-filter: blur(4px);
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 12px;
         }
     </style>
 </head>
 <body>
-
-<canvas id="canvas-bg"></canvas>
-
-<div class="game-container">
-    <div class="profile-card">
-        <div class="avatar" id="avatarContainer">
-            <div class="emoji" id="avatarEmoji">👔</div>
-            <img id="avatarImg" style="display: none;" alt="skin">
-        </div>
-        <div class="player-name" id="playerName">Загрузка...</div>
-        <div class="player-stats">
-            <div class="stat"><span>💰</span> <span id="balance">0</span> ₽</div>
-            <div class="stat"><span>📦</span> <span id="salesCount">0</span> продаж</div>
-            <div class="stat"><span>⭐</span> <span id="rating">Новичок</span></div>
+    <button class="toggle-theme" id="themeToggle">🌙 Тёмная тема</button>
+    <div class="container">
+        <div class="balance" id="balance">💰 Загрузка...</div>
+        <div id="inventory">
+            <h2>📦 Ваши товары</h2>
+            <div id="itemsList" class="grid">Загрузка...</div>
         </div>
     </div>
 
-    <div class="menu-wrapper">
-        <div class="menu-title">⚡ ОСНОВНЫЕ ФУНКЦИИ</div>
-        <div class="horizontal-menu" id="gameGrid"></div>
-    </div>
+    <script>
+        // Получаем tg_id из URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const tg_id = urlParams.get('user_id') || (window.Telegram?.WebApp?.initDataUnsafe?.user?.id);
 
-    <div class="footer">⚡ Resell Tycoon · твой бизнес с нуля</div>
-</div>
-
-<script>
-    const tg = window.Telegram.WebApp;
-    tg.expand();
-    tg.ready();
-
-    // ---------- НАСТРОЙКИ ----------
-    const API_BASE = "https://nl12.bothost.ru";
-    const USE_REAL_API = false;
-    const userId = tg.initDataUnsafe?.user?.id || 1475910449;
-
-    // ---------- МОК-ДАННЫЕ ----------
-    let mockBalance = 50000;
-    let mockNickname = "Барыга";
-    let mockSales = 0;
-    let mockSkinId = "default";
-    const skinMap = {
-        'default': { emoji: '👶', url: null },
-        'hustler': { emoji: '😎', url: null },
-        'boss': { emoji: '🕴️', url: null },
-        'coffee': { emoji: '💻', url: null },
-        'cyber': { emoji: '🤖', url: null },
-        'legend': { emoji: '👑', url: null },
-        'creator': { emoji: '💎', url: null }
-    };
-
-    // Все пункты меню + казино
-    const menuSections = [
-        { emoji: "🏭", label: "ЗАКУП", link: "suppliers.html" },
-        { emoji: "📦", label: "ИНВЕНТАРЬ", link: "inventory.html" },
-        { emoji: "🚗", label: "АВТО", link: "cars.html" },
-        { emoji: "🏠", label: "ДОМА", link: "realestate.html" },
-        { emoji: "🏪", label: "МАГАЗИНЫ", link: "shops.html" },
-        { emoji: "🚕", label: "ТАКСОПАРК", link: "taxopark.html" },
-        { emoji: "📈", label: "ТРЕЙДИНГ", link: "trading.html" },
-        { emoji: "🏎️", label: "ГОНКИ", link: "racing.html" },
-        { emoji: "🔨", label: "АУКЦИОН", link: "auction.html" },
-        { emoji: "👥", label: "ДРУЗЬЯ", link: "friends.html" },
-        { emoji: "🔗", label: "РЕФЕРАЛЫ", link: "referral.html" },
-        { emoji: "🏆", label: "ЛИДЕРЫ", link: "leaderboard.html" },
-        { emoji: "🎯", label: "ДОСТИЖЕНИЯ", link: "achievements.html" }
-    ];
-    const casinoItem = { emoji: "🎰", label: "КАЗИНО", link: "casino.html", extraClass: "casino-btn" };
-
-    function renderMenu() {
-        const container = document.getElementById('gameGrid');
-        if (!container) return;
-        container.innerHTML = '';
-        [...menuSections, casinoItem].forEach((item, idx) => {
-            const btn = document.createElement('button');
-            btn.className = 'game-btn' + (item.extraClass ? ' ' + item.extraClass : '');
-            btn.style.animationDelay = `${idx * 0.02}s`;
-            btn.innerHTML = `<div class="btn-emoji">${item.emoji}</div><div class="btn-label">${item.label}</div>`;
-            btn.onclick = () => {
-                if (item.link) window.location.href = item.link;
-                else tg.showAlert(`Раздел "${item.label}" в разработке`);
-            };
-            container.appendChild(btn);
-        });
-    }
-
-    async function loadProfile() {
-        // Мок-данные (или API после отладки)
-        document.getElementById('balance').innerText = mockBalance.toLocaleString();
-        document.getElementById('playerName').innerText = mockNickname;
-        document.getElementById('salesCount').innerText = mockSales;
-        document.getElementById('rating').innerText = 'Новичок';
-        const skin = skinMap[mockSkinId] || { emoji: '👔', url: null };
-        document.getElementById('avatarEmoji').innerText = skin.emoji;
-        document.getElementById('avatarEmoji').style.display = 'flex';
-        document.getElementById('avatarImg').style.display = 'none';
-    }
-
-    renderMenu();
-    loadProfile();
-
-    // ========= 2D ФОН С ДЕНЬГАМИ =========
-    const canvasBg = document.getElementById('canvas-bg');
-    if (canvasBg) {
-        const ctx = canvasBg.getContext('2d');
-        let width, height;
-        let moneyParticles = [];
-
-        function resizeCanvas() {
-            width = window.innerWidth;
-            height = window.innerHeight;
-            canvasBg.width = width;
-            canvasBg.height = height;
+        if (!tg_id) {
+            document.body.innerHTML = '<div style="padding:20px">❌ Ошибка: не удалось определить пользователя</div>';
         }
 
-        function createMoneyParticles(count) {
-            const symbols = ['💵', '💰', '💎', '🪙', '$'];
-            for (let i = 0; i < count; i++) {
-                moneyParticles.push({
-                    x: Math.random() * width,
-                    y: Math.random() * height,
-                    size: 20 + Math.random() * 28,
-                    speedX: (Math.random() - 0.5) * 0.8,
-                    speedY: (Math.random() - 0.5) * 0.8,
-                    symbol: symbols[Math.floor(Math.random() * symbols.length)],
-                    opacity: 0.25 + Math.random() * 0.4,
-                    rotation: Math.random() * 360,
-                    rotSpeed: (Math.random() - 0.5) * 2
-                });
+        // === Управление темой ===
+        const themeToggle = document.getElementById('themeToggle');
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme === 'light') {
+            document.body.classList.add('light');
+            themeToggle.innerHTML = '☀️ Светлая тема';
+        } else {
+            document.body.classList.remove('light');
+            themeToggle.innerHTML = '🌙 Тёмная тема';
+        }
+        themeToggle.addEventListener('click', () => {
+            document.body.classList.toggle('light');
+            const isLight = document.body.classList.contains('light');
+            localStorage.setItem('theme', isLight ? 'light' : 'dark');
+            themeToggle.innerHTML = isLight ? '☀️ Светлая тема' : '🌙 Тёмная тема';
+        });
+
+        // === Анимация загрузки ===
+        function showLoader(elementId) {
+            const el = document.getElementById(elementId);
+            if (el) el.innerHTML = '<div class="loader" style="margin:20px auto; display:block;"></div>';
+        }
+
+        // === Загрузка баланса и инвентаря ===
+        async function loadData() {
+            // 1. Баланс
+            try {
+                const meRes = await fetch(`/api/me?tg_id=${tg_id}`);
+                if (!meRes.ok) throw new Error('API /me error');
+                const me = await meRes.json();
+                document.getElementById('balance').innerHTML = `💰 ${me.balance?.toLocaleString()}₽ &nbsp;|&nbsp; 👤 ${me.nickname || 'Игрок'}`;
+            } catch (e) {
+                document.getElementById('balance').innerHTML = '⚠️ Ошибка загрузки баланса';
+                console.error(e);
+            }
+
+            // 2. Инвентарь
+            showLoader('itemsList');
+            try {
+                const invRes = await fetch(`/api/inventory?tg_id=${tg_id}`);
+                if (!invRes.ok) throw new Error('API inventory error');
+                const inv = await invRes.json();
+                const items = inv.inventory || [];
+                if (items.length === 0) {
+                    document.getElementById('itemsList').innerHTML = '<div class="card">📭 Инвентарь пуст. Купите товары у поставщика!</div>';
+                } else {
+                    let html = '';
+                    items.forEach((item, idx) => {
+                        html += `
+                            <div class="card">
+                                <h3>${item.name}</h3>
+                                <div class="price">${item.market_price?.toLocaleString()}₽</div>
+                                <div class="cat">${item.cat || 'Категория'}</div>
+                                <button class="btn" onclick="sellItem(${idx})">Продать</button>
+                            </div>
+                        `;
+                    });
+                    document.getElementById('itemsList').innerHTML = html;
+                }
+            } catch (e) {
+                document.getElementById('itemsList').innerHTML = '<div class="card">❌ Ошибка загрузки инвентаря</div>';
+                console.error(e);
             }
         }
 
-        function drawMoney() {
-            if (!ctx) return;
-            ctx.clearRect(0, 0, width, height);
-            for (let p of moneyParticles) {
-                ctx.save();
-                ctx.translate(p.x, p.y);
-                ctx.rotate(p.rotation * Math.PI / 180);
-                ctx.font = `${p.size}px "Segoe UI Emoji"`;
-                ctx.globalAlpha = p.opacity;
-                ctx.fillStyle = '#FFD966';
-                ctx.shadowBlur = 0;
-                ctx.fillText(p.symbol, -p.size/2, p.size/2);
-                ctx.restore();
-
-                p.x += p.speedX;
-                p.y += p.speedY;
-                p.rotation += p.rotSpeed;
-                if (p.x < -60) p.x = width + 40;
-                if (p.x > width + 60) p.x = -40;
-                if (p.y < -60) p.y = height + 40;
-                if (p.y > height + 60) p.y = -40;
+        // === Продажа товара ===
+        window.sellItem = async (itemIndex) => {
+            try {
+                const res = await fetch(`/api/sell?tg_id=${tg_id}&item_index=${itemIndex}`, { method: 'POST' });
+                const data = await res.json();
+                if (res.ok) {
+                    alert(`✅ Продано! +${data.profit}₽`);
+                    loadData(); // обновить баланс и инвентарь
+                } else {
+                    alert(`❌ Ошибка: ${data.detail || 'неизвестная'}`);
+                }
+            } catch (e) {
+                alert('Ошибка сети');
             }
-            requestAnimationFrame(drawMoney);
-        }
+        };
 
-        window.addEventListener('resize', () => {
-            resizeCanvas();
-            moneyParticles = [];
-            createMoneyParticles(80);
-        });
-        resizeCanvas();
-        createMoneyParticles(80);
-        drawMoney();
-    }
-</script>
+        loadData();
+    </script>
 </body>
 </html>
