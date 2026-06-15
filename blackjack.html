@@ -22,7 +22,6 @@
             align-items: center;
             padding: 12px;
         }
-        /* Игровой стол */
         .table {
             max-width: 550px;
             width: 100%;
@@ -43,7 +42,6 @@
             background: linear-gradient(90deg, #f5d742, #b8860b, #f5d742);
             border-radius: 20px;
         }
-        /* Верхняя панель (два блока: сессия и баланс) */
         .header {
             display: flex;
             justify-content: space-between;
@@ -67,7 +65,6 @@
             font-weight: 800;
             margin-left: 6px;
         }
-        /* Игровое поле (компактное) */
         .game-area {
             display: flex;
             flex-direction: column;
@@ -135,7 +132,6 @@
             margin-top: 8px;
             color: #ffdd99;
         }
-        /* Быстрые фишки */
         .bet-zone {
             display: flex;
             justify-content: center;
@@ -158,7 +154,6 @@
             transition: 0.1s;
         }
         .bet-chip:active { transform: scale(0.92); background: #f5b042; color: black; }
-        /* Контроль ставки */
         .bet-control {
             display: flex;
             justify-content: center;
@@ -177,7 +172,6 @@
             width: 110px;
             text-align: center;
         }
-        /* Нижняя панель кнопок */
         .footer {
             display: flex;
             justify-content: center;
@@ -225,7 +219,6 @@
             .info-card { font-size: 11px; padding: 4px 12px; }
             .info-card span { font-size: 15px; }
         }
-        .hidden { display: none; }
     </style>
 </head>
 <body>
@@ -298,8 +291,8 @@
     let deck = [], playerHand = [], dealerHand = [];
     let gameActive = false;
     let canDouble = true;
-    let balance = 10000;       // реальный баланс (будет обновляться от бота)
-    let sessionProfit = 0;     // накопленный выигрыш/проигрыш за сессию
+    let balance = 10000;       // текущий баланс (из бота)
+    let sessionProfit = 0;     // накопленный выигрыш/проигрыш за сессию (НЕ отправляется боту до выхода)
 
     function vibrate(style = 'light') {
         if (tg.HapticFeedback) {
@@ -373,21 +366,28 @@
         sessionSpan.innerText = sessionProfit >= 0 ? `+${sessionProfit}` : `${sessionProfit}`;
     }
 
-    // Отправка финального банка сессии боту при выходе
-    function sendSessionProfit() {
-        if (!tg.sendData) return;
-        tg.sendData(JSON.stringify({
-            action: "crash_session",
-            total_profit: sessionProfit
-        }));
-    }
-
-    // Отправка результата одной игры (для корректировки баланса)
-    function sendResult(result, amount) {
-        if (!tg.sendData) return;
-        if (result === 'win') tg.sendData(JSON.stringify({ action: "blackjack_win", win: amount, bet: currentBet }));
-        else if (result === 'lose') tg.sendData(JSON.stringify({ action: "blackjack_lose", bet: amount }));
-        else if (result === 'push') tg.sendData(JSON.stringify({ action: "blackjack_push", bet: amount }));
+    // Обработка завершения раунда – обновляем sessionProfit и баланс (локально)
+    function finishRound(win) {
+        let profitChange = 0;
+        if (win) {
+            const winAmount = currentBet * 2;
+            profitChange = winAmount - currentBet;  // чистая прибыль
+            statusDiv.innerHTML = `🎉 ПОБЕДА! +${winAmount}₽`;
+            vibrate('success');
+        } else {
+            profitChange = -currentBet;
+            statusDiv.innerHTML = `💥 ПРОИГРЫШ! -${currentBet}₽`;
+            vibrate('error');
+        }
+        sessionProfit += profitChange;
+        balance += profitChange;
+        balanceSpan.innerText = balance;
+        updateSessionUI();
+        gameActive = false;
+        hitBtn.disabled = true;
+        standBtn.disabled = true;
+        doubleBtn.disabled = true;
+        startBtn.disabled = false;
     }
 
     async function dealerTurn() {
@@ -399,40 +399,21 @@
         }
         const playerVal = handTotal(playerHand);
         const dealerVal = handTotal(dealerHand);
-        gameActive = false;
         updateUI();
-        let win = false, push = false;
+        let win = false;
         if (dealerVal > 21 || playerVal > dealerVal) win = true;
-        else if (playerVal === dealerVal) push = true;
-
-        let profitChange = 0;
-        if (win) {
-            const winAmount = currentBet * 2;
-            profitChange = winAmount - currentBet;
-            statusDiv.innerHTML = `🎉 ПОБЕДА! +${winAmount}₽ (${playerVal} : ${dealerVal})`;
-            balance += winAmount;
-            sessionProfit += profitChange;
-            sendResult('win', winAmount);
-            vibrate('success');
-        } else if (push) {
-            profitChange = 0;
+        else if (playerVal === dealerVal) {
+            // Ничья – возврат ставки, баланс не меняется, сессия не трогает
             statusDiv.innerHTML = `🤝 НИЧЬЯ! Ставка возвращена (${playerVal} : ${dealerVal})`;
-            balance += currentBet;
-            sendResult('push', currentBet);
             vibrate('medium');
-        } else {
-            profitChange = -currentBet;
-            statusDiv.innerHTML = `💥 ПРОИГРЫШ! -${currentBet}₽ (${playerVal} : ${dealerVal})`;
-            sendResult('lose', currentBet);
-            vibrate('error');
+            gameActive = false;
+            hitBtn.disabled = true;
+            standBtn.disabled = true;
+            doubleBtn.disabled = true;
+            startBtn.disabled = false;
+            return;
         }
-        balanceSpan.innerText = balance;
-        sessionProfit += profitChange;
-        updateSessionUI();
-        hitBtn.disabled = true;
-        standBtn.disabled = true;
-        doubleBtn.disabled = true;
-        startBtn.disabled = false;
+        finishRound(win);
     }
 
     function hit() {
@@ -442,19 +423,7 @@
         playerHand.push(deck.pop());
         updateUI();
         if (handTotal(playerHand) > 21) {
-            gameActive = false;
-            statusDiv.innerHTML = `❌ ПЕРЕБОР! ВЫ ПРОИГРАЛИ -${currentBet}₽`;
-            sendResult('lose', currentBet);
-            balance -= currentBet;
-            sessionProfit -= currentBet;
-            balanceSpan.innerText = balance;
-            updateSessionUI();
-            hitBtn.disabled = true;
-            standBtn.disabled = true;
-            doubleBtn.disabled = true;
-            updateUI();
-            vibrate('error');
-            startBtn.disabled = false;
+            finishRound(false);
         }
     }
 
@@ -487,18 +456,7 @@
         playerHand.push(deck.pop());
         updateUI();
         if (handTotal(playerHand) > 21) {
-            gameActive = false;
-            statusDiv.innerHTML = `❌ ПЕРЕБОР! ВЫ ПРОИГРАЛИ -${currentBet}₽`;
-            sendResult('lose', currentBet);
-            balance -= currentBet;
-            sessionProfit -= currentBet;
-            balanceSpan.innerText = balance;
-            updateSessionUI();
-            hitBtn.disabled = true;
-            standBtn.disabled = true;
-            doubleBtn.disabled = true;
-            vibrate('error');
-            startBtn.disabled = false;
+            finishRound(false);
         } else {
             stand();
         }
@@ -530,12 +488,16 @@
         if (handTotal(playerHand) === 21) stand();
     }
 
+    // Выход и отправка сессионного банка (аналогично крашу)
     function exitAndCollect() {
-        sendSessionProfit();   // отправляем итоговую прибыль сессии
-        tg.close();            // закрываем WebApp
+        if (!tg.sendData) return;
+        tg.sendData(JSON.stringify({
+            action: "crash_session",
+            total_profit: sessionProfit
+        }));
+        tg.close();
     }
 
-    // Быстрые фишки
     document.querySelectorAll('.bet-chip').forEach(chip => {
         chip.addEventListener('click', () => {
             if (!gameActive) {
