@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+    <title>BLACKJACK 3D | R-Game</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body {
+            min-height: 100vh;
+            background: radial-gradient(circle at 20% 30%, #0a0e1a, #020408);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Segoe UI', 'Poppins', system-ui, sans-serif;
+            perspective: 1000px;
+            overflow: hidden;
+        }
+
+        /* 3D контейнер стола */
+        .table-3d {
+            width: 100%;
+            max-width: 700px;
+            margin: 20px;
+            transform-style: preserve-3d;
+            transform: rotateX(5deg) rotateY(0deg);
+        }
+
+        .game-container {
+            background: linear-gradient(145deg, #1a3a2a, #0e2a1a);
+            border-radius: 120px 120px 80px 80px;
+            padding: 25px 20px 35px;
+            box-shadow: 0 40px 50px rgba(0,0,0,0.6), inset 0 1px 4px rgba(255,255,200,0.2);
+            border: 2px solid #c9a03d;
+            position: relative;
+            backdrop-filter: blur(2px);
+        }
+
+        /* Золотая окантовка стола */
+        .game-container::before {
+            content: '';
+            position: absolute;
+            top: -5px;
+            left: 20px;
+            right: 20px;
+            height: 12px;
+            background: linear-gradient(90deg, #f5d742, #b8860b, #f5d742);
+            border-radius: 20px;
+            filter: blur(2px);
+        }
+
+        /* Диллер (3D-персонаж) */
+        .dealer-area {
+            text-align: center;
+            margin-bottom: 20px;
+            position: relative;
+        }
+        .dealer-character {
+            display: inline-block;
+            width: 100px;
+            height: 120px;
+            background: linear-gradient(135deg, #2c3e50, #1a2632);
+            border-radius: 50px 50px 30px 30px;
+            box-shadow: 0 12px 20px rgba(0,0,0,0.5), inset 0 2px 4px rgba(255,255,200,0.2);
+            position: relative;
+            border: 2px solid #ffcc66;
+            transform: translateZ(20px);
+            transition: transform 0.2s;
+        }
+        .dealer-character::before {
+            content: "🎩";
+            position: absolute;
+            top: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 40px;
+            filter: drop-shadow(2px 4px 6px black);
+        }
+        .dealer-character::after {
+            content: "👔";
+            position: absolute;
+            bottom: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 32px;
+        }
+        .dealer-name {
+            background: rgba(0,0,0,0.6);
+            padding: 4px 16px;
+            border-radius: 40px;
+            display: inline-block;
+            margin-top: 10px;
+            font-weight: bold;
+            color: #ffdd99;
+            font-size: 14px;
+            letter-spacing: 1px;
+        }
+
+        /* Руки (карты) */
+        .hand {
+            background: rgba(0,20,10,0.6);
+            border-radius: 50px;
+            padding: 18px 12px;
+            margin: 15px 0;
+            backdrop-filter: blur(4px);
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.4), 0 6px 10px rgba(0,0,0,0.3);
+            transition: all 0.2s;
+        }
+        .hand-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #ffecb3;
+            text-shadow: 0 2px 2px black;
+            margin-bottom: 10px;
+            letter-spacing: 1px;
+        }
+        .cards {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            min-height: 95px;
+        }
+        .card {
+            width: 70px;
+            height: 95px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: -2px 2px 8px rgba(0,0,0,0.5), inset 0 0 0 1px #ddd;
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 28px;
+            position: relative;
+            transition: transform 0.2s ease, box-shadow 0.1s;
+            transform: translateY(0px) rotate(0deg);
+            animation: dealCard 0.25s ease-out;
+        }
+        @keyframes dealCard {
+            0% { transform: translateY(-80px) rotate(-10deg); opacity: 0; }
+            100% { transform: translateY(0) rotate(0deg); opacity: 1; }
+        }
+        .card[data-suit="♥️"], .card[data-suit="♦️"] { color: #c33; }
+        .card[data-suit="♠️"], .card[data-suit="♣️"] { color: #111; }
+        .card .suit-big { font-size: 40px; line-height: 1; }
+        .card .rank { font-size: 24px; font-weight: 800; margin-top: 8px; }
+        .card-back {
+            background: repeating-linear-gradient(45deg, #1a3f6e, #1a3f6e 15px, #2a5a8a 15px, #2a5a8a 30px);
+            border: 1px solid #ffcc66;
+        }
+        .value {
+            font-size: 20px;
+            font-weight: bold;
+            color: #ffdd88;
+            background: rgba(0,0,0,0.5);
+            display: inline-block;
+            padding: 4px 16px;
+            border-radius: 40px;
+            margin-top: 12px;
+        }
+
+        /* Панель ставок */
+        .bet-panel {
+            background: rgba(0,0,0,0.5);
+            border-radius: 60px;
+            padding: 12px 20px;
+            margin: 10px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .bet-input {
+            background: #010a1a;
+            border: 2px solid #ffaa44;
+            border-radius: 60px;
+            padding: 10px 20px;
+            color: #ffeaac;
+            font-size: 20px;
+            font-weight: bold;
+            width: 150px;
+            text-align: center;
+        }
+        button {
+            background: linear-gradient(135deg, #2c3e50, #1a2632);
+            border: none;
+            border-radius: 60px;
+            padding: 10px 20px;
+            font-weight: bold;
+            font-size: 18px;
+            color: white;
+            cursor: pointer;
+            box-shadow: 0 5px 0 #0a0f1a;
+            transition: 0.07s linear;
+        }
+        button:active { transform: translateY(2px); box-shadow: 0 2px 0 #0a0f1a; }
+        .btn-hit { background: linear-gradient(135deg, #2ecc71, #229954); }
+        .btn-stand { background: linear-gradient(135deg, #e74c3c, #c0392b); }
+        .btn-start { background: linear-gradient(135deg, #f39c12, #e67e22); }
+        .btn-bet { background: linear-gradient(135deg, #3498db, #2c6e9e); }
+        .status {
+            background: rgba(0,0,0,0.7);
+            border-radius: 40px;
+            padding: 12px;
+            text-align: center;
+            font-weight: bold;
+            color: #ffdd99;
+            margin-top: 15px;
+        }
+        .hidden { display: none; }
+        @media (max-width: 550px) {
+            .card { width: 55px; height: 75px; font-size: 20px; }
+            .card .suit-big { font-size: 28px; }
+            .bet-panel { flex-direction: column; align-items: stretch; }
+        }
+    </style>
+</head>
+<body>
+<div class="table-3d">
+    <div class="game-container">
+        <div class="dealer-area">
+            <div class="dealer-character"></div>
+            <div class="dealer-name">⚡ ДИЛЛЕР R-GAME ⚡</div>
+        </div>
+
+        <!-- Карты дилера -->
+        <div class="hand">
+            <div class="hand-title">📌 КАРТЫ ДИЛЕРА</div>
+            <div class="cards" id="dealerCards"></div>
+            <div class="value" id="dealerValue">Очки: ?</div>
+        </div>
+
+        <!-- Карты игрока -->
+        <div class="hand">
+            <div class="hand-title">🎲 ВАШИ КАРТЫ</div>
+            <div class="cards" id="playerCards"></div>
+            <div class="value" id="playerValue">Очки: 0</div>
+        </div>
+
+        <!-- Панель ставок и управления -->
+        <div class="bet-panel">
+            <input type="number" id="betAmount" class="bet-input" min="500" max="50000" step="500" value="1000">
+            <button id="startBtn" class="btn-start">🃏 НАЧАТЬ ИГРУ</button>
+        </div>
+        <div style="display: flex; gap: 12px; justify-content: center; margin: 10px 0;">
+            <button id="hitBtn" class="btn-hit" disabled>🃏 ВЗЯТЬ</button>
+            <button id="standBtn" class="btn-stand" disabled>✋ СТОП</button>
+        </div>
+        <button id="repeatBtn" class="btn-start hidden">🔄 ИГРАТЬ СНОВА</button>
+        <div class="status" id="statusMsg">💎 Введите ставку и нажмите НАЧАТЬ</div>
+    </div>
+</div>
+
+<script>
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+    tg.ready();
+
+    // DOM элементы
+    const betInput = document.getElementById('betAmount');
+    const startBtn = document.getElementById('startBtn');
+    const hitBtn = document.getElementById('hitBtn');
+    const standBtn = document.getElementById('standBtn');
+    const repeatBtn = document.getElementById('repeatBtn');
+    const statusDiv = document.getElementById('statusMsg');
+    const dealerCardsDiv = document.getElementById('dealerCards');
+    const playerCardsDiv = document.getElementById('playerCards');
+    const dealerValueSpan = document.getElementById('dealerValue');
+    const playerValueSpan = document.getElementById('playerValue');
+
+    let currentBet = 1000;
+    let deck = [], playerHand = [], dealerHand = [], gameActive = false;
+
+    // Инициализация колоды
+    function createDeck() {
+        const suits = ['♠️', '♥️', '♣️', '♦️'];
+        const ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+        let newDeck = [];
+        for (let suit of suits) {
+            for (let rank of ranks) {
+                let value = 10;
+                if (rank === 'A') value = 11;
+                else if (!isNaN(parseInt(rank))) value = parseInt(rank);
+                newDeck.push({ rank, suit, value, cardCode: rank + suit });
+            }
+        }
+        // Перемешиваем
+        for (let i = newDeck.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [newDeck[i], newDeck[j]] = [newDeck[j], newDeck[i]];
+        }
+        return newDeck;
+    }
+
+    // Подсчёт очков с учётом туза
+    function handTotal(hand) {
+        let sum = hand.reduce((acc, c) => acc + c.value, 0);
+        let aces = hand.filter(c => c.rank === 'A').length;
+        while (sum > 21 && aces > 0) {
+            sum -= 10;
+            aces--;
+        }
+        return sum;
+    }
+
+    // Отрисовка карты в HTML-элементе
+    function renderCard(card, isBack = false) {
+        const cardDiv = document.createElement('div');
+        cardDiv.className = 'card';
+        if (isBack) {
+            cardDiv.classList.add('card-back');
+            cardDiv.style.background = 'repeating-linear-gradient(45deg, #1a3f6e, #1a3f6e 15px, #2a5a8a 15px, #2a5a8a 30px)';
+            cardDiv.style.border = '1px solid #ffcc66';
+            cardDiv.innerHTML = '<div style="font-size: 28px; color:#ffcc66;">?</div>';
+        } else {
+            cardDiv.setAttribute('data-suit', card.suit);
+            cardDiv.style.background = 'white';
+            let suitColor = (card.suit === '♥️' || card.suit === '♦️') ? '#c33' : '#111';
+            cardDiv.innerHTML = `
+                <div class="rank" style="color:${suitColor}">${card.rank}</div>
+                <div class="suit-big" style="color:${suitColor}">${card.suit}</div>
+            `;
+        }
+        return cardDiv;
+    }
+
+    // Обновление интерфейса карт и очков
+    function updateUI() {
+        // Карты игрока
+        playerCardsDiv.innerHTML = '';
+        playerHand.forEach(c => playerCardsDiv.appendChild(renderCard(c)));
+        playerValueSpan.innerText = `Очки: ${handTotal(playerHand)}`;
+
+        // Карты дилера (во время игры скрыта вторая)
+        dealerCardsDiv.innerHTML = '';
+        if (gameActive) {
+            // Показываем первую карту дилера, остальные рубашкой
+            dealerHand.forEach((c, idx) => {
+                if (idx === 0) dealerCardsDiv.appendChild(renderCard(c));
+                else dealerCardsDiv.appendChild(renderCard(c, true));
+            });
+            dealerValueSpan.innerText = `Очки: ?`;
+        } else {
+            dealerHand.forEach(c => dealerCardsDiv.appendChild(renderCard(c)));
+            dealerValueSpan.innerText = `Очки: ${handTotal(dealerHand)}`;
+        }
+    }
+
+    // Анимация "раздачи" карт (эффект уже есть в CSS, просто обновляем UI)
+    function animateAndUpdate() {
+        updateUI();
+        // Добавляем небольшую задержку для визуального эффекта (карты появляются с анимацией)
+    }
+
+    // Ход дилера
+    async function dealerTurn() {
+        while (handTotal(dealerHand) < 17) {
+            dealerHand.push(deck.pop());
+            animateAndUpdate();
+            await new Promise(r => setTimeout(r, 400)); // пауза для эффекта
+        }
+        const playerTotal = handTotal(playerHand);
+        const dealerTotal = handTotal(dealerHand);
+        let win = false, push = false;
+
+        if (dealerTotal > 21 || playerTotal > dealerTotal) win = true;
+        else if (playerTotal === dealerTotal) push = true;
+
+        gameActive = false;
+        updateUI(); // покажем все карты дилера
+        if (win) {
+            const winAmount = currentBet * 2;
+            statusDiv.innerHTML = `🎉 ПОБЕДА! +${winAmount}₽ (${playerTotal} : ${dealerTotal})`;
+            tg.sendData(JSON.stringify({ action: "blackjack_win", win: winAmount, bet: currentBet }));
+        } else if (push) {
+            statusDiv.innerHTML = `🤝 НИЧЬЯ! Ставка возвращена (${playerTotal} : ${dealerTotal})`;
+            tg.sendData(JSON.stringify({ action: "blackjack_push", bet: currentBet }));
+        } else {
+            statusDiv.innerHTML = `💥 ПРОИГРЫШ! -${currentBet}₽ (${playerTotal} : ${dealerTotal})`;
+            tg.sendData(JSON.stringify({ action: "blackjack_lose", bet: currentBet }));
+        }
+        hitBtn.disabled = true;
+        standBtn.disabled = true;
+        repeatBtn.classList.remove('hidden');
+        startBtn.disabled = false;
+    }
+
+    // Начать новую игру
+    async function startGame() {
+        let amount = parseInt(betInput.value);
+        if (isNaN(amount)) amount = 1000;
+        amount = Math.min(50000, Math.max(500, amount));
+        betInput.value = amount;
+        currentBet = amount;
+        // Отправляем боту запрос на проверку баланса (опционально, но для безопасности)
+        // Здесь просто имитируем успешный старт.
+
+        deck = createDeck();
+        playerHand = [deck.pop(), deck.pop()];
+        dealerHand = [deck.pop(), deck.pop()];
+        gameActive = true;
+        hitBtn.disabled = false;
+        standBtn.disabled = false;
+        startBtn.disabled = true;
+        repeatBtn.classList.add('hidden');
+        updateUI();
+        statusDiv.innerHTML = `🎲 ВАШ ХОД | Ставка ${currentBet}₽`;
+
+        // Если у игрока сразу 21 — автоматом стоп
+        if (handTotal(playerHand) === 21) {
+            stand();
+        }
+    }
+
+    // Взять карту
+    function hit() {
+        if (!gameActive) return;
+        playerHand.push(deck.pop());
+        animateAndUpdate();
+        if (handTotal(playerHand) > 21) {
+            gameActive = false;
+            statusDiv.innerHTML = `❌ ПЕРЕБОР! ВЫ ПРОИГРАЛИ -${currentBet}₽`;
+            tg.sendData(JSON.stringify({ action: "blackjack_lose", bet: currentBet }));
+            hitBtn.disabled = true;
+            standBtn.disabled = true;
+            updateUI(); // показываем все карты дилера (рубашки снимаем)
+            dealerCardsDiv.innerHTML = '';
+            dealerHand.forEach(c => dealerCardsDiv.appendChild(renderCard(c)));
+            dealerValueSpan.innerText = `Очки: ${handTotal(dealerHand)}`;
+            repeatBtn.classList.remove('hidden');
+            startBtn.disabled = false;
+        }
+    }
+
+    // Стоп – запускаем дилера
+    function stand() {
+        if (!gameActive) return;
+        hitBtn.disabled = true;
+        standBtn.disabled = true;
+        dealerTurn();
+    }
+
+    // Повтор (новая игра)
+    function repeatGame() {
+        startGame();
+    }
+
+    // Изменение ставки
+    betInput.addEventListener('change', () => {
+        let v = parseInt(betInput.value);
+        if (isNaN(v)) v = 1000;
+        v = Math.min(50000, Math.max(500, v));
+        currentBet = v;
+        betInput.value = currentBet;
+        if (!gameActive) statusDiv.innerHTML = `💎 Ставка ${currentBet}₽. Нажмите НАЧАТЬ`;
+    });
+
+    startBtn.onclick = startGame;
+    hitBtn.onclick = hit;
+    standBtn.onclick = stand;
+    repeatBtn.onclick = repeatGame;
+
+    // Инициализация: показываем пустые руки
+    function initUI() {
+        playerCardsDiv.innerHTML = '';
+        dealerCardsDiv.innerHTML = '';
+        playerValueSpan.innerText = 'Очки: 0';
+        dealerValueSpan.innerText = 'Очки: ?';
+        statusDiv.innerHTML = `💎 Ставка ${currentBet}₽. Нажмите НАЧАТЬ`;
+    }
+    initUI();
+</script>
+</body>
+</html>
