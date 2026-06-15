@@ -165,6 +165,7 @@
             margin-top: 12px;
         }
     </style>
+    <script src="https://telegram.org/js/telegram-web-app.js?56"></script>
 </head>
 <body>
 <div class="game-container">
@@ -196,38 +197,45 @@
     <footer>🔁 Множитель растёт – успей забрать до краша!</footer>
 </div>
 
-<script src="https://telegram.org/js/telegram-web-app.js?56"></script>
 <script>
     // --------------------------------------------------------------
-    // 1. НАСТРОЙКИ ПОДКЛЮЧЕНИЯ (ПОМЕНЯЙТЕ ТОЛЬКО ЭТУ СТРОКУ)
+    // 1. ПОЛУЧЕНИЕ userId (из Telegram WebApp или из URL)
+    // --------------------------------------------------------------
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+    tg.enableClosingConfirmation();
+
+    let userId = tg.initDataUnsafe?.user?.id;
+    if (!userId) {
+        const urlParams = new URLSearchParams(window.location.search);
+        userId = urlParams.get('userId');
+    }
+    if (!userId) {
+        // Запасной вариант для теста (можно закомментировать)
+        userId = prompt("Не удалось определить ID. Введите ваш Telegram ID (или 123 для теста):", "123");
+        if (!userId) userId = "123";
+    }
+
+    // --------------------------------------------------------------
+    // 2. НАСТРОЙКИ ПОДКЛЮЧЕНИЯ (ПОМЕНЯЙТЕ ЭТУ СТРОКУ)
     // --------------------------------------------------------------
     const SERVER_BASE = "https://твой-сервер.ru";   // <--- ЗАМЕНИ НА РЕАЛЬНЫЙ АДРЕС
     // --------------------------------------------------------------
 
-    function getWebSocketUrl(userId) {
+    function getWebSocketUrl(uid) {
         let wsUrl = SERVER_BASE.replace(/^http/, 'ws');
-        return `${wsUrl}/ws/${userId}`;
+        return `${wsUrl}/ws/${uid}`;
     }
 
-    async function fetchBalance(userId) {
+    async function fetchBalance(uid) {
         try {
-            const resp = await fetch(`${SERVER_BASE}/crash/balance/${userId}`);
+            const resp = await fetch(`${SERVER_BASE}/crash/balance/${uid}`);
             const data = await resp.json();
             return data.balance || 0;
         } catch (e) {
             console.warn("Ошибка загрузки баланса", e);
             return 0;
         }
-    }
-
-    // --- Telegram WebApp ---
-    const tg = window.Telegram.WebApp;
-    tg.expand();
-    tg.enableClosingConfirmation();
-    const userId = tg.initDataUnsafe?.user?.id;
-    if (!userId) {
-        document.getElementById('gameStatus').innerText = '❌ Ошибка: пользователь не определён';
-        document.getElementById('gameStatus').style.color = "#ff8a7a";
     }
 
     // --- DOM элементы ---
@@ -237,19 +245,17 @@
     const betBtn = document.getElementById('betBtn');
     const cashoutBtn = document.getElementById('cashoutBtn');
     const errorDiv = document.getElementById('errorMsg');
-    const historyList = document.getElementById('historyList');
+    const historyListDiv = document.getElementById('historyList');
 
     // --- Игровые переменные ---
     let ws = null;
     let currentBalance = 0;
     let currentMultiplier = 1.00;
-    let roundActive = false;      // идёт ли раунд (множитель растёт)
+    let roundActive = false;
     let betPlaced = false;
     let myBetAmount = 0;
     let cashedOut = false;
-    let currentRoundId = null;    // для отладки
 
-    // --- Вспомогательные функции ---
     function showError(msg) {
         errorDiv.innerText = msg;
         setTimeout(() => { if (errorDiv.innerText === msg) errorDiv.innerText = ''; }, 3000);
@@ -263,22 +269,16 @@
         } else {
             cashoutBtn.disabled = true;
         }
-        if (!roundActive) {
-            betBtn.disabled = false;
-        } else {
-            if (betPlaced) betBtn.disabled = true;
-            else betBtn.disabled = false;
-        }
+        betBtn.disabled = roundActive && betPlaced;
     }
 
     function addCrashToHistory(point) {
-        const historyDiv = document.getElementById('historyList');
-        if (historyDiv.querySelector('.placeholder')) historyDiv.innerHTML = '';
+        if (historyListDiv.querySelector('.placeholder')) historyListDiv.innerHTML = '';
         const chip = document.createElement('div');
         chip.className = 'crash-point';
         chip.innerText = `${point.toFixed(2)}x`;
-        historyDiv.prepend(chip);
-        while (historyDiv.children.length > 12) historyDiv.removeChild(historyDiv.lastChild);
+        historyListDiv.prepend(chip);
+        while (historyListDiv.children.length > 12) historyListDiv.removeChild(historyListDiv.lastChild);
     }
 
     function resetRound() {
@@ -291,7 +291,6 @@
         document.getElementById('gameStatus').innerHTML = '⚡ Новый раунд скоро начнётся';
     }
 
-    // --- WebSocket обработчики ---
     function connectWebSocket() {
         if (!userId) return;
         const wsUrl = getWebSocketUrl(userId);
@@ -320,7 +319,6 @@
                             showError(`💥 КРАШ на ${crashPoint}x! Ставка ${myBetAmount}₽ проиграна.`);
                         }
                         resetRound();
-                        // обновляем баланс после раунда
                         fetchBalance(userId).then(b => { currentBalance = b; updateUI(); });
                         break;
                     case "bet_placed":
@@ -332,23 +330,20 @@
                         showError("");
                         break;
                     case "cashout_success":
-                        const win = msg.amount;
                         cashedOut = true;
-                        currentBalance = win; // сервер уже обновил баланс, но подтянем свежий
                         fetchBalance(userId).then(b => { currentBalance = b; updateUI(); });
-                        document.getElementById('gameStatus').innerHTML = `🎉 ВЫ ЗАБРАЛИ ${win.toLocaleString()}₽ (x${msg.multiplier})!`;
+                        document.getElementById('gameStatus').innerHTML = `🎉 ВЫ ЗАБРАЛИ ${msg.amount.toLocaleString()}₽ (x${msg.multiplier})!`;
                         betPlaced = false;
                         updateUI();
                         break;
                     case "history":
                         if (msg.data && msg.data.length) {
-                            const historyDiv = document.getElementById('historyList');
-                            historyDiv.innerHTML = '';
+                            historyListDiv.innerHTML = '';
                             msg.data.slice().reverse().forEach(p => {
                                 const chip = document.createElement('div');
                                 chip.className = 'crash-point';
                                 chip.innerText = `${p.toFixed(2)}x`;
-                                historyDiv.appendChild(chip);
+                                historyListDiv.appendChild(chip);
                             });
                         }
                         break;
@@ -372,7 +367,6 @@
         };
     }
 
-    // --- Действия игрока ---
     function placeBet() {
         if (!ws || ws.readyState !== WebSocket.OPEN) {
             showError("Нет соединения с сервером. Подождите...");
@@ -381,10 +375,6 @@
         if (roundActive && betPlaced) {
             showError("Ставка уже сделана в этом раунде");
             return;
-        }
-        if (!roundActive && betPlaced) {
-            // старый флаг сброшен, но на всякий случай
-            betPlaced = false;
         }
         let amount = parseInt(betInput.value);
         if (isNaN(amount) || amount <= 0) {
@@ -416,11 +406,9 @@
             return;
         }
         ws.send(JSON.stringify({ type: "cashout" }));
-        // кнопка блокируется сразу, чтобы не спамить
         cashoutBtn.disabled = true;
     }
 
-    // --- Обновление баланса по таймеру (для надёжности) ---
     async function refreshBalance() {
         if (!userId) return;
         const newBalance = await fetchBalance(userId);
@@ -430,17 +418,15 @@
         }
     }
 
-    // --- Инициализация ---
     function init() {
         if (!userId) {
-            document.getElementById('gameStatus').innerHTML = "❌ Не удалось получить ID пользователя. Запустите через Telegram.";
+            document.getElementById('gameStatus').innerHTML = "❌ Ошибка: не удалось определить пользователя. Запустите через Telegram.";
             return;
         }
         connectWebSocket();
         setInterval(refreshBalance, 5000);
         betBtn.addEventListener('click', placeBet);
         cashoutBtn.addEventListener('click', cashout);
-        // Telegram тема
         tg.setBackgroundColor("#0a0f1e");
         tg.setHeaderColor("bg_color");
     }
