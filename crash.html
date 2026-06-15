@@ -67,6 +67,18 @@
             box-shadow: 0 0 20px rgba(255,170,0,0.3);
         }
         .multiplier-badge span { font-size: 24px; }
+        .info-panel {
+            display: flex;
+            justify-content: space-between;
+            background: rgba(0,0,0,0.5);
+            border-radius: 40px;
+            padding: 8px 16px;
+            margin-bottom: 12px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        .info-panel div { color: #ffdd99; }
+        .info-panel span { color: #aaffdd; font-size: 18px; }
         .bet-area {
             background: rgba(8, 16, 32, 0.8);
             border-radius: 48px;
@@ -207,6 +219,8 @@
             .btn-cashout { font-size: 18px; }
             .bet-input { width: 100%; text-align: center; }
             .multiplier-badge { font-size: 28px; padding: 4px 16px; }
+            .info-panel { font-size: 12px; }
+            .info-panel span { font-size: 16px; }
         }
     </style>
 </head>
@@ -217,6 +231,15 @@
         <canvas id="crashCanvas" width="800" height="450" style="width:100%; height:auto;"></canvas>
         <div class="best-score" id="bestMultiplier">🏆 РЕКОРД: 0.00x</div>
     </div>
+
+    <!-- Панель с результатом последней игры и банком сессии -->
+    <div class="info-panel">
+        <div>📊 ПОСЛЕДНИЙ РЕЗУЛЬТАТ</div>
+        <div id="lastGameResult">—</div>
+        <div>💰 БАНК СЕССИИ</div>
+        <div id="sessionBank">0 ₽</div>
+    </div>
+
     <div class="bet-area">
         <div class="bet-label">
             <span>🚀 СТАВКА (₽)</span>
@@ -254,7 +277,7 @@
         if (urlParams.has('userId')) userId = urlParams.get('userId');
         else if (tg.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
 
-        // DOM
+        // ----- DOM элементы -----
         const betInput = document.getElementById('betAmount');
         const startBtn = document.getElementById('betButton');
         const cashoutBtn = document.getElementById('cashoutButton');
@@ -264,12 +287,14 @@
         const statusSpan = document.getElementById('statusMsg');
         const bestSpan = document.getElementById('bestMultiplier');
         const autoTargetInput = document.getElementById('autoTarget');
+        const lastGameResultSpan = document.getElementById('lastGameResult');
+        const sessionBankSpan = document.getElementById('sessionBank');
         const canvas = document.getElementById('crashCanvas');
         const ctx = canvas.getContext('2d');
         canvas.width = 800;
         canvas.height = 450;
 
-        // Настройки
+        // ----- Настройки -----
         let autoTarget = 2.0;
         autoTargetInput.addEventListener('change', () => {
             let val = parseFloat(autoTargetInput.value);
@@ -280,7 +305,8 @@
         let bestMulti = parseFloat(localStorage.getItem('crash_best')) || 1.0;
         bestSpan.innerText = `🏆 РЕКОРД: ${bestMulti.toFixed(2)}x`;
 
-        // Игровые переменные
+        // ----- Переменные сессии -----
+        let sessionProfit = 0;          // накопленный выигрыш/проигрыш за сессию
         let currentBet = 0;
         let hasBet = false;
         let hasCashedOut = false;
@@ -302,10 +328,7 @@
         let trail = [];
         let explosionParticles = [];
 
-        // Результаты для отправки (храним только последний)
-        let lastResult = null;
-
-        // Инициализация звёзд
+        // Инициализация звёзд, планет, метеоритов
         function initStars() {
             stars = [];
             for (let i = 0; i < 200; i++) {
@@ -318,7 +341,6 @@
                 });
             }
         }
-
         function initPlanets() {
             planets = [
                 { x: 120, y: 70, radius: 35, color1: '#8844aa', color2: '#aa66cc', rings: true, speed: 0.3 },
@@ -327,7 +349,6 @@
                 { x: 720, y: 100, radius: 30, color1: '#3366cc', color2: '#5588ee', rings: true, speed: 0.25 }
             ];
         }
-
         function initMeteors() {
             meteors = [];
             for (let i = 0; i < 12; i++) {
@@ -588,36 +609,75 @@
             multiplierSpan.style.textShadow = `0 0 20px ${shadow}`;
         }
 
-        // Отправка результата боту
-        function sendResultToBot(win, bet, multiplier) {
+        // Отправка финального банка боту
+        function sendBankToBot(profit) {
             if (!tg.sendData) return;
             const payload = JSON.stringify({
                 action: "crash_result",
-                win: win,
-                bet: bet,
-                multiplier: multiplier
+                win: profit > 0 ? true : (profit < 0 ? false : false),
+                bet: Math.abs(profit),
+                multiplier: profit > 0 ? 1 + profit/100 : 1.0  // условно, но бот просто прибавит profit к балансу
             });
-            tg.sendData(payload);
+            // Упростим: передадим в data дополнительное поле totalProfit
+            // Но чтобы не менять бота, лучше отправить как результат последней игры.
+            // Однако мы можем отправить специальное поле "total_profit".
+            // Для совместимости с текущим ботом — отправим как обычный crash_result, но с bet = profit (если profit>0) и multiplier=1 + profit/bet.
+            // Но бот ожидает win=true/false и умножает bet * multiplier.
+            // Поэтому проще отправить profit как выигрыш: win=true, bet = Math.abs(profit), multiplier = (profit>0 ? profit/Math.abs(profit) : 1)
+            // Однако при отрицательном profit надо отправить win=false, bet = -profit, multiplier=1.
+            if (profit > 0) {
+                tg.sendData(JSON.stringify({
+                    action: "crash_result",
+                    win: true,
+                    bet: profit,
+                    multiplier: 1.0   // чтобы бот начислил ровно profit
+                }));
+            } else if (profit < 0) {
+                tg.sendData(JSON.stringify({
+                    action: "crash_result",
+                    win: false,
+                    bet: -profit,
+                    multiplier: 1.0
+                }));
+            } else {
+                // ничего не отправляем или отправляем нулевой проигрыш
+                tg.sendData(JSON.stringify({
+                    action: "crash_result",
+                    win: false,
+                    bet: 0,
+                    multiplier: 1.0
+                }));
+            }
         }
 
-        // Завершение игры
+        // Завершение игры с обновлением сессии
         function finishGame(win, finalMultiplier) {
             if (hasCashedOut) return;
             hasCashedOut = true;
             gameActive = false;
             clearMultiplierUpdate();
+            let profitChange = 0;
+            let resultText = "";
             if (win) {
                 let winAmount = Math.floor(currentBet * finalMultiplier);
-                statusSpan.innerText = `🎉 ЗАБРАЛИ! x${finalMultiplier.toFixed(2)} → +${winAmount}₽`;
+                profitChange = winAmount - currentBet;   // чистая прибыль
+                resultText = `✅ +${winAmount}₽ (x${finalMultiplier.toFixed(2)})`;
+                sessionProfit += profitChange;
                 addToHistory(finalMultiplier);
                 if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-                lastResult = { win: true, bet: currentBet, multiplier: finalMultiplier };
             } else {
-                statusSpan.innerText = `💥 КРАШ! ПРОИГРЫШ ${currentBet}₽ (x${crashPoint.toFixed(2)})`;
+                profitChange = -currentBet;
+                resultText = `❌ -${currentBet}₽ (краш x${crashPoint.toFixed(2)})`;
+                sessionProfit -= currentBet;
                 addToHistory(crashPoint);
                 if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
-                lastResult = { win: false, bet: currentBet, multiplier: crashPoint };
             }
+            // Обновляем UI
+            lastGameResultSpan.innerHTML = resultText;
+            sessionBankSpan.innerHTML = (sessionProfit >= 0 ? `+${sessionProfit}` : `${sessionProfit}`) + " ₽";
+            // Добавляем взрыв, если проигрыш
+            if (!win) addExplosion(rocketX, window.rocketY || canvas.height/2);
+            // Сброс флагов
             hasBet = false;
             startBtn.disabled = false;
             cashoutBtn.disabled = true;
@@ -634,7 +694,6 @@
             finishGame(true, currentMulti);
         }
 
-        // Множитель
         function startMultiplierGrowth() {
             if (multiplierInterval) clearInterval(multiplierInterval);
             currentMulti = 1.0;
@@ -706,15 +765,9 @@
             else return 10.00;
         }
 
-        // Выход с отправкой результата
+        // Выход и отправка банка боту
         function exitAndSave() {
-            if (lastResult) {
-                sendResultToBot(lastResult.win, lastResult.bet, lastResult.multiplier);
-            } else {
-                // Если не было ни одной игры, можно отправить нулевой результат или ничего
-                // Для простоты отправим фиктивный проигрыш 0₽, чтобы бот не ждал
-                sendResultToBot(false, 0, 1.0);
-            }
+            sendBankToBot(sessionProfit);
             tg.close();
         }
 
