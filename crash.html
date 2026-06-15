@@ -25,18 +25,6 @@
             box-shadow: 0 25px 45px rgba(0,0,0,0.4);
             border: 1px solid rgba(255,255,255,0.1);
         }
-        .balance-panel {
-            background: #0b0f1c;
-            border-radius: 60px;
-            padding: 8px 20px;
-            margin-bottom: 20px;
-            display: flex;
-            justify-content: space-between;
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
-        }
-        .balance-label { color: #8e9ab0; font-size: 14px; font-weight: 700; }
-        .balance-value { color: #f5b042; font-size: 24px; font-weight: 700; text-shadow: 0 0 6px #f5b04266; }
-        .balance-value span { font-size: 14px; font-weight: 400; color: #aaa; }
         .rocket-area {
             background: #030617;
             border-radius: 40px;
@@ -155,10 +143,6 @@
 </head>
 <body>
 <div class="game-container">
-    <div class="balance-panel">
-        <div class="balance-label">БАЛАНС</div>
-        <div class="balance-value" id="balance">0 <span>₽</span></div>
-    </div>
     <div class="rocket-area">
         <div class="multiplier-badge" id="multiplierDisplay">1.00<span>x</span></div>
         <canvas id="crashCanvas" width="600" height="300" style="width:100%; height:auto;"></canvas>
@@ -180,7 +164,7 @@
         <div class="history-title">📋 ИСТОРИЯ КРАШЕЙ</div>
         <div class="history-list" id="historyList">—</div>
     </div>
-    <div class="status" id="statusMsg">⚡ Ожидание раунда...</div>
+    <div class="status" id="statusMsg">⚡ Введите ставку и нажмите СТАВКА</div>
 </div>
 <script src="https://telegram.org/js/telegram-web-app.js?56"></script>
 <script>
@@ -199,7 +183,6 @@
         document.getElementById('statusMsg').innerText = '❌ Ошибка: не удалось определить пользователя.';
     }
 
-    const balanceSpan = document.getElementById('balance');
     const betAmountInput = document.getElementById('betAmount');
     const betBtn = document.getElementById('betButton');
     const cashoutBtn = document.getElementById('cashoutButton');
@@ -209,7 +192,6 @@
     const canvas = document.getElementById('crashCanvas');
     const ctx = canvas.getContext('2d');
 
-    let balance = 0;
     let currentBet = 0;
     let hasBet = false;
     let hasCashedOut = false;
@@ -260,25 +242,12 @@
         ctx.fill();
     }
 
-    function formatNumber(num) { return num.toLocaleString('ru-RU'); }
-    function updateBalanceUI() { balanceSpan.innerText = formatNumber(Math.floor(balance)); }
-
     function addToHistory(crashValue) {
         const item = document.createElement('div');
         item.className = 'history-item';
         item.innerText = crashValue.toFixed(2) + 'x';
         historyList.prepend(item);
         if (historyList.children.length > 12) historyList.removeChild(historyList.lastChild);
-    }
-
-    async function fetchBalance() {
-        if (!userId) return;
-        try {
-            const response = await fetch(`/crash/balance/${userId}`);
-            const data = await response.json();
-            balance = data.balance;
-            updateBalanceUI();
-        } catch(e) { console.error(e); }
     }
 
     function sendToBot(action, data) {
@@ -310,7 +279,6 @@
                 betAmountInput.disabled = false;
                 statusSpan.innerText = `💥 КРАШ! Множитель достиг 10.00. Ставка проиграна.`;
                 addToHistory(10.0);
-                fetchBalance();
                 return;
             }
             multiplierDisplay.innerText = currentMultiplier.toFixed(2) + "x";
@@ -327,19 +295,17 @@
         if (isNaN(amount)) amount = 100;
         amount = Math.min(5000, Math.max(10, amount));
         betAmountInput.value = amount;
-        if (balance < amount) {
-            statusSpan.innerText = "❌ Недостаточно средств!";
-            return;
-        }
+        
+        // Отправляем запрос боту
         sendToBot("crash_bet", { amount: amount });
-        balance -= amount;
-        updateBalanceUI();
+        
+        // Сразу начинаем игру (без проверки баланса)
         hasBet = true;
         hasCashedOut = false;
         betBtn.disabled = true;
         cashoutBtn.disabled = false;
         betAmountInput.disabled = true;
-        statusSpan.innerText = `✅ Ставка ${amount}₽ принята. Следите за полётом!`;
+        statusSpan.innerText = `✅ Ставка ${amount}₽ отправлена боту. Ожидайте подтверждения в чате.`;
         startAnimation();
     };
 
@@ -354,15 +320,8 @@
         cashoutBtn.disabled = true;
         clearInterval(animationInterval);
         animationInterval = null;
-        statusSpan.innerText = `⏳ Отправляем запрос...`;
+        statusSpan.innerText = `⏳ Запрос на вывод отправлен боту.`;
     };
-
-    if (userId) {
-        fetchBalance();
-        setInterval(fetchBalance, 5000);
-    } else {
-        statusSpan.innerText = "❌ Ошибка: не удалось определить пользователя";
-    }
 </script>
 </body>
 </html>
