@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>R-Game CRASH</title>
+    <title>CRASH | R-Game</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
         body {
-            background: linear-gradient(145deg, #0a0f1e 0%, #0c1122 100%);
+            background: radial-gradient(circle at 30% 20%, #0a0e1a, #010101);
             min-height: 100vh;
             display: flex;
             justify-content: center;
@@ -18,12 +18,12 @@
         .game-container {
             max-width: 500px;
             width: 100%;
-            background: rgba(18, 25, 45, 0.75);
+            background: rgba(18, 25, 45, 0.85);
             backdrop-filter: blur(12px);
             border-radius: 48px;
             padding: 20px;
-            box-shadow: 0 25px 45px rgba(0,0,0,0.4);
-            border: 1px solid rgba(255,255,255,0.1);
+            box-shadow: 0 25px 45px rgba(0,0,0,0.5);
+            border: 1px solid rgba(0,255,255,0.3);
         }
         .rocket-area {
             background: #030617;
@@ -50,10 +50,10 @@
             backdrop-filter: blur(8px);
             padding: 8px 24px;
             border-radius: 60px;
-            font-size: 32px;
+            font-size: 36px;
             font-weight: 800;
-            color: #fff;
-            text-shadow: 0 0 12px #f0b35e;
+            color: #ffcc44;
+            text-shadow: 0 0 12px #ffaa44;
             border: 1px solid rgba(255,180,70,0.5);
             white-space: nowrap;
         }
@@ -164,13 +164,13 @@
         <div class="history-title">📋 ИСТОРИЯ КРАШЕЙ</div>
         <div class="history-list" id="historyList">—</div>
     </div>
-    <div class="status" id="statusMsg">⚡ Введите ставку и нажмите СТАВКА</div>
+    <div class="status" id="statusMsg">💎 Введи ставку и нажми СТАВКА</div>
 </div>
 <script src="https://telegram.org/js/telegram-web-app.js?56"></script>
 <script>
-    let tg = window.Telegram.WebApp;
+    const tg = window.Telegram.WebApp;
     tg.expand();
-    tg.enableClosingConfirmation();
+    tg.ready();
 
     let userId = null;
     const urlParams = new URLSearchParams(window.location.search);
@@ -178,9 +178,6 @@
         userId = urlParams.get('userId');
     } else if (tg.initDataUnsafe?.user?.id) {
         userId = tg.initDataUnsafe.user.id;
-    }
-    if (!userId) {
-        document.getElementById('statusMsg').innerText = '❌ Ошибка: не удалось определить пользователя.';
     }
 
     const betAmountInput = document.getElementById('betAmount');
@@ -196,7 +193,17 @@
     let hasBet = false;
     let hasCashedOut = false;
     let currentMultiplier = 1.0;
+    let crashPoint = 1.10;
     let animationInterval = null;
+
+    // Генерация случайной краш-точки (от 1.10 до 10.00)
+    function generateCrashPoint() {
+        const r = Math.random();
+        if (r < 0.50) return 1.10 + Math.random() * 0.90;     // 50% - до 2.0
+        else if (r < 0.80) return 2.00 + Math.random() * 3.00; // 30% - 2.0-5.0
+        else if (r < 0.95) return 5.00 + Math.random() * 5.00; // 15% - 5.0-10.0
+        else return 10.00;                                      // 5% - 10.0
+    }
 
     function drawRocket(multiplier) {
         if (!ctx) return;
@@ -208,7 +215,7 @@
             ctx.fillStyle = `rgba(255,255,200,${Math.random()*0.5})`;
             ctx.fillRect(Math.random()*w, Math.random()*h, 2, 2);
         }
-        const maxMult = Math.min(10, multiplier * 1.2);
+        const maxMult = Math.min(10, crashPoint * 1.2);
         ctx.beginPath();
         ctx.moveTo(0, h-10);
         for(let x=0; x<=w; x+=5) {
@@ -260,29 +267,44 @@
         console.log("Sent to bot:", payload);
     }
 
+    function endGame(isCrash, finalMultiplier = null) {
+        if (animationInterval) clearInterval(animationInterval);
+        animationInterval = null;
+        if (isCrash) {
+            // Проигрыш – бот уже списал ставку при crash_bet, ничего не отправляем
+            statusSpan.innerText = `💥 КРАШ! Множитель достиг ${crashPoint.toFixed(2)}x. Вы проиграли ${currentBet}₽`;
+            addToHistory(crashPoint);
+        } else {
+            // Выигрыш – отправляем cashout
+            const winAmount = Math.floor(currentBet * finalMultiplier);
+            sendToBot("crash_cashout", { multiplier: finalMultiplier });
+            statusSpan.innerText = `🎉 ВЫ ЗАБРАЛИ! x${finalMultiplier.toFixed(2)} → +${winAmount}₽`;
+            addToHistory(finalMultiplier);
+        }
+        hasBet = false;
+        hasCashedOut = false;
+        betBtn.disabled = false;
+        cashoutBtn.disabled = true;
+        betAmountInput.disabled = false;
+    }
+
     function startAnimation() {
         if (animationInterval) clearInterval(animationInterval);
         currentMultiplier = 1.0;
         multiplierDisplay.innerText = currentMultiplier.toFixed(2) + "x";
         drawRocket(currentMultiplier);
         animationInterval = setInterval(() => {
-            if (!hasBet) return;
-            if (hasCashedOut) return;
+            if (!hasBet || hasCashedOut) return;
             currentMultiplier += 0.025;
-            if (currentMultiplier >= 10.0) {
-                clearInterval(animationInterval);
-                animationInterval = null;
-                hasBet = false;
-                hasCashedOut = false;
-                betBtn.disabled = false;
-                cashoutBtn.disabled = true;
-                betAmountInput.disabled = false;
-                statusSpan.innerText = `💥 КРАШ! Множитель достиг 10.00. Ставка проиграна.`;
-                addToHistory(10.0);
-                return;
-            }
             multiplierDisplay.innerText = currentMultiplier.toFixed(2) + "x";
             drawRocket(currentMultiplier);
+            if (currentMultiplier >= crashPoint) {
+                // Краш
+                clearInterval(animationInterval);
+                animationInterval = null;
+                hasCashedOut = true;
+                endGame(true);
+            }
         }, 40);
     }
 
@@ -295,32 +317,31 @@
         if (isNaN(amount)) amount = 100;
         amount = Math.min(5000, Math.max(10, amount));
         betAmountInput.value = amount;
-        
-        // Отправляем запрос боту
-        sendToBot("crash_bet", { amount: amount });
-        
-        // Сразу начинаем игру (без проверки баланса)
+        currentBet = amount;
+
+        crashPoint = generateCrashPoint();       // случайная точка краша
+        sendToBot("crash_bet", { amount: amount }); // списание у бота
+
         hasBet = true;
         hasCashedOut = false;
         betBtn.disabled = true;
         cashoutBtn.disabled = false;
         betAmountInput.disabled = true;
-        statusSpan.innerText = `✅ Ставка ${amount}₽ отправлена боту. Ожидайте подтверждения в чате.`;
+        statusSpan.innerText = `🚀 Ставка ${amount}₽ принята! Множитель растёт...`;
         startAnimation();
     };
 
     cashoutBtn.onclick = () => {
         if (!hasBet || hasCashedOut) return;
-        if (currentMultiplier >= 10.0) {
+        if (currentMultiplier >= crashPoint) {
             statusSpan.innerText = "❌ Уже краш, нельзя забрать!";
             return;
         }
-        sendToBot("crash_cashout", { multiplier: currentMultiplier });
         hasCashedOut = true;
         cashoutBtn.disabled = true;
         clearInterval(animationInterval);
         animationInterval = null;
-        statusSpan.innerText = `⏳ Запрос на вывод отправлен боту.`;
+        endGame(false, currentMultiplier);
     };
 </script>
 </body>
