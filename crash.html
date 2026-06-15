@@ -6,7 +6,13 @@
     <title>⚡ CRASH · Космический рейс</title>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Exo+2:wght@300;500;700&display=swap" rel="stylesheet">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
         body {
             background: radial-gradient(ellipse at 30% 20%, #03050f, #000001);
             min-height: 100vh;
@@ -225,12 +231,15 @@
         <canvas id="crashCanvas" width="800" height="450" style="width:100%; height:auto;"></canvas>
         <div class="best-score" id="bestMultiplier">🏆 РЕКОРД: 0.00x</div>
     </div>
+
+    <!-- Панель с результатом последней игры и банком сессии -->
     <div class="info-panel">
         <div>📊 ПОСЛЕДНИЙ РЕЗУЛЬТАТ</div>
         <div id="lastGameResult">—</div>
         <div>💰 БАНК СЕССИИ</div>
         <div id="sessionBank">0 ₽</div>
     </div>
+
     <div class="bet-area">
         <div class="bet-label">
             <span>🚀 СТАВКА (₽)</span>
@@ -245,7 +254,7 @@
         </div>
         <div class="auto-panel">
             <label>🎯 АВТО-ЗАБОР при x</label>
-            <input type="number" id="autoTarget" class="auto-input" step="0.1" min="1.1" max="50" value="2.0">
+            <input type="number" id="autoTarget" class="auto-input" step="0.1" min="1.01" max="50" value="2.0">
             <label style="margin-left:auto;">⚡</label>
         </div>
         <button id="exitButton" class="btn-exit">🚪 ВЫЙТИ И ЗАБРАТЬ БАНК</button>
@@ -268,6 +277,7 @@
         if (urlParams.has('userId')) userId = urlParams.get('userId');
         else if (tg.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
 
+        // DOM элементы
         const betInput = document.getElementById('betAmount');
         const startBtn = document.getElementById('betButton');
         const cashoutBtn = document.getElementById('cashoutButton');
@@ -284,22 +294,24 @@
         canvas.width = 800;
         canvas.height = 450;
 
+        // ----- Настройки -----
         let autoTarget = 2.0;
         autoTargetInput.addEventListener('change', () => {
             let val = parseFloat(autoTargetInput.value);
-            if (!isNaN(val) && val >= 1.1) autoTarget = val;
+            if (!isNaN(val) && val >= 1.01) autoTarget = val;
             else autoTarget = null;
         });
 
         let bestMulti = parseFloat(localStorage.getItem('crash_best')) || 1.0;
         bestSpan.innerText = `🏆 РЕКОРД: ${bestMulti.toFixed(2)}x`;
 
-        let sessionProfit = 0;
+        // ----- Переменные сессии -----
+        let sessionProfit = 0;          // накопленный выигрыш/проигрыш за сессию
         let currentBet = 0;
         let hasBet = false;
         let hasCashedOut = false;
         let currentMulti = 1.0;
-        let crashPoint = 1.1;
+        let crashPoint = 1.01;
         let animFrame = null;
         let multiplierInterval = null;
         let gameActive = false;
@@ -307,9 +319,16 @@
         let flashAlpha = 0;
         let shake = 0;
         let lastTime = 0;
-        let rocketX = 70;
-        let stars = [], planets = [], meteors = [], trail = [], explosionParticles = [];
 
+        // Бесконечный полёт
+        let rocketX = 70;
+        let stars = [];
+        let planets = [];
+        let meteors = [];
+        let trail = [];
+        let explosionParticles = [];
+
+        // Инициализация графики
         function initStars() {
             stars = [];
             for (let i = 0; i < 200; i++) {
@@ -348,21 +367,25 @@
             }
         }
 
+        // Физика полёта
         function updateInfiniteFlight(deltaTime) {
             if (!gameActive) return;
             let speedMultiplier = 1 + (currentMulti - 1) * 0.3;
             let move = 1.2 * speedMultiplier * (deltaTime / 16);
             rocketX += move;
             if (rocketX > canvas.width + 100) rocketX = -100;
+            // Звёзды
             for (let s of stars) {
                 s.x -= s.speed * move;
                 if (s.x < -10) s.x = canvas.width + 10;
                 if (s.x > canvas.width + 10) s.x = -10;
             }
+            // Планеты
             for (let p of planets) {
                 p.x -= p.speed * move;
                 if (p.x + p.radius < 0) p.x = canvas.width + p.radius;
             }
+            // Метеориты
             for (let m of meteors) {
                 m.x -= m.speed * (1 + (currentMulti-1)*0.2);
                 m.rotation += m.rotSpeed;
@@ -373,6 +396,7 @@
                     m.speed = 1.5 + Math.random() * 3;
                 }
             }
+            // Синусоидальная траектория
             let t = rocketX / 200;
             let phase = Math.sin(t * Math.PI * 2) * 35;
             let y = canvas.height/2 + phase;
@@ -418,18 +442,23 @@
             if (shake > 0) shake -= 0.1;
         }
 
+        // Отрисовка
         function draw() {
             ctx.save();
-            if (shake > 0) ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+            if (shake > 0) {
+                ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+            }
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.fillStyle = '#010208';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
+            // Звёзды
             for (let s of stars) {
                 ctx.fillStyle = `rgba(255,240,200,${0.4 + s.layer*0.2})`;
                 ctx.beginPath();
                 ctx.arc(s.x, s.y, s.size, 0, Math.PI*2);
                 ctx.fill();
             }
+            // Планеты
             for (let p of planets) {
                 ctx.save();
                 ctx.shadowBlur = 8;
@@ -451,6 +480,7 @@
                 }
                 ctx.restore();
             }
+            // Метеориты
             for (let m of meteors) {
                 ctx.save();
                 ctx.translate(m.x, m.y);
@@ -481,6 +511,7 @@
                 }
                 ctx.restore();
             }
+            // След
             for (let i=0; i<trail.length; i++) {
                 let alpha = 1 - i / trail.length;
                 ctx.fillStyle = `rgba(255,120,40,${alpha*0.5})`;
@@ -488,6 +519,7 @@
                 ctx.arc(trail[i].x, trail[i].y, 6 * alpha, 0, Math.PI*2);
                 ctx.fill();
             }
+            // Взрыв
             if (explosionActive) {
                 for (let p of explosionParticles) {
                     if (p.life <= 0) continue;
@@ -499,6 +531,7 @@
                 }
                 ctx.globalAlpha = 1;
             }
+            // Ракета
             let rocketY = window.rocketY || canvas.height/2;
             let rocketAngle = window.rocketAngle || 0;
             ctx.save();
@@ -557,6 +590,7 @@
             ctx.lineTo(4, 18);
             ctx.fill();
             ctx.restore();
+
             if (flashAlpha > 0) {
                 ctx.fillStyle = `rgba(255,100,30,${flashAlpha*0.6})`;
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -564,6 +598,7 @@
             ctx.restore();
         }
 
+        // Цвет множителя
         function updateMultiplierColor(value) {
             let textColor, shadow;
             if (value < 2) { textColor = '#ffffaa'; shadow = '#ffff66'; }
@@ -574,6 +609,7 @@
             multiplierSpan.style.textShadow = `0 0 20px ${shadow}`;
         }
 
+        // Отправка финального банка боту
         function sendBankToBot(profit) {
             if (!tg.sendData) return;
             if (profit > 0) {
@@ -600,6 +636,7 @@
             }
         }
 
+        // Завершение игры с обновлением сессии
         function finishGame(win, finalMultiplier) {
             if (hasCashedOut) return;
             hasCashedOut = true;
@@ -617,13 +654,13 @@
             } else {
                 profitChange = -currentBet;
                 resultText = `❌ -${currentBet}₽ (краш x${crashPoint.toFixed(2)})`;
-                sessionProfit += profitChange;
+                sessionProfit -= currentBet;
                 addToHistory(crashPoint);
                 if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
-                addExplosion(rocketX, window.rocketY || canvas.height/2);
             }
             lastGameResultSpan.innerHTML = resultText;
             sessionBankSpan.innerHTML = (sessionProfit >= 0 ? `+${sessionProfit}` : `${sessionProfit}`) + " ₽";
+            if (!win) addExplosion(rocketX, window.rocketY || canvas.height/2);
             hasBet = false;
             startBtn.disabled = false;
             cashoutBtn.disabled = true;
@@ -640,6 +677,7 @@
             finishGame(true, currentMulti);
         }
 
+        // Множитель растёт медленнее: 0.0125 вместо 0.025 (каждые 40 мс)
         function startMultiplierGrowth() {
             if (multiplierInterval) clearInterval(multiplierInterval);
             currentMulti = 1.0;
@@ -647,7 +685,7 @@
             updateMultiplierColor(1);
             multiplierInterval = setInterval(() => {
                 if (!hasBet || hasCashedOut) return;
-                currentMulti += 0.01;          // замедленный рост
+                currentMulti += 0.0125;      // 🐢 медленный рост
                 multiplierSpan.innerHTML = currentMulti.toFixed(2) + "<span>x</span>";
                 updateMultiplierColor(currentMulti);
                 if (autoTarget && currentMulti >= autoTarget && !hasCashedOut && hasBet) {
@@ -656,7 +694,7 @@
                 if (currentMulti >= crashPoint && !hasCashedOut) {
                     finishGame(false, crashPoint);
                 }
-            }, 50);                           // интервал 50 мс
+            }, 40);
         }
 
         function clearMultiplierUpdate() {
@@ -686,7 +724,7 @@
             amount = Math.min(5000, Math.max(10, amount));
             betInput.value = amount;
             currentBet = amount;
-            crashPoint = generateCrashPoint();
+            crashPoint = generateCrashPoint();  // теперь может быть от 1.01
             hasBet = true;
             hasCashedOut = false;
             gameActive = true;
@@ -703,12 +741,12 @@
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
         }
 
+        // Генерация краш-точки с минимальным значением 1.01
         function generateCrashPoint() {
             const r = Math.random();
-            if (r < 0.10) return 1.01;                     // 10% суперранний краш
-            else if (r < 0.45) return 1.10 + Math.random() * 0.90;
-            else if (r < 0.75) return 2.00 + Math.random() * 3.00;
-            else if (r < 0.92) return 5.00 + Math.random() * 5.00;
+            if (r < 0.48) return 1.01 + Math.random() * 0.99;   // 1.01 – 2.00
+            else if (r < 0.78) return 2.00 + Math.random() * 3.00; // 2.00 – 5.00
+            else if (r < 0.94) return 5.00 + Math.random() * 5.00; // 5.00 – 10.00
             else return 10.00;
         }
 
@@ -717,15 +755,19 @@
             tg.close();
         }
 
+        // Анимационный цикл
         function animate(now) {
             let delta = Math.min(32, now - (lastTime || now));
             lastTime = now;
-            if (gameActive) updateInfiniteFlight(delta);
+            if (gameActive) {
+                updateInfiniteFlight(delta);
+            }
             updateExplosion();
             draw();
             animFrame = requestAnimationFrame(animate);
         }
 
+        // Инициализация
         initStars();
         initPlanets();
         initMeteors();
