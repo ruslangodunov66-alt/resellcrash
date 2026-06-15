@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>CRASH GAME - Resell Tycoon</title>
+    <title>CRASH GAME</title>
     <style>
         * {
             box-sizing: border-box;
@@ -14,7 +14,7 @@
             margin: 0;
             min-height: 100vh;
             background: linear-gradient(135deg, #0a0f1e 0%, #0c1222 100%);
-            font-family: 'Segoe UI', system-ui, -apple-system, 'Roboto', sans-serif;
+            font-family: 'Segoe UI', system-ui, sans-serif;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -31,39 +31,25 @@
             box-shadow: 0 20px 40px rgba(0,0,0,0.4);
             border: 1px solid rgba(255,255,255,0.1);
         }
-        .balance-card {
-            background: #0f1629;
-            border-radius: 32px;
-            padding: 12px 20px;
+        .rocket-area {
+            position: relative;
+            height: 200px;
             margin-bottom: 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: baseline;
-            box-shadow: inset 0 1px 2px rgba(0,0,0,0.3), 0 4px 8px rgba(0,0,0,0.2);
+            background: rgba(0,0,0,0.3);
+            border-radius: 40px;
+            overflow: hidden;
         }
-        .balance-label {
-            font-size: 14px;
-            color: #8e9aaf;
-            letter-spacing: 1px;
-        }
-        .balance-value {
-            font-size: 28px;
-            font-weight: 800;
-            background: linear-gradient(135deg, #FFD166, #F4A261);
-            -webkit-background-clip: text;
-            background-clip: text;
-            color: transparent;
+        #rocketCanvas {
+            width: 100%;
+            height: 100%;
+            display: block;
         }
         .multiplier-area {
-            background: #00000044;
-            border-radius: 60px;
-            padding: 20px;
             text-align: center;
             margin-bottom: 20px;
-            border: 1px solid rgba(255,215,0,0.3);
         }
         .multiplier {
-            font-size: 64px;
+            font-size: 56px;
             font-weight: 900;
             font-family: monospace;
             letter-spacing: 4px;
@@ -125,32 +111,17 @@
             transform: none;
             cursor: not-allowed;
         }
-        .history-area {
-            margin-top: 20px;
-            background: #0a0f1c;
-            border-radius: 28px;
-            padding: 12px;
+        .error-msg {
+            color: #ff8a7a;
+            text-align: center;
+            font-size: 13px;
+            margin-top: 12px;
         }
-        .history-title {
+        .refresh-btn {
+            background: #2a3655;
+            margin-top: 12px;
+            padding: 10px;
             font-size: 14px;
-            margin-bottom: 10px;
-            color: #8e9aaf;
-            padding-left: 8px;
-        }
-        .history-list {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            max-height: 120px;
-            overflow-y: auto;
-        }
-        .crash-point {
-            background: #1e2a3e;
-            padding: 6px 14px;
-            border-radius: 40px;
-            font-size: 16px;
-            font-weight: bold;
-            color: #ffaa66;
         }
         footer {
             font-size: 11px;
@@ -158,49 +129,31 @@
             margin-top: 20px;
             color: #4a5570;
         }
-        .error-msg {
-            color: #ff8a7a;
-            text-align: center;
-            font-size: 13px;
-            margin-top: 12px;
-        }
     </style>
     <script src="https://telegram.org/js/telegram-web-app.js?56"></script>
 </head>
 <body>
 <div class="game-container">
-    <div class="balance-card">
-        <span class="balance-label">💰 БАЛАНС</span>
-        <span class="balance-value" id="balanceValue">0 ₽</span>
+    <div class="rocket-area">
+        <canvas id="rocketCanvas" width="500" height="200"></canvas>
     </div>
-
     <div class="multiplier-area">
         <div class="multiplier" id="multiplierDisplay">1.00</div>
         <div class="status" id="gameStatus">⚡ Ожидание раунда</div>
     </div>
-
     <div class="bet-panel">
         <input type="number" id="betAmount" class="amount-input" placeholder="Сумма ставки" value="100" step="100">
         <div class="button-group">
-            <button id="betBtn" class="btn-bet">📈 СДЕЛАТЬ СТАВКУ</button>
-            <button id="cashoutBtn" class="btn-cashout" disabled>💸 ЗАБРАТЬ</button>
+            <button id="betBtn" class="btn-bet">🚀 СДЕЛАТЬ СТАВКУ</button>
+            <button id="cashoutBtn" class="btn-cashout" disabled>💎 ЗАБРАТЬ</button>
         </div>
+        <button id="refreshBalanceBtn" class="refresh-btn">🔄 УЗНАТЬ БАЛАНС</button>
         <div id="errorMsg" class="error-msg"></div>
     </div>
-
-    <div class="history-area">
-        <div class="history-title">📜 ИСТОРИЯ КРАШЕЙ</div>
-        <div class="history-list" id="historyList">
-            <div style="color:#5a6680;">— пока пусто —</div>
-        </div>
-    </div>
-    <footer>🔁 Множитель растёт – успей забрать до краша!</footer>
+    <footer>🔁 Множитель растёт – успей забрать до краша!<br>💰 Баланс и результат придут в чат</footer>
 </div>
 
 <script>
-    // --------------------------------------------------------------
-    // 1. ПОЛУЧЕНИЕ userId (из Telegram WebApp или из URL)
-    // --------------------------------------------------------------
     const tg = window.Telegram.WebApp;
     tg.expand();
     tg.enableClosingConfirmation();
@@ -210,51 +163,89 @@
         const urlParams = new URLSearchParams(window.location.search);
         userId = urlParams.get('userId');
     }
-    if (!userId) {
-        // Запасной вариант для теста (можно закомментировать)
-        userId = prompt("Не удалось определить ID. Введите ваш Telegram ID (или 123 для теста):", "123");
-        if (!userId) userId = "123";
-    }
+    if (!userId) userId = "123";
 
-    // --------------------------------------------------------------
-    // 2. НАСТРОЙКИ ПОДКЛЮЧЕНИЯ (ПОМЕНЯЙТЕ ЭТУ СТРОКУ)
-    // --------------------------------------------------------------
-    const SERVER_BASE = "https://твой-сервер.ru";   // <--- ЗАМЕНИ НА РЕАЛЬНЫЙ АДРЕС
-    // --------------------------------------------------------------
-
-    function getWebSocketUrl(uid) {
-        let wsUrl = SERVER_BASE.replace(/^http/, 'ws');
-        return `${wsUrl}/ws/${uid}`;
-    }
-
-    async function fetchBalance(uid) {
-        try {
-            const resp = await fetch(`${SERVER_BASE}/crash/balance/${uid}`);
-            const data = await resp.json();
-            return data.balance || 0;
-        } catch (e) {
-            console.warn("Ошибка загрузки баланса", e);
-            return 0;
-        }
-    }
-
-    // --- DOM элементы ---
-    const balanceSpan = document.getElementById('balanceValue');
+    // DOM элементы
     const multiplierSpan = document.getElementById('multiplierDisplay');
     const betInput = document.getElementById('betAmount');
     const betBtn = document.getElementById('betBtn');
     const cashoutBtn = document.getElementById('cashoutBtn');
     const errorDiv = document.getElementById('errorMsg');
-    const historyListDiv = document.getElementById('historyList');
+    const gameStatusSpan = document.getElementById('gameStatus');
+    const refreshBalanceBtn = document.getElementById('refreshBalanceBtn');
 
-    // --- Игровые переменные ---
-    let ws = null;
-    let currentBalance = 0;
+    // Игровые переменные
     let currentMultiplier = 1.00;
     let roundActive = false;
     let betPlaced = false;
     let myBetAmount = 0;
     let cashedOut = false;
+    let animationId = null;
+    let startTime = 0;
+
+    // Ракета (canvas)
+    const canvas = document.getElementById('rocketCanvas');
+    const ctx = canvas.getContext('2d');
+    let rocketY = 180;    // начальная Y (низ)
+    let targetY = 20;      // целевая Y (верх)
+
+    function resizeCanvas() {
+        const container = canvas.parentElement;
+        const width = container.clientWidth;
+        canvas.width = width;
+        canvas.height = 200;
+        drawRocket();
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    function drawRocket() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Звёздное небо
+        ctx.fillStyle = '#0a0f1e';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        for (let i = 0; i < 50; i++) {
+            ctx.fillStyle = `rgba(255,255,200,${Math.random() * 0.5})`;
+            ctx.fillRect(Math.random() * canvas.width, Math.random() * canvas.height, 1, 1);
+        }
+        // Ракета
+        let y = rocketY;
+        let x = canvas.width / 2;
+        ctx.save();
+        ctx.translate(x, y);
+        // Корпус
+        ctx.fillStyle = '#ff6600';
+        ctx.beginPath();
+        ctx.moveTo(0, -20);
+        ctx.lineTo(10, 0);
+        ctx.lineTo(6, 10);
+        ctx.lineTo(-6, 10);
+        ctx.lineTo(-10, 0);
+        ctx.fill();
+        ctx.fillStyle = '#ffcc00';
+        ctx.beginPath();
+        ctx.moveTo(0, -20);
+        ctx.lineTo(6, -10);
+        ctx.lineTo(-6, -10);
+        ctx.fill();
+        // Пламя
+        ctx.fillStyle = '#ff3300';
+        ctx.beginPath();
+        ctx.moveTo(-4, 12);
+        ctx.lineTo(0, 24);
+        ctx.lineTo(4, 12);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    function updateRocketPosition(multiplier) {
+        // Множитель 1.00 -> Y = 180,  10.00 -> Y = 20
+        let progress = (multiplier - 1) / 9;
+        if (progress > 1) progress = 1;
+        if (progress < 0) progress = 0;
+        rocketY = 180 - progress * 160;
+        drawRocket();
+    }
 
     function showError(msg) {
         errorDiv.innerText = msg;
@@ -262,116 +253,51 @@
     }
 
     function updateUI() {
-        balanceSpan.innerText = currentBalance.toLocaleString() + ' ₽';
         multiplierSpan.innerText = currentMultiplier.toFixed(2);
-        if (betPlaced && roundActive && !cashedOut) {
-            cashoutBtn.disabled = false;
-        } else {
-            cashoutBtn.disabled = true;
+        updateRocketPosition(currentMultiplier);
+        cashoutBtn.disabled = !(betPlaced && roundActive && !cashedOut);
+        betBtn.disabled = (roundActive && betPlaced);
+    }
+
+    function startAnimation() {
+        if (animationId) cancelAnimationFrame(animationId);
+        startTime = performance.now() / 1000;
+        function step() {
+            const now = performance.now() / 1000;
+            const elapsed = now - startTime;
+            let mult = 1 + elapsed / 5;  // +1 каждые 5 сек (скорость можно регулировать)
+            if (mult > 10) mult = 10;
+            currentMultiplier = mult;
+            updateUI();
+            if (roundActive && !cashedOut && currentMultiplier >= 10.0) {
+                // Автокраш
+                gameStatusSpan.innerHTML = "💥 КРАШ! Множитель превысил 10x";
+                roundActive = false;
+                betPlaced = false;
+                cashedOut = false;
+                updateUI();
+                tg.sendData(JSON.stringify({ action: "crash_cashout", multiplier: currentMultiplier }));
+                cancelAnimationFrame(animationId);
+                animationId = null;
+                return;
+            }
+            if (roundActive && !cashedOut) {
+                animationId = requestAnimationFrame(step);
+            } else {
+                animationId = null;
+            }
         }
-        betBtn.disabled = roundActive && betPlaced;
+        animationId = requestAnimationFrame(step);
     }
 
-    function addCrashToHistory(point) {
-        if (historyListDiv.querySelector('.placeholder')) historyListDiv.innerHTML = '';
-        const chip = document.createElement('div');
-        chip.className = 'crash-point';
-        chip.innerText = `${point.toFixed(2)}x`;
-        historyListDiv.prepend(chip);
-        while (historyListDiv.children.length > 12) historyListDiv.removeChild(historyListDiv.lastChild);
-    }
-
-    function resetRound() {
-        roundActive = false;
-        betPlaced = false;
-        cashedOut = false;
-        myBetAmount = 0;
-        currentMultiplier = 1.00;
-        updateUI();
-        document.getElementById('gameStatus').innerHTML = '⚡ Новый раунд скоро начнётся';
-    }
-
-    function connectWebSocket() {
-        if (!userId) return;
-        const wsUrl = getWebSocketUrl(userId);
-        ws = new WebSocket(wsUrl);
-        ws.onopen = () => {
-            console.log("✅ WebSocket подключён");
-            document.getElementById('gameStatus').innerHTML = '🟢 Ожидание раунда...';
-            fetchBalance(userId).then(b => { currentBalance = b; updateUI(); });
-        };
-        ws.onmessage = (event) => {
-            try {
-                const msg = JSON.parse(event.data);
-                switch (msg.type) {
-                    case "multiplier":
-                        currentMultiplier = msg.data;
-                        if (roundActive === false) {
-                            roundActive = true;
-                            document.getElementById('gameStatus').innerHTML = '🔥 МНОЖИТЕЛЬ РАСТЁТ!';
-                        }
-                        updateUI();
-                        break;
-                    case "round_end":
-                        const crashPoint = msg.crash_point;
-                        addCrashToHistory(crashPoint);
-                        if (betPlaced && !cashedOut) {
-                            showError(`💥 КРАШ на ${crashPoint}x! Ставка ${myBetAmount}₽ проиграна.`);
-                        }
-                        resetRound();
-                        fetchBalance(userId).then(b => { currentBalance = b; updateUI(); });
-                        break;
-                    case "bet_placed":
-                        betPlaced = true;
-                        myBetAmount = msg.amount;
-                        currentBalance -= myBetAmount;
-                        updateUI();
-                        document.getElementById('gameStatus').innerHTML = `⭐ Ставка ${myBetAmount}₽ принята. Жми ЗАБРАТЬ вовремя!`;
-                        showError("");
-                        break;
-                    case "cashout_success":
-                        cashedOut = true;
-                        fetchBalance(userId).then(b => { currentBalance = b; updateUI(); });
-                        document.getElementById('gameStatus').innerHTML = `🎉 ВЫ ЗАБРАЛИ ${msg.amount.toLocaleString()}₽ (x${msg.multiplier})!`;
-                        betPlaced = false;
-                        updateUI();
-                        break;
-                    case "history":
-                        if (msg.data && msg.data.length) {
-                            historyListDiv.innerHTML = '';
-                            msg.data.slice().reverse().forEach(p => {
-                                const chip = document.createElement('div');
-                                chip.className = 'crash-point';
-                                chip.innerText = `${p.toFixed(2)}x`;
-                                historyListDiv.appendChild(chip);
-                            });
-                        }
-                        break;
-                    case "error":
-                        showError(msg.message || "Ошибка сервера");
-                        fetchBalance(userId).then(b => { currentBalance = b; updateUI(); });
-                        break;
-                    default:
-                        console.log("Unknown message:", msg);
-                }
-            } catch(e) { console.error("Ошибка парсинга WebSocket", e); }
-        };
-        ws.onclose = () => {
-            console.log("⚠️ WebSocket закрыт, переподключение через 3 сек");
-            document.getElementById('gameStatus').innerHTML = '🔴 Потеря связи, переподключение...';
-            setTimeout(connectWebSocket, 3000);
-        };
-        ws.onerror = (err) => {
-            console.error("WebSocket ошибка", err);
-            showError("Ошибка соединения с сервером");
-        };
+    function stopAnimation() {
+        if (animationId) {
+            cancelAnimationFrame(animationId);
+            animationId = null;
+        }
     }
 
     function placeBet() {
-        if (!ws || ws.readyState !== WebSocket.OPEN) {
-            showError("Нет соединения с сервером. Подождите...");
-            return;
-        }
         if (roundActive && betPlaced) {
             showError("Ставка уже сделана в этом раунде");
             return;
@@ -385,18 +311,20 @@
             showError("Минимальная ставка 50₽");
             return;
         }
-        if (amount > currentBalance) {
-            showError(`Недостаточно средств! Баланс: ${currentBalance}₽`);
-            return;
-        }
-        ws.send(JSON.stringify({ type: "place_bet", amount: amount }));
+        // Отправляем боту
+        tg.sendData(JSON.stringify({ action: "crash_bet", amount: amount }));
+        // Запускаем игру
+        betPlaced = true;
+        myBetAmount = amount;
+        roundActive = true;
+        cashedOut = false;
+        currentMultiplier = 1.00;
+        gameStatusSpan.innerHTML = `⭐ Ставка ${amount}₽ принята. Жми ЗАБРАТЬ!`;
+        startAnimation();
+        updateUI();
     }
 
     function cashout() {
-        if (!ws || ws.readyState !== WebSocket.OPEN) {
-            showError("Нет соединения");
-            return;
-        }
         if (!roundActive) {
             showError("Раунд не активен");
             return;
@@ -405,33 +333,31 @@
             showError("Нет активной ставки или вы уже забрали");
             return;
         }
-        ws.send(JSON.stringify({ type: "cashout" }));
-        cashoutBtn.disabled = true;
+        cashedOut = true;
+        stopAnimation();
+        tg.sendData(JSON.stringify({ action: "crash_cashout", multiplier: currentMultiplier }));
+        gameStatusSpan.innerHTML = `⏳ Отправлено... Результат в чате.`;
+        // Сбрасываем локальное состояние (новый раунд можно начать через кнопку)
+        roundActive = false;
+        betPlaced = false;
+        updateUI();
     }
 
-    async function refreshBalance() {
-        if (!userId) return;
-        const newBalance = await fetchBalance(userId);
-        if (newBalance !== currentBalance) {
-            currentBalance = newBalance;
-            updateUI();
-        }
+    function refreshBalance() {
+        tg.sendData(JSON.stringify({ action: "get_balance" }));
+        showError("📨 Запрос отправлен. Баланс придёт в чат.");
     }
 
-    function init() {
-        if (!userId) {
-            document.getElementById('gameStatus').innerHTML = "❌ Ошибка: не удалось определить пользователя. Запустите через Telegram.";
-            return;
-        }
-        connectWebSocket();
-        setInterval(refreshBalance, 5000);
-        betBtn.addEventListener('click', placeBet);
-        cashoutBtn.addEventListener('click', cashout);
-        tg.setBackgroundColor("#0a0f1e");
-        tg.setHeaderColor("bg_color");
-    }
+    // Инициализация
+    betBtn.addEventListener('click', placeBet);
+    cashoutBtn.addEventListener('click', cashout);
+    refreshBalanceBtn.addEventListener('click', refreshBalance);
 
-    init();
+    tg.setBackgroundColor("#0a0f1e");
+    tg.setHeaderColor("bg_color");
+
+    // Приветственное сообщение (можно показать инструкцию)
+    gameStatusSpan.innerHTML = "✅ Готов к игре! Нажми СДЕЛАТЬ СТАВКУ";
 </script>
 </body>
 </html>
