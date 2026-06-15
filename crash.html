@@ -6,7 +6,13 @@
     <title>⚡ CRASH · Космический рейс</title>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Exo+2:wght@300;500;700&display=swap" rel="stylesheet">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
         body {
             background: radial-gradient(ellipse at 30% 20%, #03050f, #000001);
             min-height: 100vh;
@@ -34,7 +40,14 @@
             background: #00020a;
             box-shadow: 0 0 0 2px #0a1a3a, inset 0 0 60px rgba(0,0,0,0.9);
         }
-        canvas { display: block; width: 100%; height: auto; background: radial-gradient(ellipse at 30% 30%, #0c1445, #010108); border-radius: 36px; cursor: pointer; }
+        canvas {
+            display: block;
+            width: 100%;
+            height: auto;
+            background: radial-gradient(ellipse at 30% 30%, #0c1445, #010108);
+            border-radius: 36px;
+            cursor: pointer;
+        }
         .multiplier-badge {
             position: absolute;
             top: 16px;
@@ -48,14 +61,12 @@
             font-weight: 900;
             font-family: 'Orbitron', monospace;
             letter-spacing: 3px;
-            color: #fff3cf;
-            text-shadow: 0 0 20px #ffaa44, 0 0 5px #ff6600;
-            border: 1px solid rgba(255,200,100,0.8);
+            transition: color 0.1s, text-shadow 0.1s;
             white-space: nowrap;
             z-index: 20;
             box-shadow: 0 0 20px rgba(255,170,0,0.3);
         }
-        .multiplier-badge span { font-size: 24px; color: #ffcc66; }
+        .multiplier-badge span { font-size: 24px; }
         .bet-area {
             background: rgba(8, 16, 32, 0.8);
             border-radius: 48px;
@@ -95,7 +106,12 @@
             font-family: 'Orbitron', monospace;
         }
         .bet-input:focus { border-color: #ffaa44; box-shadow: 0 0 12px #ffaa44; }
-        .action-buttons { display: flex; gap: 12px; flex: 1; justify-content: center; }
+        .action-buttons {
+            display: flex;
+            gap: 12px;
+            flex: 1;
+            justify-content: center;
+        }
         button {
             background: #1e2a4a;
             border: none;
@@ -115,8 +131,29 @@
         }
         button:active { transform: translateY(2px); box-shadow: 0 2px 0 #0a0f1e; }
         .btn-bet { background: linear-gradient(135deg, #f0b35e, #f57c00); color: #1f1a0a; text-shadow: 0 1px 0 #ffdd99; }
-        .btn-cashout { background: linear-gradient(135deg, #2dd4bf, #14b8a6); }
+        .btn-cashout { background: linear-gradient(135deg, #2dd4bf, #14b8a6); font-size: 22px; padding: 14px; }
         .btn-cashout:disabled, .btn-bet:disabled { opacity: 0.4; transform: none; cursor: not-allowed; }
+        .auto-panel {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            justify-content: space-between;
+            margin-top: 12px;
+            background: rgba(0,0,0,0.4);
+            border-radius: 60px;
+            padding: 8px 16px;
+        }
+        .auto-panel label { font-size: 12px; color: #bbddff; }
+        .auto-input {
+            background: #010a1a;
+            border: 1px solid #3a6a9a;
+            border-radius: 40px;
+            padding: 6px 12px;
+            width: 80px;
+            text-align: center;
+            color: #ffeaac;
+            font-weight: bold;
+        }
         .history {
             background: rgba(0,0,0,0.6);
             border-radius: 32px;
@@ -134,7 +171,19 @@
             font-family: monospace;
             color: #ffdd88;
             border-left: 3px solid #ffaa44;
-            box-shadow: 0 0 5px rgba(255,170,0,0.3);
+            transition: 0.1s;
+        }
+        .history-item.highlight {
+            border-left-color: #ff6600;
+            background: #332200;
+            box-shadow: 0 0 8px #ffaa44;
+            color: #fff;
+        }
+        .history-item.super-highlight {
+            border-left-color: #ff0000;
+            background: #441111;
+            box-shadow: 0 0 12px #ff3300;
+            color: #ffcc88;
         }
         .status { text-align: center; font-size: 12px; margin-top: 12px; color: #aacdff; font-weight: 500; text-shadow: 0 0 5px #0066aa; }
         .best-score {
@@ -154,6 +203,7 @@
             .bet-input-wrapper { flex-direction: column; align-items: stretch; }
             .action-buttons { flex-direction: row; justify-content: center; }
             button { min-width: auto; padding: 10px 16px; font-size: 16px; }
+            .btn-cashout { font-size: 18px; }
             .bet-input { width: 100%; text-align: center; }
             .multiplier-badge { font-size: 28px; padding: 4px 16px; }
         }
@@ -178,6 +228,11 @@
                 <button id="cashoutButton" class="btn-cashout" disabled>💎 ЗАБРАТЬ</button>
             </div>
         </div>
+        <div class="auto-panel">
+            <label>🎯 АВТО-ЗАБОР при x</label>
+            <input type="number" id="autoTarget" class="auto-input" step="0.1" min="1.1" max="50" value="2.0">
+            <label style="margin-left:auto;">⚡</label>
+        </div>
     </div>
     <div class="history">
         <div class="history-title">📡 ПОСЛЕДНИЕ КРАШИ</div>
@@ -197,7 +252,7 @@
         if (urlParams.has('userId')) userId = urlParams.get('userId');
         else if (tg.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
 
-        // DOM элементы
+        // DOM
         const betInput = document.getElementById('betAmount');
         const startBtn = document.getElementById('betButton');
         const cashoutBtn = document.getElementById('cashoutButton');
@@ -205,16 +260,24 @@
         const historyDiv = document.getElementById('historyList');
         const statusSpan = document.getElementById('statusMsg');
         const bestSpan = document.getElementById('bestMultiplier');
+        const autoTargetInput = document.getElementById('autoTarget');
         const canvas = document.getElementById('crashCanvas');
         const ctx = canvas.getContext('2d');
         canvas.width = 800;
         canvas.height = 450;
 
-        // ----- Лучший множитель (localStorage) -----
+        // ----- Настройки -----
+        let autoTarget = 2.0;
+        autoTargetInput.addEventListener('change', () => {
+            let val = parseFloat(autoTargetInput.value);
+            if (!isNaN(val) && val >= 1.1) autoTarget = val;
+            else autoTarget = null;
+        });
+
         let bestMulti = parseFloat(localStorage.getItem('crash_best')) || 1.0;
         bestSpan.innerText = `🏆 РЕКОРД: ${bestMulti.toFixed(2)}x`;
 
-        // ----- Игровые переменные -----
+        // Игровые переменные
         let currentBet = 0;
         let hasBet = false;
         let hasCashedOut = false;
@@ -222,27 +285,47 @@
         let crashPoint = 1.1;
         let animFrame = null;
         let multiplierInterval = null;
-        let progress = 0;
-        const START_X = 70;
-        const END_X = canvas.width - 90;
-        const PATH_AMP = 35;
-        let rocket = { x: START_X, y: canvas.height/2, angle: 0 };
-        let trail = [];
-        let meteors = [];
-        let explosionParticles = [];
-        let explosionActive = false;
         let gameActive = false;
+        let explosionActive = false;
         let flashAlpha = 0;
-        let planets = [];
-        let pendingResults = [];
+        let shake = 0;          // сила тряски
+        let lastTimestamp = 0;
 
-        // ----- Инициализация фона и объектов -----
+        // ----- Бесконечный полёт -----
+        let rocketX = 70;               // текущая позиция по X (будет расти)
+        let offsetX = 0;                // смещение для параллакса
+        const BASE_SPEED = 1.2;
+        let scrollSpeed = BASE_SPEED;
+        let stars = [];                 // звёзды с параллаксом
+        let planets = [];
+        let meteors = [];
+
+        // Частицы взрыва
+        let explosionParticles = [];
+
+        // След
+        let trail = [];
+
+        // Генерация объектов
+        function initStars() {
+            stars = [];
+            for (let i = 0; i < 200; i++) {
+                stars.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    size: 1 + Math.random() * 2,
+                    speed: 0.2 + Math.random() * 0.8,
+                    layer: Math.floor(Math.random() * 3)
+                });
+            }
+        }
+
         function initPlanets() {
             planets = [
-                { x: 120, y: 70, radius: 35, color1: '#8844aa', color2: '#aa66cc', rings: true },
-                { x: 650, y: 380, radius: 45, color1: '#44aa88', color2: '#66ccaa', rings: false },
-                { x: 500, y: 50, radius: 25, color1: '#aa6644', color2: '#cc8866', rings: false },
-                { x: 720, y: 100, radius: 30, color1: '#3366cc', color2: '#5588ee', rings: true }
+                { x: 120, y: 70, radius: 35, color1: '#8844aa', color2: '#aa66cc', rings: true, speed: 0.3 },
+                { x: 650, y: 380, radius: 45, color1: '#44aa88', color2: '#66ccaa', rings: false, speed: 0.2 },
+                { x: 500, y: 50, radius: 25, color1: '#aa6644', color2: '#cc8866', rings: false, speed: 0.4 },
+                { x: 720, y: 100, radius: 30, color1: '#3366cc', color2: '#5588ee', rings: true, speed: 0.25 }
             ];
         }
 
@@ -253,7 +336,7 @@
                     x: canvas.width + 80 + Math.random() * 250,
                     y: 40 + Math.random() * (canvas.height - 80),
                     size: 14 + Math.random() * 24,
-                    speed: 1.3 + Math.random() * 2.5,
+                    speed: 1.5 + Math.random() * 3,
                     rotation: Math.random() * Math.PI * 2,
                     rotSpeed: (Math.random() - 0.5) * 0.04,
                     glow: 0.4 + Math.random() * 0.7,
@@ -264,42 +347,74 @@
             }
         }
 
-        // ----- Физика и анимация -----
-        function updateRocketPosition(prog) {
-            const t = Math.min(1, Math.max(0, prog));
-            const x = START_X + t * (END_X - START_X);
-            const phase = Math.sin(t * Math.PI * 2) * PATH_AMP;
-            let y = canvas.height/2 + phase;
-            y = Math.min(canvas.height - 50, Math.max(50, y));
-            rocket.x = x;
-            rocket.y = y;
-            const angleDeriv = Math.cos(t * Math.PI * 2) * PATH_AMP * (Math.PI * 2 / (END_X - START_X));
-            rocket.angle = Math.atan2(angleDeriv, 1);
-            trail.unshift({ x: rocket.x, y: rocket.y });
-            if (trail.length > 22) trail.pop();
-        }
-
-        function updateMeteors() {
+        // ----- Физика полёта (бесконечное движение) -----
+        function updateInfiniteFlight(deltaTime) {
+            if (!gameActive) return;
+            let speedMultiplier = 1 + (currentMulti - 1) * 0.3;
+            let move = BASE_SPEED * speedMultiplier * (deltaTime / 16);
+            rocketX += move;
+            if (rocketX > canvas.width + 100) rocketX = -100;
+            offsetX += move * 0.8;
+            // Обновление звёзд с параллаксом
+            for (let s of stars) {
+                s.x -= s.speed * move;
+                if (s.x < -10) s.x = canvas.width + 10;
+                if (s.x > canvas.width + 10) s.x = -10;
+            }
+            // Обновление планет
+            for (let p of planets) {
+                p.x -= p.speed * move;
+                if (p.x + p.radius < 0) p.x = canvas.width + p.radius;
+            }
+            // Обновление метеоритов
             for (let m of meteors) {
-                m.x -= m.speed;
+                m.x -= m.speed * (1 + (currentMulti-1)*0.2);
                 m.rotation += m.rotSpeed;
                 if (m.x + m.size < 0) {
                     m.x = canvas.width + 60 + Math.random() * 200;
                     m.y = 35 + Math.random() * (canvas.height - 70);
                     m.size = 14 + Math.random() * 24;
-                    m.speed = 1.3 + Math.random() * 2.5;
-                    m.glow = 0.4 + Math.random() * 0.7;
+                    m.speed = 1.5 + Math.random() * 3;
                 }
             }
+            // Позиция ракеты по синусоиде (бесконечная)
+            let t = rocketX / 200; // частота
+            let phase = Math.sin(t * Math.PI * 2) * 35;
+            let y = canvas.height/2 + phase;
+            y = Math.min(canvas.height - 50, Math.max(50, y));
+            let angle = Math.atan2(Math.cos(t * Math.PI * 2) * 35 * (Math.PI * 2 / 200), 1);
+            // Добавляем след
+            trail.unshift({ x: rocketX, y: y });
+            if (trail.length > 25) trail.pop();
+            // Сохраняем для отрисовки
+            window.rocketY = y;
+            window.rocketAngle = angle;
         }
 
+        // Обновление частиц взрыва и тряски
+        function updateExplosion() {
+            if (!explosionActive) return;
+            let any = false;
+            for (let i=0; i<explosionParticles.length; i++) {
+                let p = explosionParticles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life -= 0.02;
+                if (p.life > 0) any = true;
+            }
+            if (!any) explosionActive = false;
+            if (flashAlpha > 0) flashAlpha -= 0.05;
+            if (shake > 0) shake -= 0.1;
+        }
+
+        // Добавление взрыва
         function addExplosion(x, y) {
             explosionParticles = [];
-            for (let i = 0; i < 80; i++) {
-                const angle = Math.random() * Math.PI * 2;
-                const speed = 2.5 + Math.random() * 6;
-                const vx = Math.cos(angle) * speed;
-                const vy = Math.sin(angle) * speed;
+            for (let i = 0; i < 100; i++) {
+                let angle = Math.random() * Math.PI * 2;
+                let speed = 3 + Math.random() * 8;
+                let vx = Math.cos(angle) * speed;
+                let vy = Math.sin(angle) * speed;
                 explosionParticles.push({
                     x: x, y: y, vx: vx, vy: vy,
                     life: 1.0, size: 3 + Math.random() * 10,
@@ -308,31 +423,28 @@
             }
             explosionActive = true;
             flashAlpha = 0.8;
+            shake = 5; // тряска
+            // Виброотклик
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('heavy');
         }
 
-        function updateExplosion() {
-            if (!explosionActive) return;
-            let any = false;
-            for (let p of explosionParticles) {
-                p.x += p.vx;
-                p.y += p.vy;
-                p.life -= 0.02;
-                if (p.life > 0) any = true;
-            }
-            if (!any) explosionActive = false;
-            if (flashAlpha > 0) flashAlpha -= 0.04;
-        }
-
-        // ----- Отрисовка -----
+        // ----- Отрисовка с тряской -----
         function draw() {
+            ctx.save();
+            if (shake > 0) {
+                ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+            }
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.fillStyle = '#010208';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
-            for (let i = 0; i < 500; i++) {
-                let bright = 0.2 + Math.sin(Date.now() * 0.002 + i) * 0.3;
-                ctx.fillStyle = `rgba(255,240,200,${bright * 0.6})`;
-                ctx.fillRect((i * 173) % canvas.width, (i * 311) % canvas.height, 1.5, 1.5);
+            // Звёзды (параллакс)
+            for (let s of stars) {
+                ctx.fillStyle = `rgba(255,240,200,${0.4 + s.layer*0.2})`;
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, s.size, 0, Math.PI*2);
+                ctx.fill();
             }
+            // Планеты
             for (let p of planets) {
                 ctx.save();
                 ctx.shadowBlur = 8;
@@ -354,6 +466,7 @@
                 }
                 ctx.restore();
             }
+            // Метеориты
             for (let m of meteors) {
                 ctx.save();
                 ctx.translate(m.x, m.y);
@@ -384,13 +497,15 @@
                 }
                 ctx.restore();
             }
+            // След
             for (let i=0; i<trail.length; i++) {
                 let alpha = 1 - i / trail.length;
-                ctx.fillStyle = `rgba(255,120,40,${alpha*0.45})`;
+                ctx.fillStyle = `rgba(255,120,40,${alpha*0.5})`;
                 ctx.beginPath();
                 ctx.arc(trail[i].x, trail[i].y, 6 * alpha, 0, Math.PI*2);
                 ctx.fill();
             }
+            // Взрыв
             if (explosionActive) {
                 for (let p of explosionParticles) {
                     if (p.life <= 0) continue;
@@ -402,9 +517,12 @@
                 }
                 ctx.globalAlpha = 1;
             }
+            // Ракета
+            let rocketY = window.rocketY || canvas.height/2;
+            let rocketAngle = window.rocketAngle || 0;
             ctx.save();
-            ctx.translate(rocket.x, rocket.y);
-            ctx.rotate(rocket.angle);
+            ctx.translate(rocketX, rocketY);
+            ctx.rotate(rocketAngle);
             ctx.shadowBlur = 16;
             ctx.shadowColor = '#ffaa44';
             ctx.fillStyle = '#dd6644';
@@ -459,33 +577,30 @@
             ctx.fill();
             ctx.restore();
 
-            ctx.beginPath();
-            ctx.setLineDash([6, 12]);
-            ctx.strokeStyle = '#44ccff';
-            ctx.lineWidth = 2.5;
-            ctx.shadowBlur = 8;
-            ctx.shadowColor = '#00aaff';
-            for (let t=0; t<=1; t+=0.02) {
-                let x = START_X + t * (END_X - START_X);
-                let off = Math.sin(t * Math.PI * 2) * PATH_AMP;
-                let y = canvas.height/2 + off;
-                if (t===0) ctx.moveTo(x,y);
-                else ctx.lineTo(x,y);
-            }
-            ctx.stroke();
-            ctx.setLineDash([]);
-            ctx.shadowBlur = 0;
+            // Вспышка при краше
             if (flashAlpha > 0) {
                 ctx.fillStyle = `rgba(255,100,30,${flashAlpha*0.6})`;
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
             }
+            ctx.restore();
         }
 
-        // ----- Управление результатами -----
+        // ----- Цвет множителя в зависимости от значения -----
+        function updateMultiplierColor(value) {
+            let hue, textColor, shadow;
+            if (value < 2) { hue = 60; textColor = '#ffffaa'; shadow = '#ffff66'; }
+            else if (value < 5) { hue = 30; textColor = '#ffcc66'; shadow = '#ffaa44'; }
+            else if (value < 8) { hue = 15; textColor = '#ff8855'; shadow = '#ff6633'; }
+            else { hue = 0; textColor = '#ff4466'; shadow = '#ff2244'; }
+            multiplierSpan.style.color = textColor;
+            multiplierSpan.style.textShadow = `0 0 20px ${shadow}`;
+        }
+
+        // ----- Завершение игры -----
+        let pendingResults = [];
         function addPendingResult(win, bet, multiplier) {
             pendingResults.push({ win, bet, multiplier });
         }
-
         function sendPendingResults() {
             if (pendingResults.length === 0) return;
             const last = pendingResults[pendingResults.length - 1];
@@ -505,8 +620,10 @@
             const div = document.createElement('div');
             div.className = 'history-item';
             div.innerText = val.toFixed(2) + 'x';
+            if (val >= 5) div.classList.add('highlight');
+            if (val >= 10) div.classList.add('super-highlight');
             historyDiv.prepend(div);
-            if (historyDiv.children.length > 10) historyDiv.removeChild(historyDiv.lastChild);
+            if (historyDiv.children.length > 15) historyDiv.removeChild(historyDiv.lastChild);
             if (val > bestMulti) {
                 bestMulti = val;
                 localStorage.setItem('crash_best', bestMulti);
@@ -514,90 +631,27 @@
             }
         }
 
-        // ----- Завершение игры (без отправки боту) -----
         function finishGame(win, finalMultiplier) {
             if (hasCashedOut) return;
             hasCashedOut = true;
             gameActive = false;
             clearMultiplierUpdate();
             if (win) {
-                statusSpan.innerText = `🎉 ЗАБРАЛИ! x${finalMultiplier.toFixed(2)} → +${Math.floor(currentBet * finalMultiplier)}₽`;
+                let winAmount = Math.floor(currentBet * finalMultiplier);
+                statusSpan.innerText = `🎉 ЗАБРАЛИ! x${finalMultiplier.toFixed(2)} → +${winAmount}₽`;
                 addToHistory(finalMultiplier);
+                if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
             } else {
                 statusSpan.innerText = `💥 КРАШ! ПРОИГРЫШ ${currentBet}₽ (x${crashPoint.toFixed(2)})`;
                 addToHistory(crashPoint);
+                if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
             }
             addPendingResult(win, currentBet, win ? finalMultiplier : crashPoint);
-            // Сброс флагов, чтобы можно было начать новую игру
             hasBet = false;
-            // Включаем кнопки для нового старта
             startBtn.disabled = false;
             cashoutBtn.disabled = true;
             betInput.disabled = false;
             startBtn.innerText = '🛸 СТАРТ';
-        }
-
-        // ----- Игровой цикл -----
-        function startMultiplierGrowth() {
-            if (multiplierInterval) clearInterval(multiplierInterval);
-            currentMulti = 1.0;
-            multiplierSpan.innerHTML = currentMulti.toFixed(2) + "<span>x</span>";
-            multiplierInterval = setInterval(() => {
-                if (!hasBet || hasCashedOut) return;
-                currentMulti += 0.025;
-                multiplierSpan.innerHTML = currentMulti.toFixed(2) + "<span>x</span>";
-            }, 40);
-        }
-
-        function clearMultiplierUpdate() {
-            if (multiplierInterval) clearInterval(multiplierInterval);
-            multiplierInterval = null;
-        }
-
-        function resetRound() {
-            // Полный сброс перед новым стартом (вызывается из startGame)
-            clearMultiplierUpdate();
-            hasBet = true;        // будет установлено в startGame
-            hasCashedOut = false;
-            gameActive = true;
-            explosionActive = false;
-            progress = 0;
-            currentMulti = 1.0;
-            multiplierSpan.innerHTML = "1.00<span>x</span>";
-            rocket.x = START_X;
-            rocket.y = canvas.height/2;
-            rocket.angle = 0;
-            trail = [];
-            explosionParticles = [];
-            flashAlpha = 0;
-            updateRocketPosition(0);
-            initMeteors();
-            draw();
-        }
-
-        function startGame() {
-            if (hasBet) return; // уже играет
-            let amount = parseInt(betInput.value);
-            if (isNaN(amount)) amount = 100;
-            amount = Math.min(5000, Math.max(10, amount));
-            betInput.value = amount;
-            currentBet = amount;
-            crashPoint = generateCrashPoint();
-            // Сброс состояния
-            hasBet = true;
-            hasCashedOut = false;
-            gameActive = true;
-            progress = 0;
-            updateRocketPosition(0);
-            initMeteors();
-            trail = [];
-            explosionActive = false;
-            flashAlpha = 0;
-            startBtn.disabled = true;
-            cashoutBtn.disabled = false;
-            betInput.disabled = true;
-            startMultiplierGrowth();
-            statusSpan.innerHTML = `🚀 СТАВКА ${amount}₽! МНОЖИТЕЛЬ РАСТЁТ...`;
         }
 
         function cashout() {
@@ -609,6 +663,57 @@
             finishGame(true, currentMulti);
         }
 
+        // Множитель
+        function startMultiplierGrowth() {
+            if (multiplierInterval) clearInterval(multiplierInterval);
+            currentMulti = 1.0;
+            multiplierSpan.innerHTML = currentMulti.toFixed(2) + "<span>x</span>";
+            updateMultiplierColor(1);
+            multiplierInterval = setInterval(() => {
+                if (!hasBet || hasCashedOut) return;
+                currentMulti += 0.025;
+                multiplierSpan.innerHTML = currentMulti.toFixed(2) + "<span>x</span>";
+                updateMultiplierColor(currentMulti);
+                // Авто-кэшаут
+                if (autoTarget && currentMulti >= autoTarget && !hasCashedOut && hasBet) {
+                    cashout();
+                }
+                // Проверка краша
+                if (currentMulti >= crashPoint && !hasCashedOut) {
+                    finishGame(false, crashPoint);
+                }
+            }, 40);
+        }
+
+        function clearMultiplierUpdate() {
+            if (multiplierInterval) clearInterval(multiplierInterval);
+            multiplierInterval = null;
+        }
+
+        function startGame() {
+            if (hasBet) return;
+            let amount = parseInt(betInput.value);
+            if (isNaN(amount)) amount = 100;
+            amount = Math.min(5000, Math.max(10, amount));
+            betInput.value = amount;
+            currentBet = amount;
+            crashPoint = generateCrashPoint();
+            hasBet = true;
+            hasCashedOut = false;
+            gameActive = true;
+            rocketX = 70;
+            trail = [];
+            explosionActive = false;
+            flashAlpha = 0;
+            shake = 0;
+            startBtn.disabled = true;
+            cashoutBtn.disabled = false;
+            betInput.disabled = true;
+            startMultiplierGrowth();
+            statusSpan.innerHTML = `🚀 СТАВКА ${amount}₽! МНОЖИТЕЛЬ РАСТЁТ...`;
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+        }
+
         function generateCrashPoint() {
             const r = Math.random();
             if (r < 0.48) return 1.10 + Math.random() * 0.90;
@@ -617,40 +722,29 @@
             else return 10.00;
         }
 
-        function animateGame() {
-            if (gameActive && hasBet && !hasCashedOut) {
-                let delta = 0.009 * (1 + currentMulti / 3.5);
-                progress += delta;
-                if (progress >= 1.0) {
-                    finishGame(false, crashPoint);
-                } else {
-                    updateRocketPosition(progress);
-                    updateMeteors();
-                    if (currentMulti >= crashPoint && !hasCashedOut) {
-                        finishGame(false, crashPoint);
-                    }
-                }
+        // Анимационный цикл
+        let lastTime = 0;
+        function animate(now) {
+            let delta = Math.min(32, now - (lastTime || now));
+            lastTime = now;
+            if (gameActive) {
+                updateInfiniteFlight(delta);
             }
             updateExplosion();
             draw();
-            animFrame = requestAnimationFrame(animateGame);
+            animFrame = requestAnimationFrame(animate);
         }
 
-        // ----- Обработчики кнопок -----
-        startBtn.onclick = startGame;
-        cashoutBtn.onclick = cashout;
-
-        // При закрытии окна отправляем результат
-        window.addEventListener('beforeunload', () => {
-            sendPendingResults();
-        });
-
         // Инициализация
+        initStars();
         initPlanets();
         initMeteors();
-        updateRocketPosition(0);
-        draw();
-        animFrame = requestAnimationFrame(animateGame);
+        animFrame = requestAnimationFrame(animate);
+
+        // Обработчики
+        startBtn.onclick = startGame;
+        cashoutBtn.onclick = cashout;
+        window.addEventListener('beforeunload', () => sendPendingResults());
     })();
 </script>
 </body>
