@@ -132,6 +132,7 @@
         button:active { transform: translateY(2px); box-shadow: 0 2px 0 #0a0f1e; }
         .btn-bet { background: linear-gradient(135deg, #f0b35e, #f57c00); color: #1f1a0a; text-shadow: 0 1px 0 #ffdd99; }
         .btn-cashout { background: linear-gradient(135deg, #2dd4bf, #14b8a6); font-size: 22px; padding: 14px; }
+        .btn-exit { background: linear-gradient(135deg, #aa3333, #771111); margin-top: 8px; }
         .btn-cashout:disabled, .btn-bet:disabled { opacity: 0.4; transform: none; cursor: not-allowed; }
         .auto-panel {
             display: flex;
@@ -233,6 +234,7 @@
             <input type="number" id="autoTarget" class="auto-input" step="0.1" min="1.1" max="50" value="2.0">
             <label style="margin-left:auto;">⚡</label>
         </div>
+        <button id="exitButton" class="btn-exit">🚪 ВЫЙТИ И ЗАБРАТЬ БАНК</button>
     </div>
     <div class="history">
         <div class="history-title">📡 ПОСЛЕДНИЕ КРАШИ</div>
@@ -256,6 +258,7 @@
         const betInput = document.getElementById('betAmount');
         const startBtn = document.getElementById('betButton');
         const cashoutBtn = document.getElementById('cashoutButton');
+        const exitBtn = document.getElementById('exitButton');
         const multiplierSpan = document.getElementById('multiplierDisplay');
         const historyDiv = document.getElementById('historyList');
         const statusSpan = document.getElementById('statusMsg');
@@ -266,7 +269,7 @@
         canvas.width = 800;
         canvas.height = 450;
 
-        // ----- Настройки -----
+        // Настройки
         let autoTarget = 2.0;
         autoTargetInput.addEventListener('change', () => {
             let val = parseFloat(autoTargetInput.value);
@@ -288,25 +291,21 @@
         let gameActive = false;
         let explosionActive = false;
         let flashAlpha = 0;
-        let shake = 0;          // сила тряски
-        let lastTimestamp = 0;
+        let shake = 0;
+        let lastTime = 0;
 
-        // ----- Бесконечный полёт -----
-        let rocketX = 70;               // текущая позиция по X (будет расти)
-        let offsetX = 0;                // смещение для параллакса
-        const BASE_SPEED = 1.2;
-        let scrollSpeed = BASE_SPEED;
-        let stars = [];                 // звёзды с параллаксом
+        // Бесконечный полёт
+        let rocketX = 70;
+        let stars = [];
         let planets = [];
         let meteors = [];
-
-        // Частицы взрыва
+        let trail = [];
         let explosionParticles = [];
 
-        // След
-        let trail = [];
+        // Результаты для отправки (храним только последний)
+        let lastResult = null;
 
-        // Генерация объектов
+        // Инициализация звёзд
         function initStars() {
             stars = [];
             for (let i = 0; i < 200; i++) {
@@ -347,26 +346,25 @@
             }
         }
 
-        // ----- Физика полёта (бесконечное движение) -----
+        // Физика полёта
         function updateInfiniteFlight(deltaTime) {
             if (!gameActive) return;
             let speedMultiplier = 1 + (currentMulti - 1) * 0.3;
-            let move = BASE_SPEED * speedMultiplier * (deltaTime / 16);
+            let move = 1.2 * speedMultiplier * (deltaTime / 16);
             rocketX += move;
             if (rocketX > canvas.width + 100) rocketX = -100;
-            offsetX += move * 0.8;
-            // Обновление звёзд с параллаксом
+            // Звёзды
             for (let s of stars) {
                 s.x -= s.speed * move;
                 if (s.x < -10) s.x = canvas.width + 10;
                 if (s.x > canvas.width + 10) s.x = -10;
             }
-            // Обновление планет
+            // Планеты
             for (let p of planets) {
                 p.x -= p.speed * move;
                 if (p.x + p.radius < 0) p.x = canvas.width + p.radius;
             }
-            // Обновление метеоритов
+            // Метеориты
             for (let m of meteors) {
                 m.x -= m.speed * (1 + (currentMulti-1)*0.2);
                 m.rotation += m.rotSpeed;
@@ -377,37 +375,18 @@
                     m.speed = 1.5 + Math.random() * 3;
                 }
             }
-            // Позиция ракеты по синусоиде (бесконечная)
-            let t = rocketX / 200; // частота
+            // Синусоидальная траектория
+            let t = rocketX / 200;
             let phase = Math.sin(t * Math.PI * 2) * 35;
             let y = canvas.height/2 + phase;
             y = Math.min(canvas.height - 50, Math.max(50, y));
             let angle = Math.atan2(Math.cos(t * Math.PI * 2) * 35 * (Math.PI * 2 / 200), 1);
-            // Добавляем след
             trail.unshift({ x: rocketX, y: y });
             if (trail.length > 25) trail.pop();
-            // Сохраняем для отрисовки
             window.rocketY = y;
             window.rocketAngle = angle;
         }
 
-        // Обновление частиц взрыва и тряски
-        function updateExplosion() {
-            if (!explosionActive) return;
-            let any = false;
-            for (let i=0; i<explosionParticles.length; i++) {
-                let p = explosionParticles[i];
-                p.x += p.vx;
-                p.y += p.vy;
-                p.life -= 0.02;
-                if (p.life > 0) any = true;
-            }
-            if (!any) explosionActive = false;
-            if (flashAlpha > 0) flashAlpha -= 0.05;
-            if (shake > 0) shake -= 0.1;
-        }
-
-        // Добавление взрыва
         function addExplosion(x, y) {
             explosionParticles = [];
             for (let i = 0; i < 100; i++) {
@@ -423,12 +402,26 @@
             }
             explosionActive = true;
             flashAlpha = 0.8;
-            shake = 5; // тряска
-            // Виброотклик
+            shake = 5;
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('heavy');
         }
 
-        // ----- Отрисовка с тряской -----
+        function updateExplosion() {
+            if (!explosionActive) return;
+            let any = false;
+            for (let i=0; i<explosionParticles.length; i++) {
+                let p = explosionParticles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life -= 0.02;
+                if (p.life > 0) any = true;
+            }
+            if (!any) explosionActive = false;
+            if (flashAlpha > 0) flashAlpha -= 0.05;
+            if (shake > 0) shake -= 0.1;
+        }
+
+        // Отрисовка
         function draw() {
             ctx.save();
             if (shake > 0) {
@@ -437,7 +430,7 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.fillStyle = '#010208';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
-            // Звёзды (параллакс)
+            // Звёзды
             for (let s of stars) {
                 ctx.fillStyle = `rgba(255,240,200,${0.4 + s.layer*0.2})`;
                 ctx.beginPath();
@@ -577,7 +570,6 @@
             ctx.fill();
             ctx.restore();
 
-            // Вспышка при краше
             if (flashAlpha > 0) {
                 ctx.fillStyle = `rgba(255,100,30,${flashAlpha*0.6})`;
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -585,52 +577,30 @@
             ctx.restore();
         }
 
-        // ----- Цвет множителя в зависимости от значения -----
+        // Цвет множителя
         function updateMultiplierColor(value) {
-            let hue, textColor, shadow;
-            if (value < 2) { hue = 60; textColor = '#ffffaa'; shadow = '#ffff66'; }
-            else if (value < 5) { hue = 30; textColor = '#ffcc66'; shadow = '#ffaa44'; }
-            else if (value < 8) { hue = 15; textColor = '#ff8855'; shadow = '#ff6633'; }
-            else { hue = 0; textColor = '#ff4466'; shadow = '#ff2244'; }
+            let textColor, shadow;
+            if (value < 2) { textColor = '#ffffaa'; shadow = '#ffff66'; }
+            else if (value < 5) { textColor = '#ffcc66'; shadow = '#ffaa44'; }
+            else if (value < 8) { textColor = '#ff8855'; shadow = '#ff6633'; }
+            else { textColor = '#ff4466'; shadow = '#ff2244'; }
             multiplierSpan.style.color = textColor;
             multiplierSpan.style.textShadow = `0 0 20px ${shadow}`;
         }
 
-        // ----- Завершение игры -----
-        let pendingResults = [];
-        function addPendingResult(win, bet, multiplier) {
-            pendingResults.push({ win, bet, multiplier });
-        }
-        function sendPendingResults() {
-            if (pendingResults.length === 0) return;
-            const last = pendingResults[pendingResults.length - 1];
-            if (tg.sendData) {
-                const payload = JSON.stringify({
-                    action: "crash_result",
-                    win: last.win,
-                    bet: last.bet,
-                    multiplier: last.multiplier
-                });
-                tg.sendData(payload);
-            }
-            pendingResults = [];
+        // Отправка результата боту
+        function sendResultToBot(win, bet, multiplier) {
+            if (!tg.sendData) return;
+            const payload = JSON.stringify({
+                action: "crash_result",
+                win: win,
+                bet: bet,
+                multiplier: multiplier
+            });
+            tg.sendData(payload);
         }
 
-        function addToHistory(val) {
-            const div = document.createElement('div');
-            div.className = 'history-item';
-            div.innerText = val.toFixed(2) + 'x';
-            if (val >= 5) div.classList.add('highlight');
-            if (val >= 10) div.classList.add('super-highlight');
-            historyDiv.prepend(div);
-            if (historyDiv.children.length > 15) historyDiv.removeChild(historyDiv.lastChild);
-            if (val > bestMulti) {
-                bestMulti = val;
-                localStorage.setItem('crash_best', bestMulti);
-                bestSpan.innerText = `🏆 РЕКОРД: ${bestMulti.toFixed(2)}x`;
-            }
-        }
-
+        // Завершение игры
         function finishGame(win, finalMultiplier) {
             if (hasCashedOut) return;
             hasCashedOut = true;
@@ -641,12 +611,13 @@
                 statusSpan.innerText = `🎉 ЗАБРАЛИ! x${finalMultiplier.toFixed(2)} → +${winAmount}₽`;
                 addToHistory(finalMultiplier);
                 if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+                lastResult = { win: true, bet: currentBet, multiplier: finalMultiplier };
             } else {
                 statusSpan.innerText = `💥 КРАШ! ПРОИГРЫШ ${currentBet}₽ (x${crashPoint.toFixed(2)})`;
                 addToHistory(crashPoint);
                 if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
+                lastResult = { win: false, bet: currentBet, multiplier: crashPoint };
             }
-            addPendingResult(win, currentBet, win ? finalMultiplier : crashPoint);
             hasBet = false;
             startBtn.disabled = false;
             cashoutBtn.disabled = true;
@@ -674,11 +645,9 @@
                 currentMulti += 0.025;
                 multiplierSpan.innerHTML = currentMulti.toFixed(2) + "<span>x</span>";
                 updateMultiplierColor(currentMulti);
-                // Авто-кэшаут
                 if (autoTarget && currentMulti >= autoTarget && !hasCashedOut && hasBet) {
                     cashout();
                 }
-                // Проверка краша
                 if (currentMulti >= crashPoint && !hasCashedOut) {
                     finishGame(false, crashPoint);
                 }
@@ -688,6 +657,21 @@
         function clearMultiplierUpdate() {
             if (multiplierInterval) clearInterval(multiplierInterval);
             multiplierInterval = null;
+        }
+
+        function addToHistory(val) {
+            const div = document.createElement('div');
+            div.className = 'history-item';
+            div.innerText = val.toFixed(2) + 'x';
+            if (val >= 5) div.classList.add('highlight');
+            if (val >= 10) div.classList.add('super-highlight');
+            historyDiv.prepend(div);
+            if (historyDiv.children.length > 15) historyDiv.removeChild(historyDiv.lastChild);
+            if (val > bestMulti) {
+                bestMulti = val;
+                localStorage.setItem('crash_best', bestMulti);
+                bestSpan.innerText = `🏆 РЕКОРД: ${bestMulti.toFixed(2)}x`;
+            }
         }
 
         function startGame() {
@@ -722,8 +706,19 @@
             else return 10.00;
         }
 
+        // Выход с отправкой результата
+        function exitAndSave() {
+            if (lastResult) {
+                sendResultToBot(lastResult.win, lastResult.bet, lastResult.multiplier);
+            } else {
+                // Если не было ни одной игры, можно отправить нулевой результат или ничего
+                // Для простоты отправим фиктивный проигрыш 0₽, чтобы бот не ждал
+                sendResultToBot(false, 0, 1.0);
+            }
+            tg.close();
+        }
+
         // Анимационный цикл
-        let lastTime = 0;
         function animate(now) {
             let delta = Math.min(32, now - (lastTime || now));
             lastTime = now;
@@ -744,7 +739,7 @@
         // Обработчики
         startBtn.onclick = startGame;
         cashoutBtn.onclick = cashout;
-        window.addEventListener('beforeunload', () => sendPendingResults());
+        exitBtn.onclick = exitAndSave;
     })();
 </script>
 </body>
