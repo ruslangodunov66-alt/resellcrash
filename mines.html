@@ -1,597 +1,113 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>MINES | R-GAME</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            user-select: none;
-            -webkit-tap-highlight-color: transparent;
-        }
-        body {
-            background: radial-gradient(ellipse at 20% 30%, #0a0e1a, #03060c);
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 12px;
-        }
-        .game-container {
-            max-width: 550px;
-            width: 100%;
-            background: linear-gradient(145deg, #1a2a3a, #0f1a2a);
-            border-radius: 48px;
-            box-shadow: 0 20px 30px rgba(0,0,0,0.5), inset 0 1px 2px rgba(255,255,200,0.1);
-            padding: 16px;
-            position: relative;
-            border: 1px solid #c9a03d;
-        }
-        .game-container::before {
-            content: '';
-            position: absolute;
-            top: -3px;
-            left: 20px;
-            right: 20px;
-            height: 5px;
-            background: linear-gradient(90deg, #f5d742, #b8860b, #f5d742);
-            border-radius: 20px;
-        }
-        .header {
-            display: flex;
-            justify-content: flex-end;
-            margin-bottom: 16px;
-        }
-        .info-card {
-            background: rgba(0,0,0,0.55);
-            backdrop-filter: blur(8px);
-            border-radius: 60px;
-            padding: 6px 16px;
-            border: 1px solid rgba(245,176,66,0.4);
-            font-weight: 600;
-            font-size: 13px;
-            color: #aac8ff;
-            white-space: nowrap;
-        }
-        .info-card span {
-            color: #f5b042;
-            font-size: 18px;
-            font-weight: 800;
-            margin-left: 6px;
-        }
-        .multiplier-panel {
-            background: linear-gradient(135deg, rgba(0,0,0,0.7), rgba(0,0,0,0.4));
-            border-radius: 60px;
-            padding: 8px 20px;
-            text-align: center;
-            margin: 10px 0;
-            border: 1px solid rgba(245,176,66,0.3);
-            box-shadow: 0 0 20px rgba(245,176,66,0.1);
-            transition: box-shadow 0.3s;
-        }
-        .multiplier-panel.pulse {
-            animation: pulseGlow 0.8s ease;
-        }
-        @keyframes pulseGlow {
-            0% { box-shadow: 0 0 20px rgba(245,176,66,0.1); }
-            50% { box-shadow: 0 0 40px rgba(245,176,66,0.6); }
-            100% { box-shadow: 0 0 20px rgba(245,176,66,0.1); }
-        }
-        .multiplier {
-            font-size: 38px;
-            font-weight: 800;
-            background: linear-gradient(135deg, #f5b042, #ffdd88);
-            -webkit-background-clip: text;
-            background-clip: text;
-            color: transparent;
-            text-shadow: 0 0 10px rgba(245,176,66,0.3);
-            transition: transform 0.1s;
-        }
-        .multiplier.bump {
-            animation: bump 0.15s ease;
-        }
-        @keyframes bump {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.2); }
-            100% { transform: scale(1); }
-        }
-
-        .bet-control {
-            display: flex;
-            justify-content: center;
-            gap: 10px;
-            align-items: center;
-            margin: 12px 0;
-            flex-wrap: wrap;
-        }
-        .bet-control input {
-            background: #010a1a;
-            border: 2px solid #f5b042;
-            border-radius: 60px;
-            padding: 8px 16px;
-            color: #ffeaac;
-            font-weight: 800;
-            font-size: 16px;
-            width: 110px;
-            text-align: center;
-            box-shadow: 0 0 10px rgba(245,176,66,0.2);
-            transition: box-shadow 0.2s;
-        }
-        .bet-control input:focus {
-            outline: none;
-            box-shadow: 0 0 20px rgba(245,176,66,0.5);
-        }
-        .mines-select {
-            display: flex;
-            justify-content: center;
-            gap: 12px;
-            margin: 10px 0;
-            flex-wrap: wrap;
-        }
-        .mine-btn {
-            background: rgba(0,0,0,0.5);
-            border: 1px solid #f5b042;
-            border-radius: 40px;
-            padding: 6px 14px;
-            font-weight: bold;
-            color: #ffdd99;
-            cursor: pointer;
-            transition: 0.1s;
-            box-shadow: 0 0 6px rgba(245,176,66,0.1);
-        }
-        .mine-btn.active {
-            background: linear-gradient(135deg, #f5b042, #e67e22);
-            color: black;
-            box-shadow: 0 0 16px #f5b042;
-        }
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(5, 1fr);
-            gap: 8px;
-            margin: 20px 0;
-        }
-        .cell {
-            aspect-ratio: 1 / 1;
-            background: linear-gradient(145deg, #2a3a4a, #1a2a3a);
-            border-radius: 16px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 28px;
-            cursor: pointer;
-            transition: 0.15s ease;
-            box-shadow: inset 0 0 0 1px rgba(255,215,0,0.2), 0 2px 4px rgba(0,0,0,0.3);
-            transform: scale(1);
-        }
-        .cell:active {
-            transform: scale(0.94);
-        }
-        .cell.opened {
-            background: linear-gradient(145deg, #3a5a4a, #2a4a3a);
-            cursor: default;
-            animation: popOpen 0.2s ease;
-        }
-        @keyframes popOpen {
-            0% { transform: scale(0.8); opacity: 0.5; }
-            100% { transform: scale(1); opacity: 1; }
-        }
-        .cell.mine {
-            background: linear-gradient(145deg, #8a2a2a, #6a1a1a);
-            animation: explode 0.3s ease;
-        }
-        @keyframes explode {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.3); background: #ff3300; }
-            100% { transform: scale(1); }
-        }
-        .cell.safe {
-            background: linear-gradient(145deg, #3a6a3a, #2a5a2a);
-        }
-        .cell .emoji {
-            transition: transform 0.2s;
-        }
-        .cell.opened .emoji {
-            animation: floatEmoji 0.4s ease;
-        }
-        @keyframes floatEmoji {
-            0% { transform: translateY(-10px) scale(0.5); opacity: 0; }
-            100% { transform: translateY(0) scale(1); opacity: 1; }
-        }
-        .footer {
-            display: flex;
-            justify-content: center;
-            gap: 12px;
-            margin-top: 16px;
-        }
-        button {
-            background: linear-gradient(145deg, #2c3e50, #1a2632);
-            border: none;
-            border-radius: 60px;
-            padding: 10px 20px;
-            font-weight: 800;
-            font-size: 15px;
-            color: white;
-            cursor: pointer;
-            transition: 0.05s linear;
-            flex: 1;
-            min-width: 100px;
-            font-family: inherit;
-            box-shadow: 0 4px 0 #0a0f1a;
-        }
-        button:active { transform: translateY(2px); box-shadow: 0 1px 0 #0a0f1a; }
-        .btn-start { background: linear-gradient(135deg, #3498db, #1f5e8a); }
-        .btn-cashout { background: linear-gradient(135deg, #f39c12, #d47a0a); box-shadow: 0 0 12px rgba(243,156,18,0.4); }
-        .btn-cashout:disabled { opacity: 0.4; box-shadow: none; }
-        .btn-exit { background: linear-gradient(135deg, #7f8c8d, #5a6e6e); }
-        .status {
-            text-align: center;
-            font-size: 13px;
-            margin-top: 12px;
-            color: #ffdd99;
-            background: rgba(0,0,0,0.6);
-            padding: 8px;
-            border-radius: 40px;
-        }
-        @media (max-width: 550px) {
-            .grid { gap: 6px; }
-            .cell { font-size: 22px; border-radius: 12px; }
-            button { padding: 8px 12px; font-size: 13px; min-width: 80px; }
-            .multiplier { font-size: 30px; }
-        }
-    </style>
-</head>
-<body>
-<div class="game-container">
-    <div class="header">
-        <div class="info-card">🎰 СЕССИЯ <span id="sessionBank">0</span> ₽</div>
-    </div>
-
-    <div class="multiplier-panel" id="multiplierPanel">
-        <div class="multiplier" id="multiplierDisplay">1.00x</div>
-    </div>
-
-    <div class="bet-control">
-        <input type="number" id="betAmount" min="100" max="100000" step="100" value="1000">
-        <button id="startBtn" class="btn-start">💣 НАЧАТЬ</button>
-    </div>
-
-    <div class="mines-select" id="minesSelect">
-        <div class="mine-btn" data-mines="1">1 мина</div>
-        <div class="mine-btn" data-mines="3">3 мины</div>
-        <div class="mine-btn active" data-mines="5">5 мин</div>
-        <div class="mine-btn" data-mines="8">8 мин</div>
-        <div class="mine-btn" data-mines="12">12 мин</div>
-    </div>
-
-    <div class="grid" id="grid"></div>
-
-    <div class="footer">
-        <button id="cashoutBtn" class="btn-cashout" disabled>💰 ЗАБРАТЬ</button>
-        <button id="exitBtn" class="btn-exit">🚪 ЗАБРАТЬ И ВЫЙТИ</button>
-    </div>
-    <div class="status" id="statusMsg">💎 Введите ставку, выберите кол-во мин и нажмите НАЧАТЬ</div>
-</div>
-
-<script>
-    const tg = window.Telegram.WebApp;
-    tg.expand();
-    tg.ready();
-    if (tg.HapticFeedback) tg.enableClosingConfirmation();
-
-    let userId = null;
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.has('userId')) userId = urlParams.get('userId');
-    else if (tg.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
-
-    // DOM
-    const betInput = document.getElementById('betAmount');
-    const startBtn = document.getElementById('startBtn');
-    const cashoutBtn = document.getElementById('cashoutBtn');
-    const exitBtn = document.getElementById('exitBtn');
-    const sessionSpan = document.getElementById('sessionBank');
-    const multiplierSpan = document.getElementById('multiplierDisplay');
-    const multiplierPanel = document.getElementById('multiplierPanel');
-    const statusDiv = document.getElementById('statusMsg');
-    const gridDiv = document.getElementById('grid');
-
-    let currentBet = 1000;
-    let minesCount = 5;
-    let gameActive = false;
-    let sessionProfit = 0;
-    let currentMultiplier = 1.0;
-    let field = [];
-    let opened = [];
-    let safeTotal = 0;
-    let openedSafe = 0;
-    let balance = 10000; // локальный баланс (для проверки ставки)
-
-    const multiplierMap = {
-        1: [1.0, 1.08, 1.18, 1.30, 1.45, 1.62, 1.82, 2.05, 2.32, 2.62, 2.95, 3.32, 3.72, 4.15, 4.62, 5.12, 5.65, 6.22, 6.82, 7.45, 8.12, 8.82, 9.55, 10.32, 11.12],
-        3: [1.0, 1.12, 1.28, 1.48, 1.72, 2.00, 2.35, 2.75, 3.22, 3.78, 4.42, 5.18, 6.05, 7.05, 8.18, 9.45, 10.88, 12.45, 14.18, 16.08, 18.15, 20.40, 22.82, 25.42, 28.20],
-        5: [1.0, 1.18, 1.42, 1.72, 2.10, 2.58, 3.18, 3.95, 4.92, 6.15, 7.70, 9.65, 12.10, 15.15, 18.95, 23.65, 29.45, 36.55, 45.25, 55.85, 68.75, 84.45, 103.5, 126.6, 154.6],
-        8: [1.0, 1.28, 1.68, 2.22, 2.95, 3.95, 5.32, 7.18, 9.72, 13.20, 17.95, 24.45, 33.35, 45.55, 62.25, 85.15, 116.5, 159.5, 218.4, 299.0, 409.5, 560.5, 767.5, 1050, 1437],
-        12: [1.0, 1.48, 2.22, 3.35, 5.08, 7.72, 11.75, 17.90, 27.30, 41.70, 63.70, 97.40, 149.0, 228.0, 349.0, 534.0, 817.0, 1250, 1912, 2925, 4475, 6845, 10470, 16020, 24500]
-    };
-    let multiplierTable = multiplierMap[minesCount];
-    function updateMultiplierTable() {
-        multiplierTable = multiplierMap[minesCount];
+<style>
+    :root {
+        --bg-main: #06090f;
+        --accent-gold: #d4af37;
+        --accent-glow: rgba(212, 175, 55, 0.3);
+        --cell-bg: rgba(255, 255, 255, 0.03);
+        --cell-border: rgba(255, 255, 255, 0.08);
     }
 
-    // Звуки (Web Audio)
-    let audioCtx = null;
-    function initAudio() {
-        if (!audioCtx && window.AudioContext) {
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            document.body.addEventListener('touchstart', () => audioCtx?.resume(), { once: true });
-            document.body.addEventListener('click', () => audioCtx?.resume(), { once: true });
-        }
-    }
-    function playTone(freq, duration, vol = 0.08, type = 'sine') {
-        if (!audioCtx) return;
-        try {
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.type = type;
-            osc.frequency.value = freq;
-            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-            osc.start();
-            osc.stop(audioCtx.currentTime + duration);
-        } catch(e) {}
-    }
-    function soundOpen() { playTone(660, 0.1, 0.06); }
-    function soundMine() { playTone(200, 0.4, 0.15, 'sawtooth'); playTone(120, 0.5, 0.1); }
-    function soundWin() { playTone(880, 0.15, 0.1); playTone(1100, 0.15, 0.1); playTone(1320, 0.2, 0.1); }
-    function soundCashout() { playTone(1000, 0.12, 0.08); playTone(1200, 0.12, 0.08); }
-    function soundClick() { playTone(500, 0.05, 0.05); }
-    function soundError() { playTone(300, 0.3, 0.1, 'sawtooth'); }
-
-    // Генерация поля
-    function generateField() {
-        const total = 25;
-        const minePositions = new Set();
-        while (minePositions.size < minesCount) {
-            minePositions.add(Math.floor(Math.random() * total));
-        }
-        const newField = Array(5).fill().map(() => Array(5).fill(false));
-        for (let pos of minePositions) {
-            const row = Math.floor(pos / 5);
-            const col = pos % 5;
-            newField[row][col] = true;
-        }
-        return newField;
-    }
-    function initOpened() {
-        return Array(5).fill().map(() => Array(5).fill(false));
-    }
-    function safeCount() { return 25 - minesCount; }
-
-    function updateUI() {
-        for (let i = 0; i < 5; i++) {
-            for (let j = 0; j < 5; j++) {
-                const cell = document.querySelector(`.cell[data-row='${i}'][data-col='${j}']`);
-                if (!cell) continue;
-                if (opened[i][j]) {
-                    if (field[i][j]) {
-                        cell.classList.add('mine');
-                        cell.innerHTML = '💣';
-                    } else {
-                        cell.classList.add('opened', 'safe');
-                        cell.innerHTML = '💰';
-                    }
-                } else {
-                    cell.innerHTML = '❓';
-                }
-            }
-        }
-        multiplierSpan.textContent = currentMultiplier.toFixed(2) + 'x';
-        // Анимация множителя
-        multiplierSpan.classList.remove('bump');
-        setTimeout(() => multiplierSpan.classList.add('bump'), 10);
-        multiplierPanel.classList.remove('pulse');
-        setTimeout(() => multiplierPanel.classList.add('pulse'), 10);
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    
+    body {
+        background: var(--bg-main);
+        font-family: 'Inter', system-ui, sans-serif;
+        color: #fff;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        padding: 10px;
     }
 
-    function renderGrid() {
-        gridDiv.innerHTML = '';
-        for (let i = 0; i < 5; i++) {
-            for (let j = 0; j < 5; j++) {
-                const cell = document.createElement('div');
-                cell.className = 'cell';
-                cell.setAttribute('data-row', i);
-                cell.setAttribute('data-col', j);
-                if (opened[i][j]) {
-                    if (field[i][j]) {
-                        cell.classList.add('mine');
-                        cell.innerHTML = '💣';
-                    } else {
-                        cell.classList.add('opened', 'safe');
-                        cell.innerHTML = '💰';
-                    }
-                } else {
-                    cell.innerHTML = '❓';
-                }
-                cell.addEventListener('click', () => {
-                    if (!gameActive) return;
-                    if (opened[i][j]) return;
-                    if (field[i][j]) {
-                        // Мина
-                        opened[i][j] = true;
-                        soundMine();
-                        updateUI();
-                        gameActive = false;
-                        sessionProfit -= currentBet;
-                        updateSessionUI();
-                        statusDiv.innerHTML = `💥 МИНА! ВЫ ПРОИГРАЛИ -${currentBet}₽`;
-                        startBtn.disabled = false;
-                        cashoutBtn.disabled = true;
-                        vibrate('error');
-                    } else {
-                        // Безопасно
-                        opened[i][j] = true;
-                        openedSafe++;
-                        soundOpen();
-                        const multIndex = openedSafe;
-                        if (multIndex <= safeTotal) {
-                            currentMultiplier = multiplierTable[multIndex] || multiplierTable[multiplierTable.length-1];
-                        }
-                        updateUI();
-                        vibrate('light');
-                        if (openedSafe === safeTotal) {
-                            // Победа (все безопасные открыты)
-                            const winAmount = Math.floor(currentBet * currentMultiplier);
-                            sessionProfit += (winAmount - currentBet);
-                            updateSessionUI();
-                            statusDiv.innerHTML = `🎉 ПОБЕДА! ВЫ ВЫИГРАЛИ ${winAmount}₽ (x${currentMultiplier.toFixed(2)})`;
-                            gameActive = false;
-                            startBtn.disabled = false;
-                            cashoutBtn.disabled = true;
-                            soundWin();
-                            vibrate('success');
-                            // показать все клетки
-                            for (let r=0; r<5; r++) for (let c=0; c<5; c++) if (!opened[r][c]) opened[r][c] = true;
-                            updateUI();
-                        }
-                    }
-                });
-                gridDiv.appendChild(cell);
-            }
-        }
+    .game-container {
+        width: 100%;
+        max-width: 480px;
+        background: #0d121b;
+        border-radius: 32px;
+        padding: 24px;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
     }
 
-    function resetGame() {
-        field = generateField();
-        opened = initOpened();
-        openedSafe = 0;
-        currentMultiplier = 1.0;
-        gameActive = false;
-        startBtn.disabled = false;
-        cashoutBtn.disabled = true;
-        updateMultiplierTable();
-        renderGrid();
-        multiplierSpan.textContent = '1.00x';
-        statusDiv.innerHTML = `💎 Ставка ${currentBet}₽, мин: ${minesCount}. Нажмите НАЧАТЬ`;
+    .multiplier-panel {
+        background: linear-gradient(180deg, #161d29 0%, #0d121b 100%);
+        border: 1px solid var(--accent-gold);
+        border-radius: 24px;
+        padding: 20px;
+        margin-bottom: 24px;
+        position: relative;
+        box-shadow: 0 0 30px var(--accent-glow);
     }
 
-    function startGame() {
-        let amount = parseInt(betInput.value);
-        if (isNaN(amount)) amount = 1000;
-        amount = Math.min(100000, Math.max(100, amount));
-        if (balance < amount) {
-            statusDiv.innerHTML = `❌ Недостаточно средств! Баланс: ${balance}₽`;
-            soundError();
-            vibrate('error');
-            return;
-        }
-        soundClick();
-        currentBet = amount;
-        betInput.value = currentBet;
-        // списываем ставку локально
-        balance -= currentBet;
-        sessionProfit -= currentBet;
-        updateSessionUI();
-
-        field = generateField();
-        opened = initOpened();
-        openedSafe = 0;
-        currentMultiplier = 1.0;
-        gameActive = true;
-        startBtn.disabled = true;
-        cashoutBtn.disabled = false;
-        updateMultiplierTable();
-        renderGrid();
-        statusDiv.innerHTML = `💣 ИГРА НАЧАЛАСЬ! Открывайте безопасные клетки.`;
-        vibrate('medium');
-        soundClick();
+    .multiplier {
+        font-size: 48px;
+        font-weight: 800;
+        letter-spacing: -2px;
+        color: #fff;
+        text-shadow: 0 0 20px rgba(212, 175, 55, 0.5);
     }
 
-    function cashout() {
-        if (!gameActive) return;
-        const winAmount = Math.floor(currentBet * currentMultiplier);
-        const profit = winAmount - currentBet;
-        sessionProfit += profit;
-        balance += winAmount;
-        updateSessionUI();
-        statusDiv.innerHTML = `💰 ВЫ ЗАБРАЛИ ${winAmount}₽ (x${currentMultiplier.toFixed(2)})`;
-        soundCashout();
-        vibrate('success');
-        gameActive = false;
-        startBtn.disabled = false;
-        cashoutBtn.disabled = true;
-        // показать все клетки
-        for (let i=0; i<5; i++) for (let j=0; j<5; j++) opened[i][j] = true;
-        renderGrid();
+    .grid {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 12px;
+        margin: 24px 0;
     }
 
-    function exitAndCollect() {
-        if (!tg.sendData) return;
-        tg.sendData(JSON.stringify({
-            action: "crash_session",
-            total_profit: sessionProfit
-        }));
-        tg.close();
+    .cell {
+        aspect-ratio: 1/1;
+        background: var(--cell-bg);
+        border: 1px solid var(--cell-border);
+        border-radius: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+        transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        cursor: pointer;
     }
 
-    function updateSessionUI() {
-        sessionSpan.textContent = sessionProfit >= 0 ? `+${sessionProfit}` : `${sessionProfit}`;
+    .cell:hover { border-color: var(--accent-gold); }
+
+    .cell.opened {
+        background: rgba(212, 175, 55, 0.1);
+        border-color: var(--accent-gold);
+        transform: rotateY(180deg);
     }
 
-    function vibrate(style = 'light') {
-        if (tg.HapticFeedback) {
-            if (style === 'light') tg.HapticFeedback.impactOccurred('light');
-            else if (style === 'medium') tg.HapticFeedback.impactOccurred('medium');
-            else if (style === 'heavy') tg.HapticFeedback.impactOccurred('heavy');
-            else if (style === 'success') tg.HapticFeedback.notificationOccurred('success');
-            else if (style === 'error') tg.HapticFeedback.notificationOccurred('error');
-        }
+    .cell.mine {
+        background: #ff3344;
+        box-shadow: 0 0 20px rgba(255, 51, 68, 0.4);
     }
 
-    // Выбор кол-ва мин
-    document.querySelectorAll('.mine-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            if (gameActive) return;
-            document.querySelectorAll('.mine-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            minesCount = parseInt(btn.getAttribute('data-mines'));
-            updateMultiplierTable();
-            resetGame();
-            soundClick();
-        });
-    });
-
-    // Получение баланса (для проверки)
-    async function fetchBalance() {
-        if (!userId) return;
-        try {
-            const res = await fetch(`/balance/${userId}`);
-            const data = await res.json();
-            if (data.balance !== undefined) balance = data.balance;
-        } catch (e) { console.log("Баланс через бота"); }
+    .bet-control, .mines-select {
+        margin-bottom: 20px;
+        background: rgba(255,255,255,0.02);
+        padding: 10px;
+        border-radius: 20px;
     }
 
-    startBtn.onclick = startGame;
-    cashoutBtn.onclick = cashout;
-    exitBtn.onclick = exitAndCollect;
-    betInput.addEventListener('change', () => {
-        let v = parseInt(betInput.value);
-        if (isNaN(v)) v = 1000;
-        v = Math.min(100000, Math.max(100, v));
-        currentBet = v;
-        betInput.value = currentBet;
-        if (!gameActive) statusDiv.innerHTML = `💎 Ставка ${currentBet}₽, мин: ${minesCount}. Нажмите НАЧАТЬ`;
-    });
+    button {
+        background: var(--accent-gold);
+        color: #000;
+        font-weight: 900;
+        border: none;
+        padding: 14px 20px;
+        border-radius: 16px;
+        transition: transform 0.2s, opacity 0.2s;
+    }
 
-    fetchBalance();
-    setInterval(fetchBalance, 15000);
-    initAudio();
-    resetGame();
-</script>
-</body>
-</html>
+    button:active { transform: scale(0.95); }
+    
+    .btn-cashout { background: #00c853; color: white; }
+    
+    .status {
+        margin-top: 15px;
+        padding: 12px;
+        background: rgba(255,255,255,0.03);
+        border-radius: 12px;
+        font-size: 12px;
+        color: #8899a6;
+    }
+</style>
