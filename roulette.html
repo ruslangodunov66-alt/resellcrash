@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>🎡 РУЛЕТКА | R-GAME</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;1,800&family=Nunito:wght@700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0a0f16;
+            --container-bg: #111822;
+            --panel-bg: #1a2332;
+            --accent-blue: #1882ff;
+            --accent-green: #1bd15d;
+            --accent-red: #f03043;
+            --accent-black: #212c3d;
+            --accent-orange: #ff9800;
+            --accent-purple: #8b5cf6;
+            --text-main: #e2e8f0;
+            --text-muted: #8c9eb5;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background: var(--bg-dark);
+            background-image: 
+                radial-gradient(circle at 50% 0%, rgba(24, 130, 255, 0.15), transparent 60%),
+                radial-gradient(circle at 50% 100%, rgba(139, 92, 246, 0.05), transparent 50%);
+            font-family: 'Nunito', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 12px;
+            color: var(--text-main);
+        }
+
+        .game-container {
+            max-width: 480px;
+            width: 100%;
+            background: var(--container-bg);
+            border-radius: 32px;
+            box-shadow: 0 24px 48px rgba(0,0,0,0.6), inset 0 1px 1px rgba(255,255,255,0.05);
+            padding: 20px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .brand {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 24px;
+            font-weight: 800;
+            font-style: italic;
+            background: linear-gradient(135deg, #ffffff, #a0c4ff);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .brand span {
+            color: var(--accent-blue);
+            -webkit-text-fill-color: var(--accent-blue);
+        }
+
+        .info-card {
+            background: var(--panel-bg);
+            border-radius: 12px;
+            padding: 8px 16px;
+            font-weight: 700;
+            font-size: 14px;
+            color: var(--text-muted);
+            border: 1px solid rgba(255,255,255,0.03);
+            display: flex;
+            align-items: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+
+        .info-card span {
+            color: var(--text-main);
+            font-size: 16px;
+            font-weight: 800;
+            margin-left: 6px;
+        }
+
+        /* Экран цифровой рулетки */
+        .roulette-display-box {
+            background: #060b13;
+            border-radius: 24px;
+            padding: 30px 20px;
+            margin-bottom: 20px;
+            border: 2px solid var(--panel-bg);
+            box-shadow: inset 0 8px 32px rgba(0,0,0,0.8), 0 0 20px rgba(24, 130, 255, 0.1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .wheel-node {
+            width: 110px;
+            height: 110px;
+            border-radius: 50%;
+            background: var(--panel-bg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 46px;
+            font-weight: 800;
+            color: #fff;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5), inset 0 2px 4px rgba(255,255,255,0.2);
+            transition: background-color 0.15s, filter 0.05s, transform 0.1s;
+            border: 4px solid rgba(255,255,255,0.08);
+        }
+
+        .wheel-node.spinning {
+            filter: blur(4px);
+            transform: scale(0.95);
+        }
+
+        /* Цветовые схемы для ячейки */
+        .bg-red { background-color: var(--accent-red) !important; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+        .bg-black { background-color: var(--accent-black) !important; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+        .bg-green { background-color: var(--accent-green) !important; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+        .bg-empty { background-color: #1e293b !important; color: var(--text-muted); }
+
+        .status-panel {
+            margin-top: 16px;
+            font-size: 14px;
+            font-weight: 800;
+            color: var(--text-muted);
+            text-align: center;
+            min-height: 40px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .win-glow {
+            color: var(--accent-orange) !important;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 18px;
+            text-shadow: 0 0 12px rgba(255,152,0,0.4);
+            animation: pulse 1s infinite alternate;
+        }
+
+        @keyframes pulse {
+            from { transform: scale(1); } to { transform: scale(1.03); }
+        }
+
+        /* Управление ставками */
+        .controls-card {
+            background: var(--panel-bg);
+            border-radius: 24px;
+            padding: 16px;
+            margin-bottom: 16px;
+            border: 1px solid rgba(255,255,255,0.02);
+        }
+
+        .input-label {
+            font-size: 12px;
+            font-weight: 800;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            margin-bottom: 8px;
+            letter-spacing: 0.5px;
+        }
+
+        .bet-input-wrapper {
+            position: relative;
+            margin-bottom: 16px;
+        }
+
+        .bet-input-wrapper::before {
+            content: '₽';
+            position: absolute;
+            left: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-muted);
+            font-weight: 800;
+            font-size: 18px;
+        }
+
+        input[type="number"] {
+            width: 100%;
+            height: 50px;
+            background: var(--bg-dark);
+            border: 2px solid #283548;
+            border-radius: 14px;
+            padding: 0 16px 0 40px;
+            color: #fff;
+            font-weight: 800;
+            font-size: 18px;
+            font-family: 'Nunito', sans-serif;
+            transition: all 0.2s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 12px rgba(24, 130, 255, 0.2);
+        }
+
+        /* Кнопки ставок на цвета */
+        .color-buttons-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        button {
+            border: none;
+            border-radius: 14px;
+            font-family: 'Nunito', sans-serif;
+            font-weight: 800;
+            font-size: 14px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.1s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            text-transform: uppercase;
+        }
+
+        button:active:not(:disabled) {
+            transform: scale(0.97);
+        }
+
+        button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .btn-bet {
+            height: 48px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        }
+
+        .btn-red { background: linear-gradient(135deg, #ff4154, var(--accent-red)); }
+        .btn-black { background: linear-gradient(135deg, #37475f, #1e293b); border: 1px solid rgba(255,255,255,0.05); }
+        .btn-green { background: linear-gradient(135deg, #2ecc71, var(--accent-green)); grid-column: span 2; height: 44px; }
+
+        /* Ставка на число */
+        .number-bet-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            border-top: 1px solid rgba(255,255,255,0.05);
+            padding-top: 14px;
+            margin-top: 14px;
+        }
+
+        .num-input-wrapper {
+            width: 110px;
+        }
+
+        .num-input-wrapper input {
+            padding: 0;
+            text-align: center;
+        }
+
+        .btn-number {
+            flex: 1;
+            height: 50px;
+            background: linear-gradient(135deg, var(--accent-purple), #a855f7);
+            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.2);
+        }
+
+        .btn-exit {
+            width: 100%;
+            background: #1e2530;
+            padding: 14px;
+            box-shadow: 0 4px 0 var(--bg-dark);
+            border-radius: 14px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+<div class="game-container">
+    <div class="header">
+        <div class="brand">R-<span>ROULETTE</span></div>
+        <div class="info-card">Сессия <span id="sessionBank">0₽</span></div>
+    </div>
+
+    <!-- Дисплей колеса рулетки -->
+    <div class="roulette-display-box">
+        <div class="wheel-node bg-empty" id="wheelNode">?</div>
+        <div class="status-panel" id="statusPanel">Введите сумму ставки и выберите исход</div>
+    </div>
+
+    <!-- Контроллеры -->
+    <div class="controls-card">
+        <div class="input-label">Сумма ставки (от 100₽ до 50000₽):</div>
+        <div class="bet-input-wrapper">
+            <input type="number" id="betInput" min="100" max="50000" step="100" value="1000">
+        </div>
+
+        <div class="input-label">Ставка на цвет:</div>
+        <div class="color-buttons-grid">
+            <button class="btn-bet btn-red" id="btnRed" onclick="handleBet('red')">🔴 Красное x2</button>
+            <button class="btn-bet btn-black" id="btnBlack" onclick="handleBet('black')">⚫ Чёрное x2</button>
+            <button class="btn-bet btn-green" id="btnGreen" onclick="handleBet('green')">🟢 Зелёное x14</button>
+        </div>
+
+        <div class="number-bet-row">
+            <div class="num-input-wrapper">
+                <input type="number" id="numberInput" placeholder="0-36" min="0" max="36">
+            </div>
+            <button class="btn-number" id="btnNum" onclick="handleBet('number')">🔢 На число x35</button>
+        </div>
+    </div>
+
+    <button class="btn-exit" id="exitBtn" onclick="exitGame()">ВЫЙТИ И СОХРАНИТЬ</button>
+</div>
+
+<script>
+    (function() {
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.ready();
+        if (tg.HapticFeedback) tg.enableClosingConfirmation();
+
+        // Переменные состояния
+        let currentBet = 1000;
+        let sessionProfit = 0;
+        let isSpinning = false;
+
+        // DOM элементы
+        const betInput = document.getElementById('betInput');
+        const numberInput = document.getElementById('numberInput');
+        const wheelNode = document.getElementById('wheelNode');
+        const statusPanel = document.getElementById('statusPanel');
+        const sessionBank = document.getElementById('sessionBank');
+        
+        // Кнопки для блокировки во время анимации
+        const actionButtons = [
+            document.getElementById('btnRed'),
+            document.getElementById('btnBlack'),
+            document.getElementById('btnGreen'),
+            document.getElementById('btnNum'),
+            document.getElementById('exitBtn')
+        ];
+
+        // Web Audio API Звуковой движок
+        let audioCtx = null;
+        function initAudio() {
+            if (!audioCtx && window.AudioContext) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const resume = () => audioCtx?.resume();
+                document.body.addEventListener('touchstart', resume, { once: true });
+                document.body.addEventListener('click', resume, { once: true });
+            }
+        }
+        function playTone(freq, duration, vol = 0.08, type = 'sine') {
+            if (!audioCtx) return;
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = type;
+                osc.frequency.value = freq;
+                gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
+            } catch(e) {}
+        }
+        
+        function soundClick() { playTone(600, 0.05, 0.05); }
+        function soundTick() { playTone(850, 0.03, 0.03, 'triangle'); }
+        function soundStop() { playTone(400, 0.12, 0.08, 'square'); }
+        function soundWin() {
+            playTone(523, 0.08, 0.1);
+            setTimeout(() => playTone(659, 0.08, 0.1), 80);
+            setTimeout(() => playTone(783, 0.08, 0.1), 160);
+            setTimeout(() => playTone(1046, 0.25, 0.15), 240);
+        }
+        function soundLose() { playTone(180, 0.35, 0.12, 'sawtooth'); }
+
+        function triggerHaptic(style = 'light') {
+            if (!tg.HapticFeedback) return;
+            if (style === 'light') tg.HapticFeedback.impactOccurred('light');
+            else if (style === 'medium') tg.HapticFeedback.impactOccurred('medium');
+            else if (style === 'success') tg.HapticFeedback.notificationOccurred('success');
+            else if (style === 'error') tg.HapticFeedback.notificationOccurred('error');
+        }
+
+        // Синхронизация UI банка
+        function updateSessionUI() {
+            sessionBank.textContent = (sessionProfit >= 0 ? `+${sessionProfit}` : `${sessionProfit}`) + "₽";
+            if (sessionProfit > 0) sessionBank.style.color = 'var(--accent-green)';
+            else if (sessionProfit < 0) sessionBank.style.color = 'var(--accent-red)';
+            else sessionBank.style.color = 'var(--text-main)';
+        }
+
+        // Вспомогательная функция определения цвета ячейки по правилам исходного файла[cite: 5]
+        function getColorByNumber(num) {
+            if (num === 0) return 'зеленый';[cite: 5]
+            return (num % 2 === 0) ? 'черный' : 'красный';[cite: 5]
+        }
+
+        function applyCellColorClass(element, colorStr) {
+            element.classList.remove('bg-red', 'bg-black', 'bg-green', 'bg-empty');
+            if (colorStr === 'красный') element.classList.add('bg-red');
+            else if (colorStr === 'черный') element.classList.add('bg-black');
+            else if (colorStr === 'зеленый') element.classList.add('bg-green');
+            else element.classList.add('bg-empty');
+        }
+
+        // Валидация ввода ставки
+        betInput.addEventListener('change', () => {
+            let v = parseInt(betInput.value);
+            if (isNaN(v) || v < 100) v = 100;[cite: 5]
+            if (v > 50000) v = 50000;[cite: 5]
+            currentBet = v;
+            betInput.value = currentBet;
+        });
+
+        // Главный обработчик ставки и анимации
+        window.handleBet = async function(type) {
+            if (isSpinning) return;
+            initAudio();
+            soundClick();
+
+            // Проверка лимитов ставки[cite: 5]
+            let v = parseInt(betInput.value);
+            if (isNaN(v) || v < 100) {[cite: 5]
+                statusPanel.innerHTML = '<span style="color:var(--accent-red)">❌ Минимальная ставка 100₽</span>';[cite: 5]
+                return;
+            }
+            currentBet = Math.min(50000, Math.max(100, v));[cite: 5]
+            betInput.value = currentBet;
+
+            let targetNumberValue = null;
+            if (type === 'number') {
+                targetNumberValue = parseInt(numberInput.value);
+                if (isNaN(targetNumberValue) || targetNumberValue < 0 || targetNumberValue > 36) {[cite: 5]
+                    statusPanel.innerHTML = '<span style="color:var(--accent-red)">❌ Введите число от 0 до 36</span>';[cite: 5]
+                    return;
+                }
+            }
+
+            // Блокировка интерфейса
+            isSpinning = true;
+            actionButtons.forEach(btn => btn.disabled = true);
+            betInput.disabled = true;
+            numberInput.disabled = true;
+
+            statusPanel.innerHTML = '⏳ КРУТИМ РУЛЕТКУ...';[cite: 5]
+            wheelNode.classList.add('spinning');
+
+            // Генерация исхода[cite: 5]
+            const finalNum = Math.floor(Math.random() * 37);[cite: 5]
+            const finalColor = getColorByNumber(finalNum);[cite: 5]
+
+            // Симуляция вращения (цифровой шаффл)
+            let duration = 2000; 
+            let intervalTime = 50; 
+            let elapsed = 0;
+
+            const shuffleInterval = setInterval(() => {
+                elapsed += intervalTime;
+                
+                // Генерируем фейковые промежуточные значения для анимации
+                const fakeNum = Math.floor(Math.random() * 37);
+                const fakeColor = getColorByNumber(fakeNum);
+                
+                wheelNode.innerText = fakeNum;
+                applyCellColorClass(wheelNode, fakeColor);
+                
+                soundTick();
+                triggerHaptic('light');
+
+                // Плавное замедление колеса под конец
+                if (elapsed >= duration * 0.6 && intervalTime === 50) {
+                    clearInterval(shuffleInterval);
+                    intervalTime = 120;
+                    // Перезапуск с увеличенным интервалом
+                    extendShuffle();
+                }
+            }, intervalTime);
+
+            function extendShuffle() {
+                const slowInterval = setInterval(() => {
+                    elapsed += intervalTime;
+                    
+                    const fakeNum = Math.floor(Math.random() * 37);
+                    const fakeColor = getColorByNumber(fakeNum);
+                    wheelNode.innerText = fakeNum;
+                    applyCellColorClass(wheelNode, fakeColor);
+                    
+                    soundTick();
+                    triggerHaptic('medium');
+
+                    if (elapsed >= duration) {
+                        clearInterval(slowInterval);
+                        renderFinalResult();
+                    }
+                }, intervalTime);
+            }
+
+            // Вывод финального результата
+            function renderFinalResult() {
+                wheelNode.classList.remove('spinning');
+                wheelNode.innerText = finalNum;
+                applyCellColorClass(wheelNode, finalColor);
+                soundStop();
+
+                // Расчёт выигрыша по оригинальной структуре условий[cite: 5]
+                let isWin = false;
+                let multiplier = 0;
+
+                if (type === 'red' && finalColor === 'красный') { isWin = true; multiplier = 2; }[cite: 5]
+                else if (type === 'black' && finalColor === 'черный') { isWin = true; multiplier = 2; }[cite: 5]
+                else if (type === 'green' && finalColor === 'зеленый') { isWin = true; multiplier = 14; }[cite: 5]
+                else if (type === 'number' && targetNumberValue === finalNum) { isWin = true; multiplier = 35; }[cite: 5]
+
+                if (isWin) {
+                    const winAmount = currentBet * multiplier;[cite: 5]
+                    sessionProfit += (winAmount - currentBet);
+                    statusPanel.innerHTML = `<span class="win-glow">🎉 ВЫИГРЫШ! +${winAmount}₽</span><br><span style="font-size:12px">Выпало: ${finalNum} (${finalColor})</span>`;[cite: 5]
+                    soundWin();
+                    triggerHaptic('success');
+                    
+                    // Отправка данных на бэкенд Telegram[cite: 5]
+                    tg.sendData(JSON.stringify({ action: 'win', game: 'roulette', win: winAmount, bet: currentBet }));[cite: 5]
+                } else {
+                    sessionProfit -= currentBet;
+                    statusPanel.innerHTML = `<span style="color:var(--accent-red)">❌ ПРОИГРЫШ! -${currentBet}₽</span><br><span style="font-size:12px">Выпало: ${finalNum} (${finalColor})</span>`;[cite: 5]
+                    soundLose();
+                    triggerHaptic('error');
+                    
+                    // Отправка данных на бэкенд Telegram[cite: 5]
+                    tg.sendData(JSON.stringify({ action: 'lose', game: 'roulette', bet: currentBet }));[cite: 5]
+                }
+
+                updateSessionUI();
+
+                // Разблокировка интерфейса
+                isSpinning = false;
+                actionButtons.forEach(btn => btn.disabled = false);
+                betInput.disabled = false;
+                numberInput.disabled = false;
+            }
+        };
+
+        window.exitGame = function() {
+            soundClick();
+            if (tg.sendData) {
+                // Дополнительный пакет данных закрытия сессии при необходимости
+                tg.sendData(JSON.stringify({ action: 'roulette_session_close', total_profit: sessionProfit }));
+            }
+            tg.close();
+        };
+
+        // Стартовая инициализация
+        updateSessionUI();
+    })();
+</script>
+</body>
+</html>
