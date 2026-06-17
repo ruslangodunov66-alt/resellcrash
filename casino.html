@@ -409,6 +409,30 @@
         const navItems = document.querySelectorAll('.nav-item');
         const depositBtn = document.getElementById('depositMockBtn');
 
+// === НОВАЯ ФУНКЦИЯ БАЛАНСА (через Telegram) ===
+function fetchBalance() {
+    if (!userId) return;
+    tg.sendData(JSON.stringify({ action: 'get_balance' }));
+}
+
+// Обработчик ответа от бота
+tg.onEvent('web_app_data', function(data) {
+    try {
+        const response = JSON.parse(data);
+        if (response.balance !== undefined) {
+            balanceSpan.innerText = response.balance.toLocaleString() + ' ₽';
+        }
+    } catch (e) {
+        console.log('Ошибка парсинга баланса:', e);
+    }
+});
+
+// Запрашиваем баланс сразу и каждые 15 секунд
+if (userId) {
+    fetchBalance();
+    setInterval(fetchBalance, 15000);
+}
+
         // Анимация фонового Canvas (падающие монеты и деньги)
         const canvas = document.getElementById('animatedCanvas');
         const ctx = canvas.getContext('2d');
@@ -485,15 +509,6 @@
         resizeCanvas();
         initParticles();
         animateBackground();
-
-        async function fetchBalance() {
-            if (!userId) return;
-            try {
-                const res = await fetch(`http://193.233.114.27:8080/balance/${userId}`);
-                const data = await res.json();
-                if (data.balance !== undefined) balanceSpan.innerText = `${data.balance.toLocaleString()} ₽`;
-            } catch (e) { console.log("Баланс доступен в чате с ботом"); }
-        }
 
         // ========== ИСПРАВЛЕННАЯ ФУНКЦИЯ goToGame ==========
         function goToGame(game) {
