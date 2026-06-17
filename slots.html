@@ -99,7 +99,6 @@
             font-weight: 800;
         }
 
-        /* Игровая зона: Барабаны */
         .slot-machine {
             background: #060b13;
             border-radius: 24px;
@@ -386,234 +385,217 @@
 </div>
 
 <script>
-    (function(){
-        const tg = window.Telegram.WebApp;
-        tg.expand();
-        tg.ready();
-        if (tg.HapticFeedback) tg.enableClosingConfirmation();
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+    tg.ready();
+    if (tg.HapticFeedback) tg.enableClosingConfirmation();
 
-        // Настройки слота
-        const symbols = ["🍒", "🍋", "🍊", "🍉", "🔔", "💎", "7️⃣", "🎰"];
-        const multipliers = { "7️⃣": 20, "💎": 15, "🎰": 10 };
-        const baseMultiplier = 5; // Для остальных совпадений 3 символов
-        const pairMultiplier = 2; // Для совпадения 2 символов
+    let userId = null;
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('userId')) userId = urlParams.get('userId');
+    else if (tg.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
 
-        // DOM элементы
-        const betInput = document.getElementById('betInput');
-        const spinBtn = document.getElementById('spinBtn');
-        const exitBtn = document.getElementById('exitButton');
-        const statusMsg = document.getElementById('statusMsg');
-        const winAmountDisplay = document.getElementById('winAmountDisplay');
-        const sessionBankDisplay = document.getElementById('sessionBank');
-        const payline = document.getElementById('payline');
-        const reels = [
-            { container: document.getElementById('reel0'), symbol: document.getElementById('sym0') },
-            { container: document.getElementById('reel1'), symbol: document.getElementById('sym1') },
-            { container: document.getElementById('reel2'), symbol: document.getElementById('sym2') }
-        ];
+    const betInput = document.getElementById('betInput');
+    const spinBtn = document.getElementById('spinBtn');
+    const exitBtn = document.getElementById('exitButton');
+    const statusMsg = document.getElementById('statusMsg');
+    const winAmountDisplay = document.getElementById('winAmountDisplay');
+    const sessionBankDisplay = document.getElementById('sessionBank');
+    const payline = document.getElementById('payline');
+    const reels = [
+        { container: document.getElementById('reel0'), symbol: document.getElementById('sym0') },
+        { container: document.getElementById('reel1'), symbol: document.getElementById('sym1') },
+        { container: document.getElementById('reel2'), symbol: document.getElementById('sym2') }
+    ];
 
-        // Состояние сессии
-        let sessionProfit = 0;
-        let isSpinning = false;
+    const symbols = ["🍒", "🍋", "🍊", "🍉", "🔔", "💎", "7️⃣", "🎰"];
+    const multipliers = { "7️⃣": 20, "💎": 15, "🎰": 10 };
+    const baseMultiplier = 5;
+    const pairMultiplier = 2;
 
-        // Web Audio API Звуковой движок
-        let audioCtx = null;
-        function initAudio() {
-            if (!audioCtx && window.AudioContext) {
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                document.body.addEventListener('touchstart', () => audioCtx?.resume(), { once: true });
-                document.body.addEventListener('click', () => audioCtx?.resume(), { once: true });
-            }
+    let sessionProfit = 0;
+    let isSpinning = false;
+
+    // Web Audio
+    let audioCtx = null;
+    function initAudio() {
+        if (!audioCtx && window.AudioContext) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            document.body.addEventListener('touchstart', () => audioCtx?.resume(), { once: true });
+            document.body.addEventListener('click', () => audioCtx?.resume(), { once: true });
         }
-        function playTone(freq, duration, vol = 0.08, type = 'sine') {
-            if (!audioCtx) return;
-            try {
-                const osc = audioCtx.createOscillator();
-                const gain = audioCtx.createGain();
-                osc.type = type;
-                osc.frequency.value = freq;
-                gain.gain.setValueAtTime(vol, audioCtx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
-                osc.connect(gain);
-                gain.connect(audioCtx.destination);
-                osc.start();
-                osc.stop(audioCtx.currentTime + duration);
-            } catch(e) {}
+    }
+    function playTone(freq, duration, vol = 0.08, type = 'sine') {
+        if (!audioCtx) return;
+        try {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type;
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + duration);
+        } catch(e) {}
+    }
+    function soundClick() { playTone(600, 0.05, 0.05); }
+    function soundTick() { playTone(800, 0.03, 0.02, 'triangle'); }
+    function soundStop() { playTone(300, 0.1, 0.08, 'square'); }
+    function soundWinSmall() { playTone(523, 0.1, 0.1); setTimeout(() => playTone(659, 0.15, 0.1), 100); }
+    function soundWinBig() { playTone(523, 0.1, 0.1); setTimeout(() => playTone(659, 0.1, 0.1), 100); setTimeout(() => playTone(783, 0.1, 0.1), 200); setTimeout(() => playTone(1046, 0.3, 0.15), 300); }
+    function soundLose() { playTone(200, 0.3, 0.1, 'sawtooth'); }
+
+    function vibrate(style = 'light') {
+        if (tg.HapticFeedback) {
+            if (style === 'light') tg.HapticFeedback.impactOccurred('light');
+            else if (style === 'medium') tg.HapticFeedback.impactOccurred('medium');
+            else if (style === 'heavy') tg.HapticFeedback.impactOccurred('heavy');
+            else if (style === 'success') tg.HapticFeedback.notificationOccurred('success');
+            else if (style === 'error') tg.HapticFeedback.notificationOccurred('error');
         }
-        function soundClick() { playTone(600, 0.05, 0.05); }
-        function soundTick() { playTone(800, 0.03, 0.02, 'triangle'); }
-        function soundStop() { playTone(300, 0.1, 0.08, 'square'); }
-        function soundWinSmall() { playTone(523, 0.1, 0.1); setTimeout(() => playTone(659, 0.15, 0.1), 100); }
-        function soundWinBig() { 
-            playTone(523, 0.1, 0.1); 
-            setTimeout(() => playTone(659, 0.1, 0.1), 100); 
-            setTimeout(() => playTone(783, 0.1, 0.1), 200); 
-            setTimeout(() => playTone(1046, 0.3, 0.15), 300); 
-        }
-        function soundLose() { playTone(200, 0.3, 0.1, 'sawtooth'); }
+    }
 
-        function vibrate(style = 'light') {
-            if (tg.HapticFeedback) {
-                if (style === 'light') tg.HapticFeedback.impactOccurred('light');
-                else if (style === 'medium') tg.HapticFeedback.impactOccurred('medium');
-                else if (style === 'heavy') tg.HapticFeedback.impactOccurred('heavy');
-                else if (style === 'success') tg.HapticFeedback.notificationOccurred('success');
-                else if (style === 'error') tg.HapticFeedback.notificationOccurred('error');
-            }
-        }
+    function updateSessionUI() {
+        sessionBankDisplay.textContent = (sessionProfit >= 0 ? `+${sessionProfit}` : `${sessionProfit}`) + "₽";
+        if (sessionProfit > 0) sessionBankDisplay.style.color = 'var(--accent-green)';
+        else if (sessionProfit < 0) sessionBankDisplay.style.color = 'var(--accent-red)';
+        else sessionBankDisplay.style.color = 'var(--text-main)';
+    }
 
-        function updateSessionUI() {
-            sessionBankDisplay.textContent = (sessionProfit >= 0 ? `+${sessionProfit}` : `${sessionProfit}`) + "₽";
-            if (sessionProfit > 0) sessionBankDisplay.style.color = 'var(--accent-green)';
-            else if (sessionProfit < 0) sessionBankDisplay.style.color = 'var(--accent-red)';
-            else sessionBankDisplay.style.color = 'var(--text-main)';
-        }
-
-        // Анимация вращения барабанов
-        function spinReel(index, duration) {
-            return new Promise(resolve => {
-                const reelData = reels[index];
-                reelData.container.classList.add('spinning');
-                reelData.container.classList.remove('winner');
-                
-                let ticks = 0;
-                const spinInterval = setInterval(() => {
-                    // Случайная смена символа во время вращения
-                    reelData.symbol.innerText = symbols[Math.floor(Math.random() * symbols.length)];
-                    
-                    // Эффект смазывания: легкое смещение вверх-вниз
-                    reelData.symbol.style.transform = `translateY(${(ticks % 2 === 0 ? 10 : -10)}px)`;
-                    
-                    if (index === 0 && ticks % 3 === 0) soundTick(); // Звук только от первого барабана, чтобы не шуметь
-                    
-                    ticks++;
-                }, 40);
-
-                setTimeout(() => {
-                    clearInterval(spinInterval);
-                    reelData.container.classList.remove('spinning');
-                    reelData.symbol.style.transform = 'translateY(0)';
-                    
-                    // Установка финального результата
-                    const finalSymbol = symbols[Math.floor(Math.random() * symbols.length)];
-                    reelData.symbol.innerText = finalSymbol;
-                    
-                    soundStop();
-                    vibrate('medium');
-                    resolve(finalSymbol);
-                }, duration);
-            });
-        }
-
-        async function startSpin() {
-            if (isSpinning) return;
-            initAudio();
-            soundClick();
-
-            let bet = parseInt(betInput.value);
-            if (isNaN(bet) || bet < 10) bet = 10;
-            if (bet > 100000) bet = 100000;
-            betInput.value = bet;
-
-            isSpinning = true;
-            spinBtn.disabled = true;
-            betInput.disabled = true;
-            
-            // Сброс UI
-            payline.classList.remove('active');
-            reels.forEach(r => r.container.classList.remove('winner'));
-            winAmountDisplay.style.display = 'none';
-            statusMsg.style.display = 'block';
-            statusMsg.innerText = 'Удача на вашей стороне...';
-            statusMsg.style.color = 'var(--text-muted)';
-
-            // Списываем ставку из сессии сразу
-            sessionProfit -= bet;
-            updateSessionUI();
-
-            // Запуск вращения (с задержкой для каждого барабана)
-            const results = await Promise.all([
-                spinReel(0, 1000),
-                spinReel(1, 1500),
-                spinReel(2, 2000)
-            ]);
-
-            checkWin(results, bet);
-        }
-
-        function checkWin(results, bet) {
-            let winAmount = 0;
-            let matchType = 0; // 0 - нет, 2 - пара, 3 - джекпот
-
-            const [s1, s2, s3] = results;
-
-            if (s1 === s2 && s2 === s3) {
-                // Совпадение 3 символов
-                matchType = 3;
-                let mult = multipliers[s1] || baseMultiplier;
-                winAmount = bet * mult;
-                reels.forEach(r => r.container.classList.add('winner'));
-                payline.classList.add('active');
-            } 
-            else if (s1 === s2 || s2 === s3 || s1 === s3) {
-                // Совпадение 2 символов
-                matchType = 2;
-                winAmount = bet * pairMultiplier;
-                
-                if (s1 === s2) { reels[0].container.classList.add('winner'); reels[1].container.classList.add('winner'); }
-                else if (s2 === s3) { reels[1].container.classList.add('winner'); reels[2].container.classList.add('winner'); }
-                else if (s1 === s3) { reels[0].container.classList.add('winner'); reels[2].container.classList.add('winner'); }
-            }
-
-            if (winAmount > 0) {
-                sessionProfit += winAmount;
-                statusMsg.style.display = 'none';
-                winAmountDisplay.style.display = 'block';
-                winAmountDisplay.innerText = `+${winAmount}₽`;
-                
-                if (matchType === 3) {
-                    soundWinBig();
-                    vibrate('success');
-                } else {
-                    soundWinSmall();
-                    vibrate('light');
-                }
-            } else {
-                statusMsg.innerText = `ПРОИГРЫШ`;
-                statusMsg.style.color = 'var(--accent-red)';
-                soundLose();
-                vibrate('error');
-            }
-
-            updateSessionUI();
-
-            isSpinning = false;
-            spinBtn.disabled = false;
-            betInput.disabled = false;
-        }
-
-        function exitAndCollect() {
-            soundClick();
-            if (!tg.sendData) return;
-            // Отправляем суммарный профит сессии боту
-            tg.sendData(JSON.stringify({
-                action: "slots_session",
-                total_profit: sessionProfit
-            }));
-            tg.close();
-        }
-
-        betInput.addEventListener('change', () => {
-            let v = parseInt(betInput.value);
-            if (isNaN(v)) v = 1000;
-            v = Math.min(100000, Math.max(10, v));
-            betInput.value = v;
+    function spinReel(index, duration) {
+        return new Promise(resolve => {
+            const reelData = reels[index];
+            reelData.container.classList.add('spinning');
+            reelData.container.classList.remove('winner');
+            let ticks = 0;
+            const spinInterval = setInterval(() => {
+                reelData.symbol.innerText = symbols[Math.floor(Math.random() * symbols.length)];
+                reelData.symbol.style.transform = `translateY(${(ticks % 2 === 0 ? 10 : -10)}px)`;
+                if (index === 0 && ticks % 3 === 0) soundTick();
+                ticks++;
+            }, 40);
+            setTimeout(() => {
+                clearInterval(spinInterval);
+                reelData.container.classList.remove('spinning');
+                reelData.symbol.style.transform = 'translateY(0)';
+                const finalSymbol = symbols[Math.floor(Math.random() * symbols.length)];
+                reelData.symbol.innerText = finalSymbol;
+                soundStop();
+                vibrate('medium');
+                resolve(finalSymbol);
+            }, duration);
         });
+    }
 
-        spinBtn.addEventListener('click', startSpin);
-        exitBtn.addEventListener('click', exitAndCollect);
+    async function startSpin() {
+        if (isSpinning) return;
+        initAudio();
+        soundClick();
 
-    })();
+        let bet = parseInt(betInput.value);
+        if (isNaN(bet) || bet < 10) bet = 10;
+        if (bet > 100000) bet = 100000;
+        betInput.value = bet;
+
+        isSpinning = true;
+        spinBtn.disabled = true;
+        betInput.disabled = true;
+
+        payline.classList.remove('active');
+        reels.forEach(r => r.container.classList.remove('winner'));
+        winAmountDisplay.style.display = 'none';
+        statusMsg.style.display = 'block';
+        statusMsg.innerText = 'Удача на вашей стороне...';
+        statusMsg.style.color = 'var(--text-muted)';
+
+        // Ставка НЕ списывается сейчас
+
+        const results = await Promise.all([
+            spinReel(0, 1000),
+            spinReel(1, 1500),
+            spinReel(2, 2000)
+        ]);
+
+        await checkWin(results, bet);
+    }
+
+    async function checkWin(results, bet) {
+        let winAmount = 0;
+        let matchType = 0;
+        const [s1, s2, s3] = results;
+
+        if (s1 === s2 && s2 === s3) {
+            matchType = 3;
+            let mult = multipliers[s1] || baseMultiplier;
+            winAmount = bet * mult;
+            reels.forEach(r => r.container.classList.add('winner'));
+            payline.classList.add('active');
+        } else if (s1 === s2 || s2 === s3 || s1 === s3) {
+            matchType = 2;
+            winAmount = bet * pairMultiplier;
+            if (s1 === s2) { reels[0].container.classList.add('winner'); reels[1].container.classList.add('winner'); }
+            else if (s2 === s3) { reels[1].container.classList.add('winner'); reels[2].container.classList.add('winner'); }
+            else if (s1 === s3) { reels[0].container.classList.add('winner'); reels[2].container.classList.add('winner'); }
+        }
+
+        if (winAmount > 0) {
+            sessionProfit += winAmount;
+            statusMsg.style.display = 'none';
+            winAmountDisplay.style.display = 'block';
+            winAmountDisplay.innerText = `+${winAmount}₽`;
+            soundWinBig();
+            vibrate('success');
+            tg.sendData(JSON.stringify({
+                action: 'slots_result',
+                bet: bet,
+                win: winAmount,
+                result: 'win'
+            }));
+        } else {
+            sessionProfit -= bet;
+            statusMsg.innerText = `ПРОИГРЫШ`;
+            statusMsg.style.color = 'var(--accent-red)';
+            soundLose();
+            vibrate('error');
+            tg.sendData(JSON.stringify({
+                action: 'slots_result',
+                bet: bet,
+                win: 0,
+                result: 'lose'
+            }));
+        }
+
+        updateSessionUI();
+
+        isSpinning = false;
+        spinBtn.disabled = false;
+        betInput.disabled = false;
+    }
+
+    function exitAndCollect() {
+        soundClick();
+        if (!tg.sendData) return;
+        tg.sendData(JSON.stringify({
+            action: "slots_session",
+            total_profit: sessionProfit
+        }));
+        tg.close();
+    }
+
+    betInput.addEventListener('change', () => {
+        let v = parseInt(betInput.value);
+        if (isNaN(v)) v = 1000;
+        v = Math.min(100000, Math.max(10, v));
+        betInput.value = v;
+    });
+
+    spinBtn.addEventListener('click', startSpin);
+    exitBtn.addEventListener('click', exitAndCollect);
+
+    // Инициализация
+    updateSessionUI();
 </script>
 </body>
 </html>
