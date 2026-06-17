@@ -347,7 +347,8 @@
 <div class="game-container">
     <div class="header">
         <div class="brand">R-<span>GAME</span></div>
-        <div class="info-card">Сессия <span id="sessionBank" style="color: var(--text-main);">0₽</span></div>
+        <!-- БЛОК БАЛАНСА ДОБАВЛЕН -->
+        <div class="info-card">Баланс: <span id="balanceDisplay">0</span> ₽</div>
     </div>
 
     <div class="slot-machine">
@@ -401,6 +402,7 @@
     const statusMsg = document.getElementById('statusMsg');
     const winAmountDisplay = document.getElementById('winAmountDisplay');
     const sessionBankDisplay = document.getElementById('sessionBank');
+    const balanceSpan = document.getElementById('balanceDisplay'); // добавлен
     const payline = document.getElementById('payline');
     const reels = [
         { container: document.getElementById('reel0'), symbol: document.getElementById('sym0') },
@@ -415,6 +417,7 @@
 
     let sessionProfit = 0;
     let isSpinning = false;
+    let balance = 0; // добавлена переменная для баланса
 
     // Web Audio
     let audioCtx = null;
@@ -464,6 +467,24 @@
         else sessionBankDisplay.style.color = 'var(--text-main)';
     }
 
+    // Новая функция для отображения баланса
+    function updateBalanceUI() {
+        if (balanceSpan) balanceSpan.innerText = balance;
+    }
+
+    // Функция запроса баланса с сервера
+    async function fetchBalance() {
+        if (!userId) return;
+        try {
+            const res = await fetch(`http://193.233.114.27:8080/balance/${userId}`);
+            const data = await res.json();
+            if (data.balance !== undefined) {
+                balance = data.balance;
+                updateBalanceUI();
+            }
+        } catch (e) { console.log("Баланс обновляется локально"); }
+    }
+
     function spinReel(index, duration) {
         return new Promise(resolve => {
             const reelData = reels[index];
@@ -498,6 +519,14 @@
         if (isNaN(bet) || bet < 10) bet = 10;
         if (bet > 100000) bet = 100000;
         betInput.value = bet;
+
+        // Проверка баланса (необязательно, но для информации)
+        if (balance < bet) {
+            statusMsg.innerText = `❌ Недостаточно средств! Баланс: ${balance}₽`;
+            statusMsg.style.color = 'var(--accent-red)';
+            vibrate('error');
+            return;
+        }
 
         isSpinning = true;
         spinBtn.disabled = true;
@@ -547,6 +576,7 @@
             winAmountDisplay.innerText = `+${winAmount}₽`;
             soundWinBig();
             vibrate('success');
+            // Локальный баланс не обновляем, только сессия
             tg.sendData(JSON.stringify({
                 action: 'slots_result',
                 bet: bet,
@@ -596,6 +626,8 @@
 
     // Инициализация
     updateSessionUI();
+    fetchBalance();
+    setInterval(fetchBalance, 15000);
 </script>
 </body>
 </html>
