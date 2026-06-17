@@ -472,19 +472,6 @@
         if (balanceSpan) balanceSpan.innerText = balance;
     }
 
-    // Функция запроса баланса с сервера
-    async function fetchBalance() {
-        if (!userId) return;
-        try {
-            const res = await fetch(`http://193.233.114.27:8080/balance/${userId}`);
-            const data = await res.json();
-            if (data.balance !== undefined) {
-                balance = data.balance;
-                updateBalanceUI();
-            }
-        } catch (e) { console.log("Баланс обновляется локально"); }
-    }
-
     function spinReel(index, duration) {
         return new Promise(resolve => {
             const reelData = reels[index];
@@ -597,8 +584,6 @@
             }));
         }
 
-        updateSessionUI();
-
         isSpinning = false;
         spinBtn.disabled = false;
         betInput.disabled = false;
@@ -623,11 +608,32 @@
 
     spinBtn.addEventListener('click', startSpin);
     exitBtn.addEventListener('click', exitAndCollect);
+    
+// === НОВАЯ ФУНКЦИЯ БАЛАНСА ===
+function fetchBalance() {
+    if (!userId) return;
+    tg.sendData(JSON.stringify({ action: 'get_balance' }));
+}
 
-    // Инициализация
-    updateSessionUI();
+// Обработчик ответа
+tg.onEvent('web_app_data', function(data) {
+    try {
+        const response = JSON.parse(data);
+        if (response.balance !== undefined) {
+            balance = response.balance;
+            if (balanceSpan) balanceSpan.innerText = balance;
+        }
+    } catch (e) {
+        console.log('Ошибка баланса:', e);
+    }
+});
+
+// Запрос при старте и по таймеру
+if (userId) {
     fetchBalance();
     setInterval(fetchBalance, 15000);
+}
+
 </script>
 </body>
 </html>

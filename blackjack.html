@@ -378,6 +378,31 @@
     let balance = 0; // будет загружено с сервера
     let sessionProfit = 0;
 
+// === НОВАЯ ФУНКЦИЯ БАЛАНСА ===
+function fetchBalance() {
+    if (!userId) return;
+    tg.sendData(JSON.stringify({ action: 'get_balance' }));
+}
+
+// Обработчик ответа
+tg.onEvent('web_app_data', function(data) {
+    try {
+        const response = JSON.parse(data);
+        if (response.balance !== undefined) {
+            balance = response.balance;
+            if (balanceSpan) balanceSpan.innerText = balance;
+        }
+    } catch (e) {
+        console.log('Ошибка баланса:', e);
+    }
+});
+
+// Запрос при старте и по таймеру
+if (userId) {
+    fetchBalance();
+    setInterval(fetchBalance, 15000);
+}
+
     // Web Audio
     let audioCtx = null;
     function initAudio() {
@@ -630,18 +655,6 @@
             total_profit: sessionProfit
         }));
         tg.close();
-    }
-
-    async function fetchBalance() {
-        if (!userId) return;
-        try {
-            const res = await fetch(`http://193.233.114.27:8080/balance/${userId}`);
-            const data = await res.json();
-            if (data.balance !== undefined && !gameActive) {
-                balance = data.balance;
-                balanceSpan.innerText = balance;
-            }
-        } catch (e) { console.log("Баланс обновляется локально"); }
     }
 
     // Обработчики событий
