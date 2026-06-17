@@ -439,7 +439,6 @@
     if (urlParams.has('userId')) userId = urlParams.get('userId');
     else if (tg.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
 
-    // DOM
     const betInput = document.getElementById('betAmount');
     const startBtn = document.getElementById('startBtn');
     const cashoutBtn = document.getElementById('cashoutBtn');
@@ -460,7 +459,7 @@
     let opened = [];
     let safeTotal = 0;
     let openedSafe = 0;
-    let balance = 10000;
+    let balance = 0;
 
     const multiplierMap = {
         1: [1.0, 1.08, 1.18, 1.30, 1.45, 1.62, 1.82, 2.05, 2.32, 2.62, 2.95, 3.32, 3.72, 4.15, 4.62, 5.12, 5.65, 6.22, 6.82, 7.45, 8.12, 8.82, 9.55, 10.32, 11.12],
@@ -475,7 +474,7 @@
         safeTotal = 25 - minesCount;
     }
 
-    // Звуки (Web Audio)
+    // Web Audio
     let audioCtx = null;
     function initAudio() {
         if (!audioCtx && window.AudioContext) {
@@ -506,7 +505,16 @@
     function soundClick() { playTone(500, 0.05, 0.05); }
     function soundError() { playTone(300, 0.3, 0.1, 'sawtooth'); }
 
-    // Генерация поля
+    function vibrate(style = 'light') {
+        if (tg.HapticFeedback) {
+            if (style === 'light') tg.HapticFeedback.impactOccurred('light');
+            else if (style === 'medium') tg.HapticFeedback.impactOccurred('medium');
+            else if (style === 'heavy') tg.HapticFeedback.impactOccurred('heavy');
+            else if (style === 'success') tg.HapticFeedback.notificationOccurred('success');
+            else if (style === 'error') tg.HapticFeedback.notificationOccurred('error');
+        }
+    }
+
     function generateField() {
         const total = 25;
         const minePositions = new Set();
@@ -525,7 +533,6 @@
         return Array(5).fill().map(() => Array(5).fill(false));
     }
 
-    // Обновление UI
     function updateUI() {
         for (let i = 0; i < 5; i++) {
             for (let j = 0; j < 5; j++) {
@@ -544,16 +551,13 @@
                 }
             }
         }
-        
         multiplierSpan.textContent = currentMultiplier.toFixed(2) + 'x';
         const winAmount = Math.floor(currentBet * currentMultiplier);
         currentWinSpan.textContent = winAmount;
-        
         multiplierSpan.classList.remove('bump');
         setTimeout(() => multiplierSpan.classList.add('bump'), 10);
         multiplierPanel.classList.remove('pulse');
         setTimeout(() => multiplierPanel.classList.add('pulse'), 10);
-
         if (gameActive && openedSafe > 0) {
             statusDiv.innerHTML = `<span style="color:var(--accent-green)">💎 Открыто ${openedSafe}/${safeTotal} | Выигрыш: ${winAmount}₽</span>`;
         }
@@ -567,7 +571,6 @@
                 cell.className = 'cell';
                 cell.setAttribute('data-row', i);
                 cell.setAttribute('data-col', j);
-                
                 if (opened[i][j]) {
                     if (field[i][j]) {
                         cell.classList.add('mine');
@@ -579,23 +582,30 @@
                 } else {
                     cell.innerHTML = '';
                 }
-                
+                // ---------- ИЗМЕНЁННЫЙ ОБРАБОТЧИК ----------
                 cell.addEventListener('click', () => {
                     if (!gameActive) return;
                     if (opened[i][j]) return;
                     if (field[i][j]) {
+                        // МИНА – списываем ставку
                         opened[i][j] = true;
                         soundMine();
                         updateUI();
                         gameActive = false;
                         sessionProfit -= currentBet;
+                        balance -= currentBet;
                         updateSessionUI();
                         statusDiv.innerHTML = `<span style="color:var(--accent-red)">💥 МИНА! ВЫ ПРОИГРАЛИ -${currentBet}₽</span>`;
                         startBtn.disabled = false;
                         cashoutBtn.disabled = true;
                         vibrate('error');
-                        
-                        // Открываем остальные мины тускло
+                        tg.sendData(JSON.stringify({
+                            action: "mines_result",
+                            bet: currentBet,
+                            win: 0,
+                            result: "lose"
+                        }));
+                        // открываем остальные мины
                         for(let r=0; r<5; r++) {
                             for(let c=0; c<5; c++) {
                                 if(field[r][c] && !opened[r][c]) {
@@ -607,6 +617,7 @@
                             }
                         }
                     } else {
+                        // БЕЗОПАСНО
                         opened[i][j] = true;
                         openedSafe++;
                         soundOpen();
@@ -617,8 +628,10 @@
                         updateUI();
                         vibrate('light');
                         if (openedSafe === safeTotal) {
+                            // ПОБЕДА – начисляем полный выигрыш
                             const winAmount = Math.floor(currentBet * currentMultiplier);
-                            sessionProfit += (winAmount - currentBet);
+                            sessionProfit += winAmount;
+                            balance += winAmount;
                             updateSessionUI();
                             statusDiv.innerHTML = `<span style="color:var(--accent-green)">🎉 ПОБЕДА! ВЫ ВЫИГРАЛИ ${winAmount}₽</span>`;
                             gameActive = false;
@@ -626,6 +639,12 @@
                             cashoutBtn.disabled = true;
                             soundWin();
                             vibrate('success');
+                            tg.sendData(JSON.stringify({
+                                action: "mines_result",
+                                bet: currentBet,
+                                win: winAmount,
+                                result: "win"
+                            }));
                             for (let r=0; r<5; r++) for (let c=0; c<5; c++) if (!opened[r][c]) opened[r][c] = true;
                             updateUI();
                         }
@@ -651,6 +670,7 @@
         statusDiv.innerHTML = `Сделайте ставку и выберите количество мин`;
     }
 
+    // ---------- ИЗМЕНЁННЫЕ ФУНКЦИИ ----------
     function startGame() {
         let amount = parseInt(betInput.value);
         if (isNaN(amount)) amount = 1000;
@@ -664,9 +684,7 @@
         soundClick();
         currentBet = amount;
         betInput.value = currentBet;
-        balance -= currentBet;
-        sessionProfit -= currentBet;
-        updateSessionUI();
+        // ⚠️ Ставка НЕ списывается
 
         field = generateField();
         opened = initOpened();
@@ -684,8 +702,7 @@
     function cashout() {
         if (!gameActive) return;
         const winAmount = Math.floor(currentBet * currentMultiplier);
-        const profit = winAmount - currentBet;
-        sessionProfit += profit;
+        sessionProfit += winAmount;
         balance += winAmount;
         updateSessionUI();
         statusDiv.innerHTML = `<span style="color:var(--accent-orange)">💰 ВЫ ЗАБРАЛИ ${winAmount}₽</span>`;
@@ -696,6 +713,12 @@
         cashoutBtn.disabled = true;
         for (let i=0; i<5; i++) for (let j=0; j<5; j++) opened[i][j] = true;
         updateUI();
+        tg.sendData(JSON.stringify({
+            action: "mines_result",
+            bet: currentBet,
+            win: winAmount,
+            result: "win"
+        }));
     }
 
     function exitAndCollect() {
@@ -712,16 +735,7 @@
         sessionSpan.style.color = sessionProfit >= 0 ? 'var(--accent-green)' : 'var(--accent-red)';
     }
 
-    function vibrate(style = 'light') {
-        if (tg.HapticFeedback) {
-            if (style === 'light') tg.HapticFeedback.impactOccurred('light');
-            else if (style === 'medium') tg.HapticFeedback.impactOccurred('medium');
-            else if (style === 'heavy') tg.HapticFeedback.impactOccurred('heavy');
-            else if (style === 'success') tg.HapticFeedback.notificationOccurred('success');
-            else if (style === 'error') tg.HapticFeedback.notificationOccurred('error');
-        }
-    }
-
+    // Выбор мин
     document.querySelectorAll('.mine-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             if (gameActive) return;
@@ -734,6 +748,7 @@
         });
     });
 
+    // Подгрузка баланса с бота
     async function fetchBalance() {
         if (!userId) return;
         try {
