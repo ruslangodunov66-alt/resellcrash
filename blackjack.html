@@ -95,7 +95,7 @@
         }
 
         .info-card span {
-            color: var(--accent-blue);
+            color: var(--text-main);
             font-size: 16px;
             font-weight: 800;
         }
@@ -139,7 +139,7 @@
         .cards {
             display: flex;
             justify-content: center;
-            gap: -20px; /* Overlap effect */
+            gap: -20px;
             flex-wrap: wrap;
             flex: 1;
             align-items: center;
@@ -358,7 +358,6 @@
     if (urlParams.has('userId')) userId = urlParams.get('userId');
     else if (tg.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
 
-    // DOM
     const betInput = document.getElementById('betAmount');
     const startBtn = document.getElementById('startBtn');
     const hitBtn = document.getElementById('hitBtn');
@@ -376,31 +375,36 @@
     let deck = [], playerHand = [], dealerHand = [];
     let gameActive = false;
     let canDouble = true;
-    let balance = 10000;       
-    let sessionProfit = 0; // Для финальной отправки, если требуется боту
+    let balance = 0; // будет загружено с сервера
+    let sessionProfit = 0;
 
-    // ==========================================
-    // ВАЖНО: АНТИ-АБУЗ СИСТЕМА (Синхронизация)
-    // ==========================================
-    // Эти функции отправляют запросы к твоему боту/серверу СРАЗУ, не дожидаясь закрытия WebApp.
-    async function syncBalanceAPI(amountChange, reason) {
-        if (!userId) return;
-        try {
-            // Пример: POST запрос на твой сервер. 
-            // Тебе нужно реализовать этот эндпоинт на бэкенде.
-            await fetch('/api/update_balance', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    userId: userId,
-                    change: amountChange,
-                    reason: reason // 'bet', 'win', 'tie'
-                })
-            });
-        } catch (e) {
-            console.error("Ошибка синхронизации баланса", e);
+    // Web Audio
+    let audioCtx = null;
+    function initAudio() {
+        if (!audioCtx && window.AudioContext) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            document.body.addEventListener('touchstart', () => audioCtx?.resume(), { once: true });
+            document.body.addEventListener('click', () => audioCtx?.resume(), { once: true });
         }
     }
+    function playTone(freq, duration, vol = 0.08, type = 'sine') {
+        if (!audioCtx) return;
+        try {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type;
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + duration);
+        } catch(e) {}
+    }
+    function soundClick() { playTone(500, 0.05, 0.05); }
+    function soundWin() { playTone(880, 0.15, 0.1); playTone(1100, 0.15, 0.1); playTone(1320, 0.2, 0.1); }
+    function soundLose() { playTone(200, 0.4, 0.15, 'sawtooth'); playTone(120, 0.5, 0.1); }
 
     function vibrate(style = 'light') {
         if (tg.HapticFeedback) {
@@ -471,28 +475,78 @@
         balanceSpan.innerText = balance;
     }
 
+    // ---------- ИЗМЕНЁННЫЕ ФУНКЦИИ ----------
+    function startGame() {
+        let amount = parseInt(betInput.value);
+        if (isNaN(amount)) amount = 1000;
+        amount = Math.min(100000, Math.max(100, amount));
+
+        if (balance < amount) {
+            statusDiv.innerHTML = `<span style="color:var(--accent-red)">❌ Недостаточно средств!</span>`;
+            vibrate('error');
+            return;
+        }
+
+        vibrate('medium');
+        currentBet = amount;
+        betInput.value = currentBet;
+
+        // ⚠️ Ставка НЕ списывается сейчас
+
+        deck = createDeck();
+        playerHand = [deck.pop(), deck.pop()];
+        dealerHand = [deck.pop(), deck.pop()];
+
+        gameActive = true;
+        canDouble = true;
+
+        hitBtn.disabled = false;
+        standBtn.disabled = false;
+        doubleBtn.disabled = false;
+        startBtn.disabled = true;
+        betInput.disabled = true;
+
+        updateUI();
+        statusDiv.innerHTML = `<span style="color:var(--accent-blue)">🎲 ВАШ ХОД | Ставка ${currentBet}₽</span>`;
+
+        if (handTotal(playerHand) === 21) {
+            stand();
+        }
+    }
+
     function finishRound(result) {
         let profitChange = 0;
         if (result === 'win') {
             const winAmount = currentBet * 2;
-            profitChange = winAmount - currentBet;
-            balance += winAmount; // Возвращаем ставку + выигрыш
+            profitChange = winAmount;
+            balance += winAmount;
             sessionProfit += profitChange;
             statusDiv.innerHTML = `<span style="color:var(--accent-green)">🎉 ПОБЕДА! +${winAmount}₽</span>`;
             vibrate('success');
-            syncBalanceAPI(winAmount, 'win'); // НАЧИСЛЯЕМ ВЫИГРЫШ НА СЕРВЕР
+            soundWin();
+            tg.sendData(JSON.stringify({
+                action: "blackjack_win",
+                bet: currentBet,
+                win: winAmount
+            }));
         } else if (result === 'lose') {
             profitChange = -currentBet;
             sessionProfit += profitChange;
-            // Баланс уже был списан при старте, отнимать не нужно
+            balance += profitChange;
             statusDiv.innerHTML = `<span style="color:var(--accent-red)">💥 ПРОИГРЫШ! -${currentBet}₽</span>`;
             vibrate('error');
-            // Сервер уже знает о списании (было при bet)
+            soundLose();
+            tg.sendData(JSON.stringify({
+                action: "blackjack_lose",
+                bet: currentBet
+            }));
         } else if (result === 'tie') {
-            balance += currentBet; // Возврат ставки
-            statusDiv.innerHTML = `<span style="color:var(--accent-orange)">🤝 НИЧЬЯ! Возврат ${currentBet}₽</span>`;
+            statusDiv.innerHTML = `<span style="color:var(--accent-orange)">🤝 НИЧЬЯ! Ставка возвращена</span>`;
             vibrate('medium');
-            syncBalanceAPI(currentBet, 'tie'); // ВОЗВРАЩАЕМ СТАВКУ НА СЕРВЕР
+            tg.sendData(JSON.stringify({
+                action: "blackjack_push",
+                bet: currentBet
+            }));
         }
 
         updateUI();
@@ -504,35 +558,38 @@
         betInput.disabled = false;
     }
 
-    async function dealerTurn() {
-        while (handTotal(dealerHand) < 17) {
-            dealerHand.push(deck.pop());
-            updateUI();
-            vibrate('light');
-            await new Promise(r => setTimeout(r, 400));
+    function doubleBet() {
+        if (!gameActive || !canDouble) return;
+        if (balance < currentBet) {
+            statusDiv.innerHTML = `<span style="color:var(--accent-red)">❌ Недостаточно средств для удвоения</span>`;
+            vibrate('error');
+            return;
         }
-        
-        const playerVal = handTotal(playerHand);
-        const dealerVal = handTotal(dealerHand);
-        
-        if (dealerVal > 21 || playerVal > dealerVal) {
-            finishRound('win');
-        } else if (playerVal === dealerVal) {
-            finishRound('tie');
-        } else {
+
+        vibrate('heavy');
+        // ⚠️ Ставка НЕ списывается сейчас
+
+        canDouble = false;
+        currentBet *= 2;
+
+        playerHand.push(deck.pop());
+        updateUI();
+
+        if (handTotal(playerHand) > 21) {
             finishRound('lose');
+        } else {
+            stand();
         }
     }
 
+    // Остальные функции (hit, stand, dealerTurn, exitAndCollect) без изменений
     function hit() {
         if (!gameActive) return;
         vibrate('light');
         canDouble = false;
         doubleBtn.disabled = true;
-        
         playerHand.push(deck.pop());
         updateUI();
-        
         if (handTotal(playerHand) > 21) {
             finishRound('lose');
         }
@@ -548,81 +605,34 @@
         dealerTurn();
     }
 
-    function doubleBet() {
-        if (!gameActive || !canDouble) return;
-        if (balance < currentBet) { // Проверяем, хватает ли еще на одну такую же ставку
-            statusDiv.innerHTML = `<span style="color:var(--accent-red)">❌ Недостаточно средств для удвоения</span>`;
-            vibrate('error');
-            return;
+    async function dealerTurn() {
+        while (handTotal(dealerHand) < 17) {
+            dealerHand.push(deck.pop());
+            updateUI();
+            vibrate('light');
+            await new Promise(r => setTimeout(r, 400));
         }
-        
-        vibrate('heavy');
-        balance -= currentBet; // Списываем вторую часть локально
-        syncBalanceAPI(-currentBet, 'double'); // СПИСЫВАЕМ С БАЗЫ ВТОРУЮ ЧАСТЬ
-        
-        currentBet *= 2;
-        canDouble = false;
-        
-        playerHand.push(deck.pop());
-        updateUI();
-        
-        if (handTotal(playerHand) > 21) {
-            finishRound('lose');
+        const playerVal = handTotal(playerHand);
+        const dealerVal = handTotal(dealerHand);
+        if (dealerVal > 21 || playerVal > dealerVal) {
+            finishRound('win');
+        } else if (playerVal === dealerVal) {
+            finishRound('tie');
         } else {
-            stand();
+            finishRound('lose');
         }
     }
 
-    function startGame() {
-        let amount = parseInt(betInput.value);
-        if (isNaN(amount)) amount = 1000;
-        amount = Math.min(100000, Math.max(100, amount));
-        
-        if (balance < amount) {
-            statusDiv.innerHTML = `<span style="color:var(--accent-red)">❌ Недостаточно средств!</span>`;
-            vibrate('error');
-            return;
-        }
-        
-        vibrate('medium');
-        currentBet = amount;
-        betInput.value = currentBet;
-        
-        // ВАЖНО: Моментальное списание баланса
-        balance -= currentBet; 
-        syncBalanceAPI(-currentBet, 'bet'); 
-        
-        deck = createDeck();
-        playerHand = [deck.pop(), deck.pop()];
-        dealerHand = [deck.pop(), deck.pop()];
-        
-        gameActive = true;
-        canDouble = true;
-        
-        hitBtn.disabled = false;
-        standBtn.disabled = false;
-        doubleBtn.disabled = false;
-        startBtn.disabled = true;
-        betInput.disabled = true;
-        
-        updateUI();
-        statusDiv.innerHTML = `<span style="color:var(--accent-blue)">🎲 ВАШ ХОД | Ставка ${currentBet}₽</span>`;
-        
-        if (handTotal(playerHand) === 21) {
-            stand();
-        }
-    }
-
-    // Сохранение старой логики для бота, если он ожидает total_profit
     function exitAndCollect() {
         if (!tg.sendData) return;
         tg.sendData(JSON.stringify({
-            action: "casino_session", // переименовал для универсальности, либо оставь crash_session
-            total_profit: sessionProfit 
+            action: "casino_session",
+            total_profit: sessionProfit
         }));
         tg.close();
     }
 
+    // Подгрузка баланса с бота
     async function fetchBalance() {
         if (!userId) return;
         try {
@@ -635,6 +645,7 @@
         } catch (e) { console.log("Баланс обновляется локально"); }
     }
 
+    // Обработчики событий
     startBtn.onclick = startGame;
     hitBtn.onclick = hit;
     standBtn.onclick = stand;
