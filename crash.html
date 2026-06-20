@@ -382,7 +382,7 @@
 <div class="game-container">
     <div class="header">
         <div class="brand">R-<span>GAME</span></div>
-        <div class="info-card">Сессия <span id="sessionBank" style="color: var(--accent-green);">0₽</span></div>
+        <div class="info-card">Баланс: <span id="balanceDisplay" style="color: var(--accent-green);">0₽</span></div>
     </div>
 
     <div class="rocket-area">
@@ -416,7 +416,7 @@
         </div>
     </div>
 
-    <button id="exitButton" class="btn-exit">ВЫЙТИ И СОХРАНИТЬ</button>
+    <button id="exitButton" class="btn-exit">ВЫЙТИ</button>
 
     <div class="history">
         <div class="history-title">📡 История крайних полетов</div>
@@ -449,9 +449,31 @@
         const bestSpan = document.getElementById('bestMultiplier');
         const autoTargetInput = document.getElementById('autoTarget');
         const lastGameResultSpan = document.getElementById('lastGameResult');
-        const sessionBankSpan = document.getElementById('sessionBank');
+        const balanceSpan = document.getElementById('balanceDisplay');
         const canvas = document.getElementById('crashCanvas');
         const ctx = canvas.getContext('2d');
+
+        // === БАЛАНС КАЗИНО ===
+        function fetchBalance() {
+            if (!userId) return;
+            tg.sendData(JSON.stringify({ action: 'get_balance' }));
+        }
+
+        tg.onEvent('web_app_data', function(data) {
+            try {
+                const response = JSON.parse(data);
+                if (response.balance !== undefined) {
+                    balanceSpan.innerText = response.balance.toLocaleString() + ' ₽';
+                }
+            } catch (e) {
+                console.log('Ошибка баланса:', e);
+            }
+        });
+
+        if (userId) {
+            fetchBalance();
+            setInterval(fetchBalance, 15000);
+        }
 
         // Настройки игры
         let autoTarget = 2.0;
@@ -464,7 +486,7 @@
         let bestMulti = parseFloat(localStorage.getItem('crash_best_rg')) || 1.0;
         bestSpan.innerText = `🏆 РЕКОРД: ${bestMulti.toFixed(2)}x`;
 
-        // Переменные состояния сессии
+        // Переменные состояния сессии (только для отображения, не для отправки)
         let sessionProfit = 0;
         let currentBet = 0;
         let hasBet = false;
@@ -817,7 +839,7 @@
             }
 
             lastGameResultSpan.innerHTML = resText;
-            updateSessionUI();
+            // updateSessionUI(); // больше не нужно, баланс обновляется через fetchBalance
 
             hasBet = false;
             startBtn.disabled = false;
@@ -928,18 +950,8 @@
             return 12.0 + Math.random() * 40.0; // Высокие полеты
         }
 
-        function updateSessionUI() {
-            sessionBankSpan.textContent = (sessionProfit >= 0 ? `+${sessionProfit}` : `${sessionProfit}`) + "₽";
-            sessionBankSpan.style.color = sessionProfit >= 0 ? 'var(--accent-green)' : 'var(--accent-red)';
-        }
-
         function exitAndCollect() {
             soundClick();
-            if (!tg.sendData) return;
-            tg.sendData(JSON.stringify({
-                action: "crash_session",
-                total_profit: sessionProfit
-            }));
             tg.close();
         }
 
