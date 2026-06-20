@@ -302,7 +302,7 @@
 <div class="game-container">
     <div class="header">
         <div class="brand">R-<span>ROULETTE</span></div>
-        <div class="info-card">Сессия <span id="sessionBank">0₽</span></div>
+        <div class="info-card">Баланс: <span id="balanceDisplay">0₽</span></div>
     </div>
 
     <!-- Дисплей колеса рулетки -->
@@ -333,7 +333,7 @@
         </div>
     </div>
 
-    <button class="btn-exit" id="exitBtn" onclick="exitGame()">ВЫЙТИ И СОХРАНИТЬ</button>
+    <button class="btn-exit" id="exitBtn" onclick="exitGame()">ВЫЙТИ</button>
 </div>
 
 <script>
@@ -343,17 +343,23 @@
         tg.ready();
         if (tg.HapticFeedback) tg.enableClosingConfirmation();
 
+        let userId = null;
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('userId')) userId = urlParams.get('userId');
+        else if (tg.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
+
         // Переменные состояния
         let currentBet = 1000;
-        let sessionProfit = 0;
+        let sessionProfit = 0; // только для внутренней статистики
         let isSpinning = false;
+        let balance = 0;
 
         // DOM элементы
         const betInput = document.getElementById('betInput');
         const numberInput = document.getElementById('numberInput');
         const wheelNode = document.getElementById('wheelNode');
         const statusPanel = document.getElementById('statusPanel');
-        const sessionBank = document.getElementById('sessionBank');
+        const balanceSpan = document.getElementById('balanceDisplay');
         
         // Кнопки для блокировки во время анимации
         const actionButtons = [
@@ -363,6 +369,29 @@
             document.getElementById('btnNum'),
             document.getElementById('exitBtn')
         ];
+
+        // === БАЛАНС КАЗИНО ===
+        function fetchBalance() {
+            if (!userId) return;
+            tg.sendData(JSON.stringify({ action: 'get_balance' }));
+        }
+
+        tg.onEvent('web_app_data', function(data) {
+            try {
+                const response = JSON.parse(data);
+                if (response.balance !== undefined) {
+                    balance = response.balance;
+                    balanceSpan.innerText = balance.toLocaleString() + ' ₽';
+                }
+            } catch (e) {
+                console.log('Ошибка баланса:', e);
+            }
+        });
+
+        if (userId) {
+            fetchBalance();
+            setInterval(fetchBalance, 15000);
+        }
 
         // Web Audio API Звуковой движок
         let audioCtx = null;
@@ -409,18 +438,10 @@
             else if (style === 'error') tg.HapticFeedback.notificationOccurred('error');
         }
 
-        // Синхронизация UI банка
-        function updateSessionUI() {
-            sessionBank.textContent = (sessionProfit >= 0 ? `+${sessionProfit}` : `${sessionProfit}`) + "₽";
-            if (sessionProfit > 0) sessionBank.style.color = 'var(--accent-green)';
-            else if (sessionProfit < 0) sessionBank.style.color = 'var(--accent-red)';
-            else sessionBank.style.color = 'var(--text-main)';
-        }
-
-        // Вспомогательная функция определения цвета ячейки по правилам исходного файла[cite: 5]
+        // Вспомогательная функция определения цвета ячейки по правилам исходного файла
         function getColorByNumber(num) {
-            if (num === 0) return 'зеленый';[cite: 5]
-            return (num % 2 === 0) ? 'черный' : 'красный';[cite: 5]
+            if (num === 0) return 'зеленый';
+            return (num % 2 === 0) ? 'черный' : 'красный';
         }
 
         function applyCellColorClass(element, colorStr) {
@@ -434,8 +455,8 @@
         // Валидация ввода ставки
         betInput.addEventListener('change', () => {
             let v = parseInt(betInput.value);
-            if (isNaN(v) || v < 100) v = 100;[cite: 5]
-            if (v > 50000) v = 50000;[cite: 5]
+            if (isNaN(v) || v < 100) v = 100;
+            if (v > 50000) v = 50000;
             currentBet = v;
             betInput.value = currentBet;
         });
@@ -446,20 +467,20 @@
             initAudio();
             soundClick();
 
-            // Проверка лимитов ставки[cite: 5]
+            // Проверка лимитов ставки
             let v = parseInt(betInput.value);
-            if (isNaN(v) || v < 100) {[cite: 5]
-                statusPanel.innerHTML = '<span style="color:var(--accent-red)">❌ Минимальная ставка 100₽</span>';[cite: 5]
+            if (isNaN(v) || v < 100) {
+                statusPanel.innerHTML = '<span style="color:var(--accent-red)">❌ Минимальная ставка 100₽</span>';
                 return;
             }
-            currentBet = Math.min(50000, Math.max(100, v));[cite: 5]
+            currentBet = Math.min(50000, Math.max(100, v));
             betInput.value = currentBet;
 
             let targetNumberValue = null;
             if (type === 'number') {
                 targetNumberValue = parseInt(numberInput.value);
-                if (isNaN(targetNumberValue) || targetNumberValue < 0 || targetNumberValue > 36) {[cite: 5]
-                    statusPanel.innerHTML = '<span style="color:var(--accent-red)">❌ Введите число от 0 до 36</span>';[cite: 5]
+                if (isNaN(targetNumberValue) || targetNumberValue < 0 || targetNumberValue > 36) {
+                    statusPanel.innerHTML = '<span style="color:var(--accent-red)">❌ Введите число от 0 до 36</span>';
                     return;
                 }
             }
@@ -470,12 +491,12 @@
             betInput.disabled = true;
             numberInput.disabled = true;
 
-            statusPanel.innerHTML = '⏳ КРУТИМ РУЛЕТКУ...';[cite: 5]
+            statusPanel.innerHTML = '⏳ КРУТИМ РУЛЕТКУ...';
             wheelNode.classList.add('spinning');
 
-            // Генерация исхода[cite: 5]
-            const finalNum = Math.floor(Math.random() * 37);[cite: 5]
-            const finalColor = getColorByNumber(finalNum);[cite: 5]
+            // Генерация исхода
+            const finalNum = Math.floor(Math.random() * 37);
+            const finalColor = getColorByNumber(finalNum);
 
             // Симуляция вращения (цифровой шаффл)
             let duration = 2000; 
@@ -530,35 +551,33 @@
                 applyCellColorClass(wheelNode, finalColor);
                 soundStop();
 
-                // Расчёт выигрыша по оригинальной структуре условий[cite: 5]
+                // Расчёт выигрыша
                 let isWin = false;
                 let multiplier = 0;
 
-                if (type === 'red' && finalColor === 'красный') { isWin = true; multiplier = 2; }[cite: 5]
-                else if (type === 'black' && finalColor === 'черный') { isWin = true; multiplier = 2; }[cite: 5]
-                else if (type === 'green' && finalColor === 'зеленый') { isWin = true; multiplier = 14; }[cite: 5]
-                else if (type === 'number' && targetNumberValue === finalNum) { isWin = true; multiplier = 35; }[cite: 5]
+                if (type === 'red' && finalColor === 'красный') { isWin = true; multiplier = 2; }
+                else if (type === 'black' && finalColor === 'черный') { isWin = true; multiplier = 2; }
+                else if (type === 'green' && finalColor === 'зеленый') { isWin = true; multiplier = 14; }
+                else if (type === 'number' && targetNumberValue === finalNum) { isWin = true; multiplier = 35; }
 
                 if (isWin) {
-                    const winAmount = currentBet * multiplier;[cite: 5]
+                    const winAmount = currentBet * multiplier;
                     sessionProfit += (winAmount - currentBet);
-                    statusPanel.innerHTML = `<span class="win-glow">🎉 ВЫИГРЫШ! +${winAmount}₽</span><br><span style="font-size:12px">Выпало: ${finalNum} (${finalColor})</span>`;[cite: 5]
+                    statusPanel.innerHTML = `<span class="win-glow">🎉 ВЫИГРЫШ! +${winAmount}₽</span><br><span style="font-size:12px">Выпало: ${finalNum} (${finalColor})</span>`;
                     soundWin();
                     triggerHaptic('success');
-                    
-                    // Отправка данных на бэкенд Telegram[cite: 5]
-                    tg.sendData(JSON.stringify({ action: 'win', game: 'roulette', win: winAmount, bet: currentBet }));[cite: 5]
+                    // Баланс обновится на сервере, запрашиваем новый
+                    fetchBalance();
+                    tg.sendData(JSON.stringify({ action: 'win', game: 'roulette', win: winAmount, bet: currentBet }));
                 } else {
                     sessionProfit -= currentBet;
-                    statusPanel.innerHTML = `<span style="color:var(--accent-red)">❌ ПРОИГРЫШ! -${currentBet}₽</span><br><span style="font-size:12px">Выпало: ${finalNum} (${finalColor})</span>`;[cite: 5]
+                    statusPanel.innerHTML = `<span style="color:var(--accent-red)">❌ ПРОИГРЫШ! -${currentBet}₽</span><br><span style="font-size:12px">Выпало: ${finalNum} (${finalColor})</span>`;
                     soundLose();
                     triggerHaptic('error');
-                    
-                    // Отправка данных на бэкенд Telegram[cite: 5]
-                    tg.sendData(JSON.stringify({ action: 'lose', game: 'roulette', bet: currentBet }));[cite: 5]
+                    // Баланс обновится на сервере, запрашиваем новый
+                    fetchBalance();
+                    tg.sendData(JSON.stringify({ action: 'lose', game: 'roulette', bet: currentBet }));
                 }
-
-                updateSessionUI();
 
                 // Разблокировка интерфейса
                 isSpinning = false;
@@ -570,15 +589,11 @@
 
         window.exitGame = function() {
             soundClick();
-            if (tg.sendData) {
-                // Дополнительный пакет данных закрытия сессии при необходимости
-                tg.sendData(JSON.stringify({ action: 'roulette_session_close', total_profit: sessionProfit }));
-            }
             tg.close();
         };
 
         // Стартовая инициализация
-        updateSessionUI();
+        if (userId) fetchBalance();
     })();
 </script>
 </body>
