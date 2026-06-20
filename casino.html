@@ -420,13 +420,8 @@
         const depositBtn = document.getElementById('depositBtn');
         const withdrawBtn = document.getElementById('withdrawBtn');
 
-        // ===== БАЛАНС ИЗ URL/LOCALSTORAGE =====
+        // ===== БАЛАНС ТОЛЬКО ИЗ localStorage =====
         let casinoBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
-        const balanceFromUrl = parseInt(urlParams.get('balance'));
-        if (!isNaN(balanceFromUrl) && balanceFromUrl >= 0) {
-            casinoBalance = balanceFromUrl;
-            localStorage.setItem('casinoBalance', String(casinoBalance));
-        }
         balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
 
         // ===== ПОПОЛНЕНИЕ =====
@@ -451,9 +446,30 @@
             }
         };
 
+        // ===== ОБРАБОТЧИК ОТВЕТОВ ОТ БОТА =====
+        tg.onEvent('web_app_data', function(data) {
+            try {
+                const response = JSON.parse(data);
+                if (response.action === 'deposit_success' || response.action === 'withdraw_success') {
+                    if (response.new_balance !== undefined) {
+                        casinoBalance = response.new_balance;
+                        localStorage.setItem('casinoBalance', String(casinoBalance));
+                        balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
+                        if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+                        alert('✅ Операция выполнена!\nНовый баланс: ' + response.new_balance.toLocaleString() + ' ₽');
+                    }
+                } else if (response.action === 'error') {
+                    alert('❌ Ошибка: ' + response.message);
+                }
+            } catch (e) {
+                console.log('Ошибка обработки ответа:', e);
+            }
+        });
+
         // ===== ПЕРЕХОД В ИГРЫ =====
         function goToGame(game) {
             if (!userId) return;
+            // При переходе в игру баланс уже сохранён в localStorage
             if (game === 'crash') window.location.href = URL_CRASH + '?userId=' + userId;
             else if (game === 'blackjack') window.location.href = URL_BLACKJACK + '?userId=' + userId;
             else if (game === 'mines') window.location.href = URL_MINES + '?userId=' + userId;
