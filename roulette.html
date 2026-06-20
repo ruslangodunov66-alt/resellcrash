@@ -98,7 +98,6 @@
             margin-left: 6px;
         }
 
-        /* Экран цифровой рулетки */
         .roulette-display-box {
             background: #060b13;
             border-radius: 24px;
@@ -136,7 +135,6 @@
             transform: scale(0.95);
         }
 
-        /* Цветовые схемы для ячейки */
         .bg-red { background-color: var(--accent-red) !important; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
         .bg-black { background-color: var(--accent-black) !important; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
         .bg-green { background-color: var(--accent-green) !important; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
@@ -166,7 +164,6 @@
             from { transform: scale(1); } to { transform: scale(1.03); }
         }
 
-        /* Управление ставками */
         .controls-card {
             background: var(--panel-bg);
             border-radius: 24px;
@@ -220,7 +217,6 @@
             box-shadow: 0 0 12px rgba(24, 130, 255, 0.2);
         }
 
-        /* Кнопки ставок на цвета */
         .color-buttons-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -262,7 +258,6 @@
         .btn-black { background: linear-gradient(135deg, #37475f, #1e293b); border: 1px solid rgba(255,255,255,0.05); }
         .btn-green { background: linear-gradient(135deg, #2ecc71, var(--accent-green)); grid-column: span 2; height: 44px; }
 
-        /* Ставка на число */
         .number-bet-row {
             display: flex;
             gap: 10px;
@@ -305,13 +300,11 @@
         <div class="info-card">Баланс: <span id="balanceDisplay">0₽</span></div>
     </div>
 
-    <!-- Дисплей колеса рулетки -->
     <div class="roulette-display-box">
         <div class="wheel-node bg-empty" id="wheelNode">?</div>
         <div class="status-panel" id="statusPanel">Введите сумму ставки и выберите исход</div>
     </div>
 
-    <!-- Контроллеры -->
     <div class="controls-card">
         <div class="input-label">Сумма ставки (от 100₽ до 50000₽):</div>
         <div class="bet-input-wrapper">
@@ -352,7 +345,6 @@
         let currentBet = 1000;
         let sessionProfit = 0; // только для внутренней статистики
         let isSpinning = false;
-        let balance = 0;
 
         // DOM элементы
         const betInput = document.getElementById('betInput');
@@ -370,27 +362,14 @@
             document.getElementById('exitBtn')
         ];
 
-        // === БАЛАНС КАЗИНО ===
-        function fetchBalance() {
-            if (!userId) return;
-            tg.sendData(JSON.stringify({ action: 'get_balance' }));
-        }
+        // ===== БАЛАНС ИЗ localStorage =====
+        let casinoBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+        balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
 
-        tg.onEvent('web_app_data', function(data) {
-            try {
-                const response = JSON.parse(data);
-                if (response.balance !== undefined) {
-                    balance = response.balance;
-                    balanceSpan.innerText = balance.toLocaleString() + ' ₽';
-                }
-            } catch (e) {
-                console.log('Ошибка баланса:', e);
-            }
-        });
-
-        if (userId) {
-            fetchBalance();
-            setInterval(fetchBalance, 15000);
+        function updateBalanceDisplay(newBalance) {
+            casinoBalance = newBalance;
+            localStorage.setItem('casinoBalance', String(casinoBalance));
+            balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
         }
 
         // Web Audio API Звуковой движок
@@ -438,7 +417,6 @@
             else if (style === 'error') tg.HapticFeedback.notificationOccurred('error');
         }
 
-        // Вспомогательная функция определения цвета ячейки по правилам исходного файла
         function getColorByNumber(num) {
             if (num === 0) return 'зеленый';
             return (num % 2 === 0) ? 'черный' : 'красный';
@@ -452,7 +430,6 @@
             else element.classList.add('bg-empty');
         }
 
-        // Валидация ввода ставки
         betInput.addEventListener('change', () => {
             let v = parseInt(betInput.value);
             if (isNaN(v) || v < 100) v = 100;
@@ -467,7 +444,6 @@
             initAudio();
             soundClick();
 
-            // Проверка лимитов ставки
             let v = parseInt(betInput.value);
             if (isNaN(v) || v < 100) {
                 statusPanel.innerHTML = '<span style="color:var(--accent-red)">❌ Минимальная ставка 100₽</span>';
@@ -475,6 +451,12 @@
             }
             currentBet = Math.min(50000, Math.max(100, v));
             betInput.value = currentBet;
+
+            // Проверка баланса
+            if (casinoBalance < currentBet) {
+                statusPanel.innerHTML = `<span style="color:var(--accent-red)">❌ Недостаточно средств! Баланс: ${casinoBalance}₽</span>`;
+                return;
+            }
 
             let targetNumberValue = null;
             if (type === 'number') {
@@ -485,7 +467,6 @@
                 }
             }
 
-            // Блокировка интерфейса
             isSpinning = true;
             actionButtons.forEach(btn => btn.disabled = true);
             betInput.disabled = true;
@@ -494,33 +475,24 @@
             statusPanel.innerHTML = '⏳ КРУТИМ РУЛЕТКУ...';
             wheelNode.classList.add('spinning');
 
-            // Генерация исхода
             const finalNum = Math.floor(Math.random() * 37);
             const finalColor = getColorByNumber(finalNum);
 
-            // Симуляция вращения (цифровой шаффл)
             let duration = 2000; 
             let intervalTime = 50; 
             let elapsed = 0;
 
             const shuffleInterval = setInterval(() => {
                 elapsed += intervalTime;
-                
-                // Генерируем фейковые промежуточные значения для анимации
                 const fakeNum = Math.floor(Math.random() * 37);
                 const fakeColor = getColorByNumber(fakeNum);
-                
                 wheelNode.innerText = fakeNum;
                 applyCellColorClass(wheelNode, fakeColor);
-                
                 soundTick();
                 triggerHaptic('light');
-
-                // Плавное замедление колеса под конец
                 if (elapsed >= duration * 0.6 && intervalTime === 50) {
                     clearInterval(shuffleInterval);
                     intervalTime = 120;
-                    // Перезапуск с увеличенным интервалом
                     extendShuffle();
                 }
             }, intervalTime);
@@ -528,15 +500,12 @@
             function extendShuffle() {
                 const slowInterval = setInterval(() => {
                     elapsed += intervalTime;
-                    
                     const fakeNum = Math.floor(Math.random() * 37);
                     const fakeColor = getColorByNumber(fakeNum);
                     wheelNode.innerText = fakeNum;
                     applyCellColorClass(wheelNode, fakeColor);
-                    
                     soundTick();
                     triggerHaptic('medium');
-
                     if (elapsed >= duration) {
                         clearInterval(slowInterval);
                         renderFinalResult();
@@ -544,14 +513,12 @@
                 }, intervalTime);
             }
 
-            // Вывод финального результата
             function renderFinalResult() {
                 wheelNode.classList.remove('spinning');
                 wheelNode.innerText = finalNum;
                 applyCellColorClass(wheelNode, finalColor);
                 soundStop();
 
-                // Расчёт выигрыша
                 let isWin = false;
                 let multiplier = 0;
 
@@ -562,24 +529,19 @@
 
                 if (isWin) {
                     const winAmount = currentBet * multiplier;
-                    sessionProfit += (winAmount - currentBet);
+                    updateBalanceDisplay(casinoBalance + winAmount);
                     statusPanel.innerHTML = `<span class="win-glow">🎉 ВЫИГРЫШ! +${winAmount}₽</span><br><span style="font-size:12px">Выпало: ${finalNum} (${finalColor})</span>`;
                     soundWin();
                     triggerHaptic('success');
-                    // Баланс обновится на сервере, запрашиваем новый
-                    fetchBalance();
                     tg.sendData(JSON.stringify({ action: 'win', game: 'roulette', win: winAmount, bet: currentBet }));
                 } else {
-                    sessionProfit -= currentBet;
+                    updateBalanceDisplay(casinoBalance - currentBet);
                     statusPanel.innerHTML = `<span style="color:var(--accent-red)">❌ ПРОИГРЫШ! -${currentBet}₽</span><br><span style="font-size:12px">Выпало: ${finalNum} (${finalColor})</span>`;
                     soundLose();
                     triggerHaptic('error');
-                    // Баланс обновится на сервере, запрашиваем новый
-                    fetchBalance();
                     tg.sendData(JSON.stringify({ action: 'lose', game: 'roulette', bet: currentBet }));
                 }
 
-                // Разблокировка интерфейса
                 isSpinning = false;
                 actionButtons.forEach(btn => btn.disabled = false);
                 betInput.disabled = false;
@@ -591,9 +553,6 @@
             soundClick();
             tg.close();
         };
-
-        // Стартовая инициализация
-        if (userId) fetchBalance();
     })();
 </script>
 </body>

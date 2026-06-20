@@ -347,7 +347,6 @@
 <div class="game-container">
     <div class="header">
         <div class="brand">R-<span>GAME</span></div>
-        <!-- БЛОК БАЛАНСА -->
         <div class="info-card">Баланс: <span id="balanceDisplay">0</span> ₽</div>
     </div>
 
@@ -416,29 +415,15 @@
 
     let sessionProfit = 0; // только для внутренней статистики
     let isSpinning = false;
-    let balance = 0;
 
-    // === БАЛАНС КАЗИНО ===
-    function fetchBalance() {
-        if (!userId) return;
-        tg.sendData(JSON.stringify({ action: 'get_balance' }));
-    }
+    // ===== БАЛАНС ИЗ localStorage =====
+    let casinoBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+    balanceSpan.innerText = casinoBalance.toLocaleString();
 
-    tg.onEvent('web_app_data', function(data) {
-        try {
-            const response = JSON.parse(data);
-            if (response.balance !== undefined) {
-                balance = response.balance;
-                balanceSpan.innerText = balance.toLocaleString();
-            }
-        } catch (e) {
-            console.log('Ошибка баланса:', e);
-        }
-    });
-
-    if (userId) {
-        fetchBalance();
-        setInterval(fetchBalance, 15000);
+    function updateBalanceDisplay(newBalance) {
+        casinoBalance = newBalance;
+        localStorage.setItem('casinoBalance', String(casinoBalance));
+        balanceSpan.innerText = casinoBalance.toLocaleString();
     }
 
     // Web Audio
@@ -517,8 +502,8 @@
         if (bet > 100000) bet = 100000;
         betInput.value = bet;
 
-        if (balance < bet) {
-            statusMsg.innerText = `❌ Недостаточно средств! Баланс: ${balance}₽`;
+        if (casinoBalance < bet) {
+            statusMsg.innerText = `❌ Недостаточно средств! Баланс: ${casinoBalance}₽`;
             statusMsg.style.color = 'var(--accent-red)';
             vibrate('error');
             return;
@@ -546,17 +531,14 @@
 
     async function checkWin(results, bet) {
         let winAmount = 0;
-        let matchType = 0;
         const [s1, s2, s3] = results;
 
         if (s1 === s2 && s2 === s3) {
-            matchType = 3;
             let mult = multipliers[s1] || baseMultiplier;
             winAmount = bet * mult;
             reels.forEach(r => r.container.classList.add('winner'));
             payline.classList.add('active');
         } else if (s1 === s2 || s2 === s3 || s1 === s3) {
-            matchType = 2;
             winAmount = bet * pairMultiplier;
             if (s1 === s2) { reels[0].container.classList.add('winner'); reels[1].container.classList.add('winner'); }
             else if (s2 === s3) { reels[1].container.classList.add('winner'); reels[2].container.classList.add('winner'); }
@@ -564,9 +546,7 @@
         }
 
         if (winAmount > 0) {
-            sessionProfit += winAmount;
-            // balance обновляется на сервере, запрашиваем новый баланс
-            fetchBalance();
+            updateBalanceDisplay(casinoBalance + winAmount);
             statusMsg.style.display = 'none';
             winAmountDisplay.style.display = 'block';
             winAmountDisplay.innerText = `+${winAmount}₽`;
@@ -579,9 +559,7 @@
                 result: 'win'
             }));
         } else {
-            sessionProfit -= bet;
-            // balance обновляется на сервере, запрашиваем новый баланс
-            fetchBalance();
+            updateBalanceDisplay(casinoBalance - bet);
             statusMsg.innerText = `ПРОИГРЫШ`;
             statusMsg.style.color = 'var(--accent-red)';
             soundLose();
@@ -615,7 +593,7 @@
     exitBtn.addEventListener('click', exitAndCollect);
 
     // Инициализация
-    if (userId) fetchBalance();
+    // баланс уже показан
 </script>
 </body>
 </html>

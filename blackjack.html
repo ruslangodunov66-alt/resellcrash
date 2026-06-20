@@ -375,30 +375,16 @@
     let deck = [], playerHand = [], dealerHand = [];
     let gameActive = false;
     let canDouble = true;
-    let balance = 0;
     let sessionProfit = 0; // только для внутренней статистики
 
-    // === БАЛАНС КАЗИНО ===
-    function fetchBalance() {
-        if (!userId) return;
-        tg.sendData(JSON.stringify({ action: 'get_balance' }));
-    }
+    // ===== БАЛАНС ИЗ localStorage =====
+    let casinoBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+    balanceSpan.innerText = casinoBalance;
 
-    tg.onEvent('web_app_data', function(data) {
-        try {
-            const response = JSON.parse(data);
-            if (response.balance !== undefined) {
-                balance = response.balance;
-                balanceSpan.innerText = balance;
-            }
-        } catch (e) {
-            console.log('Ошибка баланса:', e);
-        }
-    });
-
-    if (userId) {
-        fetchBalance();
-        setInterval(fetchBalance, 15000);
+    function updateBalanceDisplay(newBalance) {
+        casinoBalance = newBalance;
+        localStorage.setItem('casinoBalance', String(casinoBalance));
+        balanceSpan.innerText = casinoBalance;
     }
 
     // Web Audio
@@ -495,7 +481,7 @@
             dealerHand.forEach(c => dealerCardsDiv.appendChild(renderCard(c)));
             dealerValueSpan.innerText = handTotal(dealerHand);
         }
-        balanceSpan.innerText = balance;
+        balanceSpan.innerText = casinoBalance;
     }
 
     function startGame() {
@@ -503,7 +489,7 @@
         if (isNaN(amount)) amount = 1000;
         amount = Math.min(100000, Math.max(100, amount));
 
-        if (balance < amount) {
+        if (casinoBalance < amount) {
             statusDiv.innerHTML = `<span style="color:var(--accent-red)">❌ Недостаточно средств!</span>`;
             vibrate('error');
             return;
@@ -535,12 +521,9 @@
     }
 
     function finishRound(result) {
-        let profitChange = 0;
         if (result === 'win') {
             const winAmount = currentBet * 2;
-            profitChange = winAmount;
-            // Баланс обновится на сервере, запрашиваем новый
-            fetchBalance();
+            updateBalanceDisplay(casinoBalance + winAmount);
             statusDiv.innerHTML = `<span style="color:var(--accent-green)">🎉 ПОБЕДА! +${winAmount}₽</span>`;
             vibrate('success');
             soundWin();
@@ -550,9 +533,7 @@
                 win: winAmount
             }));
         } else if (result === 'lose') {
-            profitChange = -currentBet;
-            // Баланс обновится на сервере, запрашиваем новый
-            fetchBalance();
+            updateBalanceDisplay(casinoBalance - currentBet);
             statusDiv.innerHTML = `<span style="color:var(--accent-red)">💥 ПРОИГРЫШ! -${currentBet}₽</span>`;
             vibrate('error');
             soundLose();
@@ -569,7 +550,6 @@
             }));
         }
 
-        // Обновляем UI и разблокируем
         updateUI();
         gameActive = false;
         hitBtn.disabled = true;
@@ -581,7 +561,7 @@
 
     function doubleBet() {
         if (!gameActive || !canDouble) return;
-        if (balance < currentBet) {
+        if (casinoBalance < currentBet) {
             statusDiv.innerHTML = `<span style="color:var(--accent-red)">❌ Недостаточно средств для удвоения</span>`;
             vibrate('error');
             return;
@@ -642,7 +622,6 @@
     }
 
     function exitAndCollect() {
-        if (!tg.sendData) return;
         tg.close();
     }
 
@@ -662,7 +641,6 @@
     });
 
     // Инициализация
-    if (userId) fetchBalance();
     updateUI();
 </script>
 </body>

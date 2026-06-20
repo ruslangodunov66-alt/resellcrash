@@ -453,15 +453,15 @@
     let currentBet = 1000;
     let minesCount = 5;
     let gameActive = false;
+    let sessionProfit = 0; // только для внутренней статистики
     let currentMultiplier = 1.0;
     let field = [];
     let opened = [];
     let safeTotal = 0;
     let openedSafe = 0;
-    let casinoBalance = 0;
 
     // ===== БАЛАНС ИЗ localStorage =====
-    casinoBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+    let casinoBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
     balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
 
     function updateBalanceDisplay(newBalance) {
@@ -595,18 +595,17 @@
                     if (!gameActive) return;
                     if (opened[i][j]) return;
                     if (field[i][j]) {
-                        // МИНА – проигрыш
+                        // МИНА – списываем ставку
                         opened[i][j] = true;
                         soundMine();
                         updateUI();
                         gameActive = false;
-                        // Обновляем баланс: списываем ставку
+                        // Обновляем баланс (проигрыш)
                         updateBalanceDisplay(casinoBalance - currentBet);
                         statusDiv.innerHTML = `<span style="color:var(--accent-red)">💥 МИНА! ВЫ ПРОИГРАЛИ -${currentBet}₽</span>`;
                         startBtn.disabled = false;
                         cashoutBtn.disabled = true;
                         vibrate('error');
-                        // Отправляем результат на сервер
                         tg.sendData(JSON.stringify({
                             action: "mines_result",
                             bet: currentBet,
@@ -636,7 +635,7 @@
                         updateUI();
                         vibrate('light');
                         if (openedSafe === safeTotal) {
-                            // ПОБЕДА – начисляем выигрыш
+                            // ПОБЕДА – начисляем полный выигрыш
                             const winAmount = Math.floor(currentBet * currentMultiplier);
                             updateBalanceDisplay(casinoBalance + winAmount);
                             statusDiv.innerHTML = `<span style="color:var(--accent-green)">🎉 ПОБЕДА! ВЫ ВЫИГРАЛИ ${winAmount}₽</span>`;
