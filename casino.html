@@ -132,12 +132,16 @@
             line-height: 1.2;
         }
 
-        .deposit-btn {
-            background: var(--accent-blue);
+        .action-buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        .action-btn {
             border: none;
+            border-radius: 50%;
             width: 36px;
             height: 36px;
-            border-radius: 50%;
             font-size: 20px;
             font-weight: 800;
             color: #fff;
@@ -146,12 +150,24 @@
             align-items: center;
             justify-content: center;
             transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            box-shadow: 0 4px 12px rgba(24, 130, 255, 0.3), inset 0 2px 4px rgba(255,255,255,0.2);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3), inset 0 2px 4px rgba(255,255,255,0.2);
         }
 
-        .deposit-btn:active {
+        .action-btn:active {
             transform: scale(0.85);
+        }
+
+        .action-btn.deposit {
+            background: var(--accent-blue);
+        }
+        .action-btn.deposit:active {
             background: var(--accent-blue-hover);
+        }
+        .action-btn.withdraw {
+            background: var(--accent-orange);
+        }
+        .action-btn.withdraw:active {
+            background: #b36b00;
         }
 
         /* Сетка игр */
@@ -327,7 +343,10 @@
                     <span class="balance-label">БАЛАНС</span>
                     <span class="balance-value" id="balanceDisplay">0 ₽</span>
                 </div>
-                <button class="deposit-btn" id="depositMockBtn">+</button>
+                <div class="action-buttons">
+                    <button class="action-btn deposit" id="depositBtn">+</button>
+                    <button class="action-btn withdraw" id="withdrawBtn">-</button>
+                </div>
             </div>
         </div>
 
@@ -396,44 +415,107 @@
         if (urlParams.has('userId')) userId = urlParams.get('userId');
         else if (tg.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
 
-        // ========== ДОБАВЛЕННЫЕ КОНСТАНТЫ С URL ИГР ==========
+        // ========== КОНСТАНТЫ URL ИГР ==========
         const URL_SLOTS = "https://ruslangodunov66-alt.github.io/resellcrash/slots.html";
         const URL_ROULETTE = "https://ruslangodunov66-alt.github.io/resellcrash/roulette.html";
         const URL_CRASH = "https://ruslangodunov66-alt.github.io/resellcrash/crash.html";
         const URL_MINES = "https://ruslangodunov66-alt.github.io/resellcrash/mines.html";
         const URL_BLACKJACK = "https://ruslangodunov66-alt.github.io/resellcrash/blackjack.html";
-        // ====================================================
+        // ========================================
 
         const balanceSpan = document.getElementById('balanceDisplay');
         const gameCards = document.querySelectorAll('.game-card');
         const navItems = document.querySelectorAll('.nav-item');
-        const depositBtn = document.getElementById('depositMockBtn');
+        const depositBtn = document.getElementById('depositBtn');
+        const withdrawBtn = document.getElementById('withdrawBtn');
 
-// === НОВАЯ ФУНКЦИЯ БАЛАНСА (через Telegram) ===
-function fetchBalance() {
-    if (!userId) return;
-    tg.sendData(JSON.stringify({ action: 'get_balance' }));
-}
-
-// Обработчик ответа от бота
-tg.onEvent('web_app_data', function(data) {
-    try {
-        const response = JSON.parse(data);
-        if (response.balance !== undefined) {
-            balanceSpan.innerText = response.balance.toLocaleString() + ' ₽';
+        // === БАЛАНС КАЗИНО ===
+        function fetchBalance() {
+            if (!userId) return;
+            tg.sendData(JSON.stringify({ action: 'get_balance' }));
         }
-    } catch (e) {
-        console.log('Ошибка парсинга баланса:', e);
-    }
-});
 
-// Запрашиваем баланс сразу и каждые 15 секунд
-if (userId) {
-    fetchBalance();
-    setInterval(fetchBalance, 15000);
-}
+        // Обработчик ответов от бота
+        tg.onEvent('web_app_data', function(data) {
+            try {
+                const response = JSON.parse(data);
+                if (response.balance !== undefined) {
+                    balanceSpan.innerText = response.balance.toLocaleString() + ' ₽';
+                } else if (response.action === 'deposit_success' || response.action === 'withdraw_success') {
+                    if (response.new_balance !== undefined) {
+                        balanceSpan.innerText = response.new_balance.toLocaleString() + ' ₽';
+                        // Показываем уведомление
+                        if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+                        alert(`✅ Операция выполнена!\nНовый баланс: ${response.new_balance} ₽`);
+                    }
+                } else if (response.action === 'error') {
+                    alert('❌ Ошибка: ' + response.message);
+                }
+            } catch (e) {
+                console.log('Ошибка обработки ответа:', e);
+            }
+        });
 
-        // Анимация фонового Canvas (падающие монеты и деньги)
+        // Запрос баланса при старте и периодически
+        if (userId) {
+            fetchBalance();
+            setInterval(fetchBalance, 15000);
+        }
+
+        // === ПОПОЛНЕНИЕ ===
+        depositBtn.onclick = () => {
+            if (!userId) return;
+            let amount = prompt('💰 Введите сумму для пополнения баланса казино (доступно на балансе бота):');
+            if (amount && !isNaN(amount) && parseInt(amount) > 0) {
+                tg.sendData(JSON.stringify({ action: 'deposit', amount: parseInt(amount) }));
+            } else if (amount !== null) {
+                alert('❌ Введите корректное число больше 0.');
+            }
+        };
+
+        // === ВЫВОД ===
+        withdrawBtn.onclick = () => {
+            if (!userId) return;
+            let amount = prompt('💸 Введите сумму для вывода с баланса казино на баланс бота:');
+            if (amount && !isNaN(amount) && parseInt(amount) > 0) {
+                tg.sendData(JSON.stringify({ action: 'withdraw', amount: parseInt(amount) }));
+            } else if (amount !== null) {
+                alert('❌ Введите корректное число больше 0.');
+            }
+        };
+
+        // === ПЕРЕХОД В ИГРЫ ===
+        function goToGame(game) {
+            if (!userId) return;
+            if (game === 'crash') window.location.href = URL_CRASH + '?userId=' + userId;
+            else if (game === 'blackjack') window.location.href = URL_BLACKJACK + '?userId=' + userId;
+            else if (game === 'mines') window.location.href = URL_MINES + '?userId=' + userId;
+            else if (game === 'slots') window.location.href = URL_SLOTS + '?userId=' + userId;
+            else if (game === 'roulette') window.location.href = URL_ROULETTE + '?userId=' + userId;
+        }
+
+        gameCards.forEach(card => {
+            card.addEventListener('click', () => {
+                const game = card.getAttribute('data-game');
+                if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
+                goToGame(game);
+            });
+        });
+
+        // === НАВИГАЦИЯ (заглушки) ===
+        navItems.forEach(item => {
+            item.addEventListener('click', () => {
+                navItems.forEach(nav => nav.classList.remove('active'));
+                item.classList.add('active');
+                if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+                const navType = item.getAttribute('data-nav');
+                if (navType === 'history') tg.sendData(JSON.stringify({ action: "get_history" }));
+                else if (navType === 'profile') tg.sendData(JSON.stringify({ action: "profile" }));
+                else if (navType === 'support') tg.sendData(JSON.stringify({ action: "support" }));
+            });
+        });
+
+        // ===== ФОНОВАЯ АНИМАЦИЯ (падающие монеты) =====
         const canvas = document.getElementById('animatedCanvas');
         const ctx = canvas.getContext('2d');
         let width = window.innerWidth, height = window.innerHeight;
@@ -509,47 +591,6 @@ if (userId) {
         resizeCanvas();
         initParticles();
         animateBackground();
-
-        // ========== ИСПРАВЛЕННАЯ ФУНКЦИЯ goToGame ==========
-        function goToGame(game) {
-            if (!userId) return;
-            if (game === 'crash') window.location.href = URL_CRASH + '?userId=' + userId;
-            else if (game === 'blackjack') window.location.href = URL_BLACKJACK + '?userId=' + userId;
-            else if (game === 'mines') window.location.href = URL_MINES + '?userId=' + userId;
-            else if (game === 'slots') window.location.href = URL_SLOTS + '?userId=' + userId;
-            else if (game === 'roulette') window.location.href = URL_ROULETTE + '?userId=' + userId;
-        }
-        // ====================================================
-
-        gameCards.forEach(card => {
-            card.addEventListener('click', () => {
-                const game = card.getAttribute('data-game');
-                if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
-                goToGame(game);
-            });
-        });
-
-        navItems.forEach(item => {
-            item.addEventListener('click', () => {
-                navItems.forEach(nav => nav.classList.remove('active'));
-                item.classList.add('active');
-                if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
-                const navType = item.getAttribute('data-nav');
-                if (navType === 'history') tg.sendData(JSON.stringify({ action: "get_history" }));
-                else if (navType === 'profile') tg.sendData(JSON.stringify({ action: "profile" }));
-                else if (navType === 'support') tg.sendData(JSON.stringify({ action: "support" }));
-            });
-        });
-
-        depositBtn.onclick = () => { 
-            if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-            tg.sendData(JSON.stringify({ action: "deposit" })); 
-        };
-
-        if (userId) {
-            fetchBalance();
-            setInterval(fetchBalance, 15000);
-        }
     </script>
 </body>
 </html>
