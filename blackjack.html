@@ -341,7 +341,7 @@
     </div>
 
     <div class="footer">
-        <button id="exitBtn" class="btn-exit">ЗАБРАТЬ БАНК И ВЫЙТИ</button>
+        <button id="exitBtn" class="btn-exit">ВЫЙТИ</button>
     </div>
     
     <div class="status" id="statusMsg">Сделайте ставку и нажмите ИГРАТЬ</div>
@@ -375,33 +375,31 @@
     let deck = [], playerHand = [], dealerHand = [];
     let gameActive = false;
     let canDouble = true;
-    let balance = 0; // будет загружено с сервера
-    let sessionProfit = 0;
+    let balance = 0;
+    let sessionProfit = 0; // только для внутренней статистики
 
-// === НОВАЯ ФУНКЦИЯ БАЛАНСА ===
-function fetchBalance() {
-    if (!userId) return;
-    tg.sendData(JSON.stringify({ action: 'get_balance' }));
-}
-
-// Обработчик ответа
-tg.onEvent('web_app_data', function(data) {
-    try {
-        const response = JSON.parse(data);
-        if (response.balance !== undefined) {
-            balance = response.balance;
-            if (balanceSpan) balanceSpan.innerText = balance;
-        }
-    } catch (e) {
-        console.log('Ошибка баланса:', e);
+    // === БАЛАНС КАЗИНО ===
+    function fetchBalance() {
+        if (!userId) return;
+        tg.sendData(JSON.stringify({ action: 'get_balance' }));
     }
-});
 
-// Запрос при старте и по таймеру
-if (userId) {
-    fetchBalance();
-    setInterval(fetchBalance, 15000);
-}
+    tg.onEvent('web_app_data', function(data) {
+        try {
+            const response = JSON.parse(data);
+            if (response.balance !== undefined) {
+                balance = response.balance;
+                balanceSpan.innerText = balance;
+            }
+        } catch (e) {
+            console.log('Ошибка баланса:', e);
+        }
+    });
+
+    if (userId) {
+        fetchBalance();
+        setInterval(fetchBalance, 15000);
+    }
 
     // Web Audio
     let audioCtx = null;
@@ -500,7 +498,6 @@ if (userId) {
         balanceSpan.innerText = balance;
     }
 
-    // ---------- ИЗМЕНЁННЫЕ ФУНКЦИИ ----------
     function startGame() {
         let amount = parseInt(betInput.value);
         if (isNaN(amount)) amount = 1000;
@@ -515,8 +512,6 @@ if (userId) {
         vibrate('medium');
         currentBet = amount;
         betInput.value = currentBet;
-
-        // ⚠️ Ставка НЕ списывается сейчас
 
         deck = createDeck();
         playerHand = [deck.pop(), deck.pop()];
@@ -544,8 +539,8 @@ if (userId) {
         if (result === 'win') {
             const winAmount = currentBet * 2;
             profitChange = winAmount;
-            balance += winAmount;
-            sessionProfit += profitChange;
+            // Баланс обновится на сервере, запрашиваем новый
+            fetchBalance();
             statusDiv.innerHTML = `<span style="color:var(--accent-green)">🎉 ПОБЕДА! +${winAmount}₽</span>`;
             vibrate('success');
             soundWin();
@@ -556,8 +551,8 @@ if (userId) {
             }));
         } else if (result === 'lose') {
             profitChange = -currentBet;
-            sessionProfit += profitChange;
-            balance += profitChange;
+            // Баланс обновится на сервере, запрашиваем новый
+            fetchBalance();
             statusDiv.innerHTML = `<span style="color:var(--accent-red)">💥 ПРОИГРЫШ! -${currentBet}₽</span>`;
             vibrate('error');
             soundLose();
@@ -574,6 +569,7 @@ if (userId) {
             }));
         }
 
+        // Обновляем UI и разблокируем
         updateUI();
         gameActive = false;
         hitBtn.disabled = true;
@@ -592,8 +588,6 @@ if (userId) {
         }
 
         vibrate('heavy');
-        // ⚠️ Ставка НЕ списывается сейчас
-
         canDouble = false;
         currentBet *= 2;
 
@@ -607,7 +601,6 @@ if (userId) {
         }
     }
 
-    // Остальные функции (hit, stand, dealerTurn, exitAndCollect) без изменений
     function hit() {
         if (!gameActive) return;
         vibrate('light');
@@ -650,10 +643,6 @@ if (userId) {
 
     function exitAndCollect() {
         if (!tg.sendData) return;
-        tg.sendData(JSON.stringify({
-            action: "casino_session",
-            total_profit: sessionProfit
-        }));
         tg.close();
     }
 
@@ -672,8 +661,8 @@ if (userId) {
         betInput.value = currentBet;
     });
 
-    fetchBalance();
-    setInterval(fetchBalance, 15000);
+    // Инициализация
+    if (userId) fetchBalance();
     updateUI();
 </script>
 </body>
