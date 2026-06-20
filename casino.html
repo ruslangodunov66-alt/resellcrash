@@ -57,7 +57,6 @@
             margin: 0 auto;
         }
 
-        /* Хедер */
         .header {
             display: flex;
             justify-content: space-between;
@@ -96,7 +95,6 @@
             -webkit-text-fill-color: var(--accent-blue);
         }
 
-        /* Блок Баланса */
         .balance-block {
             display: flex;
             align-items: center;
@@ -170,7 +168,6 @@
             background: #b36b00;
         }
 
-        /* Сетка игр */
         .games-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
@@ -198,7 +195,6 @@
             to { opacity: 1; transform: translateY(0); }
         }
 
-        /* Задержки для каскадного появления */
         .game-card:nth-child(1) { animation-delay: 0.05s; }
         .game-card:nth-child(2) { animation-delay: 0.1s; }
         .game-card:nth-child(3) { animation-delay: 0.15s; }
@@ -239,7 +235,6 @@
             font-weight: 600;
         }
 
-        /* Промо-баннер */
         .promo-banner {
             background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(24, 130, 255, 0.1));
             border-radius: 20px;
@@ -270,7 +265,6 @@
             text-shadow: 0 0 15px rgba(255, 152, 0, 0.3);
         }
 
-        /* Нижняя навигация */
         .bottom-nav {
             position: fixed;
             bottom: 0; left: 0; right: 0;
@@ -415,13 +409,13 @@
         if (urlParams.has('userId')) userId = urlParams.get('userId');
         else if (tg.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
 
-        // ========== КОНСТАНТЫ URL ИГР ==========
+        // ===== КОНСТАНТЫ =====
         const URL_SLOTS = "https://ruslangodunov66-alt.github.io/resellcrash/slots.html";
         const URL_ROULETTE = "https://ruslangodunov66-alt.github.io/resellcrash/roulette.html";
         const URL_CRASH = "https://ruslangodunov66-alt.github.io/resellcrash/crash.html";
         const URL_MINES = "https://ruslangodunov66-alt.github.io/resellcrash/mines.html";
         const URL_BLACKJACK = "https://ruslangodunov66-alt.github.io/resellcrash/blackjack.html";
-        // ========================================
+        // =====================
 
         const balanceSpan = document.getElementById('balanceDisplay');
         const gameCards = document.querySelectorAll('.game-card');
@@ -429,24 +423,26 @@
         const depositBtn = document.getElementById('depositBtn');
         const withdrawBtn = document.getElementById('withdrawBtn');
 
-        // === БАЛАНС КАЗИНО ===
-        function fetchBalance() {
-            if (!userId) return;
-            tg.sendData(JSON.stringify({ action: 'get_balance' }));
+        // ===== БАЛАНС ХРАНИТСЯ В localStorage =====
+        let casinoBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+        balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
+
+        // ===== ФУНКЦИЯ ОБНОВЛЕНИЯ БАЛАНСА =====
+        function updateBalance(newBalance) {
+            casinoBalance = newBalance;
+            localStorage.setItem('casinoBalance', String(casinoBalance));
+            balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
         }
 
-        // Обработчик ответов от бота
+        // ===== ОБРАБОТЧИК ОТВЕТОВ ОТ БОТА =====
         tg.onEvent('web_app_data', function(data) {
             try {
                 const response = JSON.parse(data);
-                if (response.balance !== undefined) {
-                    balanceSpan.innerText = response.balance.toLocaleString() + ' ₽';
-                } else if (response.action === 'deposit_success' || response.action === 'withdraw_success') {
+                if (response.action === 'deposit_success' || response.action === 'withdraw_success') {
                     if (response.new_balance !== undefined) {
-                        balanceSpan.innerText = response.new_balance.toLocaleString() + ' ₽';
-                        // Показываем уведомление
+                        updateBalance(response.new_balance);
                         if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-                        alert(`✅ Операция выполнена!\nНовый баланс: ${response.new_balance} ₽`);
+                        alert('✅ Операция выполнена!\nНовый баланс: ' + response.new_balance.toLocaleString() + ' ₽');
                     }
                 } else if (response.action === 'error') {
                     alert('❌ Ошибка: ' + response.message);
@@ -456,13 +452,7 @@
             }
         });
 
-        // Запрос баланса при старте и периодически
-        if (userId) {
-            fetchBalance();
-            setInterval(fetchBalance, 15000);
-        }
-
-        // === ПОПОЛНЕНИЕ ===
+        // ===== ПОПОЛНЕНИЕ =====
         depositBtn.onclick = () => {
             if (!userId) return;
             let amount = prompt('💰 Введите сумму для пополнения баланса казино (доступно на балансе бота):');
@@ -473,18 +463,22 @@
             }
         };
 
-        // === ВЫВОД ===
+        // ===== ВЫВОД =====
         withdrawBtn.onclick = () => {
             if (!userId) return;
             let amount = prompt('💸 Введите сумму для вывода с баланса казино на баланс бота:');
             if (amount && !isNaN(amount) && parseInt(amount) > 0) {
+                if (parseInt(amount) > casinoBalance) {
+                    alert('❌ Недостаточно средств на балансе казино!');
+                    return;
+                }
                 tg.sendData(JSON.stringify({ action: 'withdraw', amount: parseInt(amount) }));
             } else if (amount !== null) {
                 alert('❌ Введите корректное число больше 0.');
             }
         };
 
-        // === ПЕРЕХОД В ИГРЫ ===
+        // ===== ПЕРЕХОД В ИГРЫ =====
         function goToGame(game) {
             if (!userId) return;
             if (game === 'crash') window.location.href = URL_CRASH + '?userId=' + userId;
@@ -502,7 +496,7 @@
             });
         });
 
-        // === НАВИГАЦИЯ (заглушки) ===
+        // ===== НАВИГАЦИЯ =====
         navItems.forEach(item => {
             item.addEventListener('click', () => {
                 navItems.forEach(nav => nav.classList.remove('active'));
@@ -515,7 +509,7 @@
             });
         });
 
-        // ===== ФОНОВАЯ АНИМАЦИЯ (падающие монеты) =====
+        // ===== ФОНОВАЯ АНИМАЦИЯ =====
         const canvas = document.getElementById('animatedCanvas');
         const ctx = canvas.getContext('2d');
         let width = window.innerWidth, height = window.innerHeight;
@@ -591,6 +585,10 @@
         resizeCanvas();
         initParticles();
         animateBackground();
+
+        // При обновлении страницы баланс не сбрасывается, т.к. хранится в localStorage
+        // Если нужно синхронизировать с сервером при первом открытии, можно добавить кнопку "Обновить баланс"
+        // но она будет закрывать WebApp.
     </script>
 </body>
 </html>
