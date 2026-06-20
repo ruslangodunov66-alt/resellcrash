@@ -7,7 +7,6 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;1,800&family=Nunito:wght@700;800&display=swap" rel="stylesheet">
     <style>
-        /* Весь CSS без изменений (как в вашем файле) */
         :root {
             --bg-dark: #0a0f16;
             --container-bg: #111822;
@@ -22,20 +21,126 @@
             --cell-bg: #212c3d;
             --cell-shadow: #141b26;
         }
-        /* ... остальной стиль такой же, как был ... */
-        /* (я не буду повторять весь CSS, чтобы не раздувать ответ) */
-        /* Вы можете скопировать свой существующий CSS, он полностью подходит */
-        /* Добавим только стиль для кнопок меню/выход */
-        .btn-group {
-            display: flex;
-            gap: 10px;
-            margin-top: 10px;
+
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body {
+            margin: 0; padding: 0;
+            font-family: 'Montserrat', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            overflow: hidden;
+            display: flex; justify-content: center;
         }
-        .btn-group .btn-exit {
-            flex: 1;
-            margin-bottom: 0;
+
+        .game-container {
+            width: 100%; max-width: 800px;
+            height: 100vh; height: -webkit-fill-available;
+            background-color: var(--container-bg);
+            display: flex; flex-direction: column;
+            padding: 10px 10px calc(10px + var(--tg-viewport-safe-area-inset-bottom, 0px)) 10px;
         }
-        /* Остальные стили без изменений */
+
+        .header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 5px; margin-bottom: 10px;
+        }
+        .brand { font-weight: 800; font-size: 20px; text-transform: uppercase; letter-spacing: -0.5px; }
+        .brand span { color: var(--accent-blue); }
+        .info-card {
+            background: var(--panel-bg);
+            padding: 8px 14px; border-radius: 12px;
+            font-family: 'Nunito', sans-serif; font-weight: 800; font-size: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+
+        .rocket-area {
+            flex-grow: 1; min-height: 200px; max-height: 450px;
+            position: relative; overflow: hidden;
+            border-radius: 16px; margin-bottom: 10px;
+            background: #060b13;
+            border: 2px solid rgba(140, 158, 181, 0.1);
+        }
+        #crashCanvas { width: 100%; height: 100%; display: block; }
+        .multiplier-badge {
+            position: absolute; top: 15px; left: 50%; transform: translateX(-50%);
+            font-size: 40px; font-weight: 800; text-align: center; font-style: italic;
+            text-shadow: 0 0 10px rgba(255,255,255,0.6), 0 4px 10px rgba(0,0,0,0.5);
+            transition: color 0.1s ease, transform 0.05s linear;
+        }
+        .best-score {
+            position: absolute; bottom: 8px; right: 12px;
+            background: rgba(26, 35, 50, 0.8);
+            padding: 4px 8px; border-radius: 8px;
+            font-size: 11px; font-weight: 700; color: var(--text-muted);
+            backdrop-filter: blur(2px);
+        }
+
+        .dashboard-panel {
+            background: var(--panel-bg); border-radius: 14px;
+            display: flex; gap: 10px; padding: 12px; margin-bottom: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+        .dash-item { flex: 1; }
+        .dash-label { font-size: 10px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin-bottom: 3px; }
+        .dash-val { font-size: 16px; font-weight: 800; font-family: 'Nunito', sans-serif; word-break: break-all; }
+
+        .controls-area { margin-bottom: 10px; background: var(--panel-bg); padding: 15px; border-radius: 16px; }
+        .bet-control-row { display: flex; gap: 10px; margin-bottom: 12px; }
+        .bet-input-wrapper { flex-grow: 1; position: relative; }
+        #betAmount {
+            width: 100%; padding: 14px; padding-left: 30px;
+            background: var(--bg-dark); border: 1.5px solid #263345; border-radius: 12px;
+            color: #fff; font-family: 'Nunito', sans-serif; font-weight: 800; font-size: 18px;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.4);
+            appearance: none; -moz-appearance: textfield;
+        }
+        #betAmount::-webkit-inner-spin-button, #betAmount::-webkit-outer-spin-button { appearance: none; margin: 0; }
+        .bet-input-wrapper::before { content: '₽'; position: absolute; left: 12px; top: 16px; color: var(--text-muted); font-weight: 600; }
+        .btn-main {
+            padding: 14px 24px; border: none; border-radius: 12px;
+            font-weight: 800; font-size: 16px; text-transform: uppercase; cursor: pointer;
+            transition: 0.1s transform ease, 0.1s box-shadow ease; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+        }
+        .btn-main:active { transform: translateY(1.5px); box-shadow: 0 1px 2px rgba(0,0,0,0.2) !important; }
+        .btn-main:disabled { background: #3d4957 !important; border-color: #3d4957 !important; cursor: not-allowed; opacity: 0.6; pointer-events: none;}
+        .btn-start { background: var(--accent-blue); border-bottom: 4px solid #1066cc; box-shadow: 0 4px 0 #1066cc, 0 5px 10px rgba(0,0,0,0.2); }
+        .btn-start:hover:not(:disabled) { background: var(--accent-blue-hover); }
+        .btn-cashout { background: var(--accent-green); border-bottom: 4px solid #149c45; box-shadow: 0 4px 0 #149c45, 0 5px 10px rgba(0,0,0,0.2); }
+        .auto-panel { display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: var(--text-muted); font-weight: 600; }
+        .auto-input {
+            width: 80px; padding: 6px 10px;
+            background: var(--bg-dark); border: 1px solid #263345; border-radius: 8px;
+            color: var(--accent-blue); font-weight: 800; font-family: 'Nunito', sans-serif; font-size: 14px; text-align: center; margin-left: 8px;
+        }
+
+        .btn-group { display: flex; gap: 10px; margin-top: 10px; }
+        .btn-exit {
+            width: 100%; margin-bottom: 12px; padding: 14px;
+            background: #212c3d; border: none; border-bottom: 3px solid rgba(0,0,0,0.2); border-radius: 12px;
+            color: #fff; font-weight: 800; font-size: 16px; cursor: pointer; transition: 0.1s opacity;
+        }
+        .btn-exit:hover { opacity: 0.8; }
+        .btn-exit:active { transform: translateY(1px); border-bottom: 2px solid rgba(0,0,0,0.2); }
+
+        .history { padding: 0 5px; margin-bottom: 10px; }
+        .history-title { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
+        .history-list {
+            display: flex; gap: 6px; flex-wrap: wrap;
+            max-height: 40px; overflow-y: hidden; transition: max-height 0.3s;
+        }
+        .history-item {
+            font-size: 12px; font-weight: 800; padding: 4px 8px; border-radius: 6px;
+            font-family: 'Nunito', sans-serif; font-style: italic;
+        }
+        .history-item.low { color: #f03043; background: rgba(240, 48, 67, 0.12); }
+        .history-item.medium { color: #3b95ff; background: rgba(59, 149, 255, 0.15); }
+        .history-item.high { color: #ff9800; background: rgba(255, 152, 0, 0.15); }
+        .history-item.epic { color: #1bd15d; background: rgba(27, 209, 93, 0.15); box-shadow: 0 0 4px rgba(27, 209, 93, 0.4); }
+
+        .status {
+            text-align: center; font-size: 13px; font-weight: 600; color: var(--text-muted);
+            min-height: 1.2em;
+        }
     </style>
 </head>
 <body>
@@ -76,7 +181,6 @@
         </div>
     </div>
 
-    <!-- Группа кнопок МЕНЮ и ВЫЙТИ -->
     <div class="btn-group">
         <button id="menuButton" class="btn-exit">МЕНЮ</button>
         <button id="exitButton" class="btn-exit">ВЫЙТИ</button>
@@ -140,7 +244,6 @@
         bestSpan.innerText = `🏆 РЕКОРД: ${bestMulti.toFixed(2)}x`;
 
         // Переменные состояния
-        let sessionProfit = 0; // только для отображения, не влияет на баланс
         let currentBet = 0;
         let hasBet = false;
         let hasCashedOut = false;
@@ -161,7 +264,7 @@
         let graphPoints = [];
         let rocket = { x: 80, y: 390, targetX: 80, targetY: 390, angle: 0 };
 
-        // Звуки (без изменений)
+        // Звуки
         let audioCtx = null;
         function initAudio() {
             if (!audioCtx && window.AudioContext) {
@@ -196,7 +299,7 @@
                 if (style === 'light') tg.HapticFeedback.impactOccurred('light');
                 else if (style === 'medium') tg.HapticFeedback.impactOccurred('medium');
                 else if (style === 'success') tg.HapticFeedback.notificationOccurred('success');
-                else if (style === 'error') tg.HapticFeedback.notificationOccurred('error');
+                else if (style === 'error) tg.HapticFeedback.notificationOccurred('error');
             }
         }
 
@@ -352,35 +455,112 @@
                 ctx.fill();
             }
             ctx.globalAlpha = 1.0;
+
+            // ===== ОБНОВЛЕННАЯ РАКЕТА (ДЕТАЛИЗИРОВАННАЯ) =====
             if (!explosionActive) {
                 ctx.save();
                 ctx.translate(rocket.x, rocket.y);
                 ctx.rotate(rocket.angle);
-                ctx.shadowBlur = 8;
+
+                // Свечение вокруг ракеты
+                ctx.shadowBlur = 15;
                 ctx.shadowColor = 'var(--accent-blue)';
-                ctx.fillStyle = '#1c2d42';
+
+                // --- 1. Боковые ускорители (крылья/стабилизаторы) ---
+                // Отрисовываем их первыми, чтобы они были "за" корпусом
+                ctx.fillStyle = '#111822'; // var(--container-bg) для основы
+                ctx.strokeStyle = '#263345';
+                ctx.lineWidth = 1;
+                
+                // Нижний ускоритель
                 ctx.beginPath();
-                ctx.moveTo(-15, -12); ctx.lineTo(5, 0); ctx.lineTo(-15, 12);
+                ctx.moveTo(-15, 6);
+                ctx.lineTo(-10, 15);
+                ctx.lineTo(0, 15);
+                ctx.lineTo(-5, 6);
+                ctx.closePath();
                 ctx.fill();
-                ctx.fillStyle = '#ffffff';
+                ctx.stroke();
+
+                // Верхний ускоритель
                 ctx.beginPath();
+                ctx.moveTo(-15, -6);
+                ctx.lineTo(-10, -15);
+                ctx.lineTo(0, -15);
+                ctx.lineTo(-5, -6);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+
+                // Детали ускорителей (турбины)
+                ctx.fillStyle = '#0a0f16';
+                ctx.beginPath();
+                ctx.ellipse(-12, 11, 4, 2, Math.PI/2, 0, Math.PI*2);
+                ctx.ellipse(-12, -11, 4, 2, Math.PI/2, 0, Math.PI*2);
+                ctx.fill();
+
+                // --- 2. Основной корпус ракеты ---
+                // Создаем градиент для корпуса, чтобы он казался объемным
+                let bodyGrad = ctx.createLinearGradient(-20, 0, 25, 0);
+                bodyGrad.addColorStop(0, '#8c9eb5');  // Хвост
+                bodyGrad.addColorStop(0.5, '#ffffff'); // Середина (блеск)
+                bodyGrad.addColorStop(1, '#8c9eb5');  // Нос
+
+                ctx.fillStyle = bodyGrad;
+                ctx.beginPath();
+                // Задняя часть
                 ctx.moveTo(-20, -6);
+                // Корпус к носу
                 ctx.lineTo(15, -6);
+                // Заостренный нос
                 ctx.lineTo(25, 0);
                 ctx.lineTo(15, 6);
+                // Корпус к хвосту
                 ctx.lineTo(-20, 6);
                 ctx.closePath();
                 ctx.fill();
+
+                // Полоска на корпусе
                 ctx.fillStyle = 'var(--accent-blue)';
+                ctx.fillRect(0, -6, 5, 12);
+
+                // --- 3. Иллюминатор (окно) ---
+                ctx.fillStyle = '#d6e6f2'; // Светлое стекло
                 ctx.beginPath();
-                ctx.arc(4, 0, 3, 0, Math.PI * 2);
+                ctx.arc(6, 0, 3.5, 0, Math.PI * 2);
                 ctx.fill();
-                ctx.fillStyle = 'var(--accent-orange)';
+                
+                // Ободок иллюминатора
+                ctx.strokeStyle = '#2d3e50';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+
+                // Блик на стекле
+                ctx.fillStyle = 'white';
                 ctx.beginPath();
-                ctx.moveTo(-20, -3); ctx.lineTo(-28, 0); ctx.lineTo(-20, 3);
+                ctx.arc(5, -1, 1, 0, Math.PI * 2);
                 ctx.fill();
+
+                // --- 4. Сопло двигателя (Турбина) ---
+                ctx.fillStyle = '#1a2332'; // var(--panel-bg)
+                ctx.beginPath();
+                ctx.moveTo(-20, -3);
+                ctx.lineTo(-24, -5);
+                ctx.lineTo(-24, 5);
+                ctx.lineTo(-20, 3);
+                ctx.closePath();
+                ctx.fill();
+
+                // Жар внутри сопла
+                ctx.fillStyle = 'var(--accent-red)';
+                ctx.beginPath();
+                ctx.ellipse(-23, 0, 2, 4, 0, 0, Math.PI*2);
+                ctx.fill();
+
                 ctx.restore();
             }
+            // ===============================================
+
             if (flashAlpha > 0) {
                 ctx.fillStyle = `rgba(240, 48, 67, ${flashAlpha})`;
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
