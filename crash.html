@@ -19,7 +19,6 @@
             --accent-orange: #ff9800;
             --text-main: #e2e8f0;
             --text-muted: #8c9eb5;
-            --shadow-glow: 0 0 30px rgba(24,130,255,0.3);
         }
 
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
@@ -59,7 +58,6 @@
         }
         .menu-btn:active { transform: scale(0.95); background: var(--accent-blue); }
 
-        /* Зона графика */
         .rocket-area {
             position: relative; overflow: hidden;
             border-radius: 16px; margin-bottom: 10px;
@@ -99,7 +97,6 @@
         .history-item.high { color: #ff9800; background: rgba(255, 152, 0, 0.1); border: 1px solid rgba(255, 152, 0, 0.2); }
         .history-item.epic { color: #1bd15d; background: rgba(27, 209, 93, 0.15); border: 1px solid rgba(27, 209, 93, 0.4); box-shadow: 0 0 12px rgba(27, 209, 93, 0.3); }
 
-        /* Управление */
         .controls-area {
             background: var(--panel-bg); padding: 15px; border-radius: 16px;
             border: 1px solid rgba(255,255,255,0.02); margin-bottom: 15px; flex-shrink: 0;
@@ -143,7 +140,6 @@
         
         .btn-subtext { font-size: 12px; font-weight: 600; opacity: 0.8; text-transform: none; font-family: 'Nunito', sans-serif; }
 
-        /* Таблица ботов */
         .live-bets-section { flex-grow: 1; display: flex; flex-direction: column; background: var(--panel-bg); border-radius: 16px; padding: 15px; border: 1px solid rgba(255,255,255,0.02); }
         .section-title { font-size: 14px; font-weight: 800; color: var(--text-main); margin-bottom: 10px; display: flex; justify-content: space-between; }
         .online-count { color: var(--accent-green); font-size: 12px; display: flex; align-items: center; gap: 5px; }
@@ -240,6 +236,10 @@
         tg.ready();
         if (tg.HapticFeedback) tg.enableClosingConfirmation();
 
+        // Получаем userId из URL (если есть)
+        const urlParams = new URLSearchParams(window.location.search);
+        const userId = urlParams.get('userId') || '';
+
         // DOM
         const balanceSpan = document.getElementById('balanceDisplay');
         const multiplierDisplay = document.getElementById('multiplierDisplay');
@@ -255,7 +255,7 @@
         const canvas = document.getElementById('crashCanvas');
         const ctx = canvas.getContext('2d');
 
-        // Баланс
+        // === БАЛАНС ===
         let casinoBalance = parseInt(localStorage.getItem('casinoBalance'));
         if (isNaN(casinoBalance) || casinoBalance < 10) casinoBalance = 10000;
         
@@ -264,9 +264,10 @@
             localStorage.setItem('casinoBalance', String(casinoBalance));
             balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
         }
+        // Инициализация отображения
         updateBalance(0);
 
-        // История
+        // === ИСТОРИЯ ===
         let history = JSON.parse(localStorage.getItem('crash_history')) || [1.2, 4.5, 1.05, 2.3, 15.0];
         function renderHistory() {
             historyList.innerHTML = '';
@@ -289,33 +290,26 @@
         }
         renderHistory();
 
-        // Генерация ботов с разными ставками и стратегиями
+        // === БОТЫ ===
         const botNames = ["Alex_99", "CryptoKing", "LuckyStrike", "ProGamer", "MaxBet", "Ivan_1337", "Shadow", "Luna", "Star_Lord", "xX_Sniper_Xx", "RichGuy", "Whale", "NoobMaster", "Trader_Joe", "Kira", "Viper", "Phoenix", "Rocket", "Nebula", "Cosmos"];
 
         function generateBots() {
-            const count = Math.floor(Math.random() * 15) + 12; // 12-27 ботов
+            const count = Math.floor(Math.random() * 15) + 12;
             onlineCount.innerText = (count + Math.floor(Math.random() * 200) + 50) + ' онлайн';
-            
             const newBots = [];
             for(let i=0; i<count; i++) {
-                // Разные ставки
                 const betOptions = [50, 75, 100, 150, 200, 250, 300, 400, 500, 700, 1000, 1500, 2000, 3000, 5000, 10000];
                 const bet = betOptions[Math.floor(Math.random() * betOptions.length)];
-                
-                // Стратегия: цель вывода
                 let target;
                 const r = Math.random();
-                if(r < 0.3) target = 1.05 + Math.random() * 0.3; // консервативные
-                else if(r < 0.6) target = 1.4 + Math.random() * 0.8; // средние
-                else if(r < 0.85) target = 2.2 + Math.random() * 3.0; // агрессивные
-                else if(r < 0.97) target = 5.0 + Math.random() * 8.0; // рискованные
-                else target = 15.0 + Math.random() * 40.0; // экстремалы
-                
-                // Имя
+                if(r < 0.3) target = 1.05 + Math.random() * 0.3;
+                else if(r < 0.6) target = 1.4 + Math.random() * 0.8;
+                else if(r < 0.85) target = 2.2 + Math.random() * 3.0;
+                else if(r < 0.97) target = 5.0 + Math.random() * 8.0;
+                else target = 15.0 + Math.random() * 40.0;
                 const name = botNames[Math.floor(Math.random() * botNames.length)] + Math.floor(Math.random()*100);
                 newBots.push({ id: 'bot_' + i, name, bet, target, cashed: false, crashed: false });
             }
-            // Сортировка по убыванию ставки (крупные игроки сверху)
             newBots.sort((a,b) => b.bet - a.bet);
             return newBots;
         }
@@ -324,8 +318,6 @@
 
         function renderBetsTable() {
             betsBody.innerHTML = '';
-            
-            // Если пользователь поставил
             if (userBetQueued || userBetActive) {
                 let statusHtml = '<td class="col-multi">—</td><td class="col-profit">—</td>';
                 let trClass = 'my-bet-row';
@@ -340,12 +332,9 @@
                     </tr>
                 `;
             }
-
-            // Рендер ботов
             bots.forEach(bot => {
                 let statusHtml = '<td class="col-multi">—</td><td class="col-profit">—</td>';
                 let rowClass = '';
-                
                 if (bot.cashed) {
                     rowClass = 'row-cashed';
                     statusHtml = `<td class="col-multi">${bot.target.toFixed(2)}x</td><td class="col-profit">${(bot.bet * bot.target).toFixed(0)}₽</td>`;
@@ -355,7 +344,6 @@
                 } else if (gameState === 'FLYING') {
                     statusHtml = `<td class="col-multi" style="color:var(--text-muted)">Летит...</td><td class="col-profit" style="color:var(--text-muted)">${(bot.bet * currentMulti).toFixed(0)}₽</td>`;
                 }
-
                 betsBody.innerHTML += `
                     <tr class="${rowClass}">
                         <td class="col-user">${bot.name}</td>
@@ -366,7 +354,7 @@
             });
         }
 
-        // Состояние игры
+        // === СОСТОЯНИЕ ИГРЫ ===
         let gameState = 'WAITING'; // WAITING, FLYING, CRASHED
         let countdown = 10.0;
         let currentMulti = 1.0;
@@ -377,7 +365,6 @@
         let userBetAmount = 0;
         let userAutoCashout = 2.0;
 
-        // Управление кнопками
         function updateControls() {
             if (gameState === 'WAITING') {
                 betInput.disabled = false;
@@ -415,15 +402,13 @@
             }
         }
 
-        // Обработчик кнопки действия
         actionBtn.onclick = () => {
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
-            
             if (gameState === 'WAITING') {
                 if (userBetQueued) {
                     // Отмена
                     userBetQueued = false;
-                    updateBalance(userBetAmount);
+                    updateBalance(userBetAmount); // Возврат
                     updateControls();
                     renderBetsTable();
                 } else {
@@ -434,7 +419,7 @@
                     userBetAmount = amt;
                     userAutoCashout = parseFloat(autoInput.value) || 2.0;
                     userBetQueued = true;
-                    updateBalance(-userBetAmount);
+                    updateBalance(-userBetAmount); // Списание
                     updateControls();
                     renderBetsTable();
                 }
@@ -443,7 +428,6 @@
             }
         };
 
-        // Вывод пользователя
         function cashoutUser() {
             if (!userBetActive) return;
             userBetActive = false;
@@ -454,7 +438,6 @@
             renderBetsTable();
         }
 
-        // Генерация точки краша
         function generateCrash() {
             const r = Math.random();
             if (r < 0.05) return 1.00;
@@ -464,7 +447,6 @@
             return 10.0 + Math.random() * 40.0;
         }
 
-        // Игровой цикл
         let lastTime = performance.now();
         
         function setWaitingPhase() {
@@ -475,16 +457,12 @@
             multiplierDisplay.style.color = 'var(--text-main)';
             statusMsg.innerText = 'Прием ставок';
             statusMsg.style.color = 'var(--text-muted)';
-            
             bots = generateBots();
             renderBetsTable();
             updateControls();
-            
-            // Сброс визуала
             rocketY = 350;
             explosionAlpha = 0;
             particles = [];
-            
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
         }
 
@@ -494,7 +472,6 @@
             currentMulti = 1.0;
             statusMsg.innerText = 'Ракета в полете';
             statusMsg.style.color = 'var(--accent-blue)';
-            
             if (userBetQueued) {
                 userBetActive = true;
                 userBetQueued = false;
@@ -507,27 +484,22 @@
             multiplierDisplay.style.color = 'var(--accent-red)';
             statusMsg.innerText = 'ВЗОРВАЛАСЬ НА ' + currentMulti.toFixed(2) + 'x';
             statusMsg.style.color = 'var(--accent-red)';
-            
             if (userBetActive) {
                 userBetActive = false;
+                // При краше ставка уже списана, ничего не возвращаем
                 if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
             }
-            
             bots.forEach(b => { if (!b.cashed) b.crashed = true; });
-            
             addHistory(currentMulti);
             triggerExplosion();
             updateControls();
             renderBetsTable();
-
             setTimeout(setWaitingPhase, 3000);
         }
 
-        // Логика игры
         function gameLoop(now) {
             let dt = Math.min((now - lastTime) / 1000, 0.05);
             lastTime = now;
-
             if (gameState === 'WAITING') {
                 countdown -= dt;
                 multiplierDisplay.innerText = Math.max(0, countdown).toFixed(1) + 's';
@@ -536,8 +508,6 @@
             else if (gameState === 'FLYING') {
                 let increment = dt * (0.1 + (currentMulti - 1) * 0.15);
                 currentMulti += increment;
-                
-                // Боты
                 let tableNeedsUpdate = false;
                 bots.forEach(b => {
                     if (!b.cashed && !b.crashed && currentMulti >= b.target) {
@@ -545,33 +515,28 @@
                         tableNeedsUpdate = true;
                     }
                 });
-
                 if (userBetActive && currentMulti >= userAutoCashout) {
                     cashoutUser();
                     tableNeedsUpdate = true;
                 }
-
                 multiplierDisplay.innerText = currentMulti.toFixed(2) + 'x';
                 if (currentMulti < 2) multiplierDisplay.style.color = '#fff';
                 else if (currentMulti < 5) multiplierDisplay.style.color = 'var(--accent-blue)';
                 else if (currentMulti < 10) multiplierDisplay.style.color = 'var(--accent-orange)';
                 else multiplierDisplay.style.color = 'var(--accent-green)';
-
                 if (tableNeedsUpdate) renderBetsTable();
                 updateControls();
-
                 if (currentMulti >= crashPoint) {
                     currentMulti = crashPoint;
                     multiplierDisplay.innerText = currentMulti.toFixed(2) + 'x';
                     handleCrash();
                 }
             }
-
             drawFrame(dt);
             requestAnimationFrame(gameLoop);
         }
 
-        // ===== УЛУЧШЕННАЯ ГРАФИКА =====
+        // ===== ГРАФИКА =====
         let stars = Array.from({length: 120}, () => ({
             x: Math.random() * 800, y: Math.random() * 400,
             s: Math.random() * 2 + 0.5, spd: Math.random() * 2 + 0.5
@@ -600,26 +565,22 @@
             let speed = gameState === 'FLYING' ? (1 + currentMulti * 0.5) : 0.2;
             bgOffset += speed * 60 * dt;
             
-            // Фоновый градиент
             let grad = ctx.createRadialGradient(400, 200, 100, 400, 200, 500);
             grad.addColorStop(0, '#0a1420');
             grad.addColorStop(1, '#020407');
             ctx.fillStyle = grad;
             ctx.fillRect(0, 0, 800, 400);
 
-            // Сетка (с линиями уровня)
             ctx.strokeStyle = 'rgba(255,255,255,0.03)';
             ctx.lineWidth = 1;
             for(let i=0; i<800; i+=80) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,400); ctx.stroke(); }
             for(let i=(bgOffset%80)-80; i<400; i+=80) { ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(800,i); ctx.stroke(); }
             
-            // Оси
             ctx.strokeStyle = 'rgba(255,255,255,0.08)';
             ctx.lineWidth = 2;
             ctx.beginPath(); ctx.moveTo(0, 380); ctx.lineTo(800, 380); ctx.stroke();
             ctx.beginPath(); ctx.moveTo(50, 0); ctx.lineTo(50, 400); ctx.stroke();
 
-            // Звёзды
             ctx.fillStyle = '#fff';
             stars.forEach(s => {
                 s.y += s.spd * speed * 60 * dt;
@@ -629,37 +590,21 @@
             });
             ctx.globalAlpha = 1.0;
 
-            // График роста (линия)
+            // График (только линия, без точки)
             if (gameState === 'FLYING') {
-                let progress = (currentMulti - 1) / 10; // 0..1 для масштаба
-                let x = 50 + progress * 700;
-                let y = 380 - progress * 300;
+                let progress = (currentMulti - 1) / 10;
                 ctx.strokeStyle = 'var(--accent-blue)';
                 ctx.lineWidth = 4;
                 ctx.shadowBlur = 20;
                 ctx.shadowColor = 'var(--accent-blue)';
                 ctx.beginPath();
                 ctx.moveTo(50, 380);
-                // рисуем кривую
                 for(let t=0; t<=progress; t+=0.01) {
                     let px = 50 + t * 700;
                     let py = 380 - t * 300;
                     ctx.lineTo(px, py);
                 }
                 ctx.stroke();
-                ctx.shadowBlur = 0;
-                
-                // Текущая точка
-                ctx.fillStyle = '#fff';
-                ctx.beginPath();
-                ctx.arc(x, y, 8, 0, Math.PI*2);
-                ctx.fill();
-                ctx.shadowBlur = 30;
-                ctx.shadowColor = 'var(--accent-blue)';
-                ctx.fillStyle = 'var(--accent-blue)';
-                ctx.beginPath();
-                ctx.arc(x, y, 5, 0, Math.PI*2);
-                ctx.fill();
                 ctx.shadowBlur = 0;
             }
 
@@ -684,7 +629,7 @@
             ctx.globalAlpha = 1.0;
             ctx.shadowBlur = 0;
 
-            // Ракета (улучшенная)
+            // ===== РАКЕТА (улучшенная, без белой точки) =====
             if (gameState !== 'CRASHED') {
                 ctx.save();
                 ctx.translate(canvas.width/2, rocketY);
@@ -701,6 +646,7 @@
                 ctx.fillStyle = '#111822';
                 ctx.strokeStyle = '#263345';
                 ctx.lineWidth = 1.5;
+                // Нижнее крыло
                 ctx.beginPath();
                 ctx.moveTo(-18, 12);
                 ctx.lineTo(-12, 26);
@@ -708,7 +654,7 @@
                 ctx.lineTo(0, 12);
                 ctx.closePath();
                 ctx.fill(); ctx.stroke();
-
+                // Верхнее крыло
                 ctx.beginPath();
                 ctx.moveTo(-18, -12);
                 ctx.lineTo(-12, -26);
@@ -717,7 +663,7 @@
                 ctx.closePath();
                 ctx.fill(); ctx.stroke();
 
-                // Корпус (градиент + свечение)
+                // Корпус (градиент)
                 let grad2 = ctx.createLinearGradient(-30, 0, 40, 0);
                 grad2.addColorStop(0, '#8c9eb5');
                 grad2.addColorStop(0.3, '#ffffff');
@@ -737,13 +683,13 @@
 
                 // Синяя полоса
                 ctx.fillStyle = 'var(--accent-blue)';
-                ctx.shadowBlur = 10;
+                ctx.shadowBlur = 15;
                 ctx.shadowColor = 'var(--accent-blue)';
                 ctx.fillRect(-6, -10, 10, 20);
 
-                // Окно
+                // Иллюминатор
                 ctx.fillStyle = '#d6e6f2';
-                ctx.shadowBlur = 15;
+                ctx.shadowBlur = 20;
                 ctx.shadowColor = 'rgba(255,255,255,0.5)';
                 ctx.beginPath();
                 ctx.arc(14, 0, 6, 0, Math.PI*2);
@@ -770,7 +716,7 @@
                 // Огонь
                 if (gameState === 'FLYING') {
                     ctx.fillStyle = 'var(--accent-orange)';
-                    ctx.shadowBlur = 30;
+                    ctx.shadowBlur = 40;
                     ctx.shadowColor = 'var(--accent-orange)';
                     ctx.beginPath();
                     ctx.moveTo(-38, -8);
@@ -778,7 +724,7 @@
                     ctx.lineTo(-38, 8);
                     ctx.fill();
                     ctx.fillStyle = '#fff9c4';
-                    ctx.shadowBlur = 15;
+                    ctx.shadowBlur = 20;
                     ctx.shadowColor = '#fff9c4';
                     ctx.beginPath();
                     ctx.moveTo(-38, -4);
@@ -786,6 +732,7 @@
                     ctx.lineTo(-38, 4);
                     ctx.fill();
                 }
+
                 ctx.restore();
             }
 
@@ -806,9 +753,10 @@
             }
         }
 
-        // Меню
+        // === КНОПКА МЕНЮ ===
         menuBtn.onclick = () => {
-            window.location.href = 'casino.html?userId=' + (userId || '') + '&balance=' + casinoBalance;
+            // Переходим в лобби с текущим балансом
+            window.location.href = 'casino.html?userId=' + userId + '&balance=' + casinoBalance;
         };
 
         // Запуск
