@@ -396,7 +396,7 @@
 <div class="game-container">
     <div class="header">
         <div class="brand">R-<span>GAME</span></div>
-        <div class="info-card">Сессия <span id="sessionBank">0</span></div>
+        <div class="info-card">Баланс: <span id="balanceDisplay">0₽</span></div>
     </div>
 
     <div class="multiplier-panel" id="multiplierPanel">
@@ -443,7 +443,7 @@
     const startBtn = document.getElementById('startBtn');
     const cashoutBtn = document.getElementById('cashoutBtn');
     const exitBtn = document.getElementById('exitBtn');
-    const sessionSpan = document.getElementById('sessionBank');
+    const balanceSpan = document.getElementById('balanceDisplay');
     const multiplierSpan = document.getElementById('multiplierDisplay');
     const multiplierPanel = document.getElementById('multiplierPanel');
     const currentWinSpan = document.getElementById('currentWinAmount');
@@ -453,37 +453,36 @@
     let currentBet = 1000;
     let minesCount = 5;
     let gameActive = false;
-    let sessionProfit = 0;
+    let sessionProfit = 0; // только для внутренней статистики, не отображается
     let currentMultiplier = 1.0;
     let field = [];
     let opened = [];
     let safeTotal = 0;
     let openedSafe = 0;
-    let balance = 0;
+    let balance = 0; // локальный кэш баланса
 
-// === НОВАЯ ФУНКЦИЯ БАЛАНСА ===
-function fetchBalance() {
-    if (!userId) return;
-    tg.sendData(JSON.stringify({ action: 'get_balance' }));
-}
-
-// Обработчик ответа от бота
-tg.onEvent('web_app_data', function(data) {
-    try {
-        const response = JSON.parse(data);
-        if (response.balance !== undefined) {
-            balance = response.balance;
-        }
-    } catch (e) {
-        console.log('Ошибка баланса:', e);
+    // === БАЛАНС КАЗИНО ===
+    function fetchBalance() {
+        if (!userId) return;
+        tg.sendData(JSON.stringify({ action: 'get_balance' }));
     }
-});
 
-// Запрос при старте и по таймеру
-if (userId) {
-    fetchBalance();
-    setInterval(fetchBalance, 15000);
-}
+    tg.onEvent('web_app_data', function(data) {
+        try {
+            const response = JSON.parse(data);
+            if (response.balance !== undefined) {
+                balance = response.balance;
+                balanceSpan.innerText = balance.toLocaleString() + ' ₽';
+            }
+        } catch (e) {
+            console.log('Ошибка баланса:', e);
+        }
+    });
+
+    if (userId) {
+        fetchBalance();
+        setInterval(fetchBalance, 15000);
+    }
 
     const multiplierMap = {
         1: [1.0, 1.08, 1.18, 1.30, 1.45, 1.62, 1.82, 2.05, 2.32, 2.62, 2.95, 3.32, 3.72, 4.15, 4.62, 5.12, 5.65, 6.22, 6.82, 7.45, 8.12, 8.82, 9.55, 10.32, 11.12],
@@ -606,7 +605,6 @@ if (userId) {
                 } else {
                     cell.innerHTML = '';
                 }
-                // ---------- ИЗМЕНЁННЫЙ ОБРАБОТЧИК ----------
                 cell.addEventListener('click', () => {
                     if (!gameActive) return;
                     if (opened[i][j]) return;
@@ -618,7 +616,8 @@ if (userId) {
                         gameActive = false;
                         sessionProfit -= currentBet;
                         balance -= currentBet;
-                        updateSessionUI();
+                        // Обновляем баланс после изменения
+                        fetchBalance();
                         statusDiv.innerHTML = `<span style="color:var(--accent-red)">💥 МИНА! ВЫ ПРОИГРАЛИ -${currentBet}₽</span>`;
                         startBtn.disabled = false;
                         cashoutBtn.disabled = true;
@@ -656,7 +655,8 @@ if (userId) {
                             const winAmount = Math.floor(currentBet * currentMultiplier);
                             sessionProfit += winAmount;
                             balance += winAmount;
-                            updateSessionUI();
+                            // Обновляем баланс после изменения
+                            fetchBalance();
                             statusDiv.innerHTML = `<span style="color:var(--accent-green)">🎉 ПОБЕДА! ВЫ ВЫИГРАЛИ ${winAmount}₽</span>`;
                             gameActive = false;
                             startBtn.disabled = false;
@@ -694,7 +694,6 @@ if (userId) {
         statusDiv.innerHTML = `Сделайте ставку и выберите количество мин`;
     }
 
-    // ---------- ИЗМЕНЁННЫЕ ФУНКЦИИ ----------
     function startGame() {
         let amount = parseInt(betInput.value);
         if (isNaN(amount)) amount = 1000;
@@ -708,7 +707,7 @@ if (userId) {
         soundClick();
         currentBet = amount;
         betInput.value = currentBet;
-        // ⚠️ Ставка НЕ списывается
+        // Ставка списывается только при проигрыше, на сервере – через mines_result
 
         field = generateField();
         opened = initOpened();
@@ -728,7 +727,8 @@ if (userId) {
         const winAmount = Math.floor(currentBet * currentMultiplier);
         sessionProfit += winAmount;
         balance += winAmount;
-        updateSessionUI();
+        // Обновляем баланс после изменения
+        fetchBalance();
         statusDiv.innerHTML = `<span style="color:var(--accent-orange)">💰 ВЫ ЗАБРАЛИ ${winAmount}₽</span>`;
         soundCashout();
         vibrate('success');
@@ -746,17 +746,7 @@ if (userId) {
     }
 
     function exitAndCollect() {
-        if (!tg.sendData) return;
-        tg.sendData(JSON.stringify({
-            action: "crash_session",
-            total_profit: sessionProfit
-        }));
         tg.close();
-    }
-
-    function updateSessionUI() {
-        sessionSpan.textContent = sessionProfit >= 0 ? `+${sessionProfit}₽` : `${sessionProfit}₽`;
-        sessionSpan.style.color = sessionProfit >= 0 ? 'var(--accent-green)' : 'var(--accent-red)';
     }
 
     // Выбор мин
@@ -772,7 +762,11 @@ if (userId) {
         });
     });
 
-    // Подгрузка баланса с бота
+    startBtn.addEventListener('click', startGame);
+    cashoutBtn.addEventListener('click', cashout);
+    exitBtn.addEventListener('click', exitAndCollect);
+
+    // Инициализация
     initAudio();
     updateMultiplierTable();
     resetGame();
