@@ -453,35 +453,21 @@
     let currentBet = 1000;
     let minesCount = 5;
     let gameActive = false;
-    let sessionProfit = 0; // только для внутренней статистики, не отображается
     let currentMultiplier = 1.0;
     let field = [];
     let opened = [];
     let safeTotal = 0;
     let openedSafe = 0;
-    let balance = 0; // локальный кэш баланса
+    let casinoBalance = 0;
 
-    // === БАЛАНС КАЗИНО ===
-    function fetchBalance() {
-        if (!userId) return;
-        tg.sendData(JSON.stringify({ action: 'get_balance' }));
-    }
+    // ===== БАЛАНС ИЗ localStorage =====
+    casinoBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+    balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
 
-    tg.onEvent('web_app_data', function(data) {
-        try {
-            const response = JSON.parse(data);
-            if (response.balance !== undefined) {
-                balance = response.balance;
-                balanceSpan.innerText = balance.toLocaleString() + ' ₽';
-            }
-        } catch (e) {
-            console.log('Ошибка баланса:', e);
-        }
-    });
-
-    if (userId) {
-        fetchBalance();
-        setInterval(fetchBalance, 15000);
+    function updateBalanceDisplay(newBalance) {
+        casinoBalance = newBalance;
+        localStorage.setItem('casinoBalance', String(casinoBalance));
+        balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
     }
 
     const multiplierMap = {
@@ -609,19 +595,18 @@
                     if (!gameActive) return;
                     if (opened[i][j]) return;
                     if (field[i][j]) {
-                        // МИНА – списываем ставку
+                        // МИНА – проигрыш
                         opened[i][j] = true;
                         soundMine();
                         updateUI();
                         gameActive = false;
-                        sessionProfit -= currentBet;
-                        balance -= currentBet;
-                        // Обновляем баланс после изменения
-                        fetchBalance();
+                        // Обновляем баланс: списываем ставку
+                        updateBalanceDisplay(casinoBalance - currentBet);
                         statusDiv.innerHTML = `<span style="color:var(--accent-red)">💥 МИНА! ВЫ ПРОИГРАЛИ -${currentBet}₽</span>`;
                         startBtn.disabled = false;
                         cashoutBtn.disabled = true;
                         vibrate('error');
+                        // Отправляем результат на сервер
                         tg.sendData(JSON.stringify({
                             action: "mines_result",
                             bet: currentBet,
@@ -651,12 +636,9 @@
                         updateUI();
                         vibrate('light');
                         if (openedSafe === safeTotal) {
-                            // ПОБЕДА – начисляем полный выигрыш
+                            // ПОБЕДА – начисляем выигрыш
                             const winAmount = Math.floor(currentBet * currentMultiplier);
-                            sessionProfit += winAmount;
-                            balance += winAmount;
-                            // Обновляем баланс после изменения
-                            fetchBalance();
+                            updateBalanceDisplay(casinoBalance + winAmount);
                             statusDiv.innerHTML = `<span style="color:var(--accent-green)">🎉 ПОБЕДА! ВЫ ВЫИГРАЛИ ${winAmount}₽</span>`;
                             gameActive = false;
                             startBtn.disabled = false;
@@ -698,8 +680,8 @@
         let amount = parseInt(betInput.value);
         if (isNaN(amount)) amount = 1000;
         amount = Math.min(100000, Math.max(100, amount));
-        if (balance < amount) {
-            statusDiv.innerHTML = `<span style="color:var(--accent-red)">❌ Недостаточно средств! Баланс: ${balance}₽</span>`;
+        if (casinoBalance < amount) {
+            statusDiv.innerHTML = `<span style="color:var(--accent-red)">❌ Недостаточно средств! Баланс: ${casinoBalance}₽</span>`;
             soundError();
             vibrate('error');
             return;
@@ -707,7 +689,6 @@
         soundClick();
         currentBet = amount;
         betInput.value = currentBet;
-        // Ставка списывается только при проигрыше, на сервере – через mines_result
 
         field = generateField();
         opened = initOpened();
@@ -725,10 +706,7 @@
     function cashout() {
         if (!gameActive) return;
         const winAmount = Math.floor(currentBet * currentMultiplier);
-        sessionProfit += winAmount;
-        balance += winAmount;
-        // Обновляем баланс после изменения
-        fetchBalance();
+        updateBalanceDisplay(casinoBalance + winAmount);
         statusDiv.innerHTML = `<span style="color:var(--accent-orange)">💰 ВЫ ЗАБРАЛИ ${winAmount}₽</span>`;
         soundCashout();
         vibrate('success');
