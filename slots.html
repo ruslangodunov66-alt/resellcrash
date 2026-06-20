@@ -347,7 +347,7 @@
 <div class="game-container">
     <div class="header">
         <div class="brand">R-<span>GAME</span></div>
-        <!-- БЛОК БАЛАНСА ДОБАВЛЕН -->
+        <!-- БЛОК БАЛАНСА -->
         <div class="info-card">Баланс: <span id="balanceDisplay">0</span> ₽</div>
     </div>
 
@@ -382,7 +382,7 @@
         <div class="paytable-item">Любые 2 <span>x2</span></div>
     </div>
 
-    <button id="exitButton" class="btn-exit" style="margin-top: 16px;">ВЫЙТИ И СОХРАНИТЬ</button>
+    <button id="exitButton" class="btn-exit" style="margin-top: 16px;">ВЫЙТИ</button>
 </div>
 
 <script>
@@ -401,8 +401,7 @@
     const exitBtn = document.getElementById('exitButton');
     const statusMsg = document.getElementById('statusMsg');
     const winAmountDisplay = document.getElementById('winAmountDisplay');
-    const sessionBankDisplay = document.getElementById('sessionBank');
-    const balanceSpan = document.getElementById('balanceDisplay'); // добавлен
+    const balanceSpan = document.getElementById('balanceDisplay');
     const payline = document.getElementById('payline');
     const reels = [
         { container: document.getElementById('reel0'), symbol: document.getElementById('sym0') },
@@ -415,9 +414,32 @@
     const baseMultiplier = 5;
     const pairMultiplier = 2;
 
-    let sessionProfit = 0;
+    let sessionProfit = 0; // только для внутренней статистики
     let isSpinning = false;
-    let balance = 0; // добавлена переменная для баланса
+    let balance = 0;
+
+    // === БАЛАНС КАЗИНО ===
+    function fetchBalance() {
+        if (!userId) return;
+        tg.sendData(JSON.stringify({ action: 'get_balance' }));
+    }
+
+    tg.onEvent('web_app_data', function(data) {
+        try {
+            const response = JSON.parse(data);
+            if (response.balance !== undefined) {
+                balance = response.balance;
+                balanceSpan.innerText = balance.toLocaleString();
+            }
+        } catch (e) {
+            console.log('Ошибка баланса:', e);
+        }
+    });
+
+    if (userId) {
+        fetchBalance();
+        setInterval(fetchBalance, 15000);
+    }
 
     // Web Audio
     let audioCtx = null;
@@ -460,18 +482,6 @@
         }
     }
 
-    function updateSessionUI() {
-        sessionBankDisplay.textContent = (sessionProfit >= 0 ? `+${sessionProfit}` : `${sessionProfit}`) + "₽";
-        if (sessionProfit > 0) sessionBankDisplay.style.color = 'var(--accent-green)';
-        else if (sessionProfit < 0) sessionBankDisplay.style.color = 'var(--accent-red)';
-        else sessionBankDisplay.style.color = 'var(--text-main)';
-    }
-
-    // Новая функция для отображения баланса
-    function updateBalanceUI() {
-        if (balanceSpan) balanceSpan.innerText = balance;
-    }
-
     function spinReel(index, duration) {
         return new Promise(resolve => {
             const reelData = reels[index];
@@ -507,7 +517,6 @@
         if (bet > 100000) bet = 100000;
         betInput.value = bet;
 
-        // Проверка баланса (необязательно, но для информации)
         if (balance < bet) {
             statusMsg.innerText = `❌ Недостаточно средств! Баланс: ${balance}₽`;
             statusMsg.style.color = 'var(--accent-red)';
@@ -525,8 +534,6 @@
         statusMsg.style.display = 'block';
         statusMsg.innerText = 'Удача на вашей стороне...';
         statusMsg.style.color = 'var(--text-muted)';
-
-        // Ставка НЕ списывается сейчас
 
         const results = await Promise.all([
             spinReel(0, 1000),
@@ -558,12 +565,13 @@
 
         if (winAmount > 0) {
             sessionProfit += winAmount;
+            // balance обновляется на сервере, запрашиваем новый баланс
+            fetchBalance();
             statusMsg.style.display = 'none';
             winAmountDisplay.style.display = 'block';
             winAmountDisplay.innerText = `+${winAmount}₽`;
             soundWinBig();
             vibrate('success');
-            // Локальный баланс не обновляем, только сессия
             tg.sendData(JSON.stringify({
                 action: 'slots_result',
                 bet: bet,
@@ -572,6 +580,8 @@
             }));
         } else {
             sessionProfit -= bet;
+            // balance обновляется на сервере, запрашиваем новый баланс
+            fetchBalance();
             statusMsg.innerText = `ПРОИГРЫШ`;
             statusMsg.style.color = 'var(--accent-red)';
             soundLose();
@@ -591,11 +601,6 @@
 
     function exitAndCollect() {
         soundClick();
-        if (!tg.sendData) return;
-        tg.sendData(JSON.stringify({
-            action: "slots_session",
-            total_profit: sessionProfit
-        }));
         tg.close();
     }
 
@@ -608,32 +613,9 @@
 
     spinBtn.addEventListener('click', startSpin);
     exitBtn.addEventListener('click', exitAndCollect);
-    
-// === НОВАЯ ФУНКЦИЯ БАЛАНСА ===
-function fetchBalance() {
-    if (!userId) return;
-    tg.sendData(JSON.stringify({ action: 'get_balance' }));
-}
 
-// Обработчик ответа
-tg.onEvent('web_app_data', function(data) {
-    try {
-        const response = JSON.parse(data);
-        if (response.balance !== undefined) {
-            balance = response.balance;
-            if (balanceSpan) balanceSpan.innerText = balance;
-        }
-    } catch (e) {
-        console.log('Ошибка баланса:', e);
-    }
-});
-
-// Запрос при старте и по таймеру
-if (userId) {
-    fetchBalance();
-    setInterval(fetchBalance, 15000);
-}
-
+    // Инициализация
+    if (userId) fetchBalance();
 </script>
 </body>
 </html>
