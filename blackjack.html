@@ -386,11 +386,11 @@
     let deck = [], playerHand = [], dealerHand = [];
     let gameActive = false;
     let canDouble = true;
-    let sessionProfit = 0; // только для внутренней статистики
+    let sessionProfit = 0;
 
     // ===== БАЛАНС ИЗ localStorage =====
     let casinoBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
-    const initialBalance = casinoBalance; // запоминаем начальный баланс для сессии
+    const initialBalance = casinoBalance;
     balanceSpan.innerText = casinoBalance;
 
     function updateBalanceDisplay(newBalance) {
@@ -398,6 +398,27 @@
         localStorage.setItem('casinoBalance', String(casinoBalance));
         balanceSpan.innerText = casinoBalance;
     }
+
+    // Обработчик ответов от бота
+    tg.onEvent('web_app_data', function(data) {
+        try {
+            const response = JSON.parse(data);
+            if (response.error) {
+                statusDiv.innerHTML = `<span style="color:var(--accent-red)">❌ ${response.error}</span>`;
+                return;
+            }
+            if (response.action === 'blackjack_win' || response.action === 'blackjack_lose') {
+                const newBalance = response.new_balance;
+                if (newBalance !== undefined) {
+                    casinoBalance = newBalance;
+                    localStorage.setItem('casinoBalance', String(newBalance));
+                    balanceSpan.innerText = casinoBalance;
+                }
+            }
+        } catch (e) {
+            console.error('Ошибка обработки ответа:', e);
+        }
+    });
 
     // Web Audio
     let audioCtx = null;
@@ -633,7 +654,6 @@
         }
     }
 
-    // ===== НОВЫЕ ФУНКЦИИ ДЛЯ КНОПОК =====
     function exitToMenu() {
         const currentBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
         const profit = currentBalance - initialBalance;
@@ -648,7 +668,6 @@
         tg.close();
     }
 
-    // Обработчики событий
     startBtn.onclick = startGame;
     hitBtn.onclick = hit;
     standBtn.onclick = stand;
@@ -664,7 +683,6 @@
         betInput.value = currentBet;
     });
 
-    // Инициализация
     updateUI();
 </script>
 </body>

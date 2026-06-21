@@ -432,12 +432,12 @@
     const baseMultiplier = 5;
     const pairMultiplier = 2;
 
-    let sessionProfit = 0; // только для внутренней статистики
+    let sessionProfit = 0;
     let isSpinning = false;
 
     // ===== БАЛАНС ИЗ localStorage =====
     let casinoBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
-    const initialBalance = casinoBalance; // запоминаем для сессии
+    const initialBalance = casinoBalance;
     balanceSpan.innerText = casinoBalance.toLocaleString();
 
     function updateBalanceDisplay(newBalance) {
@@ -445,6 +445,37 @@
         localStorage.setItem('casinoBalance', String(casinoBalance));
         balanceSpan.innerText = casinoBalance.toLocaleString();
     }
+
+    // ===== ОБРАБОТЧИК ОТВЕТОВ ОТ БОТА =====
+    tg.onEvent('web_app_data', function(data) {
+        try {
+            const response = JSON.parse(data);
+            if (response.error) {
+                statusMsg.innerText = '❌ ' + response.error;
+                statusMsg.style.color = 'var(--accent-red)';
+                return;
+            }
+            if (response.action === 'slots_result') {
+                if (response.result === 'win') {
+                    const newBalance = response.new_balance;
+                    if (newBalance !== undefined) {
+                        casinoBalance = newBalance;
+                        localStorage.setItem('casinoBalance', String(newBalance));
+                        balanceSpan.innerText = newBalance.toLocaleString();
+                    }
+                } else if (response.result === 'lose') {
+                    const newBalance = response.new_balance;
+                    if (newBalance !== undefined) {
+                        casinoBalance = newBalance;
+                        localStorage.setItem('casinoBalance', String(newBalance));
+                        balanceSpan.innerText = newBalance.toLocaleString();
+                    }
+                }
+            }
+        } catch (e) {
+            console.error('Ошибка обработки ответа:', e);
+        }
+    });
 
     // Web Audio
     let audioCtx = null;
@@ -597,7 +628,6 @@
         betInput.disabled = false;
     }
 
-    // ===== НОВЫЕ ФУНКЦИИ ДЛЯ КНОПОК =====
     function exitToMenu() {
         const currentBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
         const profit = currentBalance - initialBalance;
