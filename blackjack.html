@@ -386,11 +386,10 @@
     let deck = [], playerHand = [], dealerHand = [];
     let gameActive = false;
     let canDouble = true;
-    let sessionProfit = 0;
 
     // ===== БАЛАНС ИЗ localStorage =====
     let casinoBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
-    const initialBalance = casinoBalance;
+    const initialBalance = casinoBalance; // запоминаем начальный баланс для сессии
     balanceSpan.innerText = casinoBalance;
 
     function updateBalanceDisplay(newBalance) {
@@ -399,26 +398,8 @@
         balanceSpan.innerText = casinoBalance;
     }
 
-    // Обработчик ответов от бота
-    tg.onEvent('web_app_data', function(data) {
-        try {
-            const response = JSON.parse(data);
-            if (response.error) {
-                statusDiv.innerHTML = `<span style="color:var(--accent-red)">❌ ${response.error}</span>`;
-                return;
-            }
-            if (response.action === 'blackjack_win' || response.action === 'blackjack_lose') {
-                const newBalance = response.new_balance;
-                if (newBalance !== undefined) {
-                    casinoBalance = newBalance;
-                    localStorage.setItem('casinoBalance', String(newBalance));
-                    balanceSpan.innerText = casinoBalance;
-                }
-            }
-        } catch (e) {
-            console.error('Ошибка обработки ответа:', e);
-        }
-    });
+    // Удаляем обработчик onEvent, так как теперь не ожидаем ответов от бота во время игры
+    // (он может быть закомментирован или удалён)
 
     // Web Audio
     let audioCtx = null;
@@ -560,27 +541,17 @@
             statusDiv.innerHTML = `<span style="color:var(--accent-green)">🎉 ПОБЕДА! +${winAmount}₽</span>`;
             vibrate('success');
             soundWin();
-            tg.sendData(JSON.stringify({
-                action: "blackjack_win",
-                bet: currentBet,
-                win: winAmount
-            }));
+            // tg.sendData УДАЛЁН
         } else if (result === 'lose') {
             updateBalanceDisplay(casinoBalance - currentBet);
             statusDiv.innerHTML = `<span style="color:var(--accent-red)">💥 ПРОИГРЫШ! -${currentBet}₽</span>`;
             vibrate('error');
             soundLose();
-            tg.sendData(JSON.stringify({
-                action: "blackjack_lose",
-                bet: currentBet
-            }));
+            // tg.sendData УДАЛЁН
         } else if (result === 'tie') {
             statusDiv.innerHTML = `<span style="color:var(--accent-orange)">🤝 НИЧЬЯ! Ставка возвращена</span>`;
             vibrate('medium');
-            tg.sendData(JSON.stringify({
-                action: "blackjack_push",
-                bet: currentBet
-            }));
+            // tg.sendData УДАЛЁН
         }
 
         updateUI();
@@ -654,6 +625,7 @@
         }
     }
 
+    // ===== НОВАЯ ФУНКЦИЯ ДЛЯ КНОПКИ В МЕНЮ =====
     function exitToMenu() {
         const currentBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
         const profit = currentBalance - initialBalance;
@@ -668,6 +640,7 @@
         tg.close();
     }
 
+    // Обработчики событий
     startBtn.onclick = startGame;
     hitBtn.onclick = hit;
     standBtn.onclick = stand;
@@ -683,6 +656,7 @@
         betInput.value = currentBet;
     });
 
+    // Инициализация
     updateUI();
 </script>
 </body>
