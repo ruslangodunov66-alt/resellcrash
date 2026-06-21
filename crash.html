@@ -132,13 +132,29 @@
         
         .btn-bet { background: var(--accent-blue); border-bottom: 5px solid #1066cc; box-shadow: 0 4px 20px rgba(24, 130, 255, 0.4); }
         .btn-bet:hover:not(:disabled) { background: var(--accent-blue-hover); }
-        
         .btn-cancel { background: var(--accent-red); border-bottom: 5px solid #b81d2d; box-shadow: 0 4px 20px rgba(240, 48, 67, 0.4); }
-        
         .btn-cashout { background: var(--accent-green); border-bottom: 5px solid #149c45; box-shadow: 0 4px 20px rgba(27, 209, 93, 0.4); }
         .btn-cashout:hover:not(:disabled) { background: var(--accent-green-hover); }
         
         .btn-subtext { font-size: 12px; font-weight: 600; opacity: 0.8; text-transform: none; font-family: 'Nunito', sans-serif; }
+
+        /* Новая кнопка звука – стилизована под кнопку ставки */
+        .sound-btn {
+            width: 100%; padding: 14px; border: none; border-radius: 14px;
+            background: var(--panel-bg);
+            border: 1px solid rgba(255,255,255,0.08);
+            color: var(--text-muted);
+            font-family: 'Montserrat', sans-serif;
+            font-weight: 700; font-size: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex; align-items: center; justify-content: center; gap: 12px;
+            margin-top: 12px;
+        }
+        .sound-btn:active { transform: scale(0.97); background: var(--accent-blue); border-color: var(--accent-blue); color: #fff; }
+        .sound-btn .icon { font-size: 22px; }
+        .sound-btn .label { text-transform: uppercase; letter-spacing: 0.5px; }
+        .sound-btn.muted { opacity: 0.6; }
 
         .live-bets-section { flex-grow: 1; display: flex; flex-direction: column; background: var(--panel-bg); border-radius: 16px; padding: 15px; border: 1px solid rgba(255,255,255,0.02); }
         .section-title { font-size: 14px; font-weight: 800; color: var(--text-main); margin-bottom: 10px; display: flex; justify-content: space-between; }
@@ -165,6 +181,10 @@
         .row-crashed .col-multi { color: var(--accent-red); }
         
         .my-bet-row { background: rgba(24, 130, 255, 0.15) !important; border-left: 2px solid var(--accent-blue); }
+
+        @media (max-width: 480px) {
+            .sound-btn { padding: 12px; font-size: 14px; }
+        }
     </style>
 </head>
 <body>
@@ -202,9 +222,16 @@
                 </div>
             </div>
         </div>
+
         <button id="actionBtn" class="action-btn btn-bet">
             <span>СДЕЛАТЬ СТАВКУ</span>
             <span class="btn-subtext" id="actionSubtext">На следующий раунд</span>
+        </button>
+
+        <!-- Новая кнопка управления звуком -->
+        <button id="soundBtn" class="sound-btn">
+            <span class="icon">🔇</span>
+            <span class="label" id="soundLabel">ВКЛЮЧИТЬ ЗВУК</span>
         </button>
     </div>
 
@@ -229,6 +256,12 @@
     </div>
 </div>
 
+<!-- Аудио-элемент с фоновой музыкой -->
+<audio id="bgMusic" loop preload="auto">
+    <source src="Evgeny_Bardyuzha_-_Ant_77516793.mp3" type="audio/mpeg">
+    Ваш браузер не поддерживает аудио.
+</audio>
+
 <script>
     (function(){
         const tg = window.Telegram.WebApp;
@@ -236,7 +269,7 @@
         tg.ready();
         if (tg.HapticFeedback) tg.enableClosingConfirmation();
 
-        // Получаем userId из URL (если есть)
+        // Получаем userId из URL
         const urlParams = new URLSearchParams(window.location.search);
         const userId = urlParams.get('userId') || '';
 
@@ -254,6 +287,10 @@
         const menuBtn = document.getElementById('menuBtn');
         const canvas = document.getElementById('crashCanvas');
         const ctx = canvas.getContext('2d');
+        const soundBtn = document.getElementById('soundBtn');
+        const soundLabel = document.getElementById('soundLabel');
+        const soundIcon = soundBtn.querySelector('.icon');
+        const bgAudio = document.getElementById('bgMusic');
 
         // === БАЛАНС ===
         let casinoBalance = parseInt(localStorage.getItem('casinoBalance'));
@@ -264,7 +301,6 @@
             localStorage.setItem('casinoBalance', String(casinoBalance));
             balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
         }
-        // Инициализация отображения
         updateBalance(0);
 
         // === ИСТОРИЯ ===
@@ -486,7 +522,6 @@
             statusMsg.style.color = 'var(--accent-red)';
             if (userBetActive) {
                 userBetActive = false;
-                // При краше ставка уже списана, ничего не возвращаем
                 if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
             }
             bots.forEach(b => { if (!b.cashed) b.crashed = true; });
@@ -590,7 +625,7 @@
             });
             ctx.globalAlpha = 1.0;
 
-            // График (только линия, без точки)
+            // График
             if (gameState === 'FLYING') {
                 let progress = (currentMulti - 1) / 10;
                 ctx.strokeStyle = 'var(--accent-blue)';
@@ -629,7 +664,7 @@
             ctx.globalAlpha = 1.0;
             ctx.shadowBlur = 0;
 
-            // ===== РАКЕТА (улучшенная, без белой точки) =====
+            // Ракета (без изменений)
             if (gameState !== 'CRASHED') {
                 ctx.save();
                 ctx.translate(canvas.width/2, rocketY);
@@ -642,11 +677,9 @@
                 ctx.shadowBlur = 30;
                 ctx.shadowColor = 'var(--accent-blue)';
 
-                // Крылья
                 ctx.fillStyle = '#111822';
                 ctx.strokeStyle = '#263345';
                 ctx.lineWidth = 1.5;
-                // Нижнее крыло
                 ctx.beginPath();
                 ctx.moveTo(-18, 12);
                 ctx.lineTo(-12, 26);
@@ -654,7 +687,6 @@
                 ctx.lineTo(0, 12);
                 ctx.closePath();
                 ctx.fill(); ctx.stroke();
-                // Верхнее крыло
                 ctx.beginPath();
                 ctx.moveTo(-18, -12);
                 ctx.lineTo(-12, -26);
@@ -663,7 +695,6 @@
                 ctx.closePath();
                 ctx.fill(); ctx.stroke();
 
-                // Корпус (градиент)
                 let grad2 = ctx.createLinearGradient(-30, 0, 40, 0);
                 grad2.addColorStop(0, '#8c9eb5');
                 grad2.addColorStop(0.3, '#ffffff');
@@ -681,13 +712,11 @@
                 ctx.closePath();
                 ctx.fill();
 
-                // Синяя полоса
                 ctx.fillStyle = 'var(--accent-blue)';
                 ctx.shadowBlur = 15;
                 ctx.shadowColor = 'var(--accent-blue)';
                 ctx.fillRect(-6, -10, 10, 20);
 
-                // Иллюминатор
                 ctx.fillStyle = '#d6e6f2';
                 ctx.shadowBlur = 20;
                 ctx.shadowColor = 'rgba(255,255,255,0.5)';
@@ -702,7 +731,6 @@
                 ctx.arc(13, -2, 2, 0, Math.PI*2);
                 ctx.fill();
 
-                // Сопло
                 ctx.fillStyle = '#151d29';
                 ctx.shadowBlur = 0;
                 ctx.beginPath();
@@ -713,7 +741,6 @@
                 ctx.closePath();
                 ctx.fill();
 
-                // Огонь
                 if (gameState === 'FLYING') {
                     ctx.fillStyle = 'var(--accent-orange)';
                     ctx.shadowBlur = 40;
@@ -736,7 +763,6 @@
                 ctx.restore();
             }
 
-            // Вспышка взрыва
             if (explosionAlpha > 0) {
                 ctx.fillStyle = `rgba(240, 48, 67, ${explosionAlpha * 0.4})`;
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -755,9 +781,56 @@
 
         // === КНОПКА МЕНЮ ===
         menuBtn.onclick = () => {
-            // Переходим в лобби с текущим балансом
-            window.location.href = 'casino.html?userId=' + userId + '&balance=' + casinoBalance;
+            window.location.href = 'casino.html?userId=' + userId;
         };
+
+        // === УПРАВЛЕНИЕ ЗВУКОМ ===
+        let isSoundOn = false;
+
+        function updateSoundButton() {
+            if (isSoundOn) {
+                soundIcon.textContent = '🔊';
+                soundLabel.textContent = 'ВЫКЛЮЧИТЬ ЗВУК';
+                soundBtn.classList.remove('muted');
+            } else {
+                soundIcon.textContent = '🔇';
+                soundLabel.textContent = 'ВКЛЮЧИТЬ ЗВУК';
+                soundBtn.classList.add('muted');
+            }
+        }
+
+        function toggleSound() {
+            if (isSoundOn) {
+                bgAudio.pause();
+                isSoundOn = false;
+            } else {
+                bgAudio.volume = 0.3;
+                bgAudio.play().then(() => {
+                    isSoundOn = true;
+                    updateSoundButton();
+                }).catch(() => {
+                    alert('⚠️ Не удалось включить звук. Попробуйте ещё раз.');
+                });
+            }
+            updateSoundButton();
+        }
+
+        soundBtn.addEventListener('click', toggleSound);
+
+        // Пытаемся запустить музыку при первом клике по странице
+        function tryAutoPlay() {
+            if (!isSoundOn) {
+                bgAudio.volume = 0.3;
+                bgAudio.play().then(() => {
+                    isSoundOn = true;
+                    updateSoundButton();
+                }).catch(() => {});
+            }
+            document.removeEventListener('click', tryAutoPlay);
+            document.removeEventListener('touchstart', tryAutoPlay);
+        }
+        document.addEventListener('click', tryAutoPlay);
+        document.addEventListener('touchstart', tryAutoPlay);
 
         // Запуск
         setWaitingPhase();
