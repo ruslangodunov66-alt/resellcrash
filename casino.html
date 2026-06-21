@@ -483,50 +483,75 @@
         const depositBtn = document.getElementById('depositBtn');
         const withdrawBtn = document.getElementById('withdrawBtn');
 
-        // ===== БАЛАНС ТОЛЬКО ИЗ localStorage =====
+        // ===== БАЛАНС ИЗ localStorage =====
         let casinoBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
         balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
 
         // ===== ПОПОЛНЕНИЕ =====
         depositBtn.onclick = () => {
-            if (!userId) return;
+            if (!userId) {
+                alert('❌ Ошибка: userId не найден');
+                return;
+            }
             let amount = prompt('💰 Введите сумму пополнения:');
             if (amount && !isNaN(amount) && parseInt(amount) > 0) {
-                tg.sendData(JSON.stringify({ action: 'deposit', amount: parseInt(amount) }));
+                const data = { action: 'deposit', amount: parseInt(amount) };
+                console.log('📤 Отправляем запрос на пополнение:', data);
+                tg.sendData(JSON.stringify(data));
             }
         };
 
         // ===== ВЫВОД =====
         withdrawBtn.onclick = () => {
-            if (!userId) return;
+            if (!userId) {
+                alert('❌ Ошибка: userId не найден');
+                return;
+            }
             let amount = prompt('💸 Введите сумму вывода:');
             if (amount && !isNaN(amount) && parseInt(amount) > 0) {
                 if (parseInt(amount) > casinoBalance) {
                     alert('❌ Недостаточно средств в казино!');
                     return;
                 }
-                tg.sendData(JSON.stringify({ action: 'withdraw', amount: parseInt(amount) }));
+                const data = { action: 'withdraw', amount: parseInt(amount) };
+                console.log('📤 Отправляем запрос на вывод:', data);
+                tg.sendData(JSON.stringify(data));
             }
         };
 
-        // ===== ОБРАБОТЧИК ОТВЕТОВ ОТ БОТА =====
+        // ===== ОБРАБОТЧИК ОТВЕТОВ ОТ БОТА (САМЫЙ ВАЖНЫЙ БЛОК) =====
         tg.onEvent('web_app_data', function(data) {
             try {
                 const response = JSON.parse(data);
-                console.log('📩 Ответ от бота:', response);
-                
+                console.log('📩 Получен ответ от бота:', response);
+
                 if (response.error) {
                     alert('❌ Ошибка: ' + response.error);
                     return;
                 }
 
+                // Обработка успешного пополнения или вывода
                 if (response.action === 'deposit_success' || response.action === 'withdraw_success') {
                     if (response.new_casino_balance !== undefined) {
+                        // Обновляем локальный баланс
                         casinoBalance = response.new_casino_balance;
                         localStorage.setItem('casinoBalance', String(casinoBalance));
                         balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
+                        console.log('✅ Баланс обновлён:', casinoBalance);
                         if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
                         alert('✅ Операция выполнена!\nНовый баланс казино: ' + casinoBalance.toLocaleString() + ' ₽');
+                    } else {
+                        console.warn('⚠️ Ответ не содержит new_casino_balance');
+                    }
+                }
+
+                // Обработка запроса баланса (если вы его используете)
+                if (response.action === 'balance') {
+                    if (response.balance !== undefined) {
+                        casinoBalance = response.balance;
+                        localStorage.setItem('casinoBalance', String(casinoBalance));
+                        balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
+                        console.log('✅ Баланс обновлён из запроса:', casinoBalance);
                     }
                 }
             } catch (e) {
