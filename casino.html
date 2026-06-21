@@ -420,9 +420,14 @@
         const depositBtn = document.getElementById('depositBtn');
         const withdrawBtn = document.getElementById('withdrawBtn');
 
-        // ===== БАЛАНС ТОЛЬКО ИЗ localStorage =====
+        // ===== БАЛАНС ИЗ localStorage С ЗАПРОСОМ ОТ БОТА =====
         let casinoBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
         balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
+
+        // При загрузке запрашиваем актуальный баланс у бота
+        if (userId) {
+            tg.sendData(JSON.stringify({ action: 'get_balance' }));
+        }
 
         // ===== ПОПОЛНЕНИЕ =====
         depositBtn.onclick = () => {
@@ -446,17 +451,29 @@
             }
         };
 
-        // ===== ОБРАБОТЧИК ОТВЕТОВ ОТ БОТА (ИСПРАВЛЕННЫЙ) =====
+        // ===== ОБРАБОТЧИК ОТВЕТОВ ОТ БОТА (ПОЛНЫЙ) =====
         tg.onEvent('web_app_data', function(data) {
             try {
                 const response = JSON.parse(data);
-                console.log('Ответ от бота:', response);
+                console.log('📩 Ответ от бота:', response);
                 
                 if (response.error) {
                     alert('❌ Ошибка: ' + response.error);
                     return;
                 }
-                
+
+                // Обновление баланса из запроса get_balance
+                if (response.action === 'balance') {
+                    if (response.balance !== undefined) {
+                        casinoBalance = response.balance;
+                        localStorage.setItem('casinoBalance', String(casinoBalance));
+                        balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
+                        console.log('✅ Баланс обновлён из БД:', casinoBalance);
+                    }
+                    return;
+                }
+
+                // Обработка пополнения и вывода
                 if (response.action === 'deposit_success' || response.action === 'withdraw_success') {
                     if (response.new_casino_balance !== undefined) {
                         casinoBalance = response.new_casino_balance;
@@ -467,7 +484,7 @@
                     }
                 }
             } catch (e) {
-                console.error('Ошибка обработки ответа:', e);
+                console.error('❌ Ошибка обработки ответа:', e);
                 alert('⚠️ Ошибка обработки ответа от бота. Попробуйте ещё раз.');
             }
         });
@@ -502,7 +519,7 @@
             });
         });
 
-        // ===== ФОНОВАЯ АНИМАЦИЯ =====
+        // ===== ФОНОВАЯ АНИМАЦИЯ (БЕЗ ИЗМЕНЕНИЙ) =====
         const canvas = document.getElementById('animatedCanvas');
         const ctx = canvas.getContext('2d');
         let width = window.innerWidth, height = window.innerHeight;
