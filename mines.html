@@ -475,7 +475,6 @@
 
     // ===== БАЛАНС ИЗ localStorage =====
     let casinoBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
-    const initialBalance = casinoBalance;
     balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
 
     function updateBalanceDisplay(newBalance) {
@@ -609,18 +608,15 @@
                     if (!gameActive) return;
                     if (opened[i][j]) return;
                     if (field[i][j]) {
-                        // МИНА – списываем ставку
                         opened[i][j] = true;
                         soundMine();
                         updateUI();
                         gameActive = false;
-                        // Обновляем баланс (проигрыш)
                         updateBalanceDisplay(casinoBalance - currentBet);
                         statusDiv.innerHTML = `<span style="color:var(--accent-red)">💥 МИНА! ВЫ ПРОИГРАЛИ -${currentBet}₽</span>`;
                         startBtn.disabled = false;
                         cashoutBtn.disabled = true;
                         vibrate('error');
-                        // открываем остальные мины
                         for(let r=0; r<5; r++) {
                             for(let c=0; c<5; c++) {
                                 if(field[r][c] && !opened[r][c]) {
@@ -632,7 +628,6 @@
                             }
                         }
                     } else {
-                        // БЕЗОПАСНО
                         opened[i][j] = true;
                         openedSafe++;
                         soundOpen();
@@ -643,7 +638,6 @@
                         updateUI();
                         vibrate('light');
                         if (openedSafe === safeTotal) {
-                            // ПОБЕДА – начисляем полный выигрыш
                             const winAmount = Math.floor(currentBet * currentMultiplier);
                             updateBalanceDisplay(casinoBalance + winAmount);
                             statusDiv.innerHTML = `<span style="color:var(--accent-green)">🎉 ПОБЕДА! ВЫ ВЫИГРАЛИ ${winAmount}₽</span>`;
@@ -674,7 +668,7 @@
         renderGrid();
         multiplierSpan.textContent = '1.00x';
         currentWinSpan.textContent = '0';
-        statusDiv.innerHTML = `Сделайте ставку и выберите количество мин`;
+        statusDiv.innerHTML = 'Сделайте ставку и выберите количество мин';
     }
 
     function startGame() {
@@ -691,7 +685,6 @@
         currentBet = amount;
         betInput.value = currentBet;
 
-        // СПИСЫВАЕМ СТАВКУ
         updateBalanceDisplay(casinoBalance - currentBet);
 
         field = generateField();
@@ -703,7 +696,7 @@
         cashoutBtn.disabled = false;
         updateMultiplierTable();
         renderGrid();
-        statusDiv.innerHTML = `<span style="color:var(--accent-blue)">💣 ИГРА НАЧАЛАСЬ! Открывайте ячейки.</span>`;
+        statusDiv.innerHTML = '<span style="color:var(--accent-blue)">💣 ИГРА НАЧАЛАСЬ! Открывайте ячейки.</span>';
         vibrate('medium');
     }
 
@@ -721,25 +714,19 @@
         updateUI();
     }
 
-    // ===== НОВЫЕ ФУНКЦИИ ДЛЯ КНОПОК =====
+    // ===== КНОПКИ МЕНЮ И ВЫХОДА =====
     function exitToMenu() {
-        const currentBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
-        const profit = currentBalance - initialBalance;
-        tg.sendData(JSON.stringify({
-            action: "mines_session",
-            total_profit: profit
-        }));
-        window.location.href = 'casino.html?userId=' + userId;
+        window.location.href = 'casino.html?userId=' + (userId || '');
     }
 
     function exitAndCollect() {
         tg.close();
     }
 
-    // Кнопка МЕНЮ
-    document.getElementById('menuBtn').onclick = exitToMenu;
+    menuBtn.onclick = exitToMenu;
+    exitBtn.onclick = exitAndCollect;
 
-    // Выбор мин
+    // ===== ВЫБОР КОЛИЧЕСТВА МИН =====
     document.querySelectorAll('.mine-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             if (gameActive) return;
@@ -754,9 +741,8 @@
 
     startBtn.addEventListener('click', startGame);
     cashoutBtn.addEventListener('click', cashout);
-    exitBtn.addEventListener('click', exitAndCollect);
 
-    // Инициализация
+    // ===== ИНИЦИАЛИЗАЦИЯ =====
     initAudio();
     updateMultiplierTable();
     resetGame();
