@@ -120,7 +120,6 @@
         .wrapper-rub::before { content: '₽'; }
         .wrapper-x::before { content: 'x'; }
 
-        /* Новая улучшенная кнопка */
         .action-btn {
             width: 100%; padding: 18px 12px; border: none; border-radius: 14px;
             font-weight: 800; font-size: 18px; text-transform: uppercase; cursor: pointer;
@@ -168,8 +167,23 @@
 
         .live-bets-section { flex-grow: 1; display: flex; flex-direction: column; background: var(--panel-bg); border-radius: 16px; padding: 15px; border: 1px solid rgba(255,255,255,0.02); }
         .section-title { font-size: 14px; font-weight: 800; color: var(--text-main); margin-bottom: 10px; display: flex; justify-content: space-between; }
-        .online-count { color: var(--accent-green); font-size: 12px; display: flex; align-items: center; gap: 5px; }
-        .online-count::before { content: ''; display: block; width: 6px; height: 6px; background: var(--accent-green); border-radius: 50%; box-shadow: 0 0 8px var(--accent-green); }
+        .online-count {
+            color: var(--accent-green);
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            white-space: nowrap;
+        }
+        .online-count::before {
+            content: '';
+            display: block;
+            width: 6px; height: 6px;
+            background: var(--accent-green);
+            border-radius: 50%;
+            box-shadow: 0 0 8px var(--accent-green);
+            flex-shrink: 0;
+        }
         
         .table-container { overflow-y: auto; max-height: 250px; scrollbar-width: thin; scrollbar-color: #263345 transparent; }
         .table-container::-webkit-scrollbar { width: 4px; }
@@ -192,6 +206,24 @@
         
         .my-bet-row { background: rgba(24, 130, 255, 0.15) !important; border-left: 2px solid var(--accent-blue); }
 
+        /* ИСПРАВЛЕНИЕ БАЛАНСА – знак рубля больше не съезжает */
+        .balance-value {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 15px;
+            font-weight: 800;
+            color: var(--accent-green);
+            text-shadow: 0 0 12px rgba(27, 209, 93, 0.2);
+            line-height: 1.2;
+            cursor: pointer;
+            border-radius: 8px;
+            padding: 2px 8px;
+            transition: all 0.2s;
+            white-space: nowrap;
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+        }
+
         @media (max-width: 480px) {
             .sound-btn { padding: 12px; font-size: 14px; }
             .action-btn { padding: 14px 10px; font-size: 16px; }
@@ -206,7 +238,7 @@
     <div class="header">
         <div class="brand">R-<span>GAME</span></div>
         <div class="header-actions">
-            <div class="info-card">Баланс: <span id="balanceDisplay" style="color: var(--accent-green);">0₽</span></div>
+            <div class="info-card">Баланс: <span class="balance-value" id="balanceDisplay">0 ₽</span></div>
             <button class="menu-btn" id="menuBtn">МЕНЮ</button>
         </div>
     </div>
@@ -374,12 +406,20 @@
     }
     renderHistory();
 
-    // === БОТЫ И ПЛАВНЫЙ ОНЛАЙН ===
-    const botNames = ["Alex_99", "CryptoKing", "LuckyStrike", "ProGamer", "MaxBet", "Ivan_1337", "Shadow", "Luna", "Star_Lord", "xX_Sniper_Xx", "RichGuy", "Whale", "NoobMaster", "Trader_Joe", "Kira", "Viper", "Phoenix", "Rocket", "Nebula", "Cosmos"];
+    // === РАЗНООБРАЗНЫЕ ИМЕНА БОТОВ ===
+    const prefixes = ['Alex', 'Crypto', 'Lucky', 'Pro', 'Max', 'Ivan', 'Shadow', 'Luna', 'Star', 'Sniper', 'Rich', 'Whale', 'Noob', 'Trader', 'Kira', 'Viper', 'Phoenix', 'Rocket', 'Nebula', 'Cosmos', 'Omega', 'Zen', 'Vortex', 'Fury', 'Blaze', 'Storm', 'Ghost', 'Titan', 'Apex', 'Nova', 'Eclipse', 'Falcon', 'Hawk', 'Wolf', 'Panther', 'Dragon', 'Knight', 'Wizard', 'Ranger', 'Guardian'];
+    const suffixes = ['_99', '_King', '_Lord', '_Pro', '_X', '_Z', '_7', '_42', '_1337', '_Hero', '_God', '_Star', '_Fire', '_Ice', '_Thunder'];
 
+    function generateBotName() {
+        const p = prefixes[Math.floor(Math.random() * prefixes.length)];
+        const s = suffixes[Math.floor(Math.random() * suffixes.length)];
+        return p + s + (Math.random() > 0.3 ? '' : '') + (Math.random() > 0.7 ? Math.floor(Math.random()*100) : '');
+    }
+
+    // === ПЛАВНЫЙ ОНЛАЙН ===
     let currentOnline = 142;
     let targetOnline = 142;
-    let onlineSpeed = 0.5;
+    let onlineSpeed = 0.2; // ещё медленнее для плавности
 
     function generateBots() {
         const count = Math.floor(Math.random() * 15) + 12;
@@ -395,7 +435,7 @@
             else if(r < 0.85) target = 2.2 + Math.random() * 3.0;
             else if(r < 0.97) target = 5.0 + Math.random() * 8.0;
             else target = 15.0 + Math.random() * 40.0;
-            const name = botNames[Math.floor(Math.random() * botNames.length)] + Math.floor(Math.random()*100);
+            const name = generateBotName();
             newBots.push({ id: 'bot_' + i, name, bet, target, cashed: false, crashed: false });
         }
         newBots.sort((a,b) => b.bet - a.bet);
@@ -600,17 +640,24 @@
         let dt = Math.min((now - lastTime) / 1000, 0.05);
         lastTime = now;
 
-        // Плавное изменение онлайн-счётчика
+        // Супер плавный онлайн с лёгкими флуктуациями
         if (currentOnline !== targetOnline) {
             let diff = targetOnline - currentOnline;
-            let step = Math.sign(diff) * onlineSpeed * dt * 30;
+            let step = Math.sign(diff) * onlineSpeed * dt * 20;
             if (Math.abs(step) > Math.abs(diff)) {
                 currentOnline = targetOnline;
             } else {
                 currentOnline += step;
             }
-            onlineCount.innerText = Math.round(currentOnline) + ' онлайн';
+            // Добавляем небольшие случайные колебания (±0.5), чтобы не стояло на месте
+            currentOnline += (Math.random() - 0.5) * 0.3 * dt * 10;
+            currentOnline = Math.max(10, currentOnline);
+        } else {
+            // Даже когда достигли цели, добавляем микроколебания
+            currentOnline += (Math.random() - 0.5) * 0.2 * dt * 5;
+            currentOnline = Math.max(10, currentOnline);
         }
+        onlineCount.innerText = Math.round(currentOnline) + ' онлайн';
 
         if (gameState === 'WAITING') {
             countdown -= dt;
@@ -654,7 +701,7 @@
         requestAnimationFrame(gameLoop);
     }
 
-    // ===== ГРАФИКА =====
+    // ===== ГРАФИКА (АФИГЕННАЯ РАКЕТА) =====
     let stars = Array.from({length: 120}, () => ({
         x: Math.random() * 800, y: Math.random() * 400,
         s: Math.random() * 2 + 0.5, spd: Math.random() * 2 + 0.5
@@ -666,54 +713,55 @@
 
     function triggerExplosion() {
         explosionAlpha = 1.0;
-        for(let i=0; i<200; i++) {
+        for(let i=0; i<250; i++) {
             let a = Math.random() * Math.PI * 2;
-            let v = Math.random() * 30 + 15;
-            let size = Math.random() * 20 + 5;
-            let colors = ['#f03043', '#ff9800', '#ffeb3b', '#ff5722', '#ff6f00'];
+            let v = Math.random() * 35 + 15;
+            let size = Math.random() * 25 + 5;
+            let colors = ['#f03043', '#ff9800', '#ffeb3b', '#ff5722', '#ff6f00', '#ff4d4d', '#ffaa00'];
             particles.push({
                 x: canvas.width/2, y: rocketY,
                 vx: Math.cos(a)*v, vy: Math.sin(a)*v - 5,
                 life: 1.0, color: colors[Math.floor(Math.random()*colors.length)],
-                size: size, decay: 0.008 + Math.random() * 0.015
+                size: size, decay: 0.006 + Math.random() * 0.012
             });
         }
-        for(let i=0; i<100; i++) {
+        for(let i=0; i<120; i++) {
             let a = Math.random() * Math.PI * 2;
-            let v = Math.random() * 50 + 20;
+            let v = Math.random() * 60 + 25;
             particles.push({
                 x: canvas.width/2, y: rocketY,
-                vx: Math.cos(a)*v, vy: Math.sin(a)*v - 10,
-                life: 0.6, color: '#ffffff',
-                size: 3 + Math.random() * 6, decay: 0.04 + Math.random() * 0.03
+                vx: Math.cos(a)*v, vy: Math.sin(a)*v - 15,
+                life: 0.7, color: '#ffffff',
+                size: 4 + Math.random() * 8, decay: 0.05 + Math.random() * 0.04
             });
         }
     }
 
-    // === ОТРИСОВКА РАКЕТЫ С НАДПИСЬЮ R-GAME (масштаб 1.45) ===
+    // === ОТРИСОВКА РАКЕТЫ С НАДПИСЬЮ R-GAME (супер детализированная) ===
     function drawRocket(ctx, x, y, tilt, scale) {
-        const s = scale || 1.45; // увеличенный масштаб
-        const w = 110 * s;
-        const h = 150 * s;
+        const s = scale || 1.6; // увеличенный масштаб для крутости
+        const w = 120 * s;
+        const h = 160 * s;
 
         ctx.save();
         ctx.translate(x, y);
         ctx.rotate(tilt || 0);
 
-        // Тень
-        ctx.shadowBlur = 30;
-        ctx.shadowColor = 'rgba(24, 130, 255, 0.4)';
+        // Глубокий свечущийся след (тень)
+        ctx.shadowBlur = 40;
+        ctx.shadowColor = 'rgba(24, 130, 255, 0.3)';
 
-        // Корпус (основная часть)
+        // Корпус – основной цилиндр с градиентом
         const grad = ctx.createLinearGradient(-w/2, 0, w/2, 0);
         grad.addColorStop(0, '#1a2a3a');
         grad.addColorStop(0.2, '#3a5a7a');
-        grad.addColorStop(0.5, '#6a9acf');
+        grad.addColorStop(0.4, '#7ab0e0');
+        grad.addColorStop(0.6, '#7ab0e0');
         grad.addColorStop(0.8, '#3a5a7a');
         grad.addColorStop(1, '#1a2a3a');
         ctx.fillStyle = grad;
-        ctx.shadowBlur = 20;
-        ctx.shadowColor = 'rgba(255,255,255,0.2)';
+        ctx.shadowBlur = 25;
+        ctx.shadowColor = 'rgba(255,255,255,0.15)';
         ctx.beginPath();
         ctx.moveTo(0, -h/2);
         ctx.quadraticCurveTo(w/2, -h/4, w/2, 0);
@@ -724,14 +772,16 @@
         ctx.quadraticCurveTo(-w/2, -h/4, 0, -h/2);
         ctx.closePath();
         ctx.fill();
-        ctx.strokeStyle = '#8ab8e8';
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#9ac8f0';
+        ctx.lineWidth = 2.5;
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = 'rgba(154,200,240,0.5)';
         ctx.stroke();
 
-        // Обтекатели (крылья)
+        // Крылья (обтекатели)
         ctx.fillStyle = '#2a4a6a';
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = 'rgba(24,130,255,0.3)';
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = 'rgba(24,130,255,0.4)';
         ctx.beginPath();
         ctx.moveTo(-w/2, -h/6);
         ctx.lineTo(-w/2 - w/4, 0);
@@ -745,65 +795,87 @@
         ctx.closePath();
         ctx.fill();
 
-        // Иллюминатор
-        ctx.shadowBlur = 25;
-        ctx.shadowColor = 'rgba(255,255,255,0.6)';
-        const gradWin = ctx.createRadialGradient(0, -h/8, 5, 0, -h/8, 18);
-        gradWin.addColorStop(0, '#e8f4ff');
-        gradWin.addColorStop(0.5, '#6a9acf');
-        gradWin.addColorStop(1, '#1a2a3a');
-        ctx.fillStyle = gradWin;
+        // Дополнительные стабилизаторы
+        ctx.fillStyle = '#1a3a5a';
+        ctx.shadowBlur = 10;
         ctx.beginPath();
-        ctx.arc(0, -h/8, 18*s, 0, Math.PI*2);
+        ctx.moveTo(-w/3, h/4);
+        ctx.lineTo(-w/2, h/3);
+        ctx.lineTo(-w/3, h/2);
+        ctx.closePath();
         ctx.fill();
-        ctx.strokeStyle = '#8ab8e8';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
-        // Блик на иллюминаторе
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = 'rgba(255,255,255,0.4)';
         ctx.beginPath();
-        ctx.arc(-6*s, -h/8 - 6*s, 5*s, 0, Math.PI*2);
-        ctx.fill();
-
-        // НАДПИСЬ R-GAME (градиент как в шапке)
-        ctx.shadowBlur = 15;
-        ctx.shadowColor = 'rgba(255,255,255,0.3)';
-        const gradText = ctx.createLinearGradient(0, -h/3, 0, -h/6);
-        gradText.addColorStop(0, '#ffffff');
-        gradText.addColorStop(0.5, '#a0c4ff');
-        gradText.addColorStop(1, '#ffffff');
-        ctx.fillStyle = gradText;
-        ctx.font = `bold ${28*s}px 'Montserrat', sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('R-GAME', 0, -h/3 + 12*s);
-
-        // Тень надписи
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = 'rgba(0,0,0,0.3)';
-        ctx.fillText('R-GAME', 0, -h/3 + 14*s);
-
-        // Нижняя часть (сопло)
-        ctx.shadowBlur = 20;
-        ctx.shadowColor = 'rgba(24,130,255,0.5)';
-        const gradNozzle = ctx.createLinearGradient(0, h/3, 0, h/2);
-        gradNozzle.addColorStop(0, '#3a5a7a');
-        gradNozzle.addColorStop(0.5, '#1a2a3a');
-        gradNozzle.addColorStop(1, '#0a1a2a');
-        ctx.fillStyle = gradNozzle;
-        ctx.beginPath();
-        ctx.moveTo(-w/6, h/3);
-        ctx.quadraticCurveTo(-w/4, h/2 - 5*s, 0, h/2);
-        ctx.quadraticCurveTo(w/4, h/2 - 5*s, w/6, h/3);
+        ctx.moveTo(w/3, h/4);
+        ctx.lineTo(w/2, h/3);
+        ctx.lineTo(w/3, h/2);
         ctx.closePath();
         ctx.fill();
 
-        // Детали (заклёпки, линии)
+        // Иллюминатор с бликом
+        ctx.shadowBlur = 30;
+        ctx.shadowColor = 'rgba(255,255,255,0.5)';
+        const gradWin = ctx.createRadialGradient(0, -h/8, 5, 0, -h/8, 22*s);
+        gradWin.addColorStop(0, '#ffffff');
+        gradWin.addColorStop(0.3, '#b0d8ff');
+        gradWin.addColorStop(0.7, '#3a7ab0');
+        gradWin.addColorStop(1, '#1a2a3a');
+        ctx.fillStyle = gradWin;
+        ctx.beginPath();
+        ctx.arc(0, -h/8, 22*s, 0, Math.PI*2);
+        ctx.fill();
+        ctx.strokeStyle = '#9ac8f0';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Блик (отражение света)
         ctx.shadowBlur = 0;
-        ctx.strokeStyle = 'rgba(138, 184, 232, 0.3)';
-        ctx.lineWidth = 1;
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.beginPath();
+        ctx.arc(-8*s, -h/8 - 8*s, 7*s, 0, Math.PI*2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.25)';
+        ctx.beginPath();
+        ctx.arc(6*s, -h/8 + 6*s, 4*s, 0, Math.PI*2);
+        ctx.fill();
+
+        // НАДПИСЬ R-GAME (градиент, как в шапке)
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = 'rgba(255,255,255,0.4)';
+        const gradText = ctx.createLinearGradient(0, -h/3, 0, -h/6);
+        gradText.addColorStop(0, '#ffffff');
+        gradText.addColorStop(0.4, '#a0c4ff');
+        gradText.addColorStop(0.7, '#ffffff');
+        gradText.addColorStop(1, '#a0c4ff');
+        ctx.fillStyle = gradText;
+        ctx.font = `bold ${32*s}px 'Montserrat', sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('R-GAME', 0, -h/3 + 14*s);
+
+        // Тень надписи для читаемости
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(0,0,0,0.4)';
+        ctx.fillText('R-GAME', 0, -h/3 + 16*s);
+
+        // Сопло (двигатель)
+        ctx.shadowBlur = 25;
+        ctx.shadowColor = 'rgba(24,130,255,0.5)';
+        const gradNozzle = ctx.createLinearGradient(0, h/3, 0, h/2 + 10*s);
+        gradNozzle.addColorStop(0, '#3a5a7a');
+        gradNozzle.addColorStop(0.4, '#1a2a3a');
+        gradNozzle.addColorStop(1, '#0a1520');
+        ctx.fillStyle = gradNozzle;
+        ctx.beginPath();
+        ctx.moveTo(-w/6, h/3);
+        ctx.quadraticCurveTo(-w/4, h/2 - 6*s, 0, h/2 + 6*s);
+        ctx.quadraticCurveTo(w/4, h/2 - 6*s, w/6, h/3);
+        ctx.closePath();
+        ctx.fill();
+
+        // Декоративные линии корпуса
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'rgba(154, 200, 240, 0.25)';
+        ctx.lineWidth = 1.5;
         for (let i = -3; i <= 3; i++) {
             if (i === 0) continue;
             ctx.beginPath();
@@ -812,13 +884,15 @@
             ctx.stroke();
         }
 
-        // Заклёпки
-        ctx.fillStyle = 'rgba(200,220,255,0.5)';
+        // Заклёпки (серебристые точки)
+        ctx.fillStyle = 'rgba(200, 220, 255, 0.6)';
         for (let i = -2; i <= 2; i+=1) {
             for (let j = -1; j <= 1; j+=1) {
                 if (i === 0 && j === 0) continue;
+                ctx.shadowBlur = 8;
+                ctx.shadowColor = 'rgba(200,220,255,0.3)';
                 ctx.beginPath();
-                ctx.arc(i * w/6, j * h/6, 2*s, 0, Math.PI*2);
+                ctx.arc(i * w/6, j * h/6, 2.5*s, 0, Math.PI*2);
                 ctx.fill();
             }
         }
@@ -838,6 +912,7 @@
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, 800, 400);
 
+        // Линии координатной сетки
         ctx.strokeStyle = 'rgba(255,255,255,0.03)';
         ctx.lineWidth = 1;
         for(let i=0; i<800; i+=80) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,400); ctx.stroke(); }
@@ -862,8 +937,8 @@
             let progress = (currentMulti - 1) / 10;
             ctx.strokeStyle = 'var(--accent-blue)';
             ctx.lineWidth = 4;
-            ctx.shadowBlur = 20;
-            ctx.shadowColor = 'var(--accent-blue)';
+            ctx.shadowBlur = 25;
+            ctx.shadowColor = 'rgba(24,130,255,0.5)';
             ctx.beginPath();
             ctx.moveTo(50, 380);
             for(let t=0; t<=progress; t+=0.01) {
@@ -886,7 +961,7 @@
             else {
                 ctx.globalAlpha = p.life;
                 ctx.fillStyle = p.color;
-                ctx.shadowBlur = 20;
+                ctx.shadowBlur = 25;
                 ctx.shadowColor = p.color;
                 ctx.beginPath();
                 ctx.arc(p.x, p.y, Math.max(p.size, 0.5), 0, Math.PI*2);
@@ -912,66 +987,69 @@
                 ctx.translate(cx + shakeX, cy + bobY + shakeY);
                 ctx.rotate(tilt);
 
-                ctx.shadowBlur = 40;
+                // Внешнее пламя (оранжево-красное)
+                ctx.shadowBlur = 50;
                 ctx.shadowColor = 'var(--accent-orange)';
-                const flameLen = 50 + Math.random() * 30 + currentMulti * 12;
-                const gradFire = ctx.createRadialGradient(0, 55, 10, 0, 55 + flameLen, flameLen);
-                gradFire.addColorStop(0, '#ff9800');
-                gradFire.addColorStop(0.4, '#ff5722');
+                const flameLen = 55 + Math.random() * 35 + currentMulti * 14;
+                const gradFire = ctx.createRadialGradient(0, 58, 10, 0, 58 + flameLen, flameLen);
+                gradFire.addColorStop(0, '#ffaa00');
+                gradFire.addColorStop(0.3, '#ff6a00');
+                gradFire.addColorStop(0.6, '#ff2a00');
                 gradFire.addColorStop(1, 'rgba(255,0,0,0)');
                 ctx.fillStyle = gradFire;
                 ctx.beginPath();
-                ctx.moveTo(-18, 50);
-                ctx.quadraticCurveTo(-30, 50 + flameLen * 0.6, 0, 50 + flameLen);
-                ctx.quadraticCurveTo(30, 50 + flameLen * 0.6, 18, 50);
+                ctx.moveTo(-20, 55);
+                ctx.quadraticCurveTo(-35, 55 + flameLen * 0.6, 0, 55 + flameLen);
+                ctx.quadraticCurveTo(35, 55 + flameLen * 0.6, 20, 55);
                 ctx.fill();
 
-                const innerLen = flameLen * 0.6 + Math.random() * 12;
-                ctx.shadowBlur = 30;
+                // Внутреннее пламя (ярко-жёлтое)
+                const innerLen = flameLen * 0.6 + Math.random() * 14;
+                ctx.shadowBlur = 40;
                 ctx.shadowColor = '#ffeb3b';
-                ctx.fillStyle = 'rgba(255, 235, 59, 0.7)';
+                ctx.fillStyle = 'rgba(255, 235, 59, 0.75)';
                 ctx.beginPath();
-                ctx.moveTo(-12, 50);
-                ctx.quadraticCurveTo(-18, 50 + innerLen * 0.5, 0, 50 + innerLen);
-                ctx.quadraticCurveTo(18, 50 + innerLen * 0.5, 12, 50);
+                ctx.moveTo(-14, 55);
+                ctx.quadraticCurveTo(-22, 55 + innerLen * 0.5, 0, 55 + innerLen);
+                ctx.quadraticCurveTo(22, 55 + innerLen * 0.5, 14, 55);
                 ctx.fill();
 
-                // Искры
-                if (Math.random() < 0.4) {
-                    for (let i=0; i<4; i++) {
-                        let angle = -Math.PI/2 + (Math.random()-0.5)*1.2;
-                        let speed = 2 + Math.random() * 8;
+                // Искры от огня
+                if (Math.random() < 0.45) {
+                    for (let i=0; i<5; i++) {
+                        let angle = -Math.PI/2 + (Math.random()-0.5)*1.4;
+                        let speed = 3 + Math.random() * 10;
                         particles.push({
-                            x: cx + shakeX + (Math.random()-0.5)*12,
-                            y: cy + bobY + shakeY + 50,
+                            x: cx + shakeX + (Math.random()-0.5)*16,
+                            y: cy + bobY + shakeY + 55,
                             vx: Math.cos(angle) * speed,
-                            vy: Math.sin(angle) * speed - 3,
+                            vy: Math.sin(angle) * speed - 4,
                             life: 1.0,
                             color: '#ffb300',
-                            size: 3 + Math.random() * 6,
-                            decay: 0.02 + Math.random() * 0.02
+                            size: 3 + Math.random() * 7,
+                            decay: 0.02 + Math.random() * 0.025
                         });
                     }
                 }
                 ctx.restore();
             }
 
-            // Рисуем саму ракету с масштабом 1.45
-            drawRocket(ctx, cx + shakeX, cy + bobY + shakeY, tilt, 1.45);
+            // Рисуем саму ракету с масштабом 1.6
+            drawRocket(ctx, cx + shakeX, cy + bobY + shakeY, tilt, 1.6);
         }
 
         // Взрывная вспышка
         if (explosionAlpha > 0) {
             ctx.fillStyle = `rgba(240, 48, 67, ${explosionAlpha * 0.4})`;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.shadowBlur = 100;
+            ctx.shadowBlur = 120;
             ctx.shadowColor = 'var(--accent-red)';
             ctx.strokeStyle = `rgba(240, 48, 67, ${explosionAlpha})`;
-            ctx.lineWidth = 15 * explosionAlpha;
+            ctx.lineWidth = 20 * explosionAlpha;
             ctx.beginPath();
-            ctx.arc(canvas.width/2, rocketY, (1-explosionAlpha)*300 + 100, 0, Math.PI*2);
+            ctx.arc(canvas.width/2, rocketY, (1-explosionAlpha)*350 + 120, 0, Math.PI*2);
             ctx.stroke();
-            explosionAlpha -= dt * 0.8;
+            explosionAlpha -= dt * 0.7;
             if(explosionAlpha < 0) explosionAlpha = 0;
             ctx.shadowBlur = 0;
         }
