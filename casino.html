@@ -557,14 +557,20 @@
             }
             let amount = prompt('💰 Введите сумму пополнения:');
             if (amount && !isNaN(amount) && parseInt(amount) > 0) {
-                const data = { action: 'deposit', amount: parseInt(amount) };
-                console.log('📤 Отправляем запрос на пополнение:', data);
-                tg.sendData(JSON.stringify(data));
+                const amt = parseInt(amount);
+                // 1. Оптимистично обновляем локальный баланс
+                let currentBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+                currentBalance += amt;
+                localStorage.setItem('casinoBalance', String(currentBalance));
+                balanceSpan.innerText = currentBalance.toLocaleString() + ' ₽';
 
-                // ✅ Через 1.5 секунды запросим баланс, чтобы обновить интерфейс
+                // 2. Отправляем запрос боту
+                tg.sendData(JSON.stringify({ action: 'deposit', amount: amt }));
+
+                // 3. Через 2 секунды запрашиваем реальный баланс для синхронизации
                 setTimeout(() => {
                     tg.sendData(JSON.stringify({ action: 'get_balance' }));
-                }, 1500);
+                }, 2000);
             }
         };
 
@@ -576,19 +582,22 @@
             }
             let amount = prompt('💸 Введите сумму вывода:');
             if (amount && !isNaN(amount) && parseInt(amount) > 0) {
+                const amt = parseInt(amount);
                 let currentBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
-                if (parseInt(amount) > currentBalance) {
+                if (amt > currentBalance) {
                     alert('❌ Недостаточно средств в казино!');
                     return;
                 }
-                const data = { action: 'withdraw', amount: parseInt(amount) };
-                console.log('📤 Отправляем запрос на вывод:', data);
-                tg.sendData(JSON.stringify(data));
+                // Оптимистично уменьшаем баланс
+                currentBalance -= amt;
+                localStorage.setItem('casinoBalance', String(currentBalance));
+                balanceSpan.innerText = currentBalance.toLocaleString() + ' ₽';
 
-                // ✅ Через 1.5 секунды запросим баланс
+                tg.sendData(JSON.stringify({ action: 'withdraw', amount: amt }));
+
                 setTimeout(() => {
                     tg.sendData(JSON.stringify({ action: 'get_balance' }));
-                }, 1500);
+                }, 2000);
             }
         };
 
