@@ -138,7 +138,6 @@
         
         .btn-subtext { font-size: 12px; font-weight: 600; opacity: 0.8; text-transform: none; font-family: 'Nunito', sans-serif; }
 
-        /* Новая кнопка звука – стилизована под кнопку ставки */
         .sound-btn {
             width: 100%; padding: 14px; border: none; border-radius: 14px;
             background: var(--panel-bg);
@@ -228,7 +227,6 @@
             <span class="btn-subtext" id="actionSubtext">На следующий раунд</span>
         </button>
 
-        <!-- Новая кнопка управления звуком -->
         <button id="soundBtn" class="sound-btn">
             <span class="icon">🔇</span>
             <span class="label" id="soundLabel">ВКЛЮЧИТЬ ЗВУК</span>
@@ -256,586 +254,591 @@
     </div>
 </div>
 
-<!-- Аудио-элемент с фоновой музыкой -->
 <audio id="bgMusic" loop preload="auto">
     <source src="Evgeny_Bardyuzha_-_Ant_77516793.mp3" type="audio/mpeg">
     Ваш браузер не поддерживает аудио.
 </audio>
 
 <script>
-    (function(){
-        const tg = window.Telegram.WebApp;
-        tg.expand();
-        tg.ready();
-        if (tg.HapticFeedback) tg.enableClosingConfirmation();
+(function(){
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+    tg.ready();
+    if (tg.HapticFeedback) tg.enableClosingConfirmation();
 
-        // Получаем userId из URL
-        const urlParams = new URLSearchParams(window.location.search);
-        const userId = urlParams.get('userId') || '';
+    const urlParams = new URLSearchParams(window.location.search);
+    const userId = urlParams.get('userId') || '';
 
-        // DOM
-        const balanceSpan = document.getElementById('balanceDisplay');
-        const multiplierDisplay = document.getElementById('multiplierDisplay');
-        const statusMsg = document.getElementById('statusMsg');
-        const historyList = document.getElementById('historyList');
-        const betInput = document.getElementById('betAmount');
-        const autoInput = document.getElementById('autoTarget');
-        const actionBtn = document.getElementById('actionBtn');
-        const actionSubtext = document.getElementById('actionSubtext');
-        const betsBody = document.getElementById('betsBody');
-        const onlineCount = document.getElementById('onlineCount');
-        const menuBtn = document.getElementById('menuBtn');
-        const canvas = document.getElementById('crashCanvas');
-        const ctx = canvas.getContext('2d');
-        const soundBtn = document.getElementById('soundBtn');
-        const soundLabel = document.getElementById('soundLabel');
-        const soundIcon = soundBtn.querySelector('.icon');
-        const bgAudio = document.getElementById('bgMusic');
+    // DOM
+    const balanceSpan = document.getElementById('balanceDisplay');
+    const multiplierDisplay = document.getElementById('multiplierDisplay');
+    const statusMsg = document.getElementById('statusMsg');
+    const historyList = document.getElementById('historyList');
+    const betInput = document.getElementById('betAmount');
+    const autoInput = document.getElementById('autoTarget');
+    const actionBtn = document.getElementById('actionBtn');
+    const actionSubtext = document.getElementById('actionSubtext');
+    const betsBody = document.getElementById('betsBody');
+    const onlineCount = document.getElementById('onlineCount');
+    const menuBtn = document.getElementById('menuBtn');
+    const canvas = document.getElementById('crashCanvas');
+    const ctx = canvas.getContext('2d');
+    const soundBtn = document.getElementById('soundBtn');
+    const soundLabel = document.getElementById('soundLabel');
+    const soundIcon = soundBtn.querySelector('.icon');
+    const bgAudio = document.getElementById('bgMusic');
 
-        // === БАЛАНС ===
-        let casinoBalance = parseInt(localStorage.getItem('casinoBalance'));
-        if (isNaN(casinoBalance) || casinoBalance < 10) casinoBalance = 10000;
-        
-        function updateBalance(amount) {
-            casinoBalance += amount;
-            localStorage.setItem('casinoBalance', String(casinoBalance));
-            balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
-        }
-        updateBalance(0);
+    // === ЗАГРУЗКА РАКЕТЫ ===
+    const rocketImg = new Image();
+    rocketImg.src = 'uleQInXiepHb2mD_yw6steZ3CPKRG0ZUT8A7hrZPojM-t2v1Tfu-4HvEoKnijBvlO3RB5IDMSZXPLJqEt8tPqbVt.jpg';
 
-        // === ИСТОРИЯ ===
-        let history = JSON.parse(localStorage.getItem('crash_history')) || [1.2, 4.5, 1.05, 2.3, 15.0];
-        function renderHistory() {
-            historyList.innerHTML = '';
-            history.slice(0, 15).forEach(val => {
-                const el = document.createElement('div');
-                el.className = 'history-item';
-                el.innerText = val.toFixed(2) + 'x';
-                if (val < 1.5) el.classList.add('low');
-                else if (val < 3.0) el.classList.add('medium');
-                else if (val < 10.0) el.classList.add('high');
-                else el.classList.add('epic');
-                historyList.appendChild(el);
-            });
-        }
-        function addHistory(val) {
-            history.unshift(val);
-            if (history.length > 20) history.pop();
-            localStorage.setItem('crash_history', JSON.stringify(history));
-            renderHistory();
-        }
+    // === БАЛАНС ===
+    let casinoBalance = parseInt(localStorage.getItem('casinoBalance'));
+    if (isNaN(casinoBalance) || casinoBalance < 10) casinoBalance = 10000;
+    
+    function updateBalance(amount) {
+        casinoBalance += amount;
+        localStorage.setItem('casinoBalance', String(casinoBalance));
+        balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
+    }
+    updateBalance(0);
+
+    // === ИСТОРИЯ ===
+    let history = JSON.parse(localStorage.getItem('crash_history')) || [1.2, 4.5, 1.05, 2.3, 15.0];
+    function renderHistory() {
+        historyList.innerHTML = '';
+        history.slice(0, 15).forEach(val => {
+            const el = document.createElement('div');
+            el.className = 'history-item';
+            el.innerText = val.toFixed(2) + 'x';
+            if (val < 1.5) el.classList.add('low');
+            else if (val < 3.0) el.classList.add('medium');
+            else if (val < 10.0) el.classList.add('high');
+            else el.classList.add('epic');
+            historyList.appendChild(el);
+        });
+    }
+    function addHistory(val) {
+        history.unshift(val);
+        if (history.length > 20) history.pop();
+        localStorage.setItem('crash_history', JSON.stringify(history));
         renderHistory();
+    }
+    renderHistory();
 
-        // === БОТЫ ===
-        const botNames = ["Alex_99", "CryptoKing", "LuckyStrike", "ProGamer", "MaxBet", "Ivan_1337", "Shadow", "Luna", "Star_Lord", "xX_Sniper_Xx", "RichGuy", "Whale", "NoobMaster", "Trader_Joe", "Kira", "Viper", "Phoenix", "Rocket", "Nebula", "Cosmos"];
+    // === БОТЫ ===
+    const botNames = ["Alex_99", "CryptoKing", "LuckyStrike", "ProGamer", "MaxBet", "Ivan_1337", "Shadow", "Luna", "Star_Lord", "xX_Sniper_Xx", "RichGuy", "Whale", "NoobMaster", "Trader_Joe", "Kira", "Viper", "Phoenix", "Rocket", "Nebula", "Cosmos"];
 
-        function generateBots() {
-            const count = Math.floor(Math.random() * 15) + 12;
-            onlineCount.innerText = (count + Math.floor(Math.random() * 200) + 50) + ' онлайн';
-            const newBots = [];
-            for(let i=0; i<count; i++) {
-                const betOptions = [50, 75, 100, 150, 200, 250, 300, 400, 500, 700, 1000, 1500, 2000, 3000, 5000, 10000];
-                const bet = betOptions[Math.floor(Math.random() * betOptions.length)];
-                let target;
-                const r = Math.random();
-                if(r < 0.3) target = 1.05 + Math.random() * 0.3;
-                else if(r < 0.6) target = 1.4 + Math.random() * 0.8;
-                else if(r < 0.85) target = 2.2 + Math.random() * 3.0;
-                else if(r < 0.97) target = 5.0 + Math.random() * 8.0;
-                else target = 15.0 + Math.random() * 40.0;
-                const name = botNames[Math.floor(Math.random() * botNames.length)] + Math.floor(Math.random()*100);
-                newBots.push({ id: 'bot_' + i, name, bet, target, cashed: false, crashed: false });
-            }
-            newBots.sort((a,b) => b.bet - a.bet);
-            return newBots;
-        }
-
-        let bots = [];
-
-        function renderBetsTable() {
-            betsBody.innerHTML = '';
-            if (userBetQueued || userBetActive) {
-                let statusHtml = '<td class="col-multi">—</td><td class="col-profit">—</td>';
-                let trClass = 'my-bet-row';
-                if (userBetActive && !userBetQueued) {
-                    statusHtml = `<td class="col-multi">${currentMulti.toFixed(2)}x</td><td class="col-profit">${(userBetAmount * currentMulti).toFixed(0)}₽</td>`;
-                }
-                betsBody.innerHTML += `
-                    <tr class="${trClass}">
-                        <td class="col-user">👤 Вы</td>
-                        <td class="col-bet">${userBetAmount}₽</td>
-                        ${statusHtml}
-                    </tr>
-                `;
-            }
-            bots.forEach(bot => {
-                let statusHtml = '<td class="col-multi">—</td><td class="col-profit">—</td>';
-                let rowClass = '';
-                if (bot.cashed) {
-                    rowClass = 'row-cashed';
-                    statusHtml = `<td class="col-multi">${bot.target.toFixed(2)}x</td><td class="col-profit">${(bot.bet * bot.target).toFixed(0)}₽</td>`;
-                } else if (bot.crashed) {
-                    rowClass = 'row-crashed';
-                    statusHtml = `<td class="col-multi">💥</td><td class="col-profit">-${bot.bet}₽</td>`;
-                } else if (gameState === 'FLYING') {
-                    statusHtml = `<td class="col-multi" style="color:var(--text-muted)">Летит...</td><td class="col-profit" style="color:var(--text-muted)">${(bot.bet * currentMulti).toFixed(0)}₽</td>`;
-                }
-                betsBody.innerHTML += `
-                    <tr class="${rowClass}">
-                        <td class="col-user">${bot.name}</td>
-                        <td class="col-bet">${bot.bet}₽</td>
-                        ${statusHtml}
-                    </tr>
-                `;
-            });
-        }
-
-        // === СОСТОЯНИЕ ИГРЫ ===
-        let gameState = 'WAITING'; // WAITING, FLYING, CRASHED
-        let countdown = 10.0;
-        let currentMulti = 1.0;
-        let crashPoint = 1.0;
-        
-        let userBetQueued = false;
-        let userBetActive = false;
-        let userBetAmount = 0;
-        let userAutoCashout = 2.0;
-
-        function updateControls() {
-            if (gameState === 'WAITING') {
-                betInput.disabled = false;
-                if (userBetQueued) {
-                    actionBtn.className = 'action-btn btn-cancel';
-                    actionBtn.innerHTML = `<span>ОТМЕНИТЬ</span><span class="btn-subtext">Ставка ${userBetAmount}₽ принята</span>`;
-                    actionBtn.disabled = false;
-                } else {
-                    actionBtn.className = 'action-btn btn-bet';
-                    actionBtn.innerHTML = `<span>СДЕЛАТЬ СТАВКУ</span><span class="btn-subtext">На следующий раунд</span>`;
-                    const amt = parseInt(betInput.value || 0);
-                    actionBtn.disabled = (casinoBalance < amt || amt < 10);
-                }
-            } else if (gameState === 'FLYING') {
-                betInput.disabled = true;
-                if (userBetActive) {
-                    actionBtn.className = 'action-btn btn-cashout';
-                    let currentWin = Math.floor(userBetAmount * currentMulti);
-                    actionBtn.innerHTML = `<span>ЗАБРАТЬ</span><span class="btn-subtext">${currentWin}₽</span>`;
-                    actionBtn.disabled = false;
-                } else {
-                    actionBtn.className = 'action-btn btn-bet';
-                    actionBtn.innerHTML = `<span>ОЖИДАЙТЕ</span><span class="btn-subtext">Идет полет</span>`;
-                    actionBtn.disabled = true;
-                }
-            } else if (gameState === 'CRASHED') {
-                actionBtn.disabled = true;
-                if (userBetQueued) {
-                    actionBtn.className = 'action-btn btn-cancel';
-                    actionBtn.innerHTML = `<span>ОЖИДАЙТЕ</span><span class="btn-subtext">Подготовка...</span>`;
-                } else {
-                    actionBtn.className = 'action-btn btn-bet';
-                    actionBtn.innerHTML = `<span>КРАШ</span><span class="btn-subtext">Ожидайте след. раунд</span>`;
-                }
-            }
-        }
-
-        actionBtn.onclick = () => {
-            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
-            if (gameState === 'WAITING') {
-                if (userBetQueued) {
-                    // Отмена
-                    userBetQueued = false;
-                    updateBalance(userBetAmount); // Возврат
-                    updateControls();
-                    renderBetsTable();
-                } else {
-                    // Постановка
-                    let amt = parseInt(betInput.value);
-                    if (isNaN(amt) || amt < 10) return;
-                    if (amt > casinoBalance) return;
-                    userBetAmount = amt;
-                    userAutoCashout = parseFloat(autoInput.value) || 2.0;
-                    userBetQueued = true;
-                    updateBalance(-userBetAmount); // Списание
-                    updateControls();
-                    renderBetsTable();
-                }
-            } else if (gameState === 'FLYING' && userBetActive) {
-                cashoutUser();
-            }
-        };
-
-        function cashoutUser() {
-            if (!userBetActive) return;
-            userBetActive = false;
-            let winAmount = Math.floor(userBetAmount * currentMulti);
-            updateBalance(winAmount);
-            if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-            updateControls();
-            renderBetsTable();
-        }
-
-        function generateCrash() {
+    function generateBots() {
+        const count = Math.floor(Math.random() * 15) + 12;
+        onlineCount.innerText = (count + Math.floor(Math.random() * 200) + 50) + ' онлайн';
+        const newBots = [];
+        for(let i=0; i<count; i++) {
+            const betOptions = [50, 75, 100, 150, 200, 250, 300, 400, 500, 700, 1000, 1500, 2000, 3000, 5000, 10000];
+            const bet = betOptions[Math.floor(Math.random() * betOptions.length)];
+            let target;
             const r = Math.random();
-            if (r < 0.05) return 1.00;
-            if (r < 0.40) return 1.01 + Math.random() * 0.99;
-            if (r < 0.70) return 2.00 + Math.random() * 3.00;
-            if (r < 0.90) return 5.00 + Math.random() * 5.00;
-            return 10.0 + Math.random() * 40.0;
+            if(r < 0.3) target = 1.05 + Math.random() * 0.3;
+            else if(r < 0.6) target = 1.4 + Math.random() * 0.8;
+            else if(r < 0.85) target = 2.2 + Math.random() * 3.0;
+            else if(r < 0.97) target = 5.0 + Math.random() * 8.0;
+            else target = 15.0 + Math.random() * 40.0;
+            const name = botNames[Math.floor(Math.random() * botNames.length)] + Math.floor(Math.random()*100);
+            newBots.push({ id: 'bot_' + i, name, bet, target, cashed: false, crashed: false });
         }
+        newBots.sort((a,b) => b.bet - a.bet);
+        return newBots;
+    }
 
-        let lastTime = performance.now();
-        
-        function setWaitingPhase() {
-            gameState = 'WAITING';
-            countdown = 10.0;
-            currentMulti = 1.0;
-            multiplierDisplay.innerText = countdown.toFixed(1) + 's';
-            multiplierDisplay.style.color = 'var(--text-main)';
-            statusMsg.innerText = 'Прием ставок';
-            statusMsg.style.color = 'var(--text-muted)';
-            bots = generateBots();
-            renderBetsTable();
-            updateControls();
-            rocketY = 350;
-            explosionAlpha = 0;
-            particles = [];
-            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+    let bots = [];
+
+    function renderBetsTable() {
+        betsBody.innerHTML = '';
+        if (userBetQueued || userBetActive) {
+            let statusHtml = '<td class="col-multi">—</td><td class="col-profit">—</td>';
+            let trClass = 'my-bet-row';
+            if (userBetActive && !userBetQueued) {
+                statusHtml = `<td class="col-multi">${currentMulti.toFixed(2)}x</td><td class="col-profit">${(userBetAmount * currentMulti).toFixed(0)}₽</td>`;
+            }
+            betsBody.innerHTML += `
+                <tr class="${trClass}">
+                    <td class="col-user">👤 Вы</td>
+                    <td class="col-bet">${userBetAmount}₽</td>
+                    ${statusHtml}
+                </tr>
+            `;
         }
+        bots.forEach(bot => {
+            let statusHtml = '<td class="col-multi">—</td><td class="col-profit">—</td>';
+            let rowClass = '';
+            if (bot.cashed) {
+                rowClass = 'row-cashed';
+                statusHtml = `<td class="col-multi">${bot.target.toFixed(2)}x</td><td class="col-profit">${(bot.bet * bot.target).toFixed(0)}₽</td>`;
+            } else if (bot.crashed) {
+                rowClass = 'row-crashed';
+                statusHtml = `<td class="col-multi">💥</td><td class="col-profit">-${bot.bet}₽</td>`;
+            } else if (gameState === 'FLYING') {
+                statusHtml = `<td class="col-multi" style="color:var(--text-muted)">Летит...</td><td class="col-profit" style="color:var(--text-muted)">${(bot.bet * currentMulti).toFixed(0)}₽</td>`;
+            }
+            betsBody.innerHTML += `
+                <tr class="${rowClass}">
+                    <td class="col-user">${bot.name}</td>
+                    <td class="col-bet">${bot.bet}₽</td>
+                    ${statusHtml}
+                </tr>
+            `;
+        });
+    }
 
-        function startFlight() {
-            gameState = 'FLYING';
-            crashPoint = generateCrash();
-            currentMulti = 1.0;
-            statusMsg.innerText = 'Ракета в полете';
-            statusMsg.style.color = 'var(--accent-blue)';
+    // === СОСТОЯНИЕ ИГРЫ ===
+    let gameState = 'WAITING'; // WAITING, FLYING, CRASHED
+    let countdown = 10.0;
+    let currentMulti = 1.0;
+    let crashPoint = 1.0;
+    
+    let userBetQueued = false;
+    let userBetActive = false;
+    let userBetAmount = 0;
+    let userAutoCashout = 2.0;
+
+    // Параметры покачивания ракеты
+    let rocketTilt = 0;
+    let rocketBob = 0;
+    let rocketShakeX = 0;
+    let rocketShakeY = 0;
+
+    function updateControls() {
+        if (gameState === 'WAITING') {
+            betInput.disabled = false;
             if (userBetQueued) {
-                userBetActive = true;
-                userBetQueued = false;
+                actionBtn.className = 'action-btn btn-cancel';
+                actionBtn.innerHTML = `<span>ОТМЕНИТЬ</span><span class="btn-subtext">Ставка ${userBetAmount}₽ принята</span>`;
+                actionBtn.disabled = false;
+            } else {
+                actionBtn.className = 'action-btn btn-bet';
+                actionBtn.innerHTML = `<span>СДЕЛАТЬ СТАВКУ</span><span class="btn-subtext">На следующий раунд</span>`;
+                const amt = parseInt(betInput.value || 0);
+                actionBtn.disabled = (casinoBalance < amt || amt < 10);
             }
-            updateControls();
-        }
-
-        function handleCrash() {
-            gameState = 'CRASHED';
-            multiplierDisplay.style.color = 'var(--accent-red)';
-            statusMsg.innerText = 'ВЗОРВАЛАСЬ НА ' + currentMulti.toFixed(2) + 'x';
-            statusMsg.style.color = 'var(--accent-red)';
+        } else if (gameState === 'FLYING') {
+            betInput.disabled = true;
             if (userBetActive) {
-                userBetActive = false;
-                if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
+                actionBtn.className = 'action-btn btn-cashout';
+                let currentWin = Math.floor(userBetAmount * currentMulti);
+                actionBtn.innerHTML = `<span>ЗАБРАТЬ</span><span class="btn-subtext">${currentWin}₽</span>`;
+                actionBtn.disabled = false;
+            } else {
+                actionBtn.className = 'action-btn btn-bet';
+                actionBtn.innerHTML = `<span>ОЖИДАЙТЕ</span><span class="btn-subtext">Идет полет</span>`;
+                actionBtn.disabled = true;
             }
-            bots.forEach(b => { if (!b.cashed) b.crashed = true; });
-            addHistory(currentMulti);
-            triggerExplosion();
-            updateControls();
-            renderBetsTable();
-            setTimeout(setWaitingPhase, 3000);
+        } else if (gameState === 'CRASHED') {
+            actionBtn.disabled = true;
+            if (userBetQueued) {
+                actionBtn.className = 'action-btn btn-cancel';
+                actionBtn.innerHTML = `<span>ОЖИДАЙТЕ</span><span class="btn-subtext">Подготовка...</span>`;
+            } else {
+                actionBtn.className = 'action-btn btn-bet';
+                actionBtn.innerHTML = `<span>КРАШ</span><span class="btn-subtext">Ожидайте след. раунд</span>`;
+            }
         }
+    }
 
-        function gameLoop(now) {
-            let dt = Math.min((now - lastTime) / 1000, 0.05);
-            lastTime = now;
-            if (gameState === 'WAITING') {
-                countdown -= dt;
-                multiplierDisplay.innerText = Math.max(0, countdown).toFixed(1) + 's';
-                if (countdown <= 0) startFlight();
-            } 
-            else if (gameState === 'FLYING') {
-                let increment = dt * (0.1 + (currentMulti - 1) * 0.15);
-                currentMulti += increment;
-                let tableNeedsUpdate = false;
-                bots.forEach(b => {
-                    if (!b.cashed && !b.crashed && currentMulti >= b.target) {
-                        b.cashed = true;
-                        tableNeedsUpdate = true;
-                    }
-                });
-                if (userBetActive && currentMulti >= userAutoCashout) {
-                    cashoutUser();
+    actionBtn.onclick = () => {
+        if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
+        if (gameState === 'WAITING') {
+            if (userBetQueued) {
+                userBetQueued = false;
+                updateBalance(userBetAmount);
+                updateControls();
+                renderBetsTable();
+            } else {
+                let amt = parseInt(betInput.value);
+                if (isNaN(amt) || amt < 10) return;
+                if (amt > casinoBalance) return;
+                userBetAmount = amt;
+                userAutoCashout = parseFloat(autoInput.value) || 2.0;
+                userBetQueued = true;
+                updateBalance(-userBetAmount);
+                updateControls();
+                renderBetsTable();
+            }
+        } else if (gameState === 'FLYING' && userBetActive) {
+            cashoutUser();
+        }
+    };
+
+    function cashoutUser() {
+        if (!userBetActive) return;
+        userBetActive = false;
+        let winAmount = Math.floor(userBetAmount * currentMulti);
+        updateBalance(winAmount);
+        if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+        updateControls();
+        renderBetsTable();
+    }
+
+    function generateCrash() {
+        const r = Math.random();
+        if (r < 0.05) return 1.00;
+        if (r < 0.40) return 1.01 + Math.random() * 0.99;
+        if (r < 0.70) return 2.00 + Math.random() * 3.00;
+        if (r < 0.90) return 5.00 + Math.random() * 5.00;
+        return 10.0 + Math.random() * 40.0;
+    }
+
+    let lastTime = performance.now();
+    
+    function setWaitingPhase() {
+        gameState = 'WAITING';
+        countdown = 10.0;
+        currentMulti = 1.0;
+        multiplierDisplay.innerText = countdown.toFixed(1) + 's';
+        multiplierDisplay.style.color = 'var(--text-main)';
+        statusMsg.innerText = 'Прием ставок';
+        statusMsg.style.color = 'var(--text-muted)';
+        bots = generateBots();
+        renderBetsTable();
+        updateControls();
+        rocketY = 300;
+        explosionAlpha = 0;
+        particles = [];
+        if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+    }
+
+    function startFlight() {
+        gameState = 'FLYING';
+        crashPoint = generateCrash();
+        currentMulti = 1.0;
+        statusMsg.innerText = 'Ракета в полете';
+        statusMsg.style.color = 'var(--accent-blue)';
+        if (userBetQueued) {
+            userBetActive = true;
+            userBetQueued = false;
+        }
+        updateControls();
+    }
+
+    function handleCrash() {
+        gameState = 'CRASHED';
+        multiplierDisplay.style.color = 'var(--accent-red)';
+        statusMsg.innerText = 'ВЗОРВАЛАСЬ НА ' + currentMulti.toFixed(2) + 'x';
+        statusMsg.style.color = 'var(--accent-red)';
+        if (userBetActive) {
+            userBetActive = false;
+            if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
+        }
+        bots.forEach(b => { if (!b.cashed) b.crashed = true; });
+        addHistory(currentMulti);
+        triggerExplosion();
+        updateControls();
+        renderBetsTable();
+        setTimeout(setWaitingPhase, 3000);
+    }
+
+    function gameLoop(now) {
+        let dt = Math.min((now - lastTime) / 1000, 0.05);
+        lastTime = now;
+        if (gameState === 'WAITING') {
+            countdown -= dt;
+            multiplierDisplay.innerText = Math.max(0, countdown).toFixed(1) + 's';
+            if (countdown <= 0) startFlight();
+        } 
+        else if (gameState === 'FLYING') {
+            let increment = dt * (0.1 + (currentMulti - 1) * 0.15);
+            currentMulti += increment;
+            let tableNeedsUpdate = false;
+            bots.forEach(b => {
+                if (!b.cashed && !b.crashed && currentMulti >= b.target) {
+                    b.cashed = true;
                     tableNeedsUpdate = true;
                 }
-                multiplierDisplay.innerText = currentMulti.toFixed(2) + 'x';
-                if (currentMulti < 2) multiplierDisplay.style.color = '#fff';
-                else if (currentMulti < 5) multiplierDisplay.style.color = 'var(--accent-blue)';
-                else if (currentMulti < 10) multiplierDisplay.style.color = 'var(--accent-orange)';
-                else multiplierDisplay.style.color = 'var(--accent-green)';
-                if (tableNeedsUpdate) renderBetsTable();
-                updateControls();
-                if (currentMulti >= crashPoint) {
-                    currentMulti = crashPoint;
-                    multiplierDisplay.innerText = currentMulti.toFixed(2) + 'x';
-                    handleCrash();
-                }
-            }
-            drawFrame(dt);
-            requestAnimationFrame(gameLoop);
-        }
-
-        // ===== ГРАФИКА =====
-        let stars = Array.from({length: 120}, () => ({
-            x: Math.random() * 800, y: Math.random() * 400,
-            s: Math.random() * 2 + 0.5, spd: Math.random() * 2 + 0.5
-        }));
-        let particles = [];
-        let rocketY = 350;
-        let explosionAlpha = 0;
-        let bgOffset = 0;
-
-        function triggerExplosion() {
-            explosionAlpha = 1.0;
-            for(let i=0; i<100; i++) {
-                let a = Math.random() * Math.PI * 2;
-                let v = Math.random() * 20 + 10;
-                particles.push({
-                    x: canvas.width/2, y: rocketY,
-                    vx: Math.cos(a)*v, vy: Math.sin(a)*v,
-                    life: 1.0, color: Math.random()>0.5?'#f03043':'#ff9800', size: Math.random()*12+4
-                });
-            }
-        }
-
-        function drawFrame(dt) {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
-            let speed = gameState === 'FLYING' ? (1 + currentMulti * 0.5) : 0.2;
-            bgOffset += speed * 60 * dt;
-            
-            let grad = ctx.createRadialGradient(400, 200, 100, 400, 200, 500);
-            grad.addColorStop(0, '#0a1420');
-            grad.addColorStop(1, '#020407');
-            ctx.fillStyle = grad;
-            ctx.fillRect(0, 0, 800, 400);
-
-            ctx.strokeStyle = 'rgba(255,255,255,0.03)';
-            ctx.lineWidth = 1;
-            for(let i=0; i<800; i+=80) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,400); ctx.stroke(); }
-            for(let i=(bgOffset%80)-80; i<400; i+=80) { ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(800,i); ctx.stroke(); }
-            
-            ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-            ctx.lineWidth = 2;
-            ctx.beginPath(); ctx.moveTo(0, 380); ctx.lineTo(800, 380); ctx.stroke();
-            ctx.beginPath(); ctx.moveTo(50, 0); ctx.lineTo(50, 400); ctx.stroke();
-
-            ctx.fillStyle = '#fff';
-            stars.forEach(s => {
-                s.y += s.spd * speed * 60 * dt;
-                if(s.y > 400) { s.y = -10; s.x = Math.random()*800; }
-                ctx.globalAlpha = Math.random() * 0.6 + 0.2;
-                ctx.fillRect(s.x, s.y, s.s, s.s);
             });
-            ctx.globalAlpha = 1.0;
-
-            // График
-            if (gameState === 'FLYING') {
-                let progress = (currentMulti - 1) / 10;
-                ctx.strokeStyle = 'var(--accent-blue)';
-                ctx.lineWidth = 4;
-                ctx.shadowBlur = 20;
-                ctx.shadowColor = 'var(--accent-blue)';
-                ctx.beginPath();
-                ctx.moveTo(50, 380);
-                for(let t=0; t<=progress; t+=0.01) {
-                    let px = 50 + t * 700;
-                    let py = 380 - t * 300;
-                    ctx.lineTo(px, py);
-                }
-                ctx.stroke();
-                ctx.shadowBlur = 0;
+            if (userBetActive && currentMulti >= userAutoCashout) {
+                cashoutUser();
+                tableNeedsUpdate = true;
+            }
+            multiplierDisplay.innerText = currentMulti.toFixed(2) + 'x';
+            if (currentMulti < 2) multiplierDisplay.style.color = '#fff';
+            else if (currentMulti < 5) multiplierDisplay.style.color = 'var(--accent-blue)';
+            else if (currentMulti < 10) multiplierDisplay.style.color = 'var(--accent-orange)';
+            else multiplierDisplay.style.color = 'var(--accent-green)';
+            if (tableNeedsUpdate) renderBetsTable();
+            updateControls();
+            if (currentMulti >= crashPoint) {
+                currentMulti = crashPoint;
+                multiplierDisplay.innerText = currentMulti.toFixed(2) + 'x';
+                handleCrash();
             }
 
-            // Частицы
-            for(let i=particles.length-1; i>=0; i--) {
-                let p = particles[i];
-                p.x += p.vx * dt * 1.5;
-                p.y += p.vy * dt * 1.5;
-                p.life -= dt * 1.5;
-                p.size *= 0.98;
-                if(p.life <= 0) particles.splice(i, 1);
-                else {
-                    ctx.globalAlpha = p.life;
-                    ctx.fillStyle = p.color;
-                    ctx.shadowBlur = 20;
-                    ctx.shadowColor = p.color;
-                    ctx.beginPath();
-                    ctx.arc(p.x, p.y, Math.max(p.size, 0.5), 0, Math.PI*2);
-                    ctx.fill();
-                }
-            }
-            ctx.globalAlpha = 1.0;
-            ctx.shadowBlur = 0;
-
-            // Ракета (без изменений)
-            if (gameState !== 'CRASHED') {
-                ctx.save();
-                ctx.translate(canvas.width/2, rocketY);
-                if (gameState === 'FLYING' && currentMulti > 2) {
-                    ctx.translate((Math.random()-0.5)*3, (Math.random()-0.5)*3);
-                }
-                ctx.scale(1.6, 1.6);
-                ctx.rotate(-Math.PI/2);
-
-                ctx.shadowBlur = 30;
-                ctx.shadowColor = 'var(--accent-blue)';
-
-                ctx.fillStyle = '#111822';
-                ctx.strokeStyle = '#263345';
-                ctx.lineWidth = 1.5;
-                ctx.beginPath();
-                ctx.moveTo(-18, 12);
-                ctx.lineTo(-12, 26);
-                ctx.lineTo(6, 26);
-                ctx.lineTo(0, 12);
-                ctx.closePath();
-                ctx.fill(); ctx.stroke();
-                ctx.beginPath();
-                ctx.moveTo(-18, -12);
-                ctx.lineTo(-12, -26);
-                ctx.lineTo(6, -26);
-                ctx.lineTo(0, -12);
-                ctx.closePath();
-                ctx.fill(); ctx.stroke();
-
-                let grad2 = ctx.createLinearGradient(-30, 0, 40, 0);
-                grad2.addColorStop(0, '#8c9eb5');
-                grad2.addColorStop(0.3, '#ffffff');
-                grad2.addColorStop(0.7, '#ffffff');
-                grad2.addColorStop(1, '#8c9eb5');
-                ctx.fillStyle = grad2;
-                ctx.shadowBlur = 20;
-                ctx.shadowColor = 'rgba(255,255,255,0.3)';
-                ctx.beginPath();
-                ctx.moveTo(-30, -10);
-                ctx.lineTo(18, -10);
-                ctx.lineTo(45, 0);
-                ctx.lineTo(18, 10);
-                ctx.lineTo(-30, 10);
-                ctx.closePath();
-                ctx.fill();
-
-                ctx.fillStyle = 'var(--accent-blue)';
-                ctx.shadowBlur = 15;
-                ctx.shadowColor = 'var(--accent-blue)';
-                ctx.fillRect(-6, -10, 10, 20);
-
-                ctx.fillStyle = '#d6e6f2';
-                ctx.shadowBlur = 20;
-                ctx.shadowColor = 'rgba(255,255,255,0.5)';
-                ctx.beginPath();
-                ctx.arc(14, 0, 6, 0, Math.PI*2);
-                ctx.fill();
-                ctx.strokeStyle = '#2d3e50';
-                ctx.lineWidth = 1.5;
-                ctx.stroke();
-                ctx.fillStyle = '#fff';
-                ctx.beginPath();
-                ctx.arc(13, -2, 2, 0, Math.PI*2);
-                ctx.fill();
-
-                ctx.fillStyle = '#151d29';
-                ctx.shadowBlur = 0;
-                ctx.beginPath();
-                ctx.moveTo(-30, -6);
-                ctx.lineTo(-38, -9);
-                ctx.lineTo(-38, 9);
-                ctx.lineTo(-30, 6);
-                ctx.closePath();
-                ctx.fill();
-
-                if (gameState === 'FLYING') {
-                    ctx.fillStyle = 'var(--accent-orange)';
-                    ctx.shadowBlur = 40;
-                    ctx.shadowColor = 'var(--accent-orange)';
-                    ctx.beginPath();
-                    ctx.moveTo(-38, -8);
-                    ctx.lineTo(-38 - (25+Math.random()*20), 0);
-                    ctx.lineTo(-38, 8);
-                    ctx.fill();
-                    ctx.fillStyle = '#fff9c4';
-                    ctx.shadowBlur = 20;
-                    ctx.shadowColor = '#fff9c4';
-                    ctx.beginPath();
-                    ctx.moveTo(-38, -4);
-                    ctx.lineTo(-38 - (15+Math.random()*15), 0);
-                    ctx.lineTo(-38, 4);
-                    ctx.fill();
-                }
-
-                ctx.restore();
-            }
-
-            if (explosionAlpha > 0) {
-                ctx.fillStyle = `rgba(240, 48, 67, ${explosionAlpha * 0.4})`;
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.shadowBlur = 100;
-                ctx.shadowColor = 'var(--accent-red)';
-                ctx.strokeStyle = `rgba(240, 48, 67, ${explosionAlpha})`;
-                ctx.lineWidth = 15 * explosionAlpha;
-                ctx.beginPath();
-                ctx.arc(canvas.width/2, rocketY, (1-explosionAlpha)*300, 0, Math.PI*2);
-                ctx.stroke();
-                explosionAlpha -= dt * 0.8;
-                if(explosionAlpha < 0) explosionAlpha = 0;
-                ctx.shadowBlur = 0;
-            }
+            // Обновляем покачивание ракеты
+            rocketTilt = Math.sin(Date.now() / 300) * 0.08 + (Math.random() - 0.5) * 0.02;
+            rocketBob = Math.sin(Date.now() / 400) * 8 + (Math.random() - 0.5) * 3;
+            rocketShakeX = (Math.random() - 0.5) * 2;
+            rocketShakeY = (Math.random() - 0.5) * 2;
         }
-
-        // === КНОПКА МЕНЮ ===
-        menuBtn.onclick = () => {
-            window.location.href = 'casino.html?userId=' + userId;
-        };
-
-        // === УПРАВЛЕНИЕ ЗВУКОМ ===
-        let isSoundOn = false;
-
-        function updateSoundButton() {
-            if (isSoundOn) {
-                soundIcon.textContent = '🔊';
-                soundLabel.textContent = 'ВЫКЛЮЧИТЬ ЗВУК';
-                soundBtn.classList.remove('muted');
-            } else {
-                soundIcon.textContent = '🔇';
-                soundLabel.textContent = 'ВКЛЮЧИТЬ ЗВУК';
-                soundBtn.classList.add('muted');
-            }
-        }
-
-        function toggleSound() {
-            if (isSoundOn) {
-                bgAudio.pause();
-                isSoundOn = false;
-            } else {
-                bgAudio.volume = 0.3;
-                bgAudio.play().then(() => {
-                    isSoundOn = true;
-                    updateSoundButton();
-                }).catch(() => {
-                    alert('⚠️ Не удалось включить звук. Попробуйте ещё раз.');
-                });
-            }
-            updateSoundButton();
-        }
-
-        soundBtn.addEventListener('click', toggleSound);
-
-        // Пытаемся запустить музыку при первом клике по странице
-        function tryAutoPlay() {
-            if (!isSoundOn) {
-                bgAudio.volume = 0.3;
-                bgAudio.play().then(() => {
-                    isSoundOn = true;
-                    updateSoundButton();
-                }).catch(() => {});
-            }
-            document.removeEventListener('click', tryAutoPlay);
-            document.removeEventListener('touchstart', tryAutoPlay);
-        }
-        document.addEventListener('click', tryAutoPlay);
-        document.addEventListener('touchstart', tryAutoPlay);
-
-        // Запуск
-        setWaitingPhase();
+        drawFrame(dt);
         requestAnimationFrame(gameLoop);
-    })();
+    }
+
+    // ===== ГРАФИКА =====
+    let stars = Array.from({length: 120}, () => ({
+        x: Math.random() * 800, y: Math.random() * 400,
+        s: Math.random() * 2 + 0.5, spd: Math.random() * 2 + 0.5
+    }));
+    let particles = [];
+    let rocketY = 300;
+    let explosionAlpha = 0;
+    let bgOffset = 0;
+
+    function triggerExplosion() {
+        explosionAlpha = 1.0;
+        for(let i=0; i<200; i++) {
+            let a = Math.random() * Math.PI * 2;
+            let v = Math.random() * 30 + 15;
+            let size = Math.random() * 20 + 5;
+            let colors = ['#f03043', '#ff9800', '#ffeb3b', '#ff5722', '#ff6f00'];
+            particles.push({
+                x: canvas.width/2, y: rocketY,
+                vx: Math.cos(a)*v, vy: Math.sin(a)*v - 5,
+                life: 1.0, color: colors[Math.floor(Math.random()*colors.length)],
+                size: size, decay: 0.008 + Math.random() * 0.015
+            });
+        }
+        for(let i=0; i<100; i++) {
+            let a = Math.random() * Math.PI * 2;
+            let v = Math.random() * 50 + 20;
+            particles.push({
+                x: canvas.width/2, y: rocketY,
+                vx: Math.cos(a)*v, vy: Math.sin(a)*v - 10,
+                life: 0.6, color: '#ffffff',
+                size: 3 + Math.random() * 6, decay: 0.04 + Math.random() * 0.03
+            });
+        }
+    }
+
+    function drawFrame(dt) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        let speed = gameState === 'FLYING' ? (1 + currentMulti * 0.5) : 0.2;
+        bgOffset += speed * 60 * dt;
+        
+        let grad = ctx.createRadialGradient(400, 200, 100, 400, 200, 500);
+        grad.addColorStop(0, '#0a1420');
+        grad.addColorStop(1, '#020407');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 800, 400);
+
+        ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+        ctx.lineWidth = 1;
+        for(let i=0; i<800; i+=80) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,400); ctx.stroke(); }
+        for(let i=(bgOffset%80)-80; i<400; i+=80) { ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(800,i); ctx.stroke(); }
+        
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(0, 380); ctx.lineTo(800, 380); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(50, 0); ctx.lineTo(50, 400); ctx.stroke();
+
+        ctx.fillStyle = '#fff';
+        stars.forEach(s => {
+            s.y += s.spd * speed * 60 * dt;
+            if(s.y > 400) { s.y = -10; s.x = Math.random()*800; }
+            ctx.globalAlpha = Math.random() * 0.6 + 0.2;
+            ctx.fillRect(s.x, s.y, s.s, s.s);
+        });
+        ctx.globalAlpha = 1.0;
+
+        // График
+        if (gameState === 'FLYING') {
+            let progress = (currentMulti - 1) / 10;
+            ctx.strokeStyle = 'var(--accent-blue)';
+            ctx.lineWidth = 4;
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = 'var(--accent-blue)';
+            ctx.beginPath();
+            ctx.moveTo(50, 380);
+            for(let t=0; t<=progress; t+=0.01) {
+                let px = 50 + t * 700;
+                let py = 380 - t * 300;
+                ctx.lineTo(px, py);
+            }
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+        }
+
+        // Частицы (взрыв)
+        for(let i=particles.length-1; i>=0; i--) {
+            let p = particles[i];
+            p.x += p.vx * dt * 1.5;
+            p.y += p.vy * dt * 1.5;
+            p.life -= p.decay || 0.01;
+            p.size *= 0.98;
+            if(p.life <= 0 || p.size < 0.5) particles.splice(i, 1);
+            else {
+                ctx.globalAlpha = p.life;
+                ctx.fillStyle = p.color;
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, Math.max(p.size, 0.5), 0, Math.PI*2);
+                ctx.fill();
+            }
+        }
+        ctx.globalAlpha = 1.0;
+        ctx.shadowBlur = 0;
+
+        // === ОТРИСОВКА РАКЕТЫ ===
+        if (gameState !== 'CRASHED' && rocketImg.complete && rocketImg.naturalWidth > 0) {
+            const cx = canvas.width/2;
+            const cy = rocketY;
+
+            const tilt = rocketTilt || 0;
+            const bobY = rocketBob || 0;
+            const shakeX = rocketShakeX || 0;
+            const shakeY = rocketShakeY || 0;
+
+            ctx.save();
+            ctx.translate(cx + shakeX, cy + bobY + shakeY);
+            ctx.rotate(tilt);
+
+            // Огонь
+            if (gameState === 'FLYING') {
+                ctx.shadowBlur = 40;
+                ctx.shadowColor = 'var(--accent-orange)';
+                const flameLen = 40 + Math.random() * 30 + currentMulti * 10;
+                const gradFire = ctx.createRadialGradient(0, 45, 10, 0, 45 + flameLen, flameLen);
+                gradFire.addColorStop(0, '#ff9800');
+                gradFire.addColorStop(0.4, '#ff5722');
+                gradFire.addColorStop(1, 'rgba(255,0,0,0)');
+                ctx.fillStyle = gradFire;
+                ctx.beginPath();
+                ctx.moveTo(-15, 45);
+                ctx.quadraticCurveTo(-25, 45 + flameLen * 0.6, 0, 45 + flameLen);
+                ctx.quadraticCurveTo(25, 45 + flameLen * 0.6, 15, 45);
+                ctx.fill();
+
+                const innerLen = flameLen * 0.6 + Math.random() * 10;
+                ctx.shadowBlur = 30;
+                ctx.shadowColor = '#ffeb3b';
+                ctx.fillStyle = 'rgba(255, 235, 59, 0.7)';
+                ctx.beginPath();
+                ctx.moveTo(-10, 45);
+                ctx.quadraticCurveTo(-15, 45 + innerLen * 0.5, 0, 45 + innerLen);
+                ctx.quadraticCurveTo(15, 45 + innerLen * 0.5, 10, 45);
+                ctx.fill();
+
+                // Искры
+                if (Math.random() < 0.4) {
+                    for (let i=0; i<3; i++) {
+                        let angle = -Math.PI/2 + (Math.random()-0.5)*1.2;
+                        let speed = 2 + Math.random() * 6;
+                        particles.push({
+                            x: cx + shakeX + (Math.random()-0.5)*10,
+                            y: cy + bobY + shakeY + 45,
+                            vx: Math.cos(angle) * speed,
+                            vy: Math.sin(angle) * speed - 2,
+                            life: 1.0,
+                            color: '#ffb300',
+                            size: 3 + Math.random() * 5,
+                            decay: 0.02 + Math.random() * 0.02
+                        });
+                    }
+                }
+            }
+
+            const w = 90, h = 120;
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = 'rgba(255,255,255,0.3)';
+            ctx.drawImage(rocketImg, -w/2, -h/2, w, h);
+            ctx.restore();
+        } else {
+            // Заглушка, если картинка не загрузилась
+            ctx.save();
+            ctx.translate(canvas.width/2, rocketY);
+            ctx.fillStyle = '#1882ff';
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = '#1882ff';
+            ctx.beginPath();
+            ctx.moveTo(0, -40);
+            ctx.lineTo(-20, 40);
+            ctx.lineTo(20, 40);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+        }
+
+        // Взрывная вспышка
+        if (explosionAlpha > 0) {
+            ctx.fillStyle = `rgba(240, 48, 67, ${explosionAlpha * 0.4})`;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.shadowBlur = 100;
+            ctx.shadowColor = 'var(--accent-red)';
+            ctx.strokeStyle = `rgba(240, 48, 67, ${explosionAlpha})`;
+            ctx.lineWidth = 15 * explosionAlpha;
+            ctx.beginPath();
+            ctx.arc(canvas.width/2, rocketY, (1-explosionAlpha)*300 + 100, 0, Math.PI*2);
+            ctx.stroke();
+            explosionAlpha -= dt * 0.8;
+            if(explosionAlpha < 0) explosionAlpha = 0;
+            ctx.shadowBlur = 0;
+        }
+    }
+
+    // === КНОПКА МЕНЮ ===
+    menuBtn.onclick = () => {
+        window.location.href = 'casino.html?userId=' + userId;
+    };
+
+    // === УПРАВЛЕНИЕ ЗВУКОМ ===
+    let isSoundOn = false;
+
+    function updateSoundButton() {
+        if (isSoundOn) {
+            soundIcon.textContent = '🔊';
+            soundLabel.textContent = 'ВЫКЛЮЧИТЬ ЗВУК';
+            soundBtn.classList.remove('muted');
+        } else {
+            soundIcon.textContent = '🔇';
+            soundLabel.textContent = 'ВКЛЮЧИТЬ ЗВУК';
+            soundBtn.classList.add('muted');
+        }
+    }
+
+    function toggleSound() {
+        if (isSoundOn) {
+            bgAudio.pause();
+            isSoundOn = false;
+        } else {
+            bgAudio.volume = 0.3;
+            bgAudio.play().then(() => {
+                isSoundOn = true;
+                updateSoundButton();
+            }).catch(() => {
+                alert('⚠️ Не удалось включить звук. Попробуйте ещё раз.');
+            });
+        }
+        updateSoundButton();
+    }
+
+    soundBtn.addEventListener('click', toggleSound);
+
+    function tryAutoPlay() {
+        if (!isSoundOn) {
+            bgAudio.volume = 0.3;
+            bgAudio.play().then(() => {
+                isSoundOn = true;
+                updateSoundButton();
+            }).catch(() => {});
+        }
+        document.removeEventListener('click', tryAutoPlay);
+        document.removeEventListener('touchstart', tryAutoPlay);
+    }
+    document.addEventListener('click', tryAutoPlay);
+    document.addEventListener('touchstart', tryAutoPlay);
+
+    setWaitingPhase();
+    requestAnimationFrame(gameLoop);
+})();
 </script>
 </body>
 </html>
