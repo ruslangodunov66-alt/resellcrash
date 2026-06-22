@@ -125,22 +125,26 @@
         .wrapper-rub::before { content: '₽'; }
         .wrapper-x::before { content: 'x'; }
 
-        /* Чекбокс для авто-вывода */
+        /* Чекбокс авто-вывода */
         .auto-checkbox-group {
             display: flex;
             align-items: center;
             gap: 8px;
             padding: 0 4px 4px 0;
+            background: rgba(255,255,255,0.03);
+            border-radius: 10px;
+            padding: 6px 12px;
+            border: 1px solid rgba(255,255,255,0.06);
         }
         .auto-checkbox-group input[type="checkbox"] {
-            width: 18px;
-            height: 18px;
+            width: 20px;
+            height: 20px;
             accent-color: var(--accent-blue);
             cursor: pointer;
-            filter: drop-shadow(0 0 4px rgba(24,130,255,0.3));
+            filter: drop-shadow(0 0 6px rgba(24,130,255,0.3));
         }
         .auto-checkbox-group label {
-            font-size: 11px;
+            font-size: 12px;
             font-weight: 700;
             color: var(--text-muted);
             text-transform: uppercase;
@@ -176,13 +180,21 @@
             font-family: 'Montserrat', sans-serif;
             font-weight: 800;
             letter-spacing: 0.5px;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
         }
         .btn-cashout:hover:not(:disabled) { background: var(--accent-green-hover); }
         .btn-icon { font-size: 28px; line-height: 1; }
-        .btn-text { display: flex; flex-direction: column; align-items: flex-start; }
-        .btn-main { font-size: 18px; font-weight: 800; letter-spacing: 0.5px; }
+        .btn-text { display: flex; flex-direction: column; align-items: center; }
+        .btn-main {
+            font-size: 20px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            line-height: 1.2;
+        }
         .btn-sub {
-            font-size: 13px;
+            font-size: 14px;
             font-weight: 700;
             opacity: 0.9;
             text-transform: none;
@@ -192,9 +204,10 @@
         .btn-sub .win-amount {
             color: #fff;
             font-weight: 800;
-            background: rgba(0,0,0,0.2);
-            padding: 0 8px;
-            border-radius: 6px;
+            background: rgba(0,0,0,0.25);
+            padding: 0 12px;
+            border-radius: 8px;
+            font-size: 22px;
         }
 
         .sound-btn {
@@ -276,8 +289,8 @@
             .sound-btn { padding: 12px; font-size: 14px; }
             .action-btn { padding: 14px 10px; font-size: 16px; }
             .btn-icon { font-size: 22px; }
-            .btn-main { font-size: 15px; }
-            .btn-sub { font-size: 11px; }
+            .btn-main { font-size: 17px; }
+            .btn-sub { font-size: 12px; }
             .inputs-row { flex-wrap: wrap; }
             .auto-checkbox-group { margin-top: 6px; }
         }
@@ -501,17 +514,14 @@
         return newBots;
     }
 
-    // Инициализация ботов при первом запуске
     bots = generateInitialBots(15);
 
     function updateBotsPartially() {
-        // Удаляем от 1 до 3 случайных ботов (уход)
         const removeCount = Math.floor(Math.random() * 3) + 1;
         for (let i = 0; i < removeCount && bots.length > 3; i++) {
             const idx = Math.floor(Math.random() * bots.length);
             bots.splice(idx, 1);
         }
-        // Добавляем от 2 до 5 новых ботов (приход)
         const addCount = Math.floor(Math.random() * 4) + 2;
         const newBots = [];
         for (let i = 0; i < addCount; i++) {
@@ -535,15 +545,13 @@
         }
         bots = bots.concat(newBots);
         bots.sort((a,b) => b.bet - a.bet);
-        // Обновляем targetOnline для плавного изменения
         targetOnline = bots.length + Math.floor(Math.random() * 150) + 50;
     }
 
-    // === ОНЛАЙН ПЛАВНО ===
     function updateOnlineSmoothly() {
         if (currentOnline !== targetOnline) {
             let diff = targetOnline - currentOnline;
-            let step = Math.sign(diff) * onlineSpeed * 0.02; // плавность
+            let step = Math.sign(diff) * onlineSpeed * 0.02;
             if (Math.abs(step) > Math.abs(diff)) {
                 currentOnline = targetOnline;
             } else {
@@ -558,7 +566,6 @@
         onlineCount.innerText = Math.round(currentOnline) + ' онлайн';
     }
 
-    // === ОТРИСОВКА ТАБЛИЦЫ ===
     function renderBetsTable() {
         betsBody.innerHTML = '';
         if (userBetQueued || userBetActive) {
@@ -576,7 +583,6 @@
                 </tr>
             `;
         }
-        // Показываем только первых 10 ботов, чтобы таблица не перегружалась
         const shownBots = bots.slice(0, 10);
         shownBots.forEach(bot => {
             let statusHtml = '<td class="col-multi">—</td><td class="col-profit">—</td>';
@@ -610,7 +616,7 @@
     let userBetActive = false;
     let userBetAmount = 0;
     let userAutoCashout = 2.0;
-    let autoEnabled = true; // по умолчанию включён
+    let autoEnabled = true;
 
     // Параметры покачивания ракеты
     let rocketTilt = 0;
@@ -618,76 +624,75 @@
     let rocketShakeX = 0;
     let rocketShakeY = 0;
 
-    // === УПРАВЛЕНИЕ КНОПКОЙ ===
+    // === УПРАВЛЕНИЕ КНОПКОЙ И ПОЛЯМИ ===
     function updateControls() {
-        if (gameState === 'WAITING') {
-            betInput.disabled = false;
-            autoInput.disabled = false;
-            autoEnableCheck.disabled = false;
-            if (userBetQueued) {
+        // Поля ввода доступны, если нет ожидающей или активной ставки
+        const inputsDisabled = userBetQueued || userBetActive;
+        betInput.disabled = inputsDisabled;
+        autoInput.disabled = inputsDisabled;
+        autoEnableCheck.disabled = inputsDisabled;
+
+        if (userBetActive) {
+            // Активная ставка – только кнопка "ЗАБРАТЬ" (только в FLYING)
+            actionBtn.className = 'action-btn btn-cashout';
+            const win = Math.floor(userBetAmount * currentMulti);
+            actionMain.textContent = win.toLocaleString() + ' ₽';
+            actionSubtext.innerHTML = 'ЗАБРАТЬ';
+            actionBtn.disabled = (gameState !== 'FLYING'); // только во время полёта можно забрать
+        } else if (userBetQueued) {
+            // Ожидающая ставка – кнопка "ОТМЕНИТЬ" только в WAITING
+            if (gameState === 'WAITING') {
                 actionBtn.className = 'action-btn btn-cancel';
                 actionMain.textContent = 'ОТМЕНИТЬ';
-                actionSubtext.textContent = `Ставка ${userBetAmount}₽ принята`;
+                actionSubtext.textContent = `Ставка ${userBetAmount}₽`;
                 actionBtn.disabled = false;
             } else {
-                actionBtn.className = 'action-btn btn-bet';
-                actionMain.textContent = 'СДЕЛАТЬ СТАВКУ';
-                actionSubtext.textContent = 'На следующий раунд';
-                const amt = getBetValue();
-                actionBtn.disabled = (casinoBalance < amt || amt < 10);
-            }
-        } else if (gameState === 'FLYING') {
-            betInput.disabled = true;
-            autoInput.disabled = true;
-            autoEnableCheck.disabled = true;
-            if (userBetActive) {
-                const win = Math.floor(userBetAmount * currentMulti);
-                actionBtn.className = 'action-btn btn-cashout';
-                actionMain.textContent = 'ЗАБРАТЬ';
-                actionSubtext.innerHTML = `<span class="win-amount">${win} ₽</span>`;
-                actionBtn.disabled = false;
-            } else {
+                // Во время полёта отмена недоступна
                 actionBtn.className = 'action-btn btn-bet';
                 actionMain.textContent = 'ОЖИДАЙТЕ';
-                actionSubtext.textContent = 'Идет полет';
+                actionSubtext.textContent = 'Ставка на след. раунд';
                 actionBtn.disabled = true;
             }
-        } else if (gameState === 'CRASHED') {
-            actionBtn.disabled = true;
-            if (userBetQueued) {
-                actionBtn.className = 'action-btn btn-cancel';
-                actionMain.textContent = 'ОЖИДАЙТЕ';
-                actionSubtext.textContent = 'Подготовка...';
+        } else {
+            // Нет ставок – кнопка "СДЕЛАТЬ СТАВКУ" всегда активна (и в WAITING, и в FLYING)
+            actionBtn.className = 'action-btn btn-bet';
+            actionMain.textContent = 'СДЕЛАТЬ СТАВКУ';
+            if (gameState === 'WAITING') {
+                actionSubtext.textContent = 'На следующий раунд';
             } else {
-                actionBtn.className = 'action-btn btn-bet';
-                actionMain.textContent = 'КРАШ';
-                actionSubtext.textContent = 'Ожидайте след. раунд';
+                actionSubtext.textContent = 'Будет поставлена после раунда';
             }
+            const amt = getBetValue();
+            actionBtn.disabled = (casinoBalance < amt || amt < 10);
         }
     }
 
     actionBtn.onclick = () => {
         if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
-        if (gameState === 'WAITING') {
-            if (userBetQueued) {
-                userBetQueued = false;
-                updateBalance(userBetAmount);
-                updateControls();
-                renderBetsTable();
-            } else {
-                let amt = getBetValue();
-                if (isNaN(amt) || amt < 10) return;
-                if (amt > casinoBalance) return;
-                userBetAmount = amt;
-                userAutoCashout = parseFloat(autoInput.value) || 2.0;
-                autoEnabled = autoEnableCheck.checked;
-                userBetQueued = true;
-                updateBalance(-userBetAmount);
-                updateControls();
-                renderBetsTable();
-            }
-        } else if (gameState === 'FLYING' && userBetActive) {
+        if (userBetActive && gameState === 'FLYING') {
             cashoutUser();
+            return;
+        }
+        if (userBetQueued && gameState === 'WAITING') {
+            // Отмена
+            userBetQueued = false;
+            updateBalance(userBetAmount);
+            updateControls();
+            renderBetsTable();
+            return;
+        }
+        if (!userBetQueued && !userBetActive) {
+            // Ставка
+            let amt = getBetValue();
+            if (isNaN(amt) || amt < 10) return;
+            if (amt > casinoBalance) return;
+            userBetAmount = amt;
+            userAutoCashout = parseFloat(autoInput.value) || 2.0;
+            autoEnabled = autoEnableCheck.checked;
+            userBetQueued = true;
+            updateBalance(-userBetAmount);
+            updateControls();
+            renderBetsTable();
         }
     };
 
@@ -720,6 +725,11 @@
         multiplierDisplay.style.color = 'var(--text-main)';
         statusMsg.innerText = 'Прием ставок';
         statusMsg.style.color = 'var(--text-muted)';
+        // Сбрасываем наклон ракеты
+        rocketTilt = 0;
+        rocketBob = 0;
+        rocketShakeX = 0;
+        rocketShakeY = 0;
         // Частичное обновление ботов
         updateBotsPartially();
         renderBetsTable();
@@ -791,7 +801,7 @@
             else if (currentMulti < 10) multiplierDisplay.style.color = 'var(--accent-orange)';
             else multiplierDisplay.style.color = 'var(--accent-green)';
             if (tableNeedsUpdate) renderBetsTable();
-            updateControls();
+            updateControls(); // обновляем кнопку (сумма выигрыша)
             if (currentMulti >= crashPoint) {
                 currentMulti = crashPoint;
                 multiplierDisplay.innerText = currentMulti.toFixed(2) + 'x';
@@ -820,41 +830,41 @@
 
     function triggerExplosion() {
         explosionAlpha = 1.0;
-        for(let i=0; i<250; i++) {
+        for(let i=0; i<300; i++) {
             let a = Math.random() * Math.PI * 2;
-            let v = Math.random() * 35 + 15;
-            let size = Math.random() * 25 + 5;
-            let colors = ['#f03043', '#ff9800', '#ffeb3b', '#ff5722', '#ff6f00', '#ff4d4d', '#ffaa00'];
+            let v = Math.random() * 40 + 20;
+            let size = Math.random() * 30 + 5;
+            let colors = ['#f03043', '#ff9800', '#ffeb3b', '#ff5722', '#ff6f00', '#ff4d4d', '#ffaa00', '#ffcc00'];
             particles.push({
                 x: canvas.width/2, y: rocketY,
                 vx: Math.cos(a)*v, vy: Math.sin(a)*v - 5,
                 life: 1.0, color: colors[Math.floor(Math.random()*colors.length)],
-                size: size, decay: 0.006 + Math.random() * 0.012
+                size: size, decay: 0.005 + Math.random() * 0.015
             });
         }
-        for(let i=0; i<120; i++) {
+        for(let i=0; i<150; i++) {
             let a = Math.random() * Math.PI * 2;
-            let v = Math.random() * 60 + 25;
+            let v = Math.random() * 70 + 30;
             particles.push({
                 x: canvas.width/2, y: rocketY,
-                vx: Math.cos(a)*v, vy: Math.sin(a)*v - 15,
-                life: 0.7, color: '#ffffff',
-                size: 4 + Math.random() * 8, decay: 0.05 + Math.random() * 0.04
+                vx: Math.cos(a)*v, vy: Math.sin(a)*v - 20,
+                life: 0.8, color: '#ffffff',
+                size: 4 + Math.random() * 10, decay: 0.04 + Math.random() * 0.04
             });
         }
     }
 
-    // НОВАЯ РАКЕТА
+    // СУПЕР-ДЕТАЛИЗИРОВАННАЯ РАКЕТА
     function drawRocket(ctx, x, y, tilt, scale) {
-        const s = scale || 1.3; // немного меньше
+        const s = scale || 1.3;
         const w = 100 * s;
-        const h = 130 * s;
+        const h = 140 * s;
 
         ctx.save();
         ctx.translate(x, y);
         ctx.rotate(tilt || 0);
 
-        // Стартовая платформа (рисуется под ракетой)
+        // Стартовая платформа
         ctx.shadowBlur = 0;
         ctx.fillStyle = '#1a2a3a';
         ctx.strokeStyle = '#3a5a7a';
@@ -862,22 +872,21 @@
         const padW = 60 * s, padH = 8 * s;
         ctx.fillRect(-padW/2, h/2 - 4*s, padW, padH);
         ctx.strokeRect(-padW/2, h/2 - 4*s, padW, padH);
-        // Опоры платформы
         ctx.fillStyle = '#2a3a4a';
         ctx.fillRect(-padW/2 + 4*s, h/2 + 2*s, 6*s, 10*s);
         ctx.fillRect(padW/2 - 10*s, h/2 + 2*s, 6*s, 10*s);
 
-        // Тень ракеты
+        // Тень корпуса
         ctx.shadowBlur = 30;
         ctx.shadowColor = 'rgba(24, 130, 255, 0.3)';
 
-        // Корпус (голубой градиент)
+        // Корпус – градиент сине-голубой
         const grad = ctx.createLinearGradient(-w/2, 0, w/2, 0);
-        grad.addColorStop(0, '#2a6a9a');
-        grad.addColorStop(0.2, '#4a9ad0');
-        grad.addColorStop(0.5, '#6ab8e8');
-        grad.addColorStop(0.8, '#4a9ad0');
-        grad.addColorStop(1, '#2a6a9a');
+        grad.addColorStop(0, '#1a4a7a');
+        grad.addColorStop(0.2, '#3a8ac0');
+        grad.addColorStop(0.5, '#5ab0e0');
+        grad.addColorStop(0.8, '#3a8ac0');
+        grad.addColorStop(1, '#1a4a7a');
         ctx.fillStyle = grad;
         ctx.shadowBlur = 20;
         ctx.shadowColor = 'rgba(255,255,255,0.15)';
@@ -892,23 +901,23 @@
         ctx.closePath();
         ctx.fill();
 
-        // Нос (синий наконечник)
-        ctx.fillStyle = '#1a4a7a';
+        // Нос – синий наконечник
+        ctx.fillStyle = '#0a2a5a';
         ctx.shadowBlur = 15;
-        ctx.shadowColor = 'rgba(24,130,255,0.4)';
+        ctx.shadowColor = 'rgba(24,130,255,0.5)';
         ctx.beginPath();
-        ctx.moveTo(0, -h/2 - 10*s);
+        ctx.moveTo(0, -h/2 - 12*s);
         ctx.quadraticCurveTo(w/3, -h/2 + 4*s, w/4, -h/2 + 8*s);
         ctx.quadraticCurveTo(w/5, -h/2 + 12*s, 0, -h/2 + 14*s);
         ctx.quadraticCurveTo(-w/5, -h/2 + 12*s, -w/4, -h/2 + 8*s);
-        ctx.quadraticCurveTo(-w/3, -h/2 + 4*s, 0, -h/2 - 10*s);
+        ctx.quadraticCurveTo(-w/3, -h/2 + 4*s, 0, -h/2 - 12*s);
         ctx.closePath();
         ctx.fill();
         ctx.strokeStyle = '#8ac0e8';
         ctx.lineWidth = 1.5;
         ctx.stroke();
 
-        // Ножки (стабилизаторы) – синие
+        // Стабилизаторы (ножки) – синие
         ctx.fillStyle = '#1a4a7a';
         ctx.shadowBlur = 10;
         ctx.shadowColor = 'rgba(24,130,255,0.3)';
@@ -925,71 +934,9 @@
         ctx.closePath();
         ctx.fill();
 
-        // Иллюминатор (голубой)
-        ctx.shadowBlur = 25;
-        ctx.shadowColor = 'rgba(100,200,255,0.5)';
-        const gradWin = ctx.createRadialGradient(0, -h/8, 5, 0, -h/8, 18*s);
-        gradWin.addColorStop(0, '#b0e8ff');
-        gradWin.addColorStop(0.5, '#6ac0e0');
-        gradWin.addColorStop(1, '#1a4a7a');
-        ctx.fillStyle = gradWin;
-        ctx.beginPath();
-        ctx.arc(0, -h/8, 18*s, 0, Math.PI*2);
-        ctx.fill();
-        ctx.strokeStyle = '#8ac8e8';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
-        // Блик на иллюминаторе
+        // Рёбра (линии корпуса)
         ctx.shadowBlur = 0;
-        ctx.fillStyle = 'rgba(255,255,255,0.5)';
-        ctx.beginPath();
-        ctx.arc(-6*s, -h/8 - 6*s, 5*s, 0, Math.PI*2);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.25)';
-        ctx.beginPath();
-        ctx.arc(5*s, -h/8 + 5*s, 3*s, 0, Math.PI*2);
-        ctx.fill();
-
-        // НАДПИСЬ R-GAME (R белая, Game синяя)
-        ctx.shadowBlur = 15;
-        ctx.shadowColor = 'rgba(255,255,255,0.3)';
-        ctx.font = `bold ${24*s}px 'Montserrat', sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-
-        // "R"
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText('R', -10*s, -h/3 + 12*s);
-        // "GAME" синяя
-        ctx.fillStyle = '#4a9ad0';
-        ctx.fillText('GAME', 10*s + 4*s, -h/3 + 12*s);
-
-        // Тень надписи
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = 'rgba(0,0,0,0.3)';
-        ctx.fillText('R', -10*s, -h/3 + 14*s);
-        ctx.fillStyle = 'rgba(0,0,0,0.3)';
-        ctx.fillText('GAME', 10*s + 4*s, -h/3 + 14*s);
-
-        // Сопло (двигатель)
-        ctx.shadowBlur = 20;
-        ctx.shadowColor = 'rgba(24,130,255,0.4)';
-        const gradNozzle = ctx.createLinearGradient(0, h/3, 0, h/2 + 8*s);
-        gradNozzle.addColorStop(0, '#3a6a8a');
-        gradNozzle.addColorStop(0.5, '#1a3a5a');
-        gradNozzle.addColorStop(1, '#0a1a2a');
-        ctx.fillStyle = gradNozzle;
-        ctx.beginPath();
-        ctx.moveTo(-w/7, h/3);
-        ctx.quadraticCurveTo(-w/5, h/2 - 4*s, 0, h/2 + 4*s);
-        ctx.quadraticCurveTo(w/5, h/2 - 4*s, w/7, h/3);
-        ctx.closePath();
-        ctx.fill();
-
-        // Декоративные линии
-        ctx.shadowBlur = 0;
-        ctx.strokeStyle = 'rgba(100,200,255,0.2)';
+        ctx.strokeStyle = 'rgba(100,200,255,0.15)';
         ctx.lineWidth = 1.5;
         for (let i = -2; i <= 2; i++) {
             if (i === 0) continue;
@@ -999,15 +946,74 @@
             ctx.stroke();
         }
 
+        // Иллюминатор (голубой с бликом)
+        ctx.shadowBlur = 25;
+        ctx.shadowColor = 'rgba(100,200,255,0.6)';
+        const gradWin = ctx.createRadialGradient(0, -h/8, 5, 0, -h/8, 18*s);
+        gradWin.addColorStop(0, '#c0e8ff');
+        gradWin.addColorStop(0.4, '#70c0e0');
+        gradWin.addColorStop(1, '#1a4a7a');
+        ctx.fillStyle = gradWin;
+        ctx.beginPath();
+        ctx.arc(0, -h/8, 18*s, 0, Math.PI*2);
+        ctx.fill();
+        ctx.strokeStyle = '#8ac8e8';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Блики иллюминатора
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        ctx.beginPath();
+        ctx.arc(-6*s, -h/8 - 6*s, 6*s, 0, Math.PI*2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        ctx.beginPath();
+        ctx.arc(6*s, -h/8 + 5*s, 4*s, 0, Math.PI*2);
+        ctx.fill();
+
+        // НАДПИСЬ R-GAME (фирменный градиент)
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = 'rgba(255,255,255,0.3)';
+        ctx.font = `bold ${26*s}px 'Montserrat', sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const gradText = ctx.createLinearGradient(-10*s, -h/3, 10*s, -h/3 + 4*s);
+        gradText.addColorStop(0, '#ffffff');
+        gradText.addColorStop(0.4, '#a0c4ff');
+        gradText.addColorStop(0.7, '#1882ff');
+        gradText.addColorStop(1, '#a0c4ff');
+        ctx.fillStyle = gradText;
+        ctx.fillText('R-GAME', 0, -h/3 + 14*s);
+        // Тень для читаемости
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(0,0,0,0.4)';
+        ctx.fillText('R-GAME', 0, -h/3 + 16*s);
+
+        // Сопло (двигатель)
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = 'rgba(24,130,255,0.4)';
+        const gradNozzle = ctx.createLinearGradient(0, h/3, 0, h/2 + 10*s);
+        gradNozzle.addColorStop(0, '#3a6a8a');
+        gradNozzle.addColorStop(0.5, '#1a3a5a');
+        gradNozzle.addColorStop(1, '#0a1a2a');
+        ctx.fillStyle = gradNozzle;
+        ctx.beginPath();
+        ctx.moveTo(-w/7, h/3);
+        ctx.quadraticCurveTo(-w/5, h/2 - 4*s, 0, h/2 + 6*s);
+        ctx.quadraticCurveTo(w/5, h/2 - 4*s, w/7, h/3);
+        ctx.closePath();
+        ctx.fill();
+
         // Заклёпки
-        ctx.fillStyle = 'rgba(200,220,255,0.4)';
+        ctx.shadowBlur = 4;
+        ctx.shadowColor = 'rgba(200,220,255,0.2)';
+        ctx.fillStyle = 'rgba(200,220,255,0.5)';
         for (let i = -1; i <= 1; i+=1) {
             for (let j = -1; j <= 1; j+=1) {
                 if (i === 0 && j === 0) continue;
-                ctx.shadowBlur = 4;
-                ctx.shadowColor = 'rgba(200,220,255,0.2)';
                 ctx.beginPath();
-                ctx.arc(i * w/5, j * h/5, 2*s, 0, Math.PI*2);
+                ctx.arc(i * w/5, j * h/5 + 4*s, 2.5*s, 0, Math.PI*2);
                 ctx.fill();
             }
         }
@@ -1085,7 +1091,7 @@
         ctx.globalAlpha = 1.0;
         ctx.shadowBlur = 0;
 
-        // === ОТРИСОВКА РАКЕТЫ ===
+        // === ОТРИСОВКА РАКЕТЫ (всегда, даже при CRASHED, но без наклона) ===
         if (gameState !== 'CRASHED') {
             const cx = canvas.width/2;
             const cy = rocketY;
@@ -1095,7 +1101,7 @@
             const shakeX = rocketShakeX || 0;
             const shakeY = rocketShakeY || 0;
 
-            // Огонь
+            // Огонь (только в FLYING)
             if (gameState === 'FLYING') {
                 ctx.save();
                 ctx.translate(cx + shakeX, cy + bobY + shakeY);
@@ -1145,8 +1151,15 @@
                 ctx.restore();
             }
 
-            // Рисуем ракету с масштабом 1.3
+            // Рисуем ракету с покачиванием
             drawRocket(ctx, cx + shakeX, cy + bobY + shakeY, tilt, 1.3);
+        } else {
+            // При CRASHED рисуем ракету вертикально без покачивания
+            // Можно оставить её видимой, но у нас взрыв скрывает её
+            // Но если мы хотим, чтобы она была видна, можно нарисовать её без наклона
+            // Однако взрыв уже идёт, и ракета обычно исчезает. Оставим как есть: не рисуем.
+            // Но чтобы не было пусто, можно нарисовать вертикальную ракету с прозрачностью?
+            // Лучше оставить как есть – ракета не рисуется, видны только частицы.
         }
 
         // Взрывная вспышка
