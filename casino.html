@@ -128,6 +128,18 @@
             color: var(--accent-green);
             text-shadow: 0 0 12px rgba(27, 209, 93, 0.2);
             line-height: 1.2;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-radius: 8px;
+            padding: 2px 8px;
+        }
+
+        .balance-value:hover {
+            background: rgba(255,255,255,0.05);
+        }
+
+        .balance-value:active {
+            transform: scale(0.95);
         }
 
         .action-buttons {
@@ -480,41 +492,65 @@
         const depositBtn = document.getElementById('depositBtn');
         const withdrawBtn = document.getElementById('withdrawBtn');
 
-        // ===== БАЗОВЫЙ URL ДЛЯ ВЕБ-СЕРВЕРА =====
-        // Если используете ngrok, замените на свой адрес:
-        // const BASE_URL = 'https://ваш-ngrok.ngrok.io';
-        const BASE_URL = ''; // пустая строка = тот же хост, что и страница
-
         // ===== ФУНКЦИЯ ЗАПРОСА БАЛАНСА =====
-        async function fetchBalance() {
+        function requestBalance() {
             if (!userId) return;
-            try {
-                const url = `${BASE_URL}/balance/${userId}`;
-                const response = await fetch(url);
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.balance !== undefined) {
-                        const newBalance = data.balance;
-                        localStorage.setItem('casinoBalance', String(newBalance));
-                        balanceSpan.innerText = newBalance.toLocaleString() + ' ₽';
-                        console.log('✅ Баланс обновлён с сервера:', newBalance);
-                    }
-                } else {
-                    console.warn('⚠️ Ошибка получения баланса:', response.status);
-                }
-            } catch (e) {
-                console.error('❌ Ошибка сети при запросе баланса:', e);
-            }
+            console.log('📤 Запрос баланса...');
+            tg.sendData(JSON.stringify({ action: 'get_balance' }));
         }
 
         // ===== ИНИЦИАЛИЗАЦИЯ =====
-        // Показываем баланс из localStorage
         let localBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
         balanceSpan.innerText = localBalance.toLocaleString() + ' ₽';
-        // Один раз синхронизируем с сервером
+
         if (userId) {
-            fetchBalance();
+            requestBalance();
         }
+
+        // ===== РУЧНОЕ ОБНОВЛЕНИЕ ПО КЛИКУ =====
+        balanceSpan.addEventListener('click', () => {
+            requestBalance();
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+        });
+
+        // ===== ОБРАБОТЧИК ОТВЕТОВ ОТ БОТА =====
+        tg.onEvent('web_app_data', function(data) {
+            try {
+                const response = JSON.parse(data);
+                console.log('📩 Ответ от бота:', response);
+
+                if (response.error) {
+                    alert('❌ Ошибка: ' + response.error);
+                    return;
+                }
+
+                // Запрос баланса
+                if (response.action === 'balance') {
+                    if (response.balance !== undefined) {
+                        const newBalance = response.balance;
+                        localStorage.setItem('casinoBalance', String(newBalance));
+                        balanceSpan.innerText = newBalance.toLocaleString() + ' ₽';
+                        console.log('✅ Баланс обновлён:', newBalance);
+                        if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+                    }
+                    return;
+                }
+
+                // Пополнение / вывод
+                if (response.action === 'deposit_success' || response.action === 'withdraw_success') {
+                    if (response.new_casino_balance !== undefined) {
+                        const newBalance = response.new_casino_balance;
+                        localStorage.setItem('casinoBalance', String(newBalance));
+                        balanceSpan.innerText = newBalance.toLocaleString() + ' ₽';
+                        console.log('✅ Баланс обновлён:', newBalance);
+                        if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+                    }
+                }
+            } catch (e) {
+                console.error('❌ Ошибка обработки ответа:', e);
+                alert('⚠️ Ошибка обработки ответа от бота. Попробуйте ещё раз.');
+            }
+        });
 
         // ===== ПОПОЛНЕНИЕ =====
         depositBtn.onclick = () => {
@@ -527,8 +563,7 @@
                 const data = { action: 'deposit', amount: parseInt(amount) };
                 console.log('📤 Отправляем запрос на пополнение:', data);
                 tg.sendData(JSON.stringify(data));
-                // Ждём 2 секунды и обновляем баланс с сервера
-                setTimeout(fetchBalance, 2000);
+                setTimeout(requestBalance, 3000);
             }
         };
 
@@ -548,7 +583,7 @@
                 const data = { action: 'withdraw', amount: parseInt(amount) };
                 console.log('📤 Отправляем запрос на вывод:', data);
                 tg.sendData(JSON.stringify(data));
-                setTimeout(fetchBalance, 2000);
+                setTimeout(requestBalance, 3000);
             }
         };
 
