@@ -101,7 +101,12 @@
             background: var(--panel-bg); padding: 15px; border-radius: 16px;
             border: 1px solid rgba(255,255,255,0.02); margin-bottom: 15px; flex-shrink: 0;
         }
-        .inputs-row { display: flex; gap: 10px; margin-bottom: 15px; }
+        .inputs-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            align-items: flex-end;
+        }
         .input-group { flex: 1; display: flex; flex-direction: column; gap: 5px; }
         .input-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
         
@@ -119,6 +124,30 @@
         }
         .wrapper-rub::before { content: '₽'; }
         .wrapper-x::before { content: 'x'; }
+
+        /* Чекбокс для авто-вывода */
+        .auto-checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 0 4px 4px 0;
+        }
+        .auto-checkbox-group input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: var(--accent-blue);
+            cursor: pointer;
+            filter: drop-shadow(0 0 4px rgba(24,130,255,0.3));
+        }
+        .auto-checkbox-group label {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            user-select: none;
+        }
 
         .action-btn {
             width: 100%; padding: 18px 12px; border: none; border-radius: 14px;
@@ -141,12 +170,32 @@
         .btn-bet { background: var(--accent-blue); box-shadow: 0 6px 0 #0f5bb8, 0 8px 24px rgba(24, 130, 255, 0.3); }
         .btn-bet:hover:not(:disabled) { background: var(--accent-blue-hover); }
         .btn-cancel { background: var(--accent-red); box-shadow: 0 6px 0 #a8222f, 0 8px 24px rgba(240, 48, 67, 0.3); }
-        .btn-cashout { background: var(--accent-green); box-shadow: 0 6px 0 #139642, 0 8px 24px rgba(27, 209, 93, 0.3); }
+        .btn-cashout {
+            background: var(--accent-green);
+            box-shadow: 0 6px 0 #139642, 0 8px 24px rgba(27, 209, 93, 0.3);
+            font-family: 'Montserrat', sans-serif;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+        }
         .btn-cashout:hover:not(:disabled) { background: var(--accent-green-hover); }
         .btn-icon { font-size: 28px; line-height: 1; }
         .btn-text { display: flex; flex-direction: column; align-items: flex-start; }
         .btn-main { font-size: 18px; font-weight: 800; letter-spacing: 0.5px; }
-        .btn-sub { font-size: 12px; font-weight: 600; opacity: 0.8; text-transform: none; font-family: 'Nunito', sans-serif; }
+        .btn-sub {
+            font-size: 13px;
+            font-weight: 700;
+            opacity: 0.9;
+            text-transform: none;
+            font-family: 'Montserrat', sans-serif;
+            letter-spacing: 0.3px;
+        }
+        .btn-sub .win-amount {
+            color: #fff;
+            font-weight: 800;
+            background: rgba(0,0,0,0.2);
+            padding: 0 8px;
+            border-radius: 6px;
+        }
 
         .sound-btn {
             width: 100%; padding: 14px; border: none; border-radius: 14px;
@@ -206,7 +255,6 @@
         
         .my-bet-row { background: rgba(24, 130, 255, 0.15) !important; border-left: 2px solid var(--accent-blue); }
 
-        /* ИСПРАВЛЕНИЕ БАЛАНСА – знак рубля больше не съезжает */
         .balance-value {
             font-family: 'Montserrat', sans-serif;
             font-size: 15px;
@@ -229,7 +277,9 @@
             .action-btn { padding: 14px 10px; font-size: 16px; }
             .btn-icon { font-size: 22px; }
             .btn-main { font-size: 15px; }
-            .btn-sub { font-size: 10px; }
+            .btn-sub { font-size: 11px; }
+            .inputs-row { flex-wrap: wrap; }
+            .auto-checkbox-group { margin-top: 6px; }
         }
     </style>
 </head>
@@ -266,6 +316,10 @@
                 <div class="styled-input-wrapper wrapper-x">
                     <input type="number" id="autoTarget" class="styled-input" step="0.1" min="1.01" max="100" value="2.00">
                 </div>
+            </div>
+            <div class="auto-checkbox-group">
+                <input type="checkbox" id="autoEnableCheck" checked>
+                <label for="autoEnableCheck">Вкл</label>
             </div>
         </div>
 
@@ -326,6 +380,7 @@
     const historyList = document.getElementById('historyList');
     const betInput = document.getElementById('betAmount');
     const autoInput = document.getElementById('autoTarget');
+    const autoEnableCheck = document.getElementById('autoEnableCheck');
     const actionBtn = document.getElementById('actionBtn');
     const actionMain = document.getElementById('actionMain');
     const actionSubtext = document.getElementById('actionSubtext');
@@ -339,7 +394,7 @@
     const soundIcon = soundBtn.querySelector('.icon');
     const bgAudio = document.getElementById('bgMusic');
 
-    // === ФОРМАТИРОВАНИЕ СТАВКИ С РАЗДЕЛИТЕЛЯМИ ===
+    // === ФОРМАТИРОВАНИЕ СТАВКИ ===
     function formatNumber(num) {
         return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
     }
@@ -406,7 +461,7 @@
     }
     renderHistory();
 
-    // === РАЗНООБРАЗНЫЕ ИМЕНА БОТОВ ===
+    // === БОТЫ (ЧАСТИЧНОЕ ОБНОВЛЕНИЕ) ===
     const prefixes = ['Alex', 'Crypto', 'Lucky', 'Pro', 'Max', 'Ivan', 'Shadow', 'Luna', 'Star', 'Sniper', 'Rich', 'Whale', 'Noob', 'Trader', 'Kira', 'Viper', 'Phoenix', 'Rocket', 'Nebula', 'Cosmos', 'Omega', 'Zen', 'Vortex', 'Fury', 'Blaze', 'Storm', 'Ghost', 'Titan', 'Apex', 'Nova', 'Eclipse', 'Falcon', 'Hawk', 'Wolf', 'Panther', 'Dragon', 'Knight', 'Wizard', 'Ranger', 'Guardian'];
     const suffixes = ['_99', '_King', '_Lord', '_Pro', '_X', '_Z', '_7', '_42', '_1337', '_Hero', '_God', '_Star', '_Fire', '_Ice', '_Thunder'];
 
@@ -416,14 +471,12 @@
         return p + s + (Math.random() > 0.3 ? '' : '') + (Math.random() > 0.7 ? Math.floor(Math.random()*100) : '');
     }
 
-    // === ПЛАВНЫЙ ОНЛАЙН ===
+    let bots = [];
     let currentOnline = 142;
     let targetOnline = 142;
-    let onlineSpeed = 0.2; // ещё медленнее для плавности
+    let onlineSpeed = 0.2;
 
-    function generateBots() {
-        const count = Math.floor(Math.random() * 15) + 12;
-        targetOnline = count + Math.floor(Math.random() * 150) + 50;
+    function generateInitialBots(count) {
         const newBots = [];
         for(let i=0; i<count; i++) {
             const betOptions = [50, 75, 100, 150, 200, 250, 300, 400, 500, 700, 1000, 1500, 2000, 3000, 5000, 10000];
@@ -435,22 +488,85 @@
             else if(r < 0.85) target = 2.2 + Math.random() * 3.0;
             else if(r < 0.97) target = 5.0 + Math.random() * 8.0;
             else target = 15.0 + Math.random() * 40.0;
-            const name = generateBotName();
-            newBots.push({ id: 'bot_' + i, name, bet, target, cashed: false, crashed: false });
+            newBots.push({
+                id: 'bot_' + i,
+                name: generateBotName(),
+                bet: bet,
+                target: target,
+                cashed: false,
+                crashed: false
+            });
         }
         newBots.sort((a,b) => b.bet - a.bet);
         return newBots;
     }
 
-    let bots = [];
+    // Инициализация ботов при первом запуске
+    bots = generateInitialBots(15);
 
+    function updateBotsPartially() {
+        // Удаляем от 1 до 3 случайных ботов (уход)
+        const removeCount = Math.floor(Math.random() * 3) + 1;
+        for (let i = 0; i < removeCount && bots.length > 3; i++) {
+            const idx = Math.floor(Math.random() * bots.length);
+            bots.splice(idx, 1);
+        }
+        // Добавляем от 2 до 5 новых ботов (приход)
+        const addCount = Math.floor(Math.random() * 4) + 2;
+        const newBots = [];
+        for (let i = 0; i < addCount; i++) {
+            const betOptions = [50, 75, 100, 150, 200, 250, 300, 400, 500, 700, 1000, 1500, 2000, 3000, 5000, 10000];
+            const bet = betOptions[Math.floor(Math.random() * betOptions.length)];
+            let target;
+            const r = Math.random();
+            if(r < 0.3) target = 1.05 + Math.random() * 0.3;
+            else if(r < 0.6) target = 1.4 + Math.random() * 0.8;
+            else if(r < 0.85) target = 2.2 + Math.random() * 3.0;
+            else if(r < 0.97) target = 5.0 + Math.random() * 8.0;
+            else target = 15.0 + Math.random() * 40.0;
+            newBots.push({
+                id: 'bot_' + Date.now() + i,
+                name: generateBotName(),
+                bet: bet,
+                target: target,
+                cashed: false,
+                crashed: false
+            });
+        }
+        bots = bots.concat(newBots);
+        bots.sort((a,b) => b.bet - a.bet);
+        // Обновляем targetOnline для плавного изменения
+        targetOnline = bots.length + Math.floor(Math.random() * 150) + 50;
+    }
+
+    // === ОНЛАЙН ПЛАВНО ===
+    function updateOnlineSmoothly() {
+        if (currentOnline !== targetOnline) {
+            let diff = targetOnline - currentOnline;
+            let step = Math.sign(diff) * onlineSpeed * 0.02; // плавность
+            if (Math.abs(step) > Math.abs(diff)) {
+                currentOnline = targetOnline;
+            } else {
+                currentOnline += step;
+            }
+            currentOnline += (Math.random() - 0.5) * 0.3 * 0.02;
+            currentOnline = Math.max(10, currentOnline);
+        } else {
+            currentOnline += (Math.random() - 0.5) * 0.2 * 0.02;
+            currentOnline = Math.max(10, currentOnline);
+        }
+        onlineCount.innerText = Math.round(currentOnline) + ' онлайн';
+    }
+
+    // === ОТРИСОВКА ТАБЛИЦЫ ===
     function renderBetsTable() {
         betsBody.innerHTML = '';
         if (userBetQueued || userBetActive) {
             let statusHtml = '<td class="col-multi">—</td><td class="col-profit">—</td>';
             let trClass = 'my-bet-row';
             if (userBetActive && !userBetQueued) {
-                statusHtml = `<td class="col-multi">${currentMulti.toFixed(2)}x</td><td class="col-profit">${(userBetAmount * currentMulti).toFixed(0)}₽</td>`;
+                const win = Math.floor(userBetAmount * currentMulti);
+                statusHtml = `<td class="col-multi">${currentMulti.toFixed(2)}x</td><td class="col-profit">${win}₽</td>`;
             }
             betsBody.innerHTML += `
                 <tr class="${trClass}">
@@ -460,7 +576,9 @@
                 </tr>
             `;
         }
-        bots.forEach(bot => {
+        // Показываем только первых 10 ботов, чтобы таблица не перегружалась
+        const shownBots = bots.slice(0, 10);
+        shownBots.forEach(bot => {
             let statusHtml = '<td class="col-multi">—</td><td class="col-profit">—</td>';
             let rowClass = '';
             if (bot.cashed) {
@@ -492,6 +610,7 @@
     let userBetActive = false;
     let userBetAmount = 0;
     let userAutoCashout = 2.0;
+    let autoEnabled = true; // по умолчанию включён
 
     // Параметры покачивания ракеты
     let rocketTilt = 0;
@@ -499,10 +618,12 @@
     let rocketShakeX = 0;
     let rocketShakeY = 0;
 
+    // === УПРАВЛЕНИЕ КНОПКОЙ ===
     function updateControls() {
         if (gameState === 'WAITING') {
             betInput.disabled = false;
             autoInput.disabled = false;
+            autoEnableCheck.disabled = false;
             if (userBetQueued) {
                 actionBtn.className = 'action-btn btn-cancel';
                 actionMain.textContent = 'ОТМЕНИТЬ';
@@ -518,11 +639,12 @@
         } else if (gameState === 'FLYING') {
             betInput.disabled = true;
             autoInput.disabled = true;
+            autoEnableCheck.disabled = true;
             if (userBetActive) {
+                const win = Math.floor(userBetAmount * currentMulti);
                 actionBtn.className = 'action-btn btn-cashout';
-                let currentWin = Math.floor(userBetAmount * currentMulti);
                 actionMain.textContent = 'ЗАБРАТЬ';
-                actionSubtext.textContent = `${currentWin}₽`;
+                actionSubtext.innerHTML = `<span class="win-amount">${win} ₽</span>`;
                 actionBtn.disabled = false;
             } else {
                 actionBtn.className = 'action-btn btn-bet';
@@ -558,6 +680,7 @@
                 if (amt > casinoBalance) return;
                 userBetAmount = amt;
                 userAutoCashout = parseFloat(autoInput.value) || 2.0;
+                autoEnabled = autoEnableCheck.checked;
                 userBetQueued = true;
                 updateBalance(-userBetAmount);
                 updateControls();
@@ -597,7 +720,8 @@
         multiplierDisplay.style.color = 'var(--text-main)';
         statusMsg.innerText = 'Прием ставок';
         statusMsg.style.color = 'var(--text-muted)';
-        bots = generateBots();
+        // Частичное обновление ботов
+        updateBotsPartially();
         renderBetsTable();
         updateControls();
         rocketY = 300;
@@ -640,24 +764,7 @@
         let dt = Math.min((now - lastTime) / 1000, 0.05);
         lastTime = now;
 
-        // Супер плавный онлайн с лёгкими флуктуациями
-        if (currentOnline !== targetOnline) {
-            let diff = targetOnline - currentOnline;
-            let step = Math.sign(diff) * onlineSpeed * dt * 20;
-            if (Math.abs(step) > Math.abs(diff)) {
-                currentOnline = targetOnline;
-            } else {
-                currentOnline += step;
-            }
-            // Добавляем небольшие случайные колебания (±0.5), чтобы не стояло на месте
-            currentOnline += (Math.random() - 0.5) * 0.3 * dt * 10;
-            currentOnline = Math.max(10, currentOnline);
-        } else {
-            // Даже когда достигли цели, добавляем микроколебания
-            currentOnline += (Math.random() - 0.5) * 0.2 * dt * 5;
-            currentOnline = Math.max(10, currentOnline);
-        }
-        onlineCount.innerText = Math.round(currentOnline) + ' онлайн';
+        updateOnlineSmoothly();
 
         if (gameState === 'WAITING') {
             countdown -= dt;
@@ -674,7 +781,7 @@
                     tableNeedsUpdate = true;
                 }
             });
-            if (userBetActive && currentMulti >= userAutoCashout) {
+            if (autoEnabled && userBetActive && currentMulti >= userAutoCashout) {
                 cashoutUser();
                 tableNeedsUpdate = true;
             }
@@ -701,7 +808,7 @@
         requestAnimationFrame(gameLoop);
     }
 
-    // ===== ГРАФИКА (АФИГЕННАЯ РАКЕТА) =====
+    // ===== ГРАФИКА (НОВАЯ РАКЕТА) =====
     let stars = Array.from({length: 120}, () => ({
         x: Math.random() * 800, y: Math.random() * 400,
         s: Math.random() * 2 + 0.5, spd: Math.random() * 2 + 0.5
@@ -737,30 +844,42 @@
         }
     }
 
-    // === ОТРИСОВКА РАКЕТЫ С НАДПИСЬЮ R-GAME (супер детализированная) ===
+    // НОВАЯ РАКЕТА
     function drawRocket(ctx, x, y, tilt, scale) {
-        const s = scale || 1.6; // увеличенный масштаб для крутости
-        const w = 120 * s;
-        const h = 160 * s;
+        const s = scale || 1.3; // немного меньше
+        const w = 100 * s;
+        const h = 130 * s;
 
         ctx.save();
         ctx.translate(x, y);
         ctx.rotate(tilt || 0);
 
-        // Глубокий свечущийся след (тень)
-        ctx.shadowBlur = 40;
+        // Стартовая платформа (рисуется под ракетой)
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#1a2a3a';
+        ctx.strokeStyle = '#3a5a7a';
+        ctx.lineWidth = 2;
+        const padW = 60 * s, padH = 8 * s;
+        ctx.fillRect(-padW/2, h/2 - 4*s, padW, padH);
+        ctx.strokeRect(-padW/2, h/2 - 4*s, padW, padH);
+        // Опоры платформы
+        ctx.fillStyle = '#2a3a4a';
+        ctx.fillRect(-padW/2 + 4*s, h/2 + 2*s, 6*s, 10*s);
+        ctx.fillRect(padW/2 - 10*s, h/2 + 2*s, 6*s, 10*s);
+
+        // Тень ракеты
+        ctx.shadowBlur = 30;
         ctx.shadowColor = 'rgba(24, 130, 255, 0.3)';
 
-        // Корпус – основной цилиндр с градиентом
+        // Корпус (голубой градиент)
         const grad = ctx.createLinearGradient(-w/2, 0, w/2, 0);
-        grad.addColorStop(0, '#1a2a3a');
-        grad.addColorStop(0.2, '#3a5a7a');
-        grad.addColorStop(0.4, '#7ab0e0');
-        grad.addColorStop(0.6, '#7ab0e0');
-        grad.addColorStop(0.8, '#3a5a7a');
-        grad.addColorStop(1, '#1a2a3a');
+        grad.addColorStop(0, '#2a6a9a');
+        grad.addColorStop(0.2, '#4a9ad0');
+        grad.addColorStop(0.5, '#6ab8e8');
+        grad.addColorStop(0.8, '#4a9ad0');
+        grad.addColorStop(1, '#2a6a9a');
         ctx.fillStyle = grad;
-        ctx.shadowBlur = 25;
+        ctx.shadowBlur = 20;
         ctx.shadowColor = 'rgba(255,255,255,0.15)';
         ctx.beginPath();
         ctx.moveTo(0, -h/2);
@@ -772,127 +891,123 @@
         ctx.quadraticCurveTo(-w/2, -h/4, 0, -h/2);
         ctx.closePath();
         ctx.fill();
-        ctx.strokeStyle = '#9ac8f0';
-        ctx.lineWidth = 2.5;
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = 'rgba(154,200,240,0.5)';
-        ctx.stroke();
 
-        // Крылья (обтекатели)
-        ctx.fillStyle = '#2a4a6a';
+        // Нос (синий наконечник)
+        ctx.fillStyle = '#1a4a7a';
         ctx.shadowBlur = 15;
         ctx.shadowColor = 'rgba(24,130,255,0.4)';
         ctx.beginPath();
+        ctx.moveTo(0, -h/2 - 10*s);
+        ctx.quadraticCurveTo(w/3, -h/2 + 4*s, w/4, -h/2 + 8*s);
+        ctx.quadraticCurveTo(w/5, -h/2 + 12*s, 0, -h/2 + 14*s);
+        ctx.quadraticCurveTo(-w/5, -h/2 + 12*s, -w/4, -h/2 + 8*s);
+        ctx.quadraticCurveTo(-w/3, -h/2 + 4*s, 0, -h/2 - 10*s);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#8ac0e8';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // Ножки (стабилизаторы) – синие
+        ctx.fillStyle = '#1a4a7a';
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = 'rgba(24,130,255,0.3)';
+        ctx.beginPath();
         ctx.moveTo(-w/2, -h/6);
-        ctx.lineTo(-w/2 - w/4, 0);
+        ctx.lineTo(-w/2 - w/5, 0);
         ctx.lineTo(-w/2, h/6);
         ctx.closePath();
         ctx.fill();
         ctx.beginPath();
         ctx.moveTo(w/2, -h/6);
-        ctx.lineTo(w/2 + w/4, 0);
+        ctx.lineTo(w/2 + w/5, 0);
         ctx.lineTo(w/2, h/6);
         ctx.closePath();
         ctx.fill();
 
-        // Дополнительные стабилизаторы
-        ctx.fillStyle = '#1a3a5a';
-        ctx.shadowBlur = 10;
-        ctx.beginPath();
-        ctx.moveTo(-w/3, h/4);
-        ctx.lineTo(-w/2, h/3);
-        ctx.lineTo(-w/3, h/2);
-        ctx.closePath();
-        ctx.fill();
-        ctx.beginPath();
-        ctx.moveTo(w/3, h/4);
-        ctx.lineTo(w/2, h/3);
-        ctx.lineTo(w/3, h/2);
-        ctx.closePath();
-        ctx.fill();
-
-        // Иллюминатор с бликом
-        ctx.shadowBlur = 30;
-        ctx.shadowColor = 'rgba(255,255,255,0.5)';
-        const gradWin = ctx.createRadialGradient(0, -h/8, 5, 0, -h/8, 22*s);
-        gradWin.addColorStop(0, '#ffffff');
-        gradWin.addColorStop(0.3, '#b0d8ff');
-        gradWin.addColorStop(0.7, '#3a7ab0');
-        gradWin.addColorStop(1, '#1a2a3a');
+        // Иллюминатор (голубой)
+        ctx.shadowBlur = 25;
+        ctx.shadowColor = 'rgba(100,200,255,0.5)';
+        const gradWin = ctx.createRadialGradient(0, -h/8, 5, 0, -h/8, 18*s);
+        gradWin.addColorStop(0, '#b0e8ff');
+        gradWin.addColorStop(0.5, '#6ac0e0');
+        gradWin.addColorStop(1, '#1a4a7a');
         ctx.fillStyle = gradWin;
         ctx.beginPath();
-        ctx.arc(0, -h/8, 22*s, 0, Math.PI*2);
+        ctx.arc(0, -h/8, 18*s, 0, Math.PI*2);
         ctx.fill();
-        ctx.strokeStyle = '#9ac8f0';
+        ctx.strokeStyle = '#8ac8e8';
         ctx.lineWidth = 2;
         ctx.stroke();
 
-        // Блик (отражение света)
+        // Блик на иллюминаторе
         ctx.shadowBlur = 0;
         ctx.fillStyle = 'rgba(255,255,255,0.5)';
         ctx.beginPath();
-        ctx.arc(-8*s, -h/8 - 8*s, 7*s, 0, Math.PI*2);
+        ctx.arc(-6*s, -h/8 - 6*s, 5*s, 0, Math.PI*2);
         ctx.fill();
         ctx.fillStyle = 'rgba(255,255,255,0.25)';
         ctx.beginPath();
-        ctx.arc(6*s, -h/8 + 6*s, 4*s, 0, Math.PI*2);
+        ctx.arc(5*s, -h/8 + 5*s, 3*s, 0, Math.PI*2);
         ctx.fill();
 
-        // НАДПИСЬ R-GAME (градиент, как в шапке)
-        ctx.shadowBlur = 20;
-        ctx.shadowColor = 'rgba(255,255,255,0.4)';
-        const gradText = ctx.createLinearGradient(0, -h/3, 0, -h/6);
-        gradText.addColorStop(0, '#ffffff');
-        gradText.addColorStop(0.4, '#a0c4ff');
-        gradText.addColorStop(0.7, '#ffffff');
-        gradText.addColorStop(1, '#a0c4ff');
-        ctx.fillStyle = gradText;
-        ctx.font = `bold ${32*s}px 'Montserrat', sans-serif`;
+        // НАДПИСЬ R-GAME (R белая, Game синяя)
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = 'rgba(255,255,255,0.3)';
+        ctx.font = `bold ${24*s}px 'Montserrat', sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('R-GAME', 0, -h/3 + 14*s);
 
-        // Тень надписи для читаемости
+        // "R"
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText('R', -10*s, -h/3 + 12*s);
+        // "GAME" синяя
+        ctx.fillStyle = '#4a9ad0';
+        ctx.fillText('GAME', 10*s + 4*s, -h/3 + 12*s);
+
+        // Тень надписи
         ctx.shadowBlur = 0;
-        ctx.fillStyle = 'rgba(0,0,0,0.4)';
-        ctx.fillText('R-GAME', 0, -h/3 + 16*s);
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.fillText('R', -10*s, -h/3 + 14*s);
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.fillText('GAME', 10*s + 4*s, -h/3 + 14*s);
 
         // Сопло (двигатель)
-        ctx.shadowBlur = 25;
-        ctx.shadowColor = 'rgba(24,130,255,0.5)';
-        const gradNozzle = ctx.createLinearGradient(0, h/3, 0, h/2 + 10*s);
-        gradNozzle.addColorStop(0, '#3a5a7a');
-        gradNozzle.addColorStop(0.4, '#1a2a3a');
-        gradNozzle.addColorStop(1, '#0a1520');
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = 'rgba(24,130,255,0.4)';
+        const gradNozzle = ctx.createLinearGradient(0, h/3, 0, h/2 + 8*s);
+        gradNozzle.addColorStop(0, '#3a6a8a');
+        gradNozzle.addColorStop(0.5, '#1a3a5a');
+        gradNozzle.addColorStop(1, '#0a1a2a');
         ctx.fillStyle = gradNozzle;
         ctx.beginPath();
-        ctx.moveTo(-w/6, h/3);
-        ctx.quadraticCurveTo(-w/4, h/2 - 6*s, 0, h/2 + 6*s);
-        ctx.quadraticCurveTo(w/4, h/2 - 6*s, w/6, h/3);
+        ctx.moveTo(-w/7, h/3);
+        ctx.quadraticCurveTo(-w/5, h/2 - 4*s, 0, h/2 + 4*s);
+        ctx.quadraticCurveTo(w/5, h/2 - 4*s, w/7, h/3);
         ctx.closePath();
         ctx.fill();
 
-        // Декоративные линии корпуса
+        // Декоративные линии
         ctx.shadowBlur = 0;
-        ctx.strokeStyle = 'rgba(154, 200, 240, 0.25)';
+        ctx.strokeStyle = 'rgba(100,200,255,0.2)';
         ctx.lineWidth = 1.5;
-        for (let i = -3; i <= 3; i++) {
+        for (let i = -2; i <= 2; i++) {
             if (i === 0) continue;
             ctx.beginPath();
-            ctx.moveTo(i * w/8, -h/4);
-            ctx.lineTo(i * w/8, h/4);
+            ctx.moveTo(i * w/7, -h/4);
+            ctx.lineTo(i * w/7, h/4);
             ctx.stroke();
         }
 
-        // Заклёпки (серебристые точки)
-        ctx.fillStyle = 'rgba(200, 220, 255, 0.6)';
-        for (let i = -2; i <= 2; i+=1) {
+        // Заклёпки
+        ctx.fillStyle = 'rgba(200,220,255,0.4)';
+        for (let i = -1; i <= 1; i+=1) {
             for (let j = -1; j <= 1; j+=1) {
                 if (i === 0 && j === 0) continue;
-                ctx.shadowBlur = 8;
-                ctx.shadowColor = 'rgba(200,220,255,0.3)';
+                ctx.shadowBlur = 4;
+                ctx.shadowColor = 'rgba(200,220,255,0.2)';
                 ctx.beginPath();
-                ctx.arc(i * w/6, j * h/6, 2.5*s, 0, Math.PI*2);
+                ctx.arc(i * w/5, j * h/5, 2*s, 0, Math.PI*2);
                 ctx.fill();
             }
         }
@@ -912,7 +1027,6 @@
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, 800, 400);
 
-        // Линии координатной сетки
         ctx.strokeStyle = 'rgba(255,255,255,0.03)';
         ctx.lineWidth = 1;
         for(let i=0; i<800; i+=80) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,400); ctx.stroke(); }
@@ -981,47 +1095,44 @@
             const shakeX = rocketShakeX || 0;
             const shakeY = rocketShakeY || 0;
 
-            // Огонь (рисуем перед ракетой)
+            // Огонь
             if (gameState === 'FLYING') {
                 ctx.save();
                 ctx.translate(cx + shakeX, cy + bobY + shakeY);
                 ctx.rotate(tilt);
 
-                // Внешнее пламя (оранжево-красное)
                 ctx.shadowBlur = 50;
                 ctx.shadowColor = 'var(--accent-orange)';
                 const flameLen = 55 + Math.random() * 35 + currentMulti * 14;
-                const gradFire = ctx.createRadialGradient(0, 58, 10, 0, 58 + flameLen, flameLen);
+                const gradFire = ctx.createRadialGradient(0, 50, 10, 0, 50 + flameLen, flameLen);
                 gradFire.addColorStop(0, '#ffaa00');
                 gradFire.addColorStop(0.3, '#ff6a00');
                 gradFire.addColorStop(0.6, '#ff2a00');
                 gradFire.addColorStop(1, 'rgba(255,0,0,0)');
                 ctx.fillStyle = gradFire;
                 ctx.beginPath();
-                ctx.moveTo(-20, 55);
-                ctx.quadraticCurveTo(-35, 55 + flameLen * 0.6, 0, 55 + flameLen);
-                ctx.quadraticCurveTo(35, 55 + flameLen * 0.6, 20, 55);
+                ctx.moveTo(-18, 48);
+                ctx.quadraticCurveTo(-30, 48 + flameLen * 0.6, 0, 48 + flameLen);
+                ctx.quadraticCurveTo(30, 48 + flameLen * 0.6, 18, 48);
                 ctx.fill();
 
-                // Внутреннее пламя (ярко-жёлтое)
                 const innerLen = flameLen * 0.6 + Math.random() * 14;
                 ctx.shadowBlur = 40;
                 ctx.shadowColor = '#ffeb3b';
                 ctx.fillStyle = 'rgba(255, 235, 59, 0.75)';
                 ctx.beginPath();
-                ctx.moveTo(-14, 55);
-                ctx.quadraticCurveTo(-22, 55 + innerLen * 0.5, 0, 55 + innerLen);
-                ctx.quadraticCurveTo(22, 55 + innerLen * 0.5, 14, 55);
+                ctx.moveTo(-12, 48);
+                ctx.quadraticCurveTo(-18, 48 + innerLen * 0.5, 0, 48 + innerLen);
+                ctx.quadraticCurveTo(18, 48 + innerLen * 0.5, 12, 48);
                 ctx.fill();
 
-                // Искры от огня
                 if (Math.random() < 0.45) {
                     for (let i=0; i<5; i++) {
                         let angle = -Math.PI/2 + (Math.random()-0.5)*1.4;
                         let speed = 3 + Math.random() * 10;
                         particles.push({
                             x: cx + shakeX + (Math.random()-0.5)*16,
-                            y: cy + bobY + shakeY + 55,
+                            y: cy + bobY + shakeY + 50,
                             vx: Math.cos(angle) * speed,
                             vy: Math.sin(angle) * speed - 4,
                             life: 1.0,
@@ -1034,8 +1145,8 @@
                 ctx.restore();
             }
 
-            // Рисуем саму ракету с масштабом 1.6
-            drawRocket(ctx, cx + shakeX, cy + bobY + shakeY, tilt, 1.6);
+            // Рисуем ракету с масштабом 1.3
+            drawRocket(ctx, cx + shakeX, cy + bobY + shakeY, tilt, 1.3);
         }
 
         // Взрывная вспышка
