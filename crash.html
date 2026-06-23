@@ -440,54 +440,16 @@
         return parseInt(betInput.dataset.value) || 100;
     }
 
-    // === БАЛАНС (синхронизация с ботом) ===
-    let casinoBalance = 0;
-
-    function updateBalanceDisplay(newBalance) {
-        casinoBalance = newBalance;
+    // === БАЛАНС ===
+    let casinoBalance = parseInt(localStorage.getItem('casinoBalance'));
+    if (isNaN(casinoBalance) || casinoBalance < 10) casinoBalance = 10000;
+    
+    function updateBalance(amount) {
+        casinoBalance += amount;
         localStorage.setItem('casinoBalance', String(casinoBalance));
         balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
     }
-
-    function requestBalance() {
-        tg.sendData(JSON.stringify({ action: 'get_balance' }));
-    }
-
-    // === ОБРАБОТЧИК ОТВЕТОВ ОТ БОТА ===
-    tg.onEvent('web_app_data', function(data) {
-        try {
-            const response = JSON.parse(data);
-            console.log('📩 Ответ от бота:', response);
-
-            if (response.error) {
-                console.error('Ошибка от бота:', response.error);
-                return;
-            }
-
-            // Обновление баланса
-            if (response.balance !== undefined) {
-                updateBalanceDisplay(response.balance);
-                return;
-            }
-
-            // Результат ставки (краш)
-            if (response.action === 'crash_result' || response.action === 'crash_cashout') {
-                if (response.new_balance !== undefined) {
-                    updateBalanceDisplay(response.new_balance);
-                }
-                if (response.message) {
-                    statusMsg.innerText = response.message;
-                }
-                // Перезапрос баланса для синхронизации
-                setTimeout(requestBalance, 100);
-                return;
-            }
-
-            // Профиль и другие – игнорируем
-        } catch (e) {
-            console.error('❌ Ошибка обработки ответа:', e);
-        }
-    });
+    updateBalance(0);
 
     // === ИСТОРИЯ ===
     let history = JSON.parse(localStorage.getItem('crash_history')) || [1.2, 4.5, 1.05, 2.3, 15.0];
@@ -708,20 +670,13 @@
     actionBtn.onclick = () => {
         if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
         if (userBetActive && gameState === 'FLYING') {
-            // Отправляем запрос на вывод
-            tg.sendData(JSON.stringify({ 
-                action: 'crash_cashout', 
-                multiplier: currentMulti 
-            }));
-            // Ждём ответа от бота (обработчик обновит баланс)
+            cashoutUser();
             return;
         }
         if (userBetQueued && gameState === 'WAITING') {
-            // Отмена ставки – возврат через бота?
-            // Просто снимаем локально и запрашиваем баланс
+            // Отмена
             userBetQueued = false;
-            updateBalance(casinoBalance + userBetAmount); // локальный возврат (потом синхронизируем)
-            requestBalance();
+            updateBalance(userBetAmount);
             updateControls();
             renderBetsTable();
             return;
@@ -735,14 +690,7 @@
             userAutoCashout = parseFloat(autoInput.value) || 2.0;
             autoEnabled = autoEnableCheck.checked;
             userBetQueued = true;
-            // Отправляем запрос на ставку
-            tg.sendData(JSON.stringify({ 
-                action: 'crash_bet', 
-                amount: amt 
-            }));
-            // Ждём ответа от бота для обновления баланса
-            // Локально показываем уменьшение
-            updateBalance(casinoBalance - amt);
+            updateBalance(-userBetAmount);
             updateControls();
             renderBetsTable();
         }
@@ -752,12 +700,7 @@
         if (!userBetActive) return;
         userBetActive = false;
         let winAmount = Math.floor(userBetAmount * currentMulti);
-        // Отправляем запрос на вывод (вместо прямого обновления)
-        tg.sendData(JSON.stringify({ 
-            action: 'crash_cashout', 
-            multiplier: currentMulti 
-        }));
-        // Ждём ответа от бота
+        updateBalance(winAmount);
         if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
         updateControls();
         renderBetsTable();
@@ -795,8 +738,6 @@
         explosionAlpha = 0;
         particles = [];
         if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
-        // Запрашиваем баланс при старте нового раунда
-        requestBalance();
     }
 
     function startFlight() {
@@ -819,12 +760,6 @@
         statusMsg.style.color = 'var(--accent-red)';
         if (userBetActive) {
             userBetActive = false;
-            // Отправляем результат проигрыша
-            tg.sendData(JSON.stringify({ 
-                action: 'crash_result', 
-                win: false, 
-                bet: userBetAmount 
-            }));
             if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
         }
         bots.forEach(b => { if (!b.cashed) b.crashed = true; });
@@ -1299,10 +1234,7 @@
     document.addEventListener('click', tryAutoPlay);
     document.addEventListener('touchstart', tryAutoPlay);
 
-    // Запрос баланса при запуске
-    requestBalance();
-
-    // Запуск игрового цикла
+    // Запуск
     setWaitingPhase();
     requestAnimationFrame(gameLoop);
 })();
