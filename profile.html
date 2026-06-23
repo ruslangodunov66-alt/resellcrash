@@ -75,30 +75,83 @@
             flex: 1;
         }
 
-        .avatar-section {
-            text-align: center;
+        .profile-edit {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
             margin-bottom: 24px;
         }
-        .avatar {
-            width: 80px;
-            height: 80px;
+
+        .avatar-wrapper {
+            position: relative;
+            width: 100px;
+            height: 100px;
             border-radius: 50%;
+            overflow: hidden;
             background: linear-gradient(135deg, var(--accent-blue), #0056b3);
-            display: inline-flex;
+            border: 3px solid rgba(255,255,255,0.2);
+            box-shadow: 0 8px 30px rgba(24,130,255,0.4);
+            cursor: pointer;
+        }
+        .avatar-wrapper img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .avatar-wrapper .default-avatar {
+            width: 100%;
+            height: 100%;
+            display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 40px;
+            font-size: 48px;
             font-weight: 800;
             color: #fff;
-            box-shadow: 0 8px 30px rgba(24,130,255,0.4);
-            border: 3px solid rgba(255,255,255,0.2);
         }
-        .nickname {
-            font-family: 'Montserrat', sans-serif;
-            font-size: 24px;
-            font-weight: 800;
-            margin-top: 8px;
+        .avatar-wrapper input[type="file"] {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .nickname-edit {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .nickname-edit input {
+            background: var(--panel-bg);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 10px 16px;
             color: #fff;
+            font-size: 18px;
+            font-weight: 700;
+            width: 200px;
+            text-align: center;
+            font-family: 'Montserrat', sans-serif;
+        }
+        .nickname-edit input:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+        .nickname-edit button {
+            background: var(--accent-blue);
+            border: none;
+            border-radius: 12px;
+            padding: 10px 18px;
+            color: #fff;
+            font-weight: 800;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 4px 12px rgba(24,130,255,0.3);
+        }
+        .nickname-edit button:active {
+            transform: scale(0.95);
         }
 
         .stats-grid {
@@ -221,14 +274,14 @@
         @media (max-width: 480px) {
             .stat-value { font-size: 18px; }
             .balance-card .amount { font-size: 16px; }
-            .avatar { width: 60px; height: 60px; font-size: 30px; }
-            .nickname { font-size: 20px; }
+            .avatar-wrapper { width: 80px; height: 80px; }
+            .nickname-edit input { width: 150px; font-size: 16px; }
         }
     </style>
 </head>
 <body>
     <div class="profile-container" id="profileContainer">
-        <div class="loading">⏳ Загрузка профиля...</div>
+        <div class="loading">⏳ Загрузка...</div>
     </div>
 
     <script>
@@ -237,29 +290,46 @@
         tg.ready();
         if (tg.HapticFeedback) tg.enableClosingConfirmation();
 
-        let userId = null;
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.has('userId')) userId = urlParams.get('userId');
-        else if (tg.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
-
         const container = document.getElementById('profileContainer');
 
-        function renderProfile(data) {
-            const {
-                nickname = 'Игрок',
-                balance = 0,
-                casino_balance = 0,
-                total_earned = 0,
-                games_played = 0,
-                wins = 0,
-                losses = 0,
-                total_bet = 0,
-                total_win = 0,
-                net_profit = 0,
-                winrate = 0
-            } = data;
+        // ===== РАБОТА С LOCALSTORAGE =====
+        function getProfile() {
+            return {
+                nickname: localStorage.getItem('profile_nickname') || 'Игрок',
+                avatar: localStorage.getItem('profile_avatar') || null,
+                games_played: parseInt(localStorage.getItem('profile_games_played')) || 0,
+                wins: parseInt(localStorage.getItem('profile_wins')) || 0,
+                losses: parseInt(localStorage.getItem('profile_losses')) || 0,
+                total_bet: parseInt(localStorage.getItem('profile_total_bet')) || 0,
+                total_win: parseInt(localStorage.getItem('profile_total_win')) || 0,
+            };
+        }
 
-            const initial = nickname.charAt(0).toUpperCase();
+        function saveProfile(data) {
+            if (data.nickname) localStorage.setItem('profile_nickname', data.nickname);
+            if (data.avatar !== undefined) localStorage.setItem('profile_avatar', data.avatar);
+            if (data.games_played !== undefined) localStorage.setItem('profile_games_played', String(data.games_played));
+            if (data.wins !== undefined) localStorage.setItem('profile_wins', String(data.wins));
+            if (data.losses !== undefined) localStorage.setItem('profile_losses', String(data.losses));
+            if (data.total_bet !== undefined) localStorage.setItem('profile_total_bet', String(data.total_bet));
+            if (data.total_win !== undefined) localStorage.setItem('profile_total_win', String(data.total_win));
+        }
+
+        // ===== ОТРИСОВКА =====
+        function renderProfile() {
+            const profile = getProfile();
+            const casinoBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+            const mainBalance = parseInt(localStorage.getItem('mainBalance')) || 0; // если храните отдельно
+
+            const games = profile.games_played;
+            const wins = profile.wins;
+            const losses = profile.losses;
+            const total_bet = profile.total_bet;
+            const total_win = profile.total_win;
+            const net_profit = total_win - total_bet;
+            const winrate = games > 0 ? Math.round((wins / games) * 100) : 0;
+
+            const initial = profile.nickname.charAt(0).toUpperCase();
 
             container.innerHTML = `
                 <div class="header">
@@ -267,26 +337,33 @@
                     <div class="brand">R-<span style="color:#1882ff;">GAME</span></div>
                 </div>
 
-                <div class="avatar-section">
-                    <div class="avatar">${initial}</div>
-                    <div class="nickname">${nickname}</div>
+                <div class="profile-edit">
+                    <div class="avatar-wrapper" id="avatarWrapper">
+                        ${profile.avatar ? `<img src="${profile.avatar}" alt="avatar">` : `<div class="default-avatar">${initial}</div>`}
+                        <input type="file" id="avatarInput" accept="image/*">
+                    </div>
+
+                    <div class="nickname-edit">
+                        <input type="text" id="nicknameInput" value="${profile.nickname}" maxlength="20">
+                        <button id="saveNicknameBtn">Сохранить</button>
+                    </div>
                 </div>
 
                 <div class="balance-row">
                     <div class="balance-card">
                         <div class="label">Основной баланс</div>
-                        <div class="amount main">${balance.toLocaleString()} ₽</div>
+                        <div class="amount main">${mainBalance.toLocaleString()} ₽</div>
                     </div>
                     <div class="balance-card">
                         <div class="label">Баланс казино</div>
-                        <div class="amount casino">${casino_balance.toLocaleString()} ₽</div>
+                        <div class="amount casino">${casinoBalance.toLocaleString()} ₽</div>
                     </div>
                 </div>
 
                 <div class="stats-grid">
                     <div class="stat-card">
                         <div class="stat-label">Всего игр</div>
-                        <div class="stat-value white">${games_played}</div>
+                        <div class="stat-value white">${games}</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-label">Победы</div>
@@ -319,29 +396,40 @@
 
                 <button class="btn-menu" onclick="goBack()">🔙 В КАЗИНО</button>
             `;
+
+            // ===== ОБРАБОТЧИКИ =====
+            // Смена аватара
+            document.getElementById('avatarInput').addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = function(ev) {
+                    const base64 = ev.target.result;
+                    saveProfile({ avatar: base64 });
+                    renderProfile(); // перерисовка
+                };
+                reader.readAsDataURL(file);
+            });
+
+            // Смена никнейма
+            document.getElementById('saveNicknameBtn').addEventListener('click', function() {
+                const input = document.getElementById('nicknameInput');
+                const newNick = input.value.trim().slice(0, 20);
+                if (newNick.length < 2) {
+                    alert('Минимум 2 символа');
+                    return;
+                }
+                saveProfile({ nickname: newNick });
+                renderProfile();
+            });
         }
 
         function goBack() {
-            window.location.href = 'casino.html?userId=' + (userId || '');
+            window.location.href = 'casino.html?userId=' + (new URLSearchParams(window.location.search).get('userId') || '');
         }
 
-        // === Запрос профиля через fetch (HTTP) ===
-        if (userId) {
-            // Определяем базовый URL для API (замените на ваш домен или используйте относительный)
-            const apiBase = window.location.origin; // или укажите полный URL, если сервер на другом порту
-            fetch(`${apiBase}/profile/${userId}`)
-                .then(res => {
-                    if (!res.ok) throw new Error('Ошибка загрузки профиля');
-                    return res.json();
-                })
-                .then(data => renderProfile(data))
-                .catch(err => {
-                    console.error(err);
-                    container.innerHTML = `<div class="loading">❌ Ошибка загрузки профиля</div>`;
-                });
-        } else {
-            container.innerHTML = '<div class="loading">❌ Ошибка: userId не найден</div>';
-        }
+        // ===== ИНИЦИАЛИЗАЦИЯ =====
+        renderProfile();
     </script>
 </body>
 </html>
