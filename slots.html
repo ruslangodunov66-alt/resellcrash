@@ -413,6 +413,31 @@
     if (urlParams.has('userId')) userId = urlParams.get('userId');
     else if (tg.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
 
+    // ===== ФУНКЦИЯ ОБНОВЛЕНИЯ СТАТИСТИКИ ПРОФИЛЯ =====
+    function updateProfileStats(result, bet, win) {
+        let games = parseInt(localStorage.getItem('profile_games_played')) || 0;
+        let wins = parseInt(localStorage.getItem('profile_wins')) || 0;
+        let losses = parseInt(localStorage.getItem('profile_losses')) || 0;
+        let total_bet = parseInt(localStorage.getItem('profile_total_bet')) || 0;
+        let total_win = parseInt(localStorage.getItem('profile_total_win')) || 0;
+
+        games += 1;
+        total_bet += bet;
+
+        if (result === 'win') {
+            wins += 1;
+            total_win += win;
+        } else if (result === 'lose') {
+            losses += 1;
+        }
+
+        localStorage.setItem('profile_games_played', String(games));
+        localStorage.setItem('profile_wins', String(wins));
+        localStorage.setItem('profile_losses', String(losses));
+        localStorage.setItem('profile_total_bet', String(total_bet));
+        localStorage.setItem('profile_total_win', String(total_win));
+    }
+
     const betInput = document.getElementById('betInput');
     const spinBtn = document.getElementById('spinBtn');
     const menuBtn = document.getElementById('menuBtn');
@@ -546,10 +571,6 @@
             spinReel(2, 2000)
         ]);
 
-        await checkWin(results, bet);
-    }
-
-    async function checkWin(results, bet) {
         let winAmount = 0;
         const [s1, s2, s3] = results;
 
@@ -565,14 +586,16 @@
             else if (s1 === s3) { reels[0].container.classList.add('winner'); reels[2].container.classList.add('winner'); }
         }
 
+        // ===== ОБНОВЛЕНИЕ СТАТИСТИКИ =====
         if (winAmount > 0) {
-            updateBalanceDisplay(casinoBalance + winAmount);
+            updateProfileStats('win', bet, winAmount);
             statusMsg.style.display = 'none';
             winAmountDisplay.style.display = 'block';
             winAmountDisplay.innerText = `+${winAmount}₽`;
             soundWinBig();
             vibrate('success');
         } else {
+            updateProfileStats('lose', bet, 0);
             statusMsg.innerText = 'ПРОИГРЫШ';
             statusMsg.style.color = 'var(--accent-red)';
             soundLose();
