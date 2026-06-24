@@ -37,6 +37,7 @@
         .header {
             display: flex; justify-content: space-between; align-items: center;
             background: rgba(17, 24, 34, 0.65); backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
             border-radius: 24px; padding: 12px 16px; margin-bottom: 20px;
             border: 1px solid rgba(255, 255, 255, 0.08);
             box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
@@ -58,6 +59,7 @@
 
         .info-card {
             background: var(--panel-bg); backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
             border-radius: 20px; padding: 24px 20px; margin-bottom: 20px;
             border: 1px solid rgba(255, 255, 255, 0.05);
             box-shadow: 0 8px 24px rgba(0,0,0,0.4);
@@ -102,6 +104,7 @@
             font-family: 'Montserrat', sans-serif; font-weight: 700; font-size: 13px; text-transform: uppercase;
             color: var(--text-main); cursor: pointer; transition: all 0.2s;
             background: rgba(26, 35, 50, 0.8); backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
         }
         .btn-secondary:active { transform: scale(0.97); background: rgba(255,255,255,0.05); }
         .btn-secondary:disabled { opacity: 0.5; transform: none; }
@@ -117,15 +120,18 @@
             font-size: 14px;
             line-height: 1.6;
             color: var(--text-muted);
-            display: none;
+            display: block;
         }
-        .result-box.active { display: block; }
         .result-box .link { color: var(--accent-blue); word-break: break-all; }
         .result-box .user-item { padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.03); }
         .result-box .income-line { font-weight: 700; color: var(--accent-green); }
+        .result-box .success { color: var(--accent-green); }
+        .result-box .error { color: var(--accent-red); }
 
-        .back-btn { cursor: pointer; }
-        .back-btn:active { transform: scale(0.95); }
+        @media (max-width: 480px) {
+            .brand { font-size: 18px; }
+            .info-title { font-size: 20px; }
+        }
     </style>
 </head>
 <body>
@@ -153,7 +159,9 @@
             <button class="btn-secondary" id="viewIncomeBtn">💰 ВЕСЬ ДОХОД</button>
         </div>
 
-        <div id="resultBox" class="result-box"></div>
+        <div id="resultBox" class="result-box">
+            Выберите действие – ответ придёт в чат с ботом.
+        </div>
     </div>
 
     <script>
@@ -164,17 +172,11 @@
         const urlParams = new URLSearchParams(window.location.search);
         const userId = urlParams.get('userId') || tg.initDataUnsafe?.user?.id || '';
 
-        // Укажите здесь полный URL вашего бота-сервера (без завершающего слеша)
-        const API_BASE = 'https://ваш-сервер-или-ip:8080'; // ЗАМЕНИТЕ НА РЕАЛЬНЫЙ АДРЕС
-
         const resultBox = document.getElementById('resultBox');
-        const generateBtn = document.getElementById('generateLinkBtn');
-        const usersBtn = document.getElementById('viewUsersBtn');
-        const incomeBtn = document.getElementById('viewIncomeBtn');
 
-        function showResult(html) {
-            resultBox.innerHTML = html;
-            resultBox.classList.add('active');
+        function showMessage(text, type = 'info') {
+            const className = type === 'success' ? 'success' : (type === 'error' ? 'error' : '');
+            resultBox.innerHTML = `<div class="${className}">${text}</div>`;
         }
 
         // Кнопка НАЗАД
@@ -184,80 +186,27 @@
         });
 
         // Генерация ссылки
-        generateBtn.addEventListener('click', async () => {
+        document.getElementById('generateLinkBtn').addEventListener('click', () => {
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
-            generateBtn.disabled = true;
-            generateBtn.textContent = '⏳ ГЕНЕРАЦИЯ...';
-            try {
-                const resp = await fetch(`${API_BASE}/referral/generate?tg_id=${userId}`);
-                const data = await resp.json();
-                if (data.error) {
-                    showResult(`<div style="color:var(--accent-red)">❌ Ошибка: ${data.error}</div>`);
-                } else {
-                    showResult(`<div>✅ Ваша реферальная ссылка:</div>
-                                <div class="link">${data.link}</div>
-                                <div style="margin-top:12px; font-size:12px; color:var(--text-muted);">Отправьте её друзьям и получайте вознаграждения!</div>`);
-                }
-            } catch (e) {
-                showResult(`<div style="color:var(--accent-red)">❌ Ошибка сети: ${e.message}</div>`);
-            }
-            generateBtn.disabled = false;
-            generateBtn.innerHTML = '🔗 СГЕНЕРИРОВАТЬ ССЫЛКУ';
+            tg.sendData(JSON.stringify({ action: 'generate_referral_link' }));
+            showMessage('✅ Запрос отправлен! Ссылка придёт в чат.', 'success');
+            tg.close(); // WebApp закроется
         });
 
-        // Список приглашённых
-        usersBtn.addEventListener('click', async () => {
+        // Показать приглашённых
+        document.getElementById('viewUsersBtn').addEventListener('click', () => {
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
-            usersBtn.disabled = true;
-            usersBtn.textContent = '⏳ ЗАГРУЗКА...';
-            try {
-                const resp = await fetch(`${API_BASE}/referral/users?tg_id=${userId}`);
-                const data = await resp.json();
-                if (data.error) {
-                    showResult(`<div style="color:var(--accent-red)">❌ Ошибка: ${data.error}</div>`);
-                } else {
-                    let html = `<div style="font-weight:700; margin-bottom:8px;">👥 Приглашённые (${data.users.length} чел.)</div>`;
-                    if (data.users.length === 0) {
-                        html += `<div style="color:var(--text-muted);">Пока никого нет. Приглашайте друзей!</div>`;
-                    } else {
-                        data.users.forEach(u => {
-                            html += `<div class="user-item">${u.nickname} (ID: ${u.id})</div>`;
-                        });
-                    }
-                    showResult(html);
-                }
-            } catch (e) {
-                showResult(`<div style="color:var(--accent-red)">❌ Ошибка сети: ${e.message}</div>`);
-            }
-            usersBtn.disabled = false;
-            usersBtn.innerHTML = '👥 ПОСМОТРЕТЬ ПРИГЛАШЕННЫХ';
+            tg.sendData(JSON.stringify({ action: 'view_referral_users' }));
+            showMessage('✅ Запрос отправлен! Список приглашённых придёт в чат.', 'success');
+            tg.close();
         });
 
-        // Доход
-        incomeBtn.addEventListener('click', async () => {
+        // Показать доход
+        document.getElementById('viewIncomeBtn').addEventListener('click', () => {
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
-            incomeBtn.disabled = true;
-            incomeBtn.textContent = '⏳ ЗАГРУЗКА...';
-            try {
-                const resp = await fetch(`${API_BASE}/referral/income?tg_id=${userId}`);
-                const data = await resp.json();
-                if (data.error) {
-                    showResult(`<div style="color:var(--accent-red)">❌ Ошибка: ${data.error}</div>`);
-                } else {
-                    showResult(`
-                        <div><span class="income-line">💰 Общий доход: ${data.total.toLocaleString()} ₽</span></div>
-                        <div style="margin-top:8px;">
-                            <div>👥 Приглашено: ${data.count} чел.</div>
-                            <div>🧾 По 20 000₽ за каждого: ${data.income.toLocaleString()} ₽</div>
-                            <div>🎁 Бонус за каждые 15 чел: ${data.bonus.toLocaleString()} ₽</div>
-                        </div>
-                    `);
-                }
-            } catch (e) {
-                showResult(`<div style="color:var(--accent-red)">❌ Ошибка сети: ${e.message}</div>`);
-            }
-            incomeBtn.disabled = false;
-            incomeBtn.innerHTML = '💰 ВЕСЬ ДОХОД';
+            tg.sendData(JSON.stringify({ action: 'view_referral_income' }));
+            showMessage('✅ Запрос отправлен! Информация о доходе придёт в чат.', 'success');
+            tg.close();
         });
     </script>
 </body>
