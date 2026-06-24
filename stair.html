@@ -28,22 +28,23 @@
             -webkit-tap-highlight-color: transparent;
         }
 
+        /* ИСПРАВЛЕНИЕ ПРОКРУТКИ: overflow-y: auto позволяет листать страницу */
         body {
             background: var(--bg-dark);
             font-family: 'Nunito', sans-serif;
             min-height: 100vh;
             display: flex;
             justify-content: center;
-            align-items: center;
-            padding: 12px;
+            align-items: flex-start; /* Изменено для скролла */
+            padding: 20px 12px 60px 12px;
             color: var(--text-main);
-            overflow: hidden;
+            overflow-x: hidden;
+            overflow-y: auto; 
             position: relative;
         }
 
-        /* Canvas для 1000+ деталей (частиц) */
         #particles-canvas {
-            position: absolute;
+            position: fixed;
             top: 0; left: 0;
             width: 100%; height: 100%;
             z-index: 0;
@@ -67,9 +68,7 @@
             gap: 16px;
         }
 
-        .header {
-            display: flex; justify-content: space-between; align-items: center;
-        }
+        .header { display: flex; justify-content: space-between; align-items: center; }
 
         .brand {
             font-family: 'Montserrat', sans-serif;
@@ -96,32 +95,42 @@
             padding: 16px; text-align: center; border: 1px solid rgba(255,255,255,0.05);
             box-shadow: inset 0 2px 10px rgba(0,0,0,0.3);
             position: relative; overflow: hidden; transition: all 0.3s ease;
+            display: flex; justify-content: space-between; align-items: center;
         }
 
         .multiplier-panel::before {
             content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
             background: linear-gradient(90deg, transparent, var(--accent-blue), transparent);
-            opacity: 0.8;
         }
 
+        .stage-indicator {
+            font-size: 14px; font-weight: 800; color: var(--accent-blue);
+            text-transform: uppercase; letter-spacing: 1px;
+            background: rgba(24, 130, 255, 0.1); padding: 6px 12px; border-radius: 10px;
+            border: 1px solid rgba(24, 130, 255, 0.2);
+        }
+
+        .mult-wrapper { text-align: right; }
+
         .multiplier {
-            font-size: 44px; font-weight: 800; color: #fff;
+            font-size: 36px; font-weight: 800; color: #fff;
             text-shadow: 0 0 20px rgba(24, 130, 255, 0.4);
             font-family: 'Montserrat', sans-serif; line-height: 1;
         }
 
-        .current-win { color: var(--text-muted); font-size: 15px; font-weight: 700; margin-top: 8px; }
-        .current-win span { color: var(--accent-green); font-size: 18px; }
+        .current-win { color: var(--text-muted); font-size: 14px; font-weight: 700; margin-top: 4px; }
+        .current-win span { color: var(--accent-green); font-size: 16px; }
 
         .stairs-board {
             display: flex; flex-direction: column-reverse;
             gap: 8px; padding: 16px 10px; background: rgba(0, 0, 0, 0.4);
             border-radius: 20px; border: 1px solid rgba(255,255,255,0.03);
             perspective: 1000px; position: relative; overflow: hidden;
+            min-height: 400px; /* Фиксируем высоту, чтобы не прыгало */
         }
 
         .stair-row {
-            display: flex; justify-content: center; gap: 8px;
+            display: flex; justify-content: center; gap: 6px;
             opacity: 0.4; transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
             transform-style: preserve-3d;
         }
@@ -134,20 +143,12 @@
 
         .stair-row.passed { opacity: 0.8; transform: translateZ(-10px); }
 
-        .stair-row:nth-child(8) { padding: 0 45px; }
-        .stair-row:nth-child(7) { padding: 0 40px; }
-        .stair-row:nth-child(6) { padding: 0 35px; }
-        .stair-row:nth-child(5) { padding: 0 30px; }
-        .stair-row:nth-child(4) { padding: 0 25px; }
-        .stair-row:nth-child(3) { padding: 0 20px; }
-        .stair-row:nth-child(2) { padding: 0 10px; }
-        .stair-row:nth-child(1) { padding: 0 5px; }
-
         .cell {
-            flex: 1; aspect-ratio: 1.5 / 1;
-            background: var(--cell-bg); border-radius: 12px;
+            flex: 1; aspect-ratio: 1.3 / 1;
+            max-width: 60px; /* Чтобы широкие ряды не были огромными */
+            background: var(--cell-bg); border-radius: 10px;
             display: flex; align-items: center; justify-content: center;
-            font-size: 26px; cursor: pointer; transition: all 0.3s ease;
+            font-size: 24px; cursor: pointer; transition: all 0.3s ease;
             box-shadow: 0 6px 0 var(--cell-shadow), 0 10px 15px rgba(0,0,0,0.5);
             position: relative; overflow: visible; border: 1px solid rgba(255,255,255,0.05);
         }
@@ -160,18 +161,19 @@
         }
 
         .stair-row.active .cell:active { transform: translateY(6px); box-shadow: 0 0 0 var(--cell-shadow); }
-
         .cell.opened { box-shadow: 0 0 0 transparent; transform: translateY(6px); cursor: default; }
         
         .cell.safe { background: rgba(27, 209, 93, 0.2); border: 1px solid var(--accent-green); }
         .cell.mine { background: rgba(240, 48, 67, 0.2); border: 1px solid var(--accent-red); }
 
-        /* Анимации персонажа и предметов */
+        /* АНИМАЦИИ */
         .emoji { filter: drop-shadow(0 4px 6px rgba(0,0,0,0.6)); display: inline-block; position: relative; z-index: 5;}
         
-        @keyframes playerRun {
-            0% { transform: translateX(-50px) scale(0.5); opacity: 0; }
-            100% { transform: translateX(0) scale(1); opacity: 1; }
+        @keyframes playerRunFast {
+            0% { transform: translateX(-200px) scale(1); opacity: 0; }
+            20% { opacity: 1; }
+            80% { opacity: 1; }
+            100% { transform: translateX(200px) scale(1); opacity: 0; }
         }
         @keyframes ladderAppear {
             0% { transform: translateY(20px) scaleY(0); opacity: 0; }
@@ -186,11 +188,20 @@
             100% { transform: translateY(0) scale(1.2) rotate(10deg); opacity: 1; }
         }
 
-        .player-anim { animation: climbUp 0.4s ease forwards; filter: drop-shadow(0 4px 10px rgba(0,0,0,0.8)); }
-        .ladder-anim { position: absolute; bottom: -15px; font-size: 32px; animation: ladderAppear 0.3s ease forwards; z-index: 4; }
+        .player-anim { animation: climbUp 0.3s ease forwards; filter: drop-shadow(0 4px 10px rgba(0,0,0,0.8)); }
+        .ladder-anim { position: absolute; bottom: -15px; font-size: 28px; animation: ladderAppear 0.2s ease forwards; z-index: 4; }
         .rock-anim { animation: rockFall 0.4s cubic-bezier(0.55, 0.085, 0.68, 0.53) forwards; z-index: 6; font-size: 32px;}
+        
+        /* Анимация перехода между стадиями */
+        #stage-transition {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            font-size: 60px; z-index: 100; pointer-events: none; opacity: 0;
+        }
+        .running-transition {
+            animation: playerRunFast 1.5s linear forwards;
+        }
 
-        /* Кинематографичный падающий камень при победе */
+        /* Кинематографичный камень победы */
         #cinematic-rock {
             position: fixed; top: -300px; left: 50%;
             transform: translateX(-50%); font-size: 200px;
@@ -206,7 +217,6 @@
             100% { top: 120vh; transform: translateX(-50%) rotate(200deg) scale(1.5); opacity: 0; }
         }
 
-        /* Управление ставкой и панель сложностей */
         .mines-select { display: flex; justify-content: space-between; background: var(--panel-bg); border-radius: 14px; padding: 6px; }
         .mine-btn { flex: 1; text-align: center; padding: 12px 0; border-radius: 10px; font-weight: 800; font-size: 14px; color: var(--text-muted); cursor: pointer; transition: all 0.2s; }
         .mine-btn.active { background: var(--cell-bg); color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); }
@@ -237,10 +247,8 @@
 </head>
 <body>
 
-<!-- Движок для создания 1000+ деталей (высококачественные частицы на фоне) -->
 <canvas id="particles-canvas"></canvas>
 
-<!-- Кинематографичный камень победы -->
 <div id="cinematic-rock">🪨</div>
 
 <div class="game-container">
@@ -250,13 +258,16 @@
     </div>
 
     <div class="multiplier-panel" id="multiplierPanel">
-        <div class="multiplier" id="multiplierDisplay">1.00x</div>
-        <div class="current-win">Выигрыш: <span id="currentWinAmount">0</span> ₽</div>
+        <div class="stage-indicator" id="stageDisplay">СТАДИЯ 1/3</div>
+        <div class="mult-wrapper">
+            <div class="multiplier" id="multiplierDisplay">1.00x</div>
+            <div class="current-win">Выигрыш: <span id="currentWinAmount">0</span> ₽</div>
+        </div>
     </div>
 
     <div class="stairs-board" id="grid">
-        <!-- Поле генерируется через JS -->
-    </div>
+        <div id="stage-transition">🏃‍♂️💨</div>
+        </div>
 
     <div class="mines-select" id="minesSelect">
         <div class="mine-btn active" data-mines="1">1 Камень</div>
@@ -305,9 +316,7 @@
     resizeCanvas();
 
     class Particle {
-        constructor() {
-            this.reset();
-        }
+        constructor() { this.reset(); }
         reset() {
             this.x = Math.random() * canvas.width;
             this.y = Math.random() * canvas.height;
@@ -317,18 +326,14 @@
             this.alpha = Math.random() * 0.5 + 0.1;
         }
         update() {
-            this.x += this.speedX;
-            this.y += this.speedY;
+            this.x += this.speedX; this.y += this.speedY;
             if (this.y < 0 || this.x < 0 || this.x > canvas.width) this.reset();
         }
         draw() {
             ctx.fillStyle = `rgba(24, 130, 255, ${this.alpha})`;
-            ctx.beginPath();
-            ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-            ctx.fill();
+            ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fill();
         }
     }
-    // Ровно 1000 деталей как запрошено
     for (let i = 0; i < 1000; i++) particles.push(new Particle());
     
     function animateParticles() {
@@ -349,32 +354,87 @@
         balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
     }
 
-    // ===== ЗВУКИ И ВИБРАЦИЯ =====
-    function vibrate(style = 'light') {
-        if (tg.HapticFeedback) {
-            if (style === 'light') tg.HapticFeedback.impactOccurred('light');
-            else if (style === 'medium') tg.HapticFeedback.impactOccurred('medium');
-            else if (style === 'heavy') tg.HapticFeedback.impactOccurred('heavy');
-            else if (style === 'success') tg.HapticFeedback.notificationOccurred('success');
-            else if (style === 'error') tg.HapticFeedback.notificationOccurred('error');
-        }
+    function updateProfileStats(result, bet, win) {
+        let games = parseInt(localStorage.getItem('profile_games_played')) || 0;
+        let wins = parseInt(localStorage.getItem('profile_wins')) || 0;
+        let losses = parseInt(localStorage.getItem('profile_losses')) || 0;
+        let total_bet = parseInt(localStorage.getItem('profile_total_bet')) || 0;
+        let total_win = parseInt(localStorage.getItem('profile_total_win')) || 0;
+
+        games += 1; total_bet += bet;
+        if (result === 'win') { wins += 1; total_win += win; } 
+        else if (result === 'lose') { losses += 1; }
+        
+        localStorage.setItem('profile_games_played', String(games));
+        localStorage.setItem('profile_wins', String(wins));
+        localStorage.setItem('profile_losses', String(losses));
+        localStorage.setItem('profile_total_bet', String(total_bet));
+        localStorage.setItem('profile_total_win', String(total_win));
     }
 
-    // ===== ЛОГИКА ИГРЫ =====
-    const ROWS = 8;
-    const COLS = 5;
+    // ===== ЗВУКИ И ВИБРАЦИЯ =====
+    let audioCtx = null;
+    function initAudio() {
+        if (!audioCtx && window.AudioContext) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            document.body.addEventListener('touchstart', () => audioCtx?.resume(), { once: true });
+            document.body.addEventListener('click', () => audioCtx?.resume(), { once: true });
+        }
+    }
+    function playTone(freq, duration, vol = 0.08, type = 'sine') {
+        if (!audioCtx) return;
+        try {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type; osc.frequency.value = freq;
+            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.start(); osc.stop(audioCtx.currentTime + duration);
+        } catch(e) {}
+    }
     
-    const multiplierMap = {
-        1: [1.18, 1.48, 1.85, 2.31, 2.89, 3.61, 4.51, 5.64],
-        2: [1.58, 2.64, 4.40, 7.33, 12.2, 20.3, 33.9, 56.5],
-        3: [2.37, 5.93, 14.8, 37.0, 92.5, 231.2, 578, 1445],
-        4: [4.75, 23.7, 118, 590, 2950, 14750, 73750, 368750]
-    };
+    // Новые звуки
+    function soundClimb() { 
+        playTone(700, 0.1, 0.05, 'sine'); 
+        setTimeout(() => playTone(900, 0.1, 0.05, 'sine'), 100); 
+    }
+    function soundRun() {
+        let t = 0;
+        let runInterval = setInterval(() => {
+            playTone(200 + Math.random()*100, 0.05, 0.05, 'square');
+            t++; if(t>15) clearInterval(runInterval);
+        }, 60);
+    }
+    function soundCrash() { playTone(150, 0.4, 0.15, 'sawtooth'); playTone(100, 0.5, 0.1, 'square'); }
+    function soundWin() { playTone(880, 0.15, 0.1); playTone(1100, 0.15, 0.1); playTone(1320, 0.2, 0.1); }
+    function soundError() { playTone(300, 0.3, 0.1, 'sawtooth'); }
 
+    function vibrate(style = 'light') {
+        if (!tg.HapticFeedback) return;
+        if (style === 'light') tg.HapticFeedback.impactOccurred('light');
+        else if (style === 'medium') tg.HapticFeedback.impactOccurred('medium');
+        else if (style === 'heavy') tg.HapticFeedback.impactOccurred('heavy');
+        else if (style === 'success') tg.HapticFeedback.notificationOccurred('success');
+        else if (style === 'error') tg.HapticFeedback.notificationOccurred('error');
+    }
+
+    // ===== ЛОГИКА 30 УРОВНЕЙ И СТАДИЙ =====
+    // 3 Стадии по 10 уровней. Чем выше, тем меньше ширина.
+    const STAGES = [
+        { rows: 10, cols: 7 }, // Стадия 1
+        { rows: 10, cols: 6 }, // Стадия 2
+        { rows: 10, cols: 5 }  // Стадия 3
+    ];
+    
     let bombsCount = 1;
     let gameActive = false;
     let currentBet = 1000;
-    let currentRow = 0;
+    
+    let currentStageIndex = 0;
+    let localRow = 0;      // 0-9 внутри стадии
+    let globalRow = 0;     // 0-29 общее
+    
     let currentMultiplier = 1.0;
     let field = []; 
     let isAnimating = false;
@@ -387,14 +447,39 @@
     const statusDiv = document.getElementById('statusMsg');
     const gridDiv = document.getElementById('grid');
     const cinematicRock = document.getElementById('cinematic-rock');
+    const stageTransition = document.getElementById('stage-transition');
+    const stageDisplay = document.getElementById('stageDisplay');
+
+    // Динамический расчет коэффициента (с маржой 4%)
+    function calculateMultiplier(targetGlobalRow, bombs) {
+        let mult = 1.0;
+        let gRow = 0;
+        for (let s = 0; s < STAGES.length; s++) {
+            for (let r = 0; r < STAGES[s].rows; r++) {
+                if (gRow > targetGlobalRow) break;
+                let cols = STAGES[s].cols;
+                let winProb = (cols - bombs) / cols;
+                mult *= (1 / winProb) * 0.96; 
+                gRow++;
+            }
+        }
+        return mult;
+    }
 
     function buildGrid() {
+        // Сохраняем элемент анимации
+        const transitionEl = document.getElementById('stage-transition');
         gridDiv.innerHTML = '';
-        for (let r = 0; r < ROWS; r++) {
+        gridDiv.appendChild(transitionEl);
+        
+        const cols = STAGES[currentStageIndex].cols;
+        const rows = STAGES[currentStageIndex].rows;
+        
+        for (let r = 0; r < rows; r++) {
             const rowDiv = document.createElement('div');
             rowDiv.className = 'stair-row';
             rowDiv.dataset.row = r;
-            for (let c = 0; c < COLS; c++) {
+            for (let c = 0; c < cols; c++) {
                 const cell = document.createElement('div');
                 cell.className = 'cell';
                 cell.dataset.row = r;
@@ -406,13 +491,15 @@
         }
     }
 
-    function generateField() {
+    function generateFieldForStage(stageIdx) {
         field = [];
-        for (let r = 0; r < ROWS; r++) {
-            let rowArr = Array(COLS).fill(false);
+        const cols = STAGES[stageIdx].cols;
+        const rows = STAGES[stageIdx].rows;
+        for (let r = 0; r < rows; r++) {
+            let rowArr = Array(cols).fill(false);
             let minesPlaced = 0;
             while(minesPlaced < bombsCount) {
-                let randCol = Math.floor(Math.random() * COLS);
+                let randCol = Math.floor(Math.random() * cols);
                 if (!rowArr[randCol]) {
                     rowArr[randCol] = true;
                     minesPlaced++;
@@ -426,74 +513,99 @@
         document.querySelectorAll('.stair-row').forEach(rowDiv => {
             const r = parseInt(rowDiv.dataset.row);
             rowDiv.classList.remove('active', 'passed');
-            if (r === currentRow && gameActive) rowDiv.classList.add('active');
-            else if (r < currentRow) rowDiv.classList.add('passed');
+            if (r === localRow && gameActive) rowDiv.classList.add('active');
+            else if (r < localRow) rowDiv.classList.add('passed');
         });
+        stageDisplay.innerText = `СТАДИЯ ${currentStageIndex + 1}/3`;
     }
 
     function handleCellClick(r, c) {
-        if (!gameActive || r !== currentRow || isAnimating) return;
+        if (!gameActive || r !== localRow || isAnimating) return;
         isAnimating = true;
         
         const cell = document.querySelector(`.cell[data-row='${r}'][data-col='${c}']`);
+        const cols = STAGES[currentStageIndex].cols;
         
-        // Удаляем персонажа с предыдущего ряда
+        // Удаляем человечка снизу
         if (r > 0) {
             document.querySelectorAll(`.cell[data-row='${r-1}']`).forEach(prevCell => {
                 if (prevCell.innerHTML.includes('🧗‍♂️') || prevCell.innerHTML.includes('🏃‍♂️')) {
-                    prevCell.innerHTML = '<span class="emoji">💎</span>'; // Оставляем кристалл
+                    prevCell.innerHTML = '<span class="emoji">💎</span>';
                 }
             });
         }
 
-        // Анимация лестницы и человека
         cell.classList.add('opened');
-        cell.innerHTML = '<span class="ladder-anim">🪜</span>'; // Достает лестницу
+        cell.innerHTML = '<span class="ladder-anim">🪜</span>'; 
         vibrate('light');
 
         setTimeout(() => {
             if (field[r][c]) {
-                // ПОРАЖЕНИЕ: КАМЕНЬ ПАДАЕТ НА НЕГО
+                // ПОРАЖЕНИЕ
                 cell.classList.add('mine');
                 cell.innerHTML += '<span class="rock-anim emoji">🪨</span>';
                 vibrate('heavy');
+                soundCrash();
                 
                 statusDiv.innerHTML = `<span style="color:var(--accent-red)">💥 Камень сбил вас! -${currentBet}₽</span>`;
                 gameActive = false;
 
-                // Показываем остальные камни на ряду
-                for (let i = 0; i < COLS; i++) {
+                // Показываем камни
+                for (let i = 0; i < cols; i++) {
                     if (field[r][i] && i !== c) {
                         const revealCell = document.querySelector(`.cell[data-row='${r}'][data-col='${i}']`);
                         revealCell.innerHTML = '<span class="emoji" style="opacity:0.5">🪨</span>';
                     }
                 }
+                updateProfileStats('lose', currentBet, 0);
                 endGameResetUI();
                 isAnimating = false;
             } else {
-                // УСПЕХ: ЗАЛЕЗАЕТ ПО ЛЕСТНИЦЕ
+                // УСПЕХ: ЛЕЗЕТ НАВЕРХ
                 cell.classList.add('safe');
                 cell.innerHTML += '<span class="player-anim emoji">🧗‍♂️</span>';
                 vibrate('medium');
+                soundClimb();
                 
-                currentMultiplier = multiplierMap[bombsCount][r];
-                currentRow++;
+                currentMultiplier = calculateMultiplier(globalRow, bombsCount);
+                localRow++;
+                globalRow++;
                 updateUI();
 
-                if (currentRow >= ROWS) {
-                    // ПОБЕДА (КИНЕМАТОГРАФИЧНЫЙ ПАДАЮЩИЙ КАМЕНЬ)
-                    setTimeout(() => {
-                        cinematicRock.classList.add('falling-cinematic');
-                        setTimeout(() => cinematicRock.classList.remove('falling-cinematic'), 1100);
-                        autoCashout();
-                        isAnimating = false;
-                    }, 500);
+                // Проверка достижения верха текущей стадии
+                if (localRow >= STAGES[currentStageIndex].rows) {
+                    if (currentStageIndex < STAGES.length - 1) {
+                        // ПЕРЕХОД НА НОВУЮ СТАДИЮ
+                        statusDiv.innerHTML = `<span style="color:var(--accent-orange)">Бежим дальше! Загрузка стадии ${currentStageIndex + 2}...</span>`;
+                        soundRun();
+                        stageTransition.classList.add('running-transition');
+                        
+                        setTimeout(() => {
+                            stageTransition.classList.remove('running-transition');
+                            currentStageIndex++;
+                            localRow = 0;
+                            generateFieldForStage(currentStageIndex);
+                            buildGrid();
+                            updateRowVisuals();
+                            isAnimating = false;
+                            statusDiv.innerHTML = `<span style="color:var(--accent-blue)">🧗 Выберите безопасную ступень!</span>`;
+                        }, 1500);
+
+                    } else {
+                        // ПОЛНАЯ ПОБЕДА (30 УРОВНЕЙ)
+                        setTimeout(() => {
+                            cinematicRock.classList.add('falling-cinematic');
+                            setTimeout(() => cinematicRock.classList.remove('falling-cinematic'), 1100);
+                            autoCashout();
+                            isAnimating = false;
+                        }, 500);
+                    }
                 } else {
                     updateRowVisuals();
                     isAnimating = false;
                 }
             }
-        }, 300); // Задержка для анимации лестницы
+        }, 200); 
     }
 
     function updateUI() {
@@ -501,8 +613,8 @@
         const winAmount = Math.floor(currentBet * currentMultiplier);
         currentWinSpan.textContent = winAmount;
         
-        if (gameActive && currentRow > 0) {
-            statusDiv.innerHTML = `<span style="color:var(--accent-blue)">Бегите выше! Текущий выигрыш: ${winAmount}₽</span>`;
+        if (gameActive && globalRow > 0) {
+            statusDiv.innerHTML = `<span style="color:var(--accent-blue)">Отлично! Текущий выигрыш: ${winAmount}₽</span>`;
         }
     }
 
@@ -510,21 +622,23 @@
         if (!gameActive) return;
         const winAmount = Math.floor(currentBet * currentMultiplier);
         updateBalanceDisplay(casinoBalance + winAmount);
+        updateProfileStats('win', currentBet, winAmount);
         
-        statusDiv.innerHTML = `<span style="color:var(--accent-green)">🏆 ПУТЬ ПРОЙДЕН! Выигрыш ${winAmount}₽</span>`;
-        vibrate('success');
+        statusDiv.innerHTML = `<span style="color:var(--accent-green)">🏆 ПУТЬ ПРОЙДЕН ДО КОНЦА! Выигрыш ${winAmount}₽</span>`;
+        soundWin(); vibrate('success');
         
         gameActive = false;
         endGameResetUI();
     }
 
     function cashout() {
-        if (!gameActive || currentRow === 0 || isAnimating) return;
+        if (!gameActive || globalRow === 0 || isAnimating) return;
         const winAmount = Math.floor(currentBet * currentMultiplier);
         updateBalanceDisplay(casinoBalance + winAmount);
+        updateProfileStats('win', currentBet, winAmount);
         
         statusDiv.innerHTML = `<span style="color:var(--accent-orange)">💰 ВЫ ЗАБРАЛИ ${winAmount}₽</span>`;
-        vibrate('success');
+        soundWin(); vibrate('success');
         
         gameActive = false;
         endGameResetUI();
@@ -542,41 +656,39 @@
         if (isNaN(amount) || amount < 10) amount = 1000;
         if (casinoBalance < amount) {
             statusDiv.innerHTML = `<span style="color:var(--accent-red)">❌ Недостаточно средств! Баланс: ${casinoBalance}₽</span>`;
-            vibrate('error');
-            return;
+            soundError(); vibrate('error'); return;
         }
 
         currentBet = amount;
         betInput.value = currentBet;
         updateBalanceDisplay(casinoBalance - currentBet);
 
-        generateField();
-        currentRow = 0;
+        currentStageIndex = 0;
+        localRow = 0;
+        globalRow = 0;
         currentMultiplier = 1.0;
         gameActive = true;
         isAnimating = false;
         
-        document.querySelectorAll('.cell').forEach(c => {
-            c.className = 'cell';
-            c.innerHTML = '';
-        });
-
+        generateFieldForStage(currentStageIndex);
+        buildGrid();
+        
         startBtn.disabled = true;
         cashoutBtn.disabled = false;
         document.querySelectorAll('.mine-btn').forEach(btn => btn.style.pointerEvents = 'none');
         
         updateMultiplierTableUI();
         updateRowVisuals();
-        vibrate('medium');
         
-        // Стартовая анимация: человечек прибегает снизу
-        statusDiv.innerHTML = '<span style="color:var(--accent-blue)"><span style="display:inline-block; animation: playerRun 0.5s ease forwards;">🏃‍♂️</span> Выберите безопасную ступень!</span>';
+        soundClimb(); vibrate('medium');
+        statusDiv.innerHTML = '<span style="color:var(--accent-blue)"><span style="display:inline-block; animation: climbUp 0.3s ease forwards;">🏃‍♂️</span> Старт!</span>';
     }
 
     function updateMultiplierTableUI() {
         currentMultiplier = 1.0;
         multiplierSpan.textContent = '1.00x';
         currentWinSpan.textContent = '0';
+        stageDisplay.innerText = `СТАДИЯ 1/3`;
     }
 
     document.querySelectorAll('.mine-btn').forEach(btn => {
@@ -585,7 +697,7 @@
             document.querySelectorAll('.mine-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             bombsCount = parseInt(btn.getAttribute('data-mines'));
-            vibrate('light');
+            vibrate('light'); soundClimb();
             updateMultiplierTableUI();
         });
     });
@@ -594,6 +706,8 @@
     cashoutBtn.addEventListener('click', cashout);
     document.getElementById('menuBtn').onclick = () => window.location.href = 'casino.html?userId=' + (userId || '');
 
+    // Инициализация
+    initAudio();
     buildGrid();
 </script>
 
