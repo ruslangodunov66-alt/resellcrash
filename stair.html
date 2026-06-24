@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>🧗‍♂️ STAIRS | R-GAME</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;1,800&family=Nunito:wght@700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0a0f16;
+            --container-bg: #111822;
+            --panel-bg: #1a2332;
+            --accent-blue: #1882ff;
+            --accent-blue-hover: #3b95ff;
+            --accent-green: #1bd15d;
+            --accent-red: #f03043;
+            --accent-orange: #ff9800;
+            --text-main: #e2e8f0;
+            --text-muted: #8c9eb5;
+            --cell-bg: #212c3d;
+            --cell-shadow: #141b26;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background: var(--bg-dark);
+            background-image: 
+                radial-gradient(circle at 50% 0%, rgba(24, 130, 255, 0.15), transparent 60%),
+                radial-gradient(circle at 50% 100%, rgba(27, 209, 93, 0.05), transparent 50%);
+            font-family: 'Nunito', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 12px;
+            color: var(--text-main);
+        }
+
+        .game-container {
+            max-width: 500px;
+            width: 100%;
+            background: var(--container-bg);
+            border-radius: 32px;
+            box-shadow: 0 24px 48px rgba(0,0,0,0.6), inset 0 1px 1px rgba(255,255,255,0.05);
+            padding: 20px;
+            position: relative;
+            border: 1px solid rgba(255,255,255,0.05);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        /* Шапка из примеров R-Game */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .brand {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 24px;
+            font-weight: 800;
+            font-style: italic;
+            background: linear-gradient(135deg, #ffffff, #a0c4ff);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+        .brand span {
+            color: var(--accent-blue);
+            -webkit-text-fill-color: var(--accent-blue);
+        }
+        .info-card {
+            background: var(--panel-bg);
+            border-radius: 12px;
+            padding: 8px 16px;
+            font-weight: 700;
+            font-size: 14px;
+            color: var(--text-muted);
+            border: 1px solid rgba(255,255,255,0.03);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        .info-card span {
+            color: var(--accent-green);
+            font-size: 16px;
+            font-weight: 800;
+        }
+
+        /* Панель множителя */
+        .multiplier-panel {
+            background: var(--panel-bg);
+            border-radius: 20px;
+            padding: 16px;
+            text-align: center;
+            border: 1px solid rgba(255,255,255,0.02);
+            box-shadow: inset 0 2px 10px rgba(0,0,0,0.2);
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+        .multiplier-panel::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 2px;
+            background: linear-gradient(90deg, transparent, var(--accent-blue), transparent);
+            opacity: 0.5;
+        }
+        .multiplier-panel.pulse { animation: panelGlow 0.8s ease; }
+        @keyframes panelGlow {
+            0% { box-shadow: 0 0 15px rgba(24, 130, 255, 0.1); }
+            50% { box-shadow: 0 0 30px rgba(24, 130, 255, 0.3); }
+            100% { box-shadow: 0 0 15px rgba(24, 130, 255, 0); }
+        }
+        .multiplier {
+            font-size: 40px;
+            font-weight: 800;
+            color: #fff;
+            text-shadow: 0 0 20px rgba(255,255,255,0.2);
+            font-family: 'Montserrat', sans-serif;
+            line-height: 1;
+        }
+        .multiplier.bump { animation: bump 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        @keyframes bump {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.15); text-shadow: 0 0 30px var(--accent-blue); }
+            100% { transform: scale(1); }
+        }
+        .current-win {
+            color: var(--text-muted);
+            font-size: 15px;
+            font-weight: 700;
+            margin-top: 8px;
+        }
+        .current-win span { color: var(--accent-green); font-size: 18px; }
+
+        /* Игровое поле: Лесенка */
+        .stairs-board {
+            display: flex;
+            flex-direction: column-reverse; /* Нижний ряд первый в DOM */
+            gap: 8px;
+            padding: 10px;
+            background: var(--panel-bg);
+            border-radius: 20px;
+            border: 1px solid rgba(255,255,255,0.03);
+            perspective: 800px;
+        }
+        
+        .stair-row {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            opacity: 0.5;
+            transition: all 0.3s ease;
+            transform-style: preserve-3d;
+        }
+        
+        .stair-row.active {
+            opacity: 1;
+            transform: scale(1.02) translateZ(10px);
+            filter: drop-shadow(0 0 10px rgba(24, 130, 255, 0.2));
+        }
+
+        .stair-row.passed {
+            opacity: 0.8;
+        }
+
+        /* Визуальное уменьшение краев для эффекта пирамиды */
+        .stair-row:nth-child(8) { padding: 0 40px; }
+        .stair-row:nth-child(7) { padding: 0 35px; }
+        .stair-row:nth-child(6) { padding: 0 30px; }
+        .stair-row:nth-child(5) { padding: 0 25px; }
+        .stair-row:nth-child(4) { padding: 0 20px; }
+        .stair-row:nth-child(3) { padding: 0 15px; }
+        .stair-row:nth-child(2) { padding: 0 10px; }
+        .stair-row:nth-child(1) { padding: 0 5px; }
+
+        .cell {
+            flex: 1;
+            aspect-ratio: 1.5 / 1;
+            background: var(--cell-bg);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 0 var(--cell-shadow);
+            position: relative;
+        }
+        .stair-row.active .cell:hover {
+            background: #2a384e;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 0 var(--cell-shadow), 0 8px 15px rgba(0,0,0,0.3);
+        }
+        .stair-row.active .cell:active {
+            transform: translateY(4px);
+            box-shadow: 0 0 0 var(--cell-shadow);
+        }
+        
+        .cell.opened {
+            box-shadow: 0 0 0 transparent;
+            transform: translateY(4px);
+            cursor: default;
+        }
+        
+        .cell.safe {
+            background: rgba(27, 209, 93, 0.15);
+            border: 2px solid var(--accent-green);
+            animation: popSafe 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .cell.mine {
+            background: rgba(240, 48, 67, 0.15);
+            border: 2px solid var(--accent-red);
+            animation: popMine 0.5s ease;
+        }
+
+        @keyframes popSafe {
+            0% { transform: translateY(4px) scale(0.8); opacity: 0; }
+            50% { transform: translateY(4px) scale(1.1); }
+            100% { transform: translateY(4px) scale(1); opacity: 1; }
+        }
+        @keyframes popMine {
+            0% { transform: translateY(4px) scale(0.8) rotate(-10deg); background: var(--accent-red); }
+            20% { transform: translateY(4px) scale(1.2) rotate(10deg); }
+            40% { transform: translateY(4px) scale(0.9) rotate(-10deg); }
+            60% { transform: translateY(4px) scale(1.1) rotate(10deg); }
+            100% { transform: translateY(4px) scale(1) rotate(0); background: rgba(240, 48, 67, 0.15); }
+        }
+
+        .cell .emoji { filter: drop-shadow(0 4px 6px rgba(0,0,0,0.4)); }
+
+        /* Выбор сложности (камней) */
+        .mines-select {
+            display: flex;
+            justify-content: space-between;
+            background: var(--panel-bg);
+            border-radius: 14px;
+            padding: 6px;
+        }
+        .mine-btn {
+            flex: 1;
+            text-align: center;
+            padding: 10px 0;
+            border-radius: 10px;
+            font-weight: 800;
+            font-size: 14px;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .mine-btn.active {
+            background: var(--cell-bg);
+            color: #fff;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+
+        /* Управление ставкой */
+        .bet-control {
+            display: flex;
+            justify-content: space-between;
+            align-items: stretch;
+            gap: 12px;
+        }
+        .bet-input-wrapper {
+            flex: 1;
+            position: relative;
+        }
+        .bet-input-wrapper::before {
+            content: '₽';
+            position: absolute;
+            left: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-muted);
+            font-weight: 800;
+            font-size: 18px;
+        }
+        .bet-control input {
+            width: 100%;
+            height: 54px;
+            background: var(--bg-dark);
+            border: 2px solid var(--panel-bg);
+            border-radius: 16px;
+            padding: 0 16px 0 40px;
+            color: #fff;
+            font-weight: 800;
+            font-size: 20px;
+            font-family: 'Nunito', sans-serif;
+            transition: all 0.2s;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+        }
+        .bet-control input:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.3), 0 0 12px rgba(24, 130, 255, 0.3);
+        }
+
+        /* Кнопки */
+        button {
+            border: none;
+            border-radius: 16px;
+            font-family: 'Nunito', sans-serif;
+            font-weight: 800;
+            font-size: 16px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.1s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        button:active:not(:disabled) { transform: translateY(3px); }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .btn-start {
+            background: var(--accent-blue);
+            height: 54px;
+            padding: 0 32px;
+            box-shadow: 0 4px 0 #0f5bb8, 0 8px 16px rgba(24, 130, 255, 0.3);
+        }
+        .btn-start:active:not(:disabled) { box-shadow: 0 1px 0 #0f5bb8; }
+
+        .btn-cashout {
+            flex: 1;
+            background: var(--accent-orange);
+            padding: 16px;
+            box-shadow: 0 4px 0 #b36b00, 0 8px 16px rgba(255, 152, 0, 0.2);
+            font-size: 16px;
+        }
+        .btn-cashout:active:not(:disabled) { box-shadow: 0 1px 0 #b36b00; }
+        .btn-cashout:disabled {
+            background: var(--panel-bg);
+            color: var(--text-muted);
+            box-shadow: 0 4px 0 var(--bg-dark);
+            transform: none;
+        }
+
+        .footer { display: flex; gap: 12px; }
+        .btn-menu {
+            flex: 1;
+            background: #1e2530;
+            padding: 16px;
+            box-shadow: 0 4px 0 var(--bg-dark);
+            font-size: 14px;
+        }
+        .btn-menu:active { box-shadow: 0 1px 0 var(--bg-dark); }
+
+        .status {
+            text-align: center;
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-muted);
+            background: rgba(0,0,0,0.2);
+            padding: 12px;
+            border-radius: 12px;
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        @media (max-width: 400px) {
+            .cell { font-size: 20px; border-radius: 8px; }
+            .multiplier { font-size: 32px; }
+            .brand { font-size: 20px; }
+            .bet-control input { font-size: 18px; }
+            .stair-row { gap: 6px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="game-container">
+    <div class="header">
+        <div class="brand">R-<span>GAME</span></div>
+        <div class="info-card">Баланс: <span id="balanceDisplay">0₽</span></div>
+    </div>
+
+    <div class="multiplier-panel" id="multiplierPanel">
+        <div class="multiplier" id="multiplierDisplay">1.00x</div>
+        <div class="current-win">Выигрыш: <span id="currentWinAmount">0</span> ₽</div>
+    </div>
+
+    <div class="stairs-board" id="grid">
+        <!-- Поле генерируется через JS -->
+    </div>
+
+    <div class="mines-select" id="minesSelect">
+        <div class="mine-btn active" data-mines="1">1 Камень</div>
+        <div class="mine-btn" data-mines="2">2 Камня</div>
+        <div class="mine-btn" data-mines="3">3 Камня</div>
+        <div class="mine-btn" data-mines="4">4 Камня</div>
+    </div>
+
+    <div class="bet-control">
+        <div class="bet-input-wrapper">
+            <input type="number" id="betAmount" min="10" max="100000" step="100" value="1000">
+        </div>
+        <button id="startBtn" class="btn-start">ИГРАТЬ</button>
+    </div>
+
+    <div class="footer">
+        <button id="cashoutBtn" class="btn-cashout" disabled>ЗАБРАТЬ</button>
+    </div>
+    
+    <div class="footer">
+        <button id="menuBtn" class="btn-menu">В МЕНЮ ИГР</button>
+    </div>
+
+    <div class="status" id="statusMsg">Сделайте ставку и выберите количество камней</div>
+</div>
+
+<script>
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+    tg.ready();
+    if (tg.HapticFeedback) tg.enableClosingConfirmation();
+
+    let userId = null;
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('userId')) userId = urlParams.get('userId');
+
+    // ===== БАЛАНС И СТАТИСТИКА[cite: 1, 2] =====
+    let casinoBalance = parseInt(localStorage.getItem('casinoBalance')) || 10000;
+    const balanceSpan = document.getElementById('balanceDisplay');
+    balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
+
+    function updateBalanceDisplay(newBalance) {
+        casinoBalance = newBalance;
+        localStorage.setItem('casinoBalance', String(casinoBalance));
+        balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
+    }
+
+    function updateProfileStats(result, bet, win) {
+        let games = parseInt(localStorage.getItem('profile_games_played')) || 0;
+        let wins = parseInt(localStorage.getItem('profile_wins')) || 0;
+        let losses = parseInt(localStorage.getItem('profile_losses')) || 0;
+        let total_bet = parseInt(localStorage.getItem('profile_total_bet')) || 0;
+        let total_win = parseInt(localStorage.getItem('profile_total_win')) || 0;
+
+        games += 1;
+        total_bet += bet;
+        if (result === 'win') {
+            wins += 1;
+            total_win += win;
+        } else if (result === 'lose') {
+            losses += 1;
+        }
+        localStorage.setItem('profile_games_played', String(games));
+        localStorage.setItem('profile_wins', String(wins));
+        localStorage.setItem('profile_losses', String(losses));
+        localStorage.setItem('profile_total_bet', String(total_bet));
+        localStorage.setItem('profile_total_win', String(total_win));
+    }
+
+    // ===== ЗВУКИ[cite: 2] =====
+    let audioCtx = null;
+    function initAudio() {
+        if (!audioCtx && window.AudioContext) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            document.body.addEventListener('touchstart', () => audioCtx?.resume(), { once: true });
+            document.body.addEventListener('click', () => audioCtx?.resume(), { once: true });
+        }
+    }
+    function playTone(freq, duration, vol = 0.08, type = 'sine') {
+        if (!audioCtx) return;
+        try {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type;
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + duration);
+        } catch(e) {}
+    }
+    function soundJump() { playTone(600, 0.1, 0.05); playTone(800, 0.15, 0.05); }
+    function soundCrash() { playTone(150, 0.4, 0.15, 'sawtooth'); playTone(100, 0.5, 0.1, 'square'); }
+    function soundWin() { playTone(880, 0.15, 0.1); playTone(1100, 0.15, 0.1); playTone(1320, 0.2, 0.1); }
+    function soundError() { playTone(300, 0.3, 0.1, 'sawtooth'); }
+
+    function vibrate(style = 'light') {
+        if (tg.HapticFeedback) {
+            if (style === 'light') tg.HapticFeedback.impactOccurred('light');
+            else if (style === 'medium') tg.HapticFeedback.impactOccurred('medium');
+            else if (style === 'heavy') tg.HapticFeedback.impactOccurred('heavy');
+            else if (style === 'success') tg.HapticFeedback.notificationOccurred('success');
+            else if (style === 'error') tg.HapticFeedback.notificationOccurred('error');
+        }
+    }
+
+    // ===== ЛОГИКА ИГРЫ =====
+    const ROWS = 8;
+    const COLS = 5;
+    
+    // Коэффициенты (как в Up-X)
+    const multiplierMap = {
+        1: [1.18, 1.48, 1.85, 2.31, 2.89, 3.61, 4.51, 5.64],
+        2: [1.58, 2.64, 4.40, 7.33, 12.2, 20.3, 33.9, 56.5],
+        3: [2.37, 5.93, 14.8, 37.0, 92.5, 231.2, 578, 1445],
+        4: [4.75, 23.7, 118, 590, 2950, 14750, 73750, 368750]
+    };
+
+    let bombsCount = 1;
+    let gameActive = false;
+    let currentBet = 1000;
+    let currentRow = 0;
+    let currentMultiplier = 1.0;
+    let field = []; // Массив рядов с минами
+
+    const betInput = document.getElementById('betAmount');
+    const startBtn = document.getElementById('startBtn');
+    const cashoutBtn = document.getElementById('cashoutBtn');
+    const multiplierSpan = document.getElementById('multiplierDisplay');
+    const multiplierPanel = document.getElementById('multiplierPanel');
+    const currentWinSpan = document.getElementById('currentWinAmount');
+    const statusDiv = document.getElementById('statusMsg');
+    const gridDiv = document.getElementById('grid');
+
+    // Генерация сетки HTML
+    function buildGrid() {
+        gridDiv.innerHTML = '';
+        for (let r = 0; r < ROWS; r++) {
+            const rowDiv = document.createElement('div');
+            rowDiv.className = 'stair-row';
+            rowDiv.dataset.row = r;
+            for (let c = 0; c < COLS; c++) {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                cell.dataset.row = r;
+                cell.dataset.col = c;
+                
+                cell.addEventListener('click', () => handleCellClick(r, c));
+                rowDiv.appendChild(cell);
+            }
+            gridDiv.appendChild(rowDiv);
+        }
+    }
+
+    // Генерация скрытого поля с камнями
+    function generateField() {
+        field = [];
+        for (let r = 0; r < ROWS; r++) {
+            let rowArr = Array(COLS).fill(false);
+            let minesPlaced = 0;
+            while(minesPlaced < bombsCount) {
+                let randCol = Math.floor(Math.random() * COLS);
+                if (!rowArr[randCol]) {
+                    rowArr[randCol] = true;
+                    minesPlaced++;
+                }
+            }
+            field.push(rowArr);
+        }
+    }
+
+    function updateRowVisuals() {
+        document.querySelectorAll('.stair-row').forEach(rowDiv => {
+            const r = parseInt(rowDiv.dataset.row);
+            rowDiv.classList.remove('active', 'passed');
+            if (r === currentRow && gameActive) {
+                rowDiv.classList.add('active');
+            } else if (r < currentRow) {
+                rowDiv.classList.add('passed');
+            }
+        });
+    }
+
+    function handleCellClick(r, c) {
+        if (!gameActive || r !== currentRow) return;
+        
+        const cell = document.querySelector(`.cell[data-row='${r}'][data-col='${c}']`);
+        
+        // Попал на камень (Проигрыш)
+        if (field[r][c]) {
+            gameActive = false;
+            cell.classList.add('mine', 'opened');
+            cell.innerHTML = '<span class="emoji">🪨</span>'; // Камень препятствие
+            
+            soundCrash();
+            vibrate('error');
+            updateProfileStats('lose', currentBet, 0);
+            statusDiv.innerHTML = `<span style="color:var(--accent-red)">💥 ВЫ НАТКНУЛИСЬ НА КАМЕНЬ! -${currentBet}₽</span>`;
+            
+            // Показываем остальные камни на этом ряду
+            for (let i = 0; i < COLS; i++) {
+                if (field[r][i] && i !== c) {
+                    const revealCell = document.querySelector(`.cell[data-row='${r}'][data-col='${i}']`);
+                    revealCell.innerHTML = '<span class="emoji">🪨</span>';
+                    revealCell.style.opacity = '0.5';
+                }
+            }
+
+            endGameResetUI();
+        } 
+        // Удачный шаг
+        else {
+            cell.classList.add('safe', 'opened');
+            cell.innerHTML = '<span class="emoji">🧗‍♂️</span>'; // Человечек поднимается
+            
+            // Удаляем человечка с предыдущего ряда
+            if (r > 0) {
+                document.querySelectorAll(`.cell[data-row='${r-1}']`).forEach(prevCell => {
+                    if (prevCell.innerHTML.includes('🧗‍♂️')) {
+                        prevCell.innerHTML = '<span class="emoji">💎</span>';
+                    }
+                });
+            }
+
+            soundJump();
+            vibrate('light');
+
+            currentMultiplier = multiplierMap[bombsCount][r];
+            currentRow++;
+            updateUI();
+
+            if (currentRow >= ROWS) {
+                // Дошел до конца (Максимальный выигрыш)
+                autoCashout();
+            } else {
+                updateRowVisuals();
+            }
+        }
+    }
+
+    function updateUI() {
+        multiplierSpan.textContent = currentMultiplier.toFixed(2) + 'x';
+        const winAmount = Math.floor(currentBet * currentMultiplier);
+        currentWinSpan.textContent = winAmount;
+        
+        multiplierSpan.classList.remove('bump');
+        setTimeout(() => multiplierSpan.classList.add('bump'), 10);
+        multiplierPanel.classList.remove('pulse');
+        setTimeout(() => multiplierPanel.classList.add('pulse'), 10);
+        
+        if (gameActive && currentRow > 0) {
+            statusDiv.innerHTML = `<span style="color:var(--accent-blue)">Выше! Текущий выигрыш: ${winAmount}₽</span>`;
+        }
+    }
+
+    function autoCashout() {
+        if (!gameActive) return;
+        const winAmount = Math.floor(currentBet * currentMultiplier);
+        updateBalanceDisplay(casinoBalance + winAmount);
+        updateProfileStats('win', currentBet, winAmount);
+        
+        statusDiv.innerHTML = `<span style="color:var(--accent-green)">🏆 ПУТЬ ПРОЙДЕН! Выигрыш ${winAmount}₽</span>`;
+        soundWin();
+        vibrate('success');
+        
+        gameActive = false;
+        endGameResetUI();
+    }
+
+    function cashout() {
+        if (!gameActive || currentRow === 0) return;
+        const winAmount = Math.floor(currentBet * currentMultiplier);
+        updateBalanceDisplay(casinoBalance + winAmount);
+        updateProfileStats('win', currentBet, winAmount);
+        
+        statusDiv.innerHTML = `<span style="color:var(--accent-orange)">💰 ВЫ ЗАБРАЛИ ${winAmount}₽</span>`;
+        soundWin();
+        vibrate('success');
+        
+        gameActive = false;
+        endGameResetUI();
+    }
+
+    function endGameResetUI() {
+        startBtn.disabled = false;
+        cashoutBtn.disabled = true;
+        document.querySelectorAll('.mine-btn').forEach(btn => btn.style.pointerEvents = 'auto');
+        updateRowVisuals();
+    }
+
+    function startGame() {
+        let amount = parseInt(betInput.value);
+        if (isNaN(amount) || amount < 10) amount = 1000;
+        if (casinoBalance < amount) {
+            statusDiv.innerHTML = `<span style="color:var(--accent-red)">❌ Недостаточно средств! Баланс: ${casinoBalance}₽</span>`;
+            soundError();
+            vibrate('error');
+            return;
+        }
+
+        currentBet = amount;
+        betInput.value = currentBet;
+        updateBalanceDisplay(casinoBalance - currentBet);
+
+        generateField();
+        currentRow = 0;
+        currentMultiplier = 1.0;
+        gameActive = true;
+        
+        // Очистка клеток
+        document.querySelectorAll('.cell').forEach(c => {
+            c.className = 'cell';
+            c.innerHTML = '';
+            c.style.opacity = '1';
+        });
+
+        startBtn.disabled = true;
+        cashoutBtn.disabled = false;
+        document.querySelectorAll('.mine-btn').forEach(btn => btn.style.pointerEvents = 'none');
+        
+        updateMultiplierTableUI();
+        updateRowVisuals();
+        
+        soundJump();
+        vibrate('medium');
+        statusDiv.innerHTML = '<span style="color:var(--accent-blue)">🧗 Выберите безопасную ступень!</span>';
+    }
+
+    function updateMultiplierTableUI() {
+        currentMultiplier = 1.0;
+        multiplierSpan.textContent = '1.00x';
+        currentWinSpan.textContent = '0';
+    }
+
+    // Выбор камней
+    document.querySelectorAll('.mine-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (gameActive) return;
+            document.querySelectorAll('.mine-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            bombsCount = parseInt(btn.getAttribute('data-mines'));
+            soundJump();
+            updateMultiplierTableUI();
+        });
+    });
+
+    startBtn.addEventListener('click', startGame);
+    cashoutBtn.addEventListener('click', cashout);
+
+    document.getElementById('menuBtn').onclick = () => {
+        window.location.href = 'casino.html?userId=' + (userId || '');
+    };
+
+    // Инициализация
+    initAudio();
+    buildGrid();
+</script>
+
+</body>
+</html>
