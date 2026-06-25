@@ -75,7 +75,7 @@ async def safe_callback_answer(callback: CallbackQuery, text: str = None, show_a
 # ==================== КОНФИГ ====================
 import os
 
-API_TOKEN = os.getenv("BOT_TOKEN", "8747685010:AAH8bN3x0fihSvUzVitijYQLHXeHFhIV5w4")
+API_TOKEN = os.getenv("BOT_TOKEN")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "buygame61_bot")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "1475910449"))
 ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY", "44T1K17IVDLA0VU1")
