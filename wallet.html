@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>КОШЕЛЕК | R-GAME</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;1,800&family=Nunito:wght@600;700;800&display=swap" rel="stylesheet">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        :root {
+            --bg-dark: #070b12;
+            --container-bg: #111822;
+            --panel-bg: rgba(26, 35, 50, 0.6);
+            --panel-bg-hover: rgba(33, 44, 61, 0.8);
+            --accent-blue: #1882ff;
+            --accent-blue-hover: #3b95ff;
+            --accent-green: #1bd15d;
+            --accent-red: #f03043;
+            --accent-orange: #ff9800;
+            --accent-orange-hover: #e68a00;
+            --text-main: #e2e8f0;
+            --text-muted: #8c9eb5;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Nunito', system-ui, sans-serif;
+            min-height: 100vh;
+            padding: 16px 16px 40px;
+            color: var(--text-main);
+            overflow-x: hidden;
+            position: relative;
+            background: var(--bg-dark);
+            background-image: 
+                radial-gradient(circle at 10% 0%, rgba(24, 130, 255, 0.12), transparent 50%),
+                radial-gradient(circle at 90% 100%, rgba(255, 152, 0, 0.06), transparent 50%);
+        }
+
+        /* Вотермарки проекта */
+        .bg-watermarks {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 0;
+            pointer-events: none;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 150px;
+        }
+
+        .bg-text {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 140px;
+            font-weight: 800;
+            font-style: italic;
+            white-space: nowrap;
+            background: linear-gradient(135deg, #ffffff, #a0c4ff);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            text-transform: uppercase;
+            opacity: 0.02;
+            transform: rotate(-10deg);
+        }
+
+        .bg-text span {
+            color: var(--accent-orange);
+            -webkit-text-fill-color: var(--accent-orange);
+        }
+
+        .content {
+            position: relative;
+            z-index: 2;
+            max-width: 500px;
+            margin: 0 auto;
+            animation: fadeIn 0.4s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Шапка страницы */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 24px;
+        }
+
+        .btn-back {
+            background: var(--panel-bg);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            color: var(--text-main);
+            padding: 10px 16px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-back:active {
+            transform: scale(0.95);
+            background: var(--panel-bg-hover);
+        }
+
+        .page-title {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 20px;
+            font-weight: 800;
+            font-style: italic;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .page-title span {
+            color: var(--accent-orange);
+        }
+
+        /* Главный блок баланса */
+        .balance-card {
+            background: rgba(17, 24, 34, 0.75);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: 28px;
+            padding: 24px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.1);
+            margin-bottom: 24px;
+        }
+
+        .balance-label {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 12px;
+            font-weight: 800;
+            color: var(--text-muted);
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            margin-bottom: 6px;
+        }
+
+        .balance-amount {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 36px;
+            font-weight: 800;
+            color: var(--accent-green);
+            text-shadow: 0 0 25px rgba(27, 209, 93, 0.3);
+            margin-bottom: 4px;
+        }
+
+        .balance-sync-hint {
+            font-size: 11px;
+            color: var(--text-muted);
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        /* Разделы операций */
+        .wallet-sections {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .section-card {
+            background: var(--panel-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-radius: 24px;
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        }
+
+        .section-header {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 14px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .section-header.deposit-title { color: var(--accent-orange); }
+        .section-header.withdraw-title { color: var(--accent-blue); }
+
+        .input-group {
+            position: relative;
+            margin-bottom: 14px;
+        }
+
+        .amount-input {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            padding: 14px 44px 14px 16px;
+            font-family: 'Nunito', sans-serif;
+            font-size: 16px;
+            font-weight: 700;
+            color: #fff;
+            outline: none;
+            transition: all 0.2s;
+        }
+
+        .amount-input:focus {
+            border-color: rgba(255, 152, 0, 0.4);
+            box-shadow: 0 0 12px rgba(255, 152, 0, 0.1);
+        }
+
+        .withdraw-card .amount-input:focus {
+            border-color: rgba(24, 130, 255, 0.4);
+            box-shadow: 0 0 12px rgba(24, 130, 255, 0.1);
+        }
+
+        .currency-suffix {
+            position: absolute;
+            right: 18px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-family: 'Montserrat', sans-serif;
+            font-weight: 800;
+            color: var(--text-muted);
+        }
+
+        /* Быстрый выбор суммы */
+        .preset-chips {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            overflow-x: auto;
+            padding-bottom: 4px;
+        }
+
+        .chip {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            padding: 8px 14px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        .chip:active {
+            transform: scale(0.95);
+        }
+
+        .deposit-card .chip:hover { background: rgba(255, 152, 0, 0.15); border-color: var(--accent-orange); }
+        .withdraw-card .chip:hover { background: rgba(24, 130, 255, 0.15); border-color: var(--accent-blue); }
+
+        /* Кнопки действий */
+        .action-submit {
+            width: 100%;
+            border: none;
+            padding: 14px;
+            border-radius: 16px;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 14px;
+            font-weight: 800;
+            color: #fff;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            transition: all 0.2s;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .action-submit:active {
+            transform: scale(0.97);
+        }
+
+        .btn-deposit {
+            background: linear-gradient(135deg, var(--accent-orange), #cc7a00);
+        }
+
+        .btn-withdraw {
+            background: linear-gradient(135deg, var(--accent-blue), #105cc2);
+        }
+
+        /* МОДАЛЬНОЕ ОКНО ПРЕДУПРЕЖДЕНИЯ (ПЕРВЫЙ ЗАХОД) */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(4, 7, 12, 0.6);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-container {
+            background: rgba(17, 24, 34, 0.9);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 28px;
+            max-width: 400px;
+            width: 100%;
+            padding: 20px;
+            box-shadow: 0 24px 60px rgba(0,0,0,0.8);
+            transform: scale(0.9);
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            text-align: center;
+        }
+
+        .modal-overlay.active .modal-container {
+            transform: scale(1);
+        }
+
+        .modal-img-wrapper {
+            width: 100%;
+            border-radius: 18px;
+            overflow: hidden;
+            margin-bottom: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            background: #000;
+            aspect-ratio: 16 / 9;
+        }
+
+        .modal-img-wrapper img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .modal-title {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 16px;
+            font-weight: 800;
+            text-transform: uppercase;
+            color: var(--accent-orange);
+            margin-bottom: 12px;
+            letter-spacing: 0.5px;
+        }
+
+        .modal-text {
+            font-size: 13px;
+            line-height: 1.5;
+            color: var(--text-main);
+            text-align: left;
+            margin-bottom: 20px;
+            background: rgba(0,0,0,0.2);
+            padding: 12px;
+            border-radius: 14px;
+            border: 1px solid rgba(255,255,255,0.02);
+        }
+
+        .modal-text p {
+            margin-bottom: 8px;
+        }
+        .modal-text p:last-child {
+            margin-bottom: 0;
+        }
+
+        .modal-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .modal-btn {
+            padding: 12px;
+            border-radius: 14px;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 13px;
+            font-weight: 800;
+            cursor: pointer;
+            text-transform: uppercase;
+            border: none;
+            transition: all 0.2s;
+        }
+
+        .modal-btn.primary {
+            background: var(--accent-orange);
+            color: #fff;
+        }
+
+        .modal-btn.primary:active { background: var(--accent-orange-hover); transform: scale(0.98); }
+
+        .modal-btn.secondary {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-muted);
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .modal-btn.secondary:active { background: rgba(255, 255, 255, 0.1); transform: scale(0.98); }
+
+        @media (max-width: 480px) {
+            .balance-amount { font-size: 30px; }
+            .page-title { font-size: 18px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="bg-watermarks">
+        <div class="bg-text">R-<span>GAME</span></div>
+        <div class="bg-text">R-<span>GAME</span></div>
+        <div class="bg-text">R-<span>GAME</span></div>
+    </div>
+
+    <div class="content">
+        <div class="header">
+            <button class="btn-back" id="backBtn">← Назад</button>
+            <div class="page-title">БАЛАНС / <span>R-GAME</span></div>
+        </div>
+
+        <div class="balance-card">
+            <div class="balance-label">Текущий счет</div>
+            <div class="balance-amount" id="walletBalanceDisplay">0 ₽</div>
+            <div class="balance-sync-hint" id="syncBalanceBtn">Синхронизировать с ботом</div>
+        </div>
+
+        <div class="wallet-sections">
+            
+            <div class="section-card deposit-card">
+                <div class="section-header deposit-title">💰 Пополнение счета</div>
+                <div class="input-group">
+                    <input type="number" class="amount-input" id="depositInput" placeholder="Введите сумму" min="1">
+                    <span class="currency-suffix">₽</span>
+                </div>
+                <div class="preset-chips">
+                    <div class="chip" onclick="setAmount('deposit', 100)">+100 ₽</div>
+                    <div class="chip" onclick="setAmount('deposit', 500)">+500 ₽</div>
+                    <div class="chip" onclick="setAmount('deposit', 1000)">+1 000 ₽</div>
+                    <div class="chip" onclick="setAmount('deposit', 5000)">+5 000 ₽</div>
+                </div>
+                <button class="action-submit btn-deposit" id="submitDepositBtn">Пополнить</button>
+            </div>
+
+            <div class="section-card withdraw-card">
+                <div class="section-header withdraw-title">💸 Вывод средств</div>
+                <div class="input-group">
+                    <input type="number" class="amount-input" id="withdrawInput" placeholder="Введите сумму" min="1">
+                    <span class="currency-suffix">₽</span>
+                </div>
+                <div class="preset-chips">
+                    <div class="chip" onclick="setAmount('withdraw', 100)">100 ₽</div>
+                    <div class="chip" onclick="setAmount('withdraw', 500)">500 ₽</div>
+                    <div class="chip" onclick="setAmount('withdraw', 1000)">1 000 ₽</div>
+                    <div class="chip" onclick="setAmount('withdraw', 5000)">5 000 ₽</div>
+                </div>
+                <button class="action-submit btn-withdraw" id="submitWithdrawBtn">Вывести</button>
+            </div>
+
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="warningModal">
+        <div class="modal-container">
+            <div class="modal-img-wrapper">
+                <img src="photo_2026-06-26_22-28-12.jpg" alt="Синхронизация баланса">
+            </div>
+            <div class="modal-title">Безопасность игрового профиля</div>
+            <div class="modal-text">
+                <p>⚠️ <b>Обратите внимание на важные особенности управления учетной записью:</b></p>
+                <p>1. <b>Очистка данных:</b> Текущее отображение сессии завязано на локальное хранилище. При полной очистке кэша или истории вашего браузера/Telegram, локальный баланс обнулится.</p>
+                <p>2. <b>Новые устройства:</b> При входе в систему с нового девайса баланс не синхронизируется в реальном времени автоматически. При этом он остается в полной безопасности на основном устройстве и сервере.</p>
+                <p>🔄 Актуальное состояние игровых средств всегда можно мгновенно восстановить, запросив обновление баланса из основного бота.</p>
+            </div>
+            <div class="modal-buttons">
+                <button class="modal-btn primary" id="modalAcceptBtn">Понял, больше не показывать</button>
+                <button class="modal-btn secondary" id="modalLaterBtn">Показать позже</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.enableClosingConfirmation();
+
+        // Получение userId
+        let userId = null;
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('userId')) userId = urlParams.get('userId');
+        else if (tg.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
+
+        const balanceDisplay = document.getElementById('walletBalanceDisplay');
+
+        // Инициализация и отображение баланса из локального хранилища
+        let localBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+        balanceDisplay.innerText = localBalance.toLocaleString() + ' ₽';
+
+        // Запрос баланса у сервера бота
+        function syncWithBot() {
+            if (!userId) {
+                alert('❌ Ошибка: userId не найден');
+                return;
+            }
+            console.log('📤 Запрос актуального баланса из базы данных...');
+            tg.sendData(JSON.stringify({ action: 'get_balance' }));
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+        }
+
+        document.getElementById('syncBalanceBtn').onclick = syncWithBot;
+
+        // Обработка ответов от Telegram бота
+        tg.onEvent('web_app_data', function(data) {
+            try {
+                const response = JSON.parse(data);
+                if (response.balance !== undefined) {
+                    const newBalance = response.balance;
+                    localStorage.setItem('casinoBalance', String(newBalance));
+                    balanceDisplay.innerText = newBalance.toLocaleString() + ' ₽';
+                    if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+                }
+            } catch (e) {
+                console.error('Ошибка разбора данных:', e);
+            }
+        });
+
+        // Быстрая вставка предустановленных сумм в инпуты
+        function setAmount(type, value) {
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+            if (type === 'deposit') {
+                document.getElementById('depositInput').value = value;
+            } else {
+                document.getElementById('withdrawInput').value = value;
+            }
+        }
+
+        // Кнопка Назад
+        document.getElementById('backBtn').onclick = () => {
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
+            window.location.href = 'casino.html?userId=' + (userId || '');
+        };
+
+        // Логика Пополнения баланса
+        document.getElementById('submitDepositBtn').onclick = () => {
+            const input = document.getElementById('depositInput');
+            const amt = parseInt(input.value);
+
+            if (!userId) {
+                alert('❌ Ошибка: сессия не идентифицирована');
+                return;
+            }
+            if (isNaN(amt) || amt <= 0) {
+                alert('💰 Пожалуйста, укажите корректную сумму пополнения');
+                return;
+            }
+
+            // Обновляем локально и посылаем сигнал в бот структуры
+            let currentBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+            currentBalance += amt;
+            localStorage.setItem('casinoBalance', String(currentBalance));
+            balanceDisplay.innerText = currentBalance.toLocaleString() + ' ₽';
+
+            tg.sendData(JSON.stringify({ action: 'deposit', amount: amt }));
+            input.value = '';
+            
+            if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+        };
+
+        // Логика Вывода баланса
+        document.getElementById('submitWithdrawBtn').onclick = () => {
+            const input = document.getElementById('withdrawInput');
+            const amt = parseInt(input.value);
+            let currentBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+
+            if (!userId) {
+                alert('❌ Ошибка: сессия не идентифицирована');
+                return;
+            }
+            if (isNaN(amt) || amt <= 0) {
+                alert('💵 Пожалуйста, укажите корректную сумму для вывода');
+                return;
+            }
+            if (amt > currentBalance) {
+                alert('❌ Недостаточно средств на игровом балансе');
+                return;
+            }
+
+            // Вычитаем локально и отправляем команду транзакции основному боту
+            currentBalance -= amt;
+            localStorage.setItem('casinoBalance', String(currentBalance));
+            balanceDisplay.innerText = currentBalance.toLocaleString() + ' ₽';
+
+            tg.sendData(JSON.stringify({ action: 'withdraw', amount: amt }));
+            input.value = '';
+
+            if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+        };
+
+        // === ЛОГИКА МОДАЛЬНОГО ОКНА ПРЕДУПРЕЖДЕНИЯ ===
+        const modal = document.getElementById('warningModal');
+        const hideWarningFlag = localStorage.getItem('hideWalletWarning');
+
+        // Проверяем, нужно ли показывать окно (если флага 'true' нет в базе устройства)
+        if (hideWarningFlag !== 'true') {
+            setTimeout(() => {
+                modal.classList.add('active');
+            }, 400);
+        }
+
+        // Кнопка "Понял, больше не показывать"
+        document.getElementById('modalAcceptBtn').onclick = () => {
+            localStorage.setItem('hideWalletWarning', 'true');
+            modal.classList.remove('active');
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
+        };
+
+        // Кнопка "Показать позже"
+        document.getElementById('modalLaterBtn').onclick = () => {
+            modal.classList.remove('active');
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+        };
+    </script>
+</body>
+</html>
