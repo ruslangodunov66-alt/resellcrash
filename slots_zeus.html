@@ -88,7 +88,7 @@
         }
 
         /* ==============================================================
-           CANVAS ДЛЯ ЧАСТИЦ
+           CANVAS ДЛЯ ЧАСТИЦ И МОЛНИЙ
            ============================================================== */
         #particleCanvas,
         #lightningCanvas {
@@ -324,12 +324,33 @@
             100% { transform: scale(1); }
         }
 
+        /* Кнопка настроек */
+        .btn-settings {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: linear-gradient(145deg, rgba(255,213,74,0.15), rgba(7,23,45,0.8));
+            border: 2px solid rgba(255,213,74,0.4);
+            color: var(--gold-primary);
+            font-size: 22px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.25s var(--ease-bounce);
+            flex-shrink: 0;
+            margin-left: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,241,168,0.2);
+        }
+        .btn-settings:hover { border-color: var(--gold-primary); box-shadow: 0 0 24px var(--gold-glow); transform: rotate(60deg); }
+        .btn-settings:active { transform: scale(0.88); }
+
         /* ==============================================================
            STATUS BAR (исправлено перекрытие)
            ============================================================== */
         .status-bar {
             position: relative;
-            z-index: var(--z-ui);
+            z-index: calc(var(--z-ui) + 1);
             text-align: center;
             padding: 10px 16px;
             min-height: 48px;
@@ -360,6 +381,7 @@
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            max-width: 85vw;
         }
         .status-bar.bonus {
             color: var(--scatter-cyan);
@@ -526,13 +548,15 @@
             border-radius: 8px;
             pointer-events: none;
         }
+
+        /* Новая анимация плавного опускания (landing) */
         .cell.landing img {
-            animation: symbolLand 0.45s var(--ease-bounce);
+            animation: symbolLand 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
         }
         @keyframes symbolLand {
-            0% { transform: translateY(-80%) scale(1.3); opacity: 0.3; }
-            60% { transform: translateY(8%) scale(0.95); }
-            100% { transform: translateY(0) scale(1); opacity: 1; }
+            0% { transform: translateY(-120%) scale(1.2) rotate(-5deg); opacity: 0; }
+            60% { transform: translateY(8%) scale(0.95) rotate(1deg); opacity: 0.9; }
+            100% { transform: translateY(0) scale(1) rotate(0deg); opacity: 1; }
         }
 
         .cell:not(.spinning):hover img {
@@ -558,8 +582,21 @@
             100% { transform: scale(1.15); }
         }
 
+        .cell.scatter-highlight {
+            background: radial-gradient(circle, rgba(92,225,255,0.35) 0%, rgba(7,23,45,0.9) 75%);
+            border-color: var(--scatter-cyan);
+            box-shadow: inset 0 0 50px rgba(92,225,255,0.15), 0 0 40px rgba(92,225,255,0.2);
+        }
+        .cell.scatter-highlight img {
+            animation: scatterPulse 0.5s infinite alternate var(--ease-bounce);
+        }
+        @keyframes scatterPulse {
+            0% { transform: scale(1) rotate(0deg); }
+            100% { transform: scale(1.18) rotate(10deg); }
+        }
+
         /* ==============================================================
-           АНИМАЦИЯ ВЗРЫВА (для каскадов)
+           АНИМАЦИЯ ВЗРЫВА (каскады)
            ============================================================== */
         .cell.exploding {
             animation: explode 0.5s ease-out forwards;
@@ -571,11 +608,11 @@
         }
 
         .cell.falling {
-            animation: fallDown 0.3s ease-in forwards;
+            animation: fallDown 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
         }
         @keyframes fallDown {
-            0% { transform: translateY(-120%) scale(0.5); opacity: 0; }
-            60% { transform: translateY(10%) scale(1.05); opacity: 1; }
+            0% { transform: translateY(-120%) scale(0.7); opacity: 0; }
+            60% { transform: translateY(8%) scale(1.05); opacity: 1; }
             100% { transform: translateY(0) scale(1); opacity: 1; }
         }
 
@@ -648,7 +685,7 @@
         }
 
         /* ==============================================================
-           SPINNING — НОВАЯ АНИМАЦИЯ (с физическим замедлением)
+           SPINNING — улучшенная анимация вращения
            ============================================================== */
         .cell.spinning img {
             animation: spinPhysics 0.12s infinite ease-in-out;
@@ -961,7 +998,159 @@
         .btn-collect { display: none !important; }
 
         /* ==============================================================
-           BIG WIN, PORTAL, BONUS POPUP (без изменений)
+           НАСТРОЙКИ (модальное окно)
+           ============================================================== */
+        .settings-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 999;
+            background: rgba(7,23,45,0.85);
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            animation: fadePopup 0.4s var(--ease-premium);
+        }
+        .settings-overlay.active { display: flex; }
+        .settings-panel {
+            background: linear-gradient(160deg, rgba(18,58,115,0.95), rgba(7,23,45,0.98));
+            border: 3px solid transparent;
+            border-radius: 28px;
+            padding: 32px 28px 28px;
+            max-width: 400px;
+            width: 92%;
+            box-shadow: 0 0 120px rgba(255,213,74,0.15), 0 24px 80px rgba(0,0,0,0.9);
+            position: relative;
+            overflow: hidden;
+            animation: popupSlide 0.55s var(--ease-bounce);
+        }
+        .settings-panel::before {
+            content: '';
+            position: absolute;
+            inset: -3px;
+            border-radius: 30px;
+            background: var(--gold-gradient);
+            z-index: -1;
+            opacity: 0.6;
+        }
+        .settings-panel::after {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: repeating-conic-gradient(from 0deg, transparent 0deg, rgba(255,213,74,0.02) 5deg, transparent 10deg);
+            animation: rotateBg 20s linear infinite;
+            pointer-events: none;
+        }
+        @keyframes rotateBg { to { transform: rotate(360deg); } }
+        .settings-close {
+            position: absolute;
+            top: 12px;
+            right: 18px;
+            font-size: 28px;
+            color: rgba(244,240,230,0.4);
+            cursor: pointer;
+            background: none;
+            border: none;
+            transition: color 0.2s, transform 0.2s;
+            z-index: 10;
+            padding: 4px 12px;
+        }
+        .settings-close:hover { color: var(--marble-white); transform: scale(1.1); }
+        .settings-title {
+            font-family: var(--font-display);
+            font-size: 26px;
+            font-weight: 900;
+            color: var(--gold-primary);
+            text-align: center;
+            margin-bottom: 24px;
+            letter-spacing: 4px;
+            text-shadow: 0 0 30px rgba(255,213,74,0.2);
+            position: relative;
+            z-index: 2;
+        }
+        .settings-group {
+            margin-bottom: 20px;
+            position: relative;
+            z-index: 2;
+        }
+        .settings-group label {
+            display: block;
+            font-size: 14px;
+            font-weight: 700;
+            color: rgba(244,240,230,0.7);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+        .settings-group .options {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .settings-group .option-btn {
+            flex: 1;
+            min-width: 80px;
+            padding: 10px 12px;
+            background: rgba(7,23,45,0.6);
+            border: 2px solid rgba(255,213,74,0.2);
+            border-radius: 12px;
+            color: rgba(244,240,230,0.5);
+            font-family: var(--font-ui);
+            font-weight: 800;
+            font-size: 14px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.25s var(--ease-bounce);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            position: relative;
+        }
+        .settings-group .option-btn:hover { border-color: rgba(255,213,74,0.4); color: var(--marble-white); }
+        .settings-group .option-btn.active {
+            background: rgba(255,213,74,0.15);
+            border-color: var(--gold-primary);
+            color: var(--gold-primary);
+            box-shadow: 0 0 25px rgba(255,213,74,0.15);
+        }
+        .settings-group .toggle-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 18px;
+            background: rgba(7,23,45,0.6);
+            border: 2px solid rgba(255,213,74,0.2);
+            border-radius: 12px;
+            color: rgba(244,240,230,0.5);
+            font-family: var(--font-ui);
+            font-weight: 800;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.25s var(--ease-bounce);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .settings-group .toggle-btn:hover { border-color: rgba(255,213,74,0.4); color: var(--marble-white); }
+        .settings-group .toggle-btn.active {
+            background: rgba(61,220,132,0.15);
+            border-color: var(--win-green);
+            color: var(--win-green);
+            box-shadow: 0 0 25px rgba(61,220,132,0.15);
+        }
+        .settings-group .toggle-btn .indicator {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.15);
+            transition: background 0.25s;
+        }
+        .settings-group .toggle-btn.active .indicator { background: var(--win-green); }
+
+        /* ==============================================================
+           BIG WIN, PORTAL, BONUS POPUP
            ============================================================== */
         .big-win-overlay {
             position: fixed;
@@ -1125,7 +1314,6 @@
             animation: rotateBg 20s linear infinite;
             pointer-events: none;
         }
-        @keyframes rotateBg { to { transform: rotate(360deg); } }
         .bonus-popup-content .close-btn {
             position: absolute;
             top: 12px;
@@ -1289,6 +1477,30 @@
             font-family: var(--font-display);
         }
 
+        /* ==============================================================
+           BALANCED MODE — упрощённая графика
+           ============================================================== */
+        body.balanced-mode .god-rays { display: none; }
+        body.balanced-mode .bg-ornament { opacity: 0.02; }
+        body.balanced-mode .meander-top,
+        body.balanced-mode .meander-bottom { opacity: 0.2; }
+        body.balanced-mode .slot-frame::before { opacity: 0.4; }
+        body.balanced-mode .cell { border-radius: 6px; border-width: 1px; }
+        body.balanced-mode .cell img { filter: none !important; }
+        body.balanced-mode .cell.win-highlight { animation: none; box-shadow: 0 0 20px rgba(255,213,74,0.3); }
+        body.balanced-mode .cell.win-highlight img { animation: none; }
+        body.balanced-mode .cell.scatter-highlight { animation: none; box-shadow: 0 0 20px rgba(92,225,255,0.2); }
+        body.balanced-mode .cell.spinning img { animation-duration: 0.08s; filter: blur(2px); }
+        body.balanced-mode .cell.landing img { animation-duration: 0.35s; }
+        body.balanced-mode .cell.exploding { animation-duration: 0.3s; }
+        body.balanced-mode .cell.falling { animation-duration: 0.3s; }
+        body.balanced-mode .big-win-overlay { background: rgba(7,23,45,0.6); }
+        body.balanced-mode .big-win-label { font-size: clamp(24px, 6vw, 40px); }
+        body.balanced-mode .btn-spin { animation: none; box-shadow: 0 4px 20px rgba(0,0,0,0.4), inset 0 -3px 0 rgba(0,0,0,0.2); }
+        body.balanced-mode .btn-spin::after { display: none; }
+        body.balanced-mode .flash-overlay.active { opacity: 0.3; }
+        body.balanced-mode .lightning-container { display: none; }
+
         @media (max-width: 480px) {
             .brand-title { font-size: 22px; letter-spacing: 4px; }
             .brand-title::before, .brand-title::after { font-size: 16px; margin: 0 8px; }
@@ -1317,6 +1529,7 @@
             .status-bar { font-size: 14px; min-height: 36px; padding: 6px 12px; letter-spacing: 2px; }
             .header { min-height: 64px; padding: 8px 14px; }
             .btn-back { width: 40px; height: 40px; font-size: 18px; }
+            .btn-settings { width: 40px; height: 40px; font-size: 18px; margin-left: 6px; }
             .bottom-panel { padding: 8px 10px 12px; gap: 8px; margin-top: 2px; }
             .stats { gap: 6px; }
             .stat-box { padding: 6px 4px; border-radius: 10px; }
@@ -1327,6 +1540,7 @@
             .bonus-popup-content .col-deco { width: 16px; }
             .auto-total { font-size: 12px; }
             .coin { width: 24px; height: 24px; font-size: 10px; }
+            .settings-panel { padding: 24px 16px 20px; }
         }
         @media (max-width: 370px) {
             .brand-title { font-size: 16px; letter-spacing: 2px; }
@@ -1356,6 +1570,7 @@
             .auto-stop-btn { font-size: 9px; padding: 4px 12px; min-height: 28px; }
             .auto-total { font-size: 10px; }
             .coin { width: 20px; height: 20px; font-size: 8px; }
+            .btn-settings { width: 34px; height: 34px; font-size: 15px; }
         }
     </style>
 </head>
@@ -1416,6 +1631,7 @@
                 <div class="balance-label">Баланс</div>
                 <div class="balance-val" id="balanceDisplay">0 ₽</div>
             </div>
+            <button class="btn-settings" id="btnSettings" aria-label="Настройки">⚙</button>
         </div>
 
         <!-- ===== СТАТУС-БАР ===== -->
@@ -1482,6 +1698,36 @@
         </div>
     </div>
 
+    <!-- ===== НАСТРОЙКИ (модальное окно) ===== -->
+    <div class="settings-overlay" id="settingsOverlay">
+        <div class="settings-panel">
+            <button class="settings-close" id="settingsClose">✕</button>
+            <div class="settings-title">⚡ НАСТРОЙКИ</div>
+
+            <div class="settings-group">
+                <label>Графика</label>
+                <div class="options">
+                    <button class="option-btn active" data-graphics="max">Максимальная</button>
+                    <button class="option-btn" data-graphics="balanced">Сбалансированная</button>
+                </div>
+            </div>
+
+            <div class="settings-group">
+                <label>Звук</label>
+                <button class="toggle-btn active" id="soundToggle">
+                    <span class="indicator"></span> Вкл
+                </button>
+            </div>
+
+            <div class="settings-group">
+                <label>Музыка</label>
+                <button class="toggle-btn active" id="musicToggle">
+                    <span class="indicator"></span> Вкл
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- ==============================================================
     JAVASCRIPT
     ============================================================== -->
@@ -1501,7 +1747,114 @@
             const userId = urlParams.get('userId') || (tg?.initDataUnsafe?.user?.id) || '';
 
             // =============================================================
-            // 2. КОНФИГ
+            // 2. НАСТРОЙКИ
+            // =============================================================
+            let settings = {
+                graphics: 'max', // 'max' | 'balanced'
+                sound: true,
+                music: true
+            };
+
+            // Загрузка настроек из localStorage
+            try {
+                const saved = localStorage.getItem('zeus_settings');
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    settings = { ...settings, ...parsed };
+                }
+            } catch (e) {}
+
+            // Применение настроек к интерфейсу
+            function applySettings() {
+                // Графика
+                document.body.classList.toggle('balanced-mode', settings.graphics === 'balanced');
+                document.querySelectorAll('[data-graphics]').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.graphics === settings.graphics);
+                });
+                // Звук
+                const soundBtn = document.getElementById('soundToggle');
+                soundBtn.classList.toggle('active', settings.sound);
+                soundBtn.innerHTML = `<span class="indicator"></span> ${settings.sound ? 'Вкл' : 'Выкл'}`;
+                // Музыка
+                const musicBtn = document.getElementById('musicToggle');
+                musicBtn.classList.toggle('active', settings.music);
+                musicBtn.innerHTML = `<span class="indicator"></span> ${settings.music ? 'Вкл' : 'Выкл'}`;
+                // Обновляем звук и музыку
+                updateAudio();
+                // Если графика сбалансирована – упрощаем частицы и молнии
+                if (settings.graphics === 'balanced') {
+                    // Уменьшаем количество частиц при инициализации
+                    if (window._particlesInit) {
+                        // переинициализируем с меньшим количеством
+                        initParticlesBalanced();
+                    }
+                } else {
+                    // Максимальная – перезапускаем частицы с полным набором
+                    if (window._particlesInit) {
+                        initParticlesFull();
+                    }
+                }
+            }
+
+            // Сохранение настроек
+            function saveSettings() {
+                try {
+                    localStorage.setItem('zeus_settings', JSON.stringify(settings));
+                } catch (e) {}
+                applySettings();
+            }
+
+            // Управление звуком и музыкой
+            function updateAudio() {
+                // Звук: мы будем проверять глобальный флаг soundEnabled
+                window._soundEnabled = settings.sound;
+                // Музыка
+                if (bgMusic) {
+                    if (settings.music) {
+                        bgMusic.play().catch(() => {});
+                    } else {
+                        bgMusic.pause();
+                    }
+                }
+            }
+
+            // Инициализация частиц (полная версия для максимальной графики)
+            function initParticlesFull() {
+                if (window._particlesAnimId) cancelAnimationFrame(window._particlesAnimId);
+                // Используем существующую функцию initParticles, но с увеличенным количеством
+                // Если функция уже определена, вызываем её
+                if (typeof initParticles === 'function') {
+                    initParticles();
+                }
+            }
+
+            // Инициализация частиц (облегчённая версия для сбалансированной графики)
+            function initParticlesBalanced() {
+                if (window._particlesAnimId) cancelAnimationFrame(window._particlesAnimId);
+                // Уменьшаем количество частиц до 15
+                pW = particleCanvas.width = window.innerWidth;
+                pH = particleCanvas.height = window.innerHeight;
+                pCtx = particleCanvas.getContext('2d');
+                particles = [];
+                for (let i = 0; i < 15; i++) {
+                    particles.push({
+                        x: Math.random() * pW,
+                        y: Math.random() * pH,
+                        vx: (Math.random() - 0.5) * 0.12,
+                        vy: (Math.random() - 0.5) * 0.12 - 0.02,
+                        r: 0.5 + Math.random() * 2,
+                        a: 0.06 + Math.random() * 0.2,
+                        phase: Math.random() * Math.PI * 2,
+                        speed: 0.3 + Math.random() * 0.6,
+                        type: Math.random() > 0.7 ? 'magic' : 'dust'
+                    });
+                }
+                if (particleAnimId) cancelAnimationFrame(particleAnimId);
+                drawParticles();
+            }
+
+            // =============================================================
+            // 3. КОНФИГ
             // =============================================================
             const SYMBOLS = [
                 'img/photo_2026-06-29_22-33-39.jpg',
@@ -1523,7 +1876,6 @@
             const GRID_SIZE = 25;
             const NUM_LINES = 25;
 
-            // Увеличенные множители
             const PAYTABLE = {};
             PAYTABLE[SYMBOLS[0]] = { 5: 220, 4: 80, 3: 22, 2: 3.0 };
             PAYTABLE[SYMBOLS[1]] = { 5: 120, 4: 45, 3: 12, 2: 2.0 };
@@ -1541,11 +1893,31 @@
             PAYTABLE[SYMBOLS[13]] = { 5: 8, 4: 3, 3: 0.8, 2: 0.2 };
 
             const LINES = [
-                [0,1,2,3,4], [5,6,7,8,9], [10,11,12,13,14], [15,16,17,18,19], [20,21,22,23,24],
-                [0,6,12,18,24], [4,8,12,16,20], [0,6,2,8,4], [20,16,22,18,24], [5,1,7,3,9],
-                [15,21,17,23,19], [10,6,2,8,14], [10,16,22,18,14], [0,7,12,17,24], [4,7,12,17,20],
-                [0,1,7,8,9], [15,16,22,23,24], [0,5,10,15,20], [4,9,14,19,24], [0,6,7,8,4],
-                [20,16,17,18,24], [5,6,12,18,19], [15,16,12,8,9], [10,11,12,13,14], [0,5,12,19,24]
+                [0, 1, 2, 3, 4],
+                [5, 6, 7, 8, 9],
+                [10, 11, 12, 13, 14],
+                [15, 16, 17, 18, 19],
+                [20, 21, 22, 23, 24],
+                [0, 6, 12, 18, 24],
+                [4, 8, 12, 16, 20],
+                [0, 6, 2, 8, 4],
+                [20, 16, 22, 18, 24],
+                [5, 1, 7, 3, 9],
+                [15, 21, 17, 23, 19],
+                [10, 6, 2, 8, 14],
+                [10, 16, 22, 18, 14],
+                [0, 7, 12, 17, 24],
+                [4, 7, 12, 17, 20],
+                [0, 1, 7, 8, 9],
+                [15, 16, 22, 23, 24],
+                [0, 5, 10, 15, 20],
+                [4, 9, 14, 19, 24],
+                [0, 6, 7, 8, 4],
+                [20, 16, 17, 18, 24],
+                [5, 6, 12, 18, 19],
+                [15, 16, 12, 8, 9],
+                [10, 11, 12, 13, 14],
+                [0, 5, 12, 19, 24]
             ];
 
             const BASE_WEIGHTS = {};
@@ -1620,7 +1992,7 @@
             }
 
             // =============================================================
-            // 3. STATE
+            // 4. STATE
             // =============================================================
             let balance = parseInt(localStorage.getItem('casinoBalance')) || 10000000;
             if (balance < 100) balance = 10000;
@@ -1636,10 +2008,10 @@
             let isAutoStopping = false;
             let currentGrid = [];
             let cells = [];
-            let cascadeMultiplier = 1; // для каскадов
+            let cascadeMultiplier = 1;
 
             // =============================================================
-            // 4. DOM REFS
+            // 5. DOM REFS
             // =============================================================
             const balanceDisplay = document.getElementById('balanceDisplay');
             const balanceBox = document.getElementById('balanceBox');
@@ -1680,9 +2052,10 @@
             const appEl = document.getElementById('app');
 
             // =============================================================
-            // 5. VISUAL ENGINES (частицы, молнии, звуки — без изменений)
+            // 6. VISUAL ENGINES (частицы, молнии, звуки)
             // =============================================================
-            const SoundManager = { volume: 0.85, setVolume(v) { this.volume = Math.max(0, Math.min(1, v)); }, scale(vol) { return vol * this.volume; } };
+            const SoundManager = { volume: 0.85, setVolume(v) { this.volume = Math.max(0, Math.min(1, v)); }, scale(vol) { return vol *
+                        this.volume; } };
 
             let particles = [],
                 burstParticles = [];
@@ -1691,314 +2064,15 @@
                 pH = 0,
                 particleAnimId = null;
 
-            function spawnBurst(x, y, count, type) {
-                const actualCount = Math.floor(count * 0.7);
-                const maxCount = Math.min(actualCount, 25);
-                for (let i = 0; i < maxCount; i++) {
-                    const angle = Math.random() * Math.PI * 2;
-                    const speed = 1 + Math.random() * 3.5;
-                    burstParticles.push({
-                        x,
-                        y,
-                        vx: Math.cos(angle) * speed,
-                        vy: Math.sin(angle) * speed - 1,
-                        r: type === 'coin' ? 3 + Math.random() * 5 : 1 + Math.random() * 2.5,
-                        a: 1,
-                        life: 1,
-                        decay: 0.015 + Math.random() * 0.025,
-                        type: type || 'gold',
-                        rot: Math.random() * Math.PI * 2,
-                        rotV: (Math.random() - 0.5) * 0.2
-                    });
-                }
-            }
+            // Флаг для звука
+            let soundEnabled = true;
 
-            function initParticles() {
-                pW = particleCanvas.width = window.innerWidth;
-                pH = particleCanvas.height = window.innerHeight;
-                pCtx = particleCanvas.getContext('2d');
-                particles = [];
-                for (let i = 0; i < 30; i++) {
-                    particles.push({
-                        x: Math.random() * pW,
-                        y: Math.random() * pH,
-                        vx: (Math.random() - 0.5) * 0.12,
-                        vy: (Math.random() - 0.5) * 0.12 - 0.02,
-                        r: 0.5 + Math.random() * 2,
-                        a: 0.06 + Math.random() * 0.2,
-                        phase: Math.random() * Math.PI * 2,
-                        speed: 0.3 + Math.random() * 0.6,
-                        type: Math.random() > 0.7 ? 'magic' : 'dust'
-                    });
-                }
-                if (particleAnimId) cancelAnimationFrame(particleAnimId);
-                drawParticles();
-            }
-
-            function drawParticles() {
-                if (!pCtx) return;
-                pCtx.clearRect(0, 0, pW, pH);
-                const time = Date.now() * 0.0004;
-                particles.forEach(p => {
-                    p.x += p.vx + Math.sin(time * p.speed + p.phase) * 0.03;
-                    p.y += p.vy + Math.cos(time * p.speed * 0.7 + p.phase) * 0.03;
-                    if (p.x < 0) p.x = pW;
-                    if (p.x > pW) p.x = 0;
-                    if (p.y < 0) p.y = pH;
-                    if (p.y > pH) p.y = 0;
-                    const alpha = p.a * (0.4 + 0.6 * Math.sin(time * 0.5 + p.phase));
-                    pCtx.beginPath();
-                    pCtx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-                    if (p.type === 'magic') {
-                        pCtx.fillStyle = `rgba(92,225,255,${alpha * 0.6})`;
-                    } else {
-                        pCtx.fillStyle = `rgba(255,213,74,${alpha})`;
-                    }
-                    pCtx.shadowColor = p.type === 'magic' ? `rgba(92,225,255,${alpha * 0.5})` : `rgba(255,213,74,${alpha * 0.5})`;
-                    pCtx.shadowBlur = 8;
-                    pCtx.fill();
-                    pCtx.shadowBlur = 0;
-                });
-                burstParticles = burstParticles.filter(bp => {
-                    bp.x += bp.vx;
-                    bp.y += bp.vy;
-                    bp.vy += 0.06;
-                    bp.life -= bp.decay;
-                    bp.rot += bp.rotV;
-                    if (bp.life <= 0) return false;
-                    pCtx.save();
-                    pCtx.translate(bp.x, bp.y);
-                    pCtx.rotate(bp.rot);
-                    pCtx.globalAlpha = bp.life;
-                    if (bp.type === 'coin') {
-                        pCtx.fillStyle = '#FFD54A';
-                        pCtx.beginPath();
-                        pCtx.ellipse(0, 0, bp.r, bp.r * 0.6, 0, 0, Math.PI * 2);
-                        pCtx.fill();
-                    } else if (bp.type === 'spark') {
-                        pCtx.fillStyle = '#FFF1A8';
-                        pCtx.fillRect(-bp.r, -bp.r * 0.3, bp.r * 2, bp.r * 0.6);
-                    } else {
-                        pCtx.fillStyle = '#FFD54A';
-                        pCtx.beginPath();
-                        pCtx.arc(0, 0, bp.r, 0, Math.PI * 2);
-                        pCtx.fill();
-                    }
-                    pCtx.restore();
-                    return true;
-                });
-                particleAnimId = requestAnimationFrame(drawParticles);
-            }
-
-            let lCtx = null,
-                lW = 0,
-                lH = 0,
-                lightningBolts = [];
-
-            function initLightningCanvas() {
-                lW = lightningCanvas.width = window.innerWidth;
-                lH = lightningCanvas.height = window.innerHeight;
-                lCtx = lightningCanvas.getContext('2d');
-            }
-
-            function createBolt(startX, startY, endX, endY, depth, maxDepth) {
-                if (depth > maxDepth) return [{ x1: startX, y1: startY, x2: endX, y2: endY }];
-                const segments = [];
-                const midX = (startX + endX) / 2 + (Math.random() - 0.5) * 80;
-                const midY = (startY + endY) / 2;
-                segments.push(...createBolt(startX, startY, midX, midY, depth + 1, maxDepth));
-                segments.push(...createBolt(midX, midY, endX, endY, depth + 1, maxDepth));
-                if (depth < 2 && Math.random() > 0.5) {
-                    const branchEndX = midX + (Math.random() - 0.5) * 120;
-                    const branchEndY = midY + 60 + Math.random() * 80;
-                    segments.push(...createBolt(midX, midY, branchEndX, branchEndY, depth + 2, maxDepth + 1));
-                }
-                return segments;
-            }
-
-            function renderLightning() {
-                if (!lCtx || lightningBolts.length === 0) return;
-                lCtx.clearRect(0, 0, lW, lH);
-                lightningBolts.forEach(bolt => {
-                    bolt.life -= 0.04;
-                    if (bolt.life <= 0) return;
-                    const alpha = bolt.life;
-                    bolt.segments.forEach(seg => {
-                        lCtx.beginPath();
-                        lCtx.moveTo(seg.x1, seg.y1);
-                        lCtx.lineTo(seg.x2, seg.y2);
-                        lCtx.strokeStyle = `rgba(255,241,168,${alpha * 0.9})`;
-                        lCtx.lineWidth = 3 * alpha;
-                        lCtx.shadowColor = `rgba(255,213,74,${alpha})`;
-                        lCtx.shadowBlur = 20;
-                        lCtx.stroke();
-                        lCtx.strokeStyle = `rgba(255,255,255,${alpha * 0.6})`;
-                        lCtx.lineWidth = 1.5 * alpha;
-                        lCtx.stroke();
-                    });
-                    lCtx.shadowBlur = 0;
-                });
-                lightningBolts = lightningBolts.filter(b => b.life > 0);
-                if (lightningBolts.length > 0) requestAnimationFrame(renderLightning);
-            }
-
-            function fireLightningBolt() {
-                initLightningCanvas();
-                const startX = lW * (0.3 + Math.random() * 0.4);
-                const endX = startX + (Math.random() - 0.5) * 100;
-                const segments = createBolt(startX, 0, endX, lH * (0.4 + Math.random() * 0.3), 0, 4);
-                lightningBolts.push({ segments, life: 1 });
-                renderLightning();
-            }
-
-            let bigWinAnimId = null;
-            const BIG_WIN_TIERS = [
-                { threshold: 8, label: 'BIG WIN', tier: 'big', shake: 'shake-light' },
-                { threshold: 15, label: 'MEGA WIN', tier: 'mega', shake: 'shake-medium' },
-                { threshold: 25, label: 'SUPER WIN', tier: 'super', shake: 'shake-medium' },
-                { threshold: 45, label: 'EPIC WIN', tier: 'epic', shake: 'shake-heavy' },
-                { threshold: 80, label: 'LEGENDARY WIN', tier: 'legendary', shake: 'shake-heavy' }
-            ];
-
-            function showBigWinCinematic(amount, bet) {
-                const ratio = amount / bet;
-                let tier = null;
-                for (let i = BIG_WIN_TIERS.length - 1; i >= 0; i--) {
-                    if (ratio >= BIG_WIN_TIERS[i].threshold) { tier = BIG_WIN_TIERS[i]; break; }
-                }
-                if (!tier) return;
-                bigWinContent.className = 'big-win-content big-win-tier-' + tier.tier;
-                bigWinLabel.textContent = tier.label;
-                bigWinAmount.textContent = '0 ₽';
-                bigWinOverlay.classList.add('active');
-                appEl.classList.add(tier.shake);
-                spawnBurst(pW / 2, pH / 2, 30, 'coin');
-                spawnBurst(pW / 2, pH / 2, 20, 'spark');
-                for (let i = 0; i < 3; i++) setTimeout(() => fireLightningBolt(), i * 200);
-                const duration = 2500 + tier.threshold * 30;
-                const startTime = Date.now();
-
-                function animateCounter() {
-                    const elapsed = Date.now() - startTime;
-                    const progress = Math.min(elapsed / duration, 1);
-                    const eased = 1 - Math.pow(1 - progress, 3);
-                    bigWinAmount.textContent = formatNumber(Math.floor(amount * eased)) + ' ₽';
-                    if (progress < 1) { bigWinAnimId = requestAnimationFrame(animateCounter); } else { setTimeout(hideBigWinCinematic,
-                            1200); }
-                }
-                if (bigWinAnimId) cancelAnimationFrame(bigWinAnimId);
-                animateCounter();
-            }
-
-            function hideBigWinCinematic() {
-                bigWinOverlay.classList.remove('active');
-                appEl.classList.remove('shake-light', 'shake-medium', 'shake-heavy');
-                if (bigWinAnimId) cancelAnimationFrame(bigWinAnimId);
-            }
-
-            function triggerFSPortal() {
-                fsPortalOverlay.classList.add('active');
-                spawnBurst(pW / 2, pH / 2, 35, 'spark');
-                fireLightningBolt();
-                setTimeout(() => fsPortalOverlay.classList.remove('active'), 1400);
-            }
-
-            function addSpinRipple(e, btn) {
-                const rect = btn.getBoundingClientRect();
-                const ripple = document.createElement('span');
-                ripple.className = 'ripple';
-                const size = Math.max(rect.width, rect.height);
-                ripple.style.width = ripple.style.height = size + 'px';
-                ripple.style.left = (e.clientX - rect.left - size / 2) + 'px';
-                ripple.style.top = (e.clientY - rect.top - size / 2) + 'px';
-                btn.appendChild(ripple);
-                setTimeout(() => ripple.remove(), 600);
-            }
-
-            window.addEventListener('resize', () => { initParticles();
-                initLightningCanvas(); });
-            initParticles();
-            initLightningCanvas();
-
-            // =============================================================
-            // 6. WIN LINES CANVAS
-            // =============================================================
-            function drawWinLines(winningIndices) {
-                const canvas = winLinesCanvas;
-                const rect = canvas.parentElement.getBoundingClientRect();
-                canvas.width = rect.width;
-                canvas.height = rect.height;
-                const ctx = canvas.getContext('2d');
-                const cols = 5,
-                    rows = 5,
-                    pad = 4;
-                const cellW = (canvas.width - pad * 2) / cols;
-                const cellH = (canvas.height - pad * 2) / rows;
-
-                function getPos(idx) {
-                    const r = Math.floor(idx / 5);
-                    const c = idx % 5;
-                    return { x: pad + c * cellW + cellW / 2, y: pad + r * cellH + cellH / 2 };
-                }
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                if (!winningIndices || winningIndices.length === 0) { canvas.classList.remove('active'); return; }
-                const lineGroups = [];
-                LINES.forEach((line, li) => {
-                    const matched = line.filter(idx => winningIndices.includes(idx));
-                    if (matched.length >= 3) lineGroups.push({ line, matched, li });
-                });
-                if (lineGroups.length === 0) { canvas.classList.remove('active'); return; }
-                canvas.classList.add('active');
-                lineGroups.forEach((g, gi) => {
-                    const pts = g.line.map(idx => getPos(idx));
-                    const goldHue = 45 + gi * 8;
-                    ctx.beginPath();
-                    ctx.moveTo(pts[0].x, pts[0].y);
-                    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-                    ctx.strokeStyle = `hsla(${goldHue},100%,65%,0.9)`;
-                    ctx.lineWidth = 3.5;
-                    ctx.shadowColor = `hsla(${goldHue},100%,60%,0.7)`;
-                    ctx.shadowBlur = 25;
-                    ctx.stroke();
-                    ctx.shadowBlur = 40;
-                    ctx.strokeStyle = `hsla(${goldHue},100%,85%,0.2)`;
-                    ctx.lineWidth = 10;
-                    ctx.stroke();
-                    g.matched.forEach(idx => {
-                        const p = getPos(idx);
-                        ctx.beginPath();
-                        ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
-                        ctx.fillStyle = `hsla(${goldHue},100%,75%,0.95)`;
-                        ctx.shadowBlur = 30;
-                        ctx.shadowColor = `hsla(${goldHue},100%,60%,0.8)`;
-                        ctx.fill();
-                        ctx.shadowBlur = 0;
-                        ctx.beginPath();
-                        ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
-                        ctx.fillStyle = '#FFF1A8';
-                        ctx.fill();
-                    });
-                });
-                setTimeout(() => { canvas.classList.remove('active'); }, 3200);
-            }
-
-            // =============================================================
-            // 7. AUDIO (добавлены новые звуки для каскадов)
-            // =============================================================
-            let audioCtx = null;
-
-            function initAudio() {
-                if (!audioCtx) {
-                    try {
-                        audioCtx = new(window.AudioContext || window.webkitAudioContext)();
-                        const resumeFn = function() { if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); };
-                        document.addEventListener('click', resumeFn, { once: true });
-                        document.addEventListener('touchstart', resumeFn, { once: true });
-                    } catch (e) {}
-                }
+            function canPlaySound() {
+                return settings.sound && soundEnabled;
             }
 
             function playTone(freq, dur, type = 'sine', vol = 0.07, delay = 0) {
+                if (!canPlaySound()) return;
                 if (!audioCtx) return;
                 try {
                     setTimeout(() => {
@@ -2018,6 +2092,7 @@
                 } catch (e) {}
             }
 
+            // Переопределим звуковые функции с проверкой canPlaySound
             function playSpin() { playTone(200, 0.08, 'sawtooth', 0.04);
                 playTone(300, 0.06, 'sine', 0.03, 40); }
 
@@ -2068,6 +2143,7 @@
             }
 
             function playThunder() {
+                if (!canPlaySound()) return;
                 try { thunderSound.currentTime = 0;
                     thunderSound.volume = 0.6;
                     thunderSound.play().catch(() => {}); } catch (e) {}
@@ -2094,13 +2170,14 @@
 
             function playTick() { playTone(800 + Math.random() * 400, 0.02, 'sine', 0.025); }
 
-            // Новые звуки для каскадов
             function playCascadeStart() {
+                if (!canPlaySound()) return;
                 playTone(500, 0.1, 'sine', 0.06);
                 setTimeout(() => playTone(700, 0.08, 'sine', 0.05), 80);
             }
 
             function playCascadeExplosion() {
+                if (!canPlaySound()) return;
                 for (let i = 0; i < 5; i++) {
                     setTimeout(() => playTone(400 + Math.random() * 600, 0.06, 'sawtooth', 0.04), i * 40);
                 }
@@ -2108,99 +2185,216 @@
             }
 
             function playCascadeWin() {
+                if (!canPlaySound()) return;
                 [440, 554, 659, 880].forEach((f, i) => playTone(f, 0.1, 'sine', 0.05, i * 60));
                 if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
             }
 
-            function playMusic() { bgMusic.volume = 0.16;
+            let audioCtx = null;
+
+            function initAudio() {
+                if (!audioCtx) {
+                    try {
+                        audioCtx = new(window.AudioContext || window.webkitAudioContext)();
+                        const resumeFn = function() { if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); };
+                        document.addEventListener('click', resumeFn, { once: true });
+                        document.addEventListener('touchstart', resumeFn, { once: true });
+                    } catch (e) {}
+                }
+            }
+
+            function playMusic() {
+                if (!settings.music) return;
+                bgMusic.volume = 0.16;
                 bgMusic.play().catch(() => { const fn = function() { bgMusic.play().catch(() => {}); };
                     document.addEventListener('click', fn, { once: true });
-                    document.addEventListener('touchstart', fn, { once: true }); }); }
+                    document.addEventListener('touchstart', fn, { once: true }); });
+            }
 
             // =============================================================
-            // 8. UI HELPERS
+            // 7. ЧАСТИЦЫ (переопределим с учётом режима)
             // =============================================================
-            function formatNumber(num) { return Math.floor(num).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' '); }
 
-            function parseNumber(str) { return parseInt(str.replace(/\s/g, '')) || 0; }
-
-            function updateBalance(amount, animate = false) {
-                balance = Math.floor(amount);
-                localStorage.setItem('casinoBalance', String(balance));
-                balanceDisplay.innerText = formatNumber(balance) + ' ₽';
-                if (animate) {
-                    balanceBox.classList.remove('pop');
-                    void balanceBox.offsetWidth;
-                    balanceBox.classList.add('pop');
-                    balanceDisplay.classList.add('added');
-                    setTimeout(() => balanceDisplay.classList.remove('added'), 500);
+            function spawnBurst(x, y, count, type) {
+                // В сбалансированном режиме уменьшаем количество частиц
+                let actualCount = Math.floor(count * (settings.graphics === 'balanced' ? 0.4 : 0.7));
+                const maxCount = Math.min(actualCount, settings.graphics === 'balanced' ? 12 : 25);
+                for (let i = 0; i < maxCount; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = 1 + Math.random() * 3.5;
+                    burstParticles.push({
+                        x,
+                        y,
+                        vx: Math.cos(angle) * speed,
+                        vy: Math.sin(angle) * speed - 1,
+                        r: type === 'coin' ? 3 + Math.random() * 5 : 1 + Math.random() * 2.5,
+                        a: 1,
+                        life: 1,
+                        decay: 0.015 + Math.random() * 0.025,
+                        type: type || 'gold',
+                        rot: Math.random() * Math.PI * 2,
+                        rotV: (Math.random() - 0.5) * 0.2
+                    });
                 }
             }
 
-            function updateFSDisplay() {
-                fsDisplay.innerHTML = `<span class="fs-count">${freeSpins}</span>`;
-                fsDisplay.style.color = freeSpins > 0 ? '#7df9ff' : 'rgba(255,255,255,0.4)';
-            }
-
-            function getBet() {
-                let val = parseNumber(betInput.value);
-                if (isNaN(val) || val < 10) val = 10;
-                if (val > 100000) val = 100000;
-                if (val > balance && balance > 0) val = Math.min(balance, 100000);
-                return val;
-            }
-
-            function applyBetPreset(amount) {
-                if (isSpinning) return;
-                let val;
-                if (amount === 'max') { val = Math.min(balance, 100000); if (val < 10) val = 10; } else { val = parseInt(amount); }
-                val = Math.max(10, Math.min(val, 100000, balance));
-                betInput.value = formatNumber(val);
-                totalBetDisplay.innerText = formatNumber(val);
-                betPresets.forEach(b => b.classList.remove('active'));
-                betPresets.forEach(b => {
-                    if (b.dataset.amount === String(amount) || (amount === 'max' && b.dataset.amount === 'max'))
-                        b.classList.add('active');
-                });
-            }
-
-            // =============================================================
-            // 9. АНИМАЦИЯ МОНЕТ
-            // =============================================================
-            function animateCoinsToBalance(amount) {
-                if (amount <= 0) return;
-                const rect = balanceBox.getBoundingClientRect();
-                const startX = window.innerWidth / 2 - 40;
-                const startY = window.innerHeight / 2 - 40;
-                const targetX = rect.left + rect.width / 2 - 16;
-                const targetY = rect.top + 6;
-                const count = Math.min(Math.floor(amount / 35) + 5, 25);
+            function initParticles() {
+                // Определяем количество частиц в зависимости от режима
+                const count = settings.graphics === 'balanced' ? 15 : 30;
+                pW = particleCanvas.width = window.innerWidth;
+                pH = particleCanvas.height = window.innerHeight;
+                pCtx = particleCanvas.getContext('2d');
+                particles = [];
                 for (let i = 0; i < count; i++) {
-                    const coin = document.createElement('div');
-                    coin.className = 'coin';
-                    const delay = Math.random() * 300;
-                    const offX = (Math.random() - 0.5) * 120;
-                    const offY = (Math.random() - 0.5) * 80 - 20;
-                    const tx = targetX - startX + offX;
-                    const ty = targetY - startY + offY;
-                    coin.style.setProperty('--tx', tx + 'px');
-                    coin.style.setProperty('--ty', ty + 'px');
-                    coin.style.left = startX + 'px';
-                    coin.style.top = startY + 'px';
-                    coin.style.animationDuration = (800 + Math.random() * 200) + 'ms';
-                    coin.style.animationDelay = delay + 'ms';
-                    coin.style.width = (24 + Math.random() * 16) + 'px';
-                    coin.style.height = (24 + Math.random() * 16) + 'px';
-                    coinContainer.appendChild(coin);
-                    playCoin();
-                    setTimeout(() => coin.remove(), 800 + delay + 150);
+                    particles.push({
+                        x: Math.random() * pW,
+                        y: Math.random() * pH,
+                        vx: (Math.random() - 0.5) * 0.12,
+                        vy: (Math.random() - 0.5) * 0.12 - 0.02,
+                        r: 0.5 + Math.random() * 2,
+                        a: 0.06 + Math.random() * 0.2,
+                        phase: Math.random() * Math.PI * 2,
+                        speed: 0.3 + Math.random() * 0.6,
+                        type: Math.random() > 0.7 ? 'magic' : 'dust'
+                    });
                 }
+                if (particleAnimId) cancelAnimationFrame(particleAnimId);
+                drawParticles();
+            }
+
+            function drawParticles() {
+                if (!pCtx) return;
+                pCtx.clearRect(0, 0, pW, pH);
+                const time = Date.now() * 0.0004;
+                particles.forEach(p => {
+                    p.x += p.vx + Math.sin(time * p.speed + p.phase) * 0.03;
+                    p.y += p.vy + Math.cos(time * p.speed * 0.7 + p.phase) * 0.03;
+                    if (p.x < 0) p.x = pW;
+                    if (p.x > pW) p.x = 0;
+                    if (p.y < 0) p.y = pH;
+                    if (p.y > pH) p.y = 0;
+                    const alpha = p.a * (0.4 + 0.6 * Math.sin(time * 0.5 + p.phase));
+                    pCtx.beginPath();
+                    pCtx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+                    if (p.type === 'magic') {
+                        pCtx.fillStyle = `rgba(92,225,255,${alpha * 0.6})`;
+                    } else {
+                        pCtx.fillStyle = `rgba(255,213,74,${alpha})`;
+                    }
+                    pCtx.shadowColor = p.type === 'magic' ? `rgba(92,225,255,${alpha * 0.5})` : `rgba(255,213,74,${alpha * 0.5})`;
+                    pCtx.shadowBlur = settings.graphics === 'balanced' ? 4 : 8;
+                    pCtx.fill();
+                    pCtx.shadowBlur = 0;
+                });
+                burstParticles = burstParticles.filter(bp => {
+                    bp.x += bp.vx;
+                    bp.y += bp.vy;
+                    bp.vy += 0.06;
+                    bp.life -= bp.decay;
+                    bp.rot += bp.rotV;
+                    if (bp.life <= 0) return false;
+                    pCtx.save();
+                    pCtx.translate(bp.x, bp.y);
+                    pCtx.rotate(bp.rot);
+                    pCtx.globalAlpha = bp.life;
+                    if (bp.type === 'coin') {
+                        pCtx.fillStyle = '#FFD54A';
+                        pCtx.beginPath();
+                        pCtx.ellipse(0, 0, bp.r, bp.r * 0.6, 0, 0, Math.PI * 2);
+                        pCtx.fill();
+                    } else if (bp.type === 'spark') {
+                        pCtx.fillStyle = '#FFF1A8';
+                        pCtx.fillRect(-bp.r, -bp.r * 0.3, bp.r * 2, bp.r * 0.6);
+                    } else {
+                        pCtx.fillStyle = '#FFD54A';
+                        pCtx.beginPath();
+                        pCtx.arc(0, 0, bp.r, 0, Math.PI * 2);
+                        pCtx.fill();
+                    }
+                    pCtx.restore();
+                    return true;
+                });
+                particleAnimId = requestAnimationFrame(drawParticles);
             }
 
             // =============================================================
-            // 10. FLASH & LIGHTNING
+            // 8. МОЛНИИ (упрощаем в сбалансированном режиме)
             // =============================================================
+            let lCtx = null,
+                lW = 0,
+                lH = 0,
+                lightningBolts = [];
+
+            function initLightningCanvas() {
+                lW = lightningCanvas.width = window.innerWidth;
+                lH = lightningCanvas.height = window.innerHeight;
+                lCtx = lightningCanvas.getContext('2d');
+            }
+
+            function createBolt(startX, startY, endX, endY, depth, maxDepth) {
+                if (depth > maxDepth) return [{ x1: startX, y1: startY, x2: endX, y2: endY }];
+                const segments = [];
+                const midX = (startX + endX) / 2 + (Math.random() - 0.5) * 80;
+                const midY = (startY + endY) / 2;
+                segments.push(...createBolt(startX, startY, midX, midY, depth + 1, maxDepth));
+                segments.push(...createBolt(midX, midY, endX, endY, depth + 1, maxDepth));
+                if (depth < 2 && Math.random() > 0.5) {
+                    const branchEndX = midX + (Math.random() - 0.5) * 120;
+                    const branchEndY = midY + 60 + Math.random() * 80;
+                    segments.push(...createBolt(midX, midY, branchEndX, branchEndY, depth + 2, maxDepth + 1));
+                }
+                return segments;
+            }
+
+            function renderLightning() {
+                if (!lCtx || lightningBolts.length === 0) return;
+                lCtx.clearRect(0, 0, lW, lH);
+                lightningBolts.forEach(bolt => {
+                    bolt.life -= 0.04;
+                    if (bolt.life <= 0) return;
+                    const alpha = bolt.life;
+                    bolt.segments.forEach(seg => {
+                        lCtx.beginPath();
+                        lCtx.moveTo(seg.x1, seg.y1);
+                        lCtx.lineTo(seg.x2, seg.y2);
+                        lCtx.strokeStyle = `rgba(255,241,168,${alpha * 0.9})`;
+                        lCtx.lineWidth = settings.graphics === 'balanced' ? 2 * alpha : 3 * alpha;
+                        lCtx.shadowColor = `rgba(255,213,74,${alpha})`;
+                        lCtx.shadowBlur = settings.graphics === 'balanced' ? 10 : 20;
+                        lCtx.stroke();
+                        lCtx.strokeStyle = `rgba(255,255,255,${alpha * 0.6})`;
+                        lCtx.lineWidth = settings.graphics === 'balanced' ? 1 * alpha : 1.5 * alpha;
+                        lCtx.stroke();
+                    });
+                    lCtx.shadowBlur = 0;
+                });
+                lightningBolts = lightningBolts.filter(b => b.life > 0);
+                if (lightningBolts.length > 0) requestAnimationFrame(renderLightning);
+            }
+
+            function fireLightningBolt() {
+                if (settings.graphics === 'balanced') {
+                    // В сбалансированном режиме просто делаем вспышку без молнии
+                    flashOverlay.classList.add('active');
+                    setTimeout(() => flashOverlay.classList.remove('active'), 200);
+                    return;
+                }
+                initLightningCanvas();
+                const startX = lW * (0.3 + Math.random() * 0.4);
+                const endX = startX + (Math.random() - 0.5) * 100;
+                const segments = createBolt(startX, 0, endX, lH * (0.4 + Math.random() * 0.3), 0, 4);
+                lightningBolts.push({ segments, life: 1 });
+                renderLightning();
+            }
+
             function triggerLightning() {
+                if (settings.graphics === 'balanced') {
+                    flashOverlay.classList.add('active');
+                    setTimeout(() => flashOverlay.classList.remove('active'), 300);
+                    playThunder();
+                    spawnBurst(Math.random() * pW, Math.random() * pH * 0.4, 8, 'spark');
+                    return;
+                }
                 lightningContainer.classList.add('active');
                 fireLightningBolt();
                 setTimeout(() => lightningContainer.classList.remove('active'), 400);
@@ -2211,26 +2405,126 @@
             }
 
             // =============================================================
-            // 11. BONUS POPUP
+            // 9. WIN LINES CANVAS
             // =============================================================
-            function showBonusPopup(icon, title, sub, detail) {
-                bonusPopupIcon.textContent = icon || '⚡';
-                bonusPopupTitle.textContent = title || 'ГНЕВ ЗЕВСА!';
-                bonusPopupSub.textContent = sub || 'Фриспины активированы!';
-                bonusPopupDetail.textContent = detail || 'x2 множитель на все выигрыши';
-                triggerFSPortal();
-                bonusPopup.classList.add('show');
-                playBonusFanfare();
-                triggerLightning();
+            function drawWinLines(winningIndices) {
+                const canvas = winLinesCanvas;
+                const rect = canvas.parentElement.getBoundingClientRect();
+                canvas.width = rect.width;
+                canvas.height = rect.height;
+                const ctx = canvas.getContext('2d');
+                const cols = 5,
+                    rows = 5,
+                    pad = 4;
+                const cellW = (canvas.width - pad * 2) / cols;
+                const cellH = (canvas.height - pad * 2) / rows;
+
+                function getPos(idx) {
+                    const r = Math.floor(idx / 5);
+                    const c = idx % 5;
+                    return { x: pad + c * cellW + cellW / 2, y: pad + r * cellH + cellH / 2 };
+                }
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                if (!winningIndices || winningIndices.length === 0) { canvas.classList.remove('active'); return; }
+                const lineGroups = [];
+                LINES.forEach((line, li) => {
+                    const matched = line.filter(idx => winningIndices.includes(idx));
+                    if (matched.length >= 3) lineGroups.push({ line, matched, li });
+                });
+                if (lineGroups.length === 0) { canvas.classList.remove('active'); return; }
+                canvas.classList.add('active');
+                lineGroups.forEach((g, gi) => {
+                    const pts = g.line.map(idx => getPos(idx));
+                    const goldHue = 45 + gi * 8;
+                    ctx.beginPath();
+                    ctx.moveTo(pts[0].x, pts[0].y);
+                    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+                    ctx.strokeStyle = `hsla(${goldHue},100%,65%,0.9)`;
+                    ctx.lineWidth = settings.graphics === 'balanced' ? 2.5 : 3.5;
+                    ctx.shadowColor = `hsla(${goldHue},100%,60%,0.7)`;
+                    ctx.shadowBlur = settings.graphics === 'balanced' ? 15 : 25;
+                    ctx.stroke();
+                    ctx.shadowBlur = settings.graphics === 'balanced' ? 20 : 40;
+                    ctx.strokeStyle = `hsla(${goldHue},100%,85%,0.2)`;
+                    ctx.lineWidth = settings.graphics === 'balanced' ? 6 : 10;
+                    ctx.stroke();
+                    g.matched.forEach(idx => {
+                        const p = getPos(idx);
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, settings.graphics === 'balanced' ? 5 : 8, 0, Math.PI * 2);
+                        ctx.fillStyle = `hsla(${goldHue},100%,75%,0.95)`;
+                        ctx.shadowBlur = settings.graphics === 'balanced' ? 15 : 30;
+                        ctx.shadowColor = `hsla(${goldHue},100%,60%,0.8)`;
+                        ctx.fill();
+                        ctx.shadowBlur = 0;
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, settings.graphics === 'balanced' ? 3 : 4, 0, Math.PI * 2);
+                        ctx.fillStyle = '#FFF1A8';
+                        ctx.fill();
+                    });
+                });
+                setTimeout(() => { canvas.classList.remove('active'); }, 3200);
             }
-            bonusPopupClose.addEventListener('click', function() { bonusPopup.classList.remove('show'); });
-            bonusPopup.addEventListener('click', function(e) { if (e.target === this) bonusPopup.classList.remove('show'); });
 
             // =============================================================
-            // 12. ОСНОВНАЯ ИГРОВАЯ ЛОГИКА С КАСКАДАМИ
+            // 10. BIG WIN CINEMATIC
+            // =============================================================
+            let bigWinAnimId = null;
+            const BIG_WIN_TIERS = [
+                { threshold: 8, label: 'BIG WIN', tier: 'big', shake: 'shake-light' },
+                { threshold: 15, label: 'MEGA WIN', tier: 'mega', shake: 'shake-medium' },
+                { threshold: 25, label: 'SUPER WIN', tier: 'super', shake: 'shake-medium' },
+                { threshold: 45, label: 'EPIC WIN', tier: 'epic', shake: 'shake-heavy' },
+                { threshold: 80, label: 'LEGENDARY WIN', tier: 'legendary', shake: 'shake-heavy' }
+            ];
+
+            function showBigWinCinematic(amount, bet) {
+                const ratio = amount / bet;
+                let tier = null;
+                for (let i = BIG_WIN_TIERS.length - 1; i >= 0; i--) {
+                    if (ratio >= BIG_WIN_TIERS[i].threshold) { tier = BIG_WIN_TIERS[i]; break; }
+                }
+                if (!tier) return;
+                bigWinContent.className = 'big-win-content big-win-tier-' + tier.tier;
+                bigWinLabel.textContent = tier.label;
+                bigWinAmount.textContent = '0 ₽';
+                bigWinOverlay.classList.add('active');
+                appEl.classList.add(tier.shake);
+                spawnBurst(pW / 2, pH / 2, 30, 'coin');
+                spawnBurst(pW / 2, pH / 2, 20, 'spark');
+                for (let i = 0; i < 3; i++) setTimeout(() => triggerLightning(), i * 200);
+                const duration = 2500 + tier.threshold * 30;
+                const startTime = Date.now();
+
+                function animateCounter() {
+                    const elapsed = Date.now() - startTime;
+                    const progress = Math.min(elapsed / duration, 1);
+                    const eased = 1 - Math.pow(1 - progress, 3);
+                    bigWinAmount.textContent = formatNumber(Math.floor(amount * eased)) + ' ₽';
+                    if (progress < 1) { bigWinAnimId = requestAnimationFrame(animateCounter); } else { setTimeout(hideBigWinCinematic,
+                            1200); }
+                }
+                if (bigWinAnimId) cancelAnimationFrame(bigWinAnimId);
+                animateCounter();
+            }
+
+            function hideBigWinCinematic() {
+                bigWinOverlay.classList.remove('active');
+                appEl.classList.remove('shake-light', 'shake-medium', 'shake-heavy');
+                if (bigWinAnimId) cancelAnimationFrame(bigWinAnimId);
+            }
+
+            function triggerFSPortal() {
+                fsPortalOverlay.classList.add('active');
+                spawnBurst(pW / 2, pH / 2, 35, 'spark');
+                triggerLightning();
+                setTimeout(() => fsPortalOverlay.classList.remove('active'), 1400);
+            }
+
+            // =============================================================
+            // 11. ОСНОВНАЯ ИГРОВАЯ ЛОГИКА
             // =============================================================
 
-            // Генерация случайной сетки
             function generateRandomGrid() {
                 const grid = [];
                 for (let i = 0; i < GRID_SIZE; i++) {
@@ -2239,7 +2533,6 @@
                 return grid;
             }
 
-            // Проверка выигрышных линий для данной сетки (возвращает { totalMultiplier, winningIndices, scatterCount })
             function checkWins(grid) {
                 let totalMultiplier = 0;
                 const winningIndices = new Set();
@@ -2264,11 +2557,9 @@
                     }
                 });
 
-                // Скаттер-выигрыши отдельно
                 if (scatterCount >= 3) {
                     const scatterMultiplier = (scatterCount === 5 ? 4 : scatterCount === 4 ? 1.5 : 0.4);
                     totalMultiplier += scatterMultiplier;
-                    // добавляем индексы скаттеров в winningIndices для подсветки
                     for (let i = 0; i < GRID_SIZE; i++) {
                         if (grid[i] === SCATTER) winningIndices.add(i);
                     }
@@ -2277,15 +2568,10 @@
                 return { totalMultiplier, winningIndices, scatterCount };
             }
 
-            // Функция падения символов (каскад) – заменяет выигравшие ячейки на новые, падающие сверху
-            // Возвращает новую сетку и флаг, были ли замены
             function performCascade(grid, winningIndices) {
-                // Убираем выигравшие индексы, сдвигаем вниз и заполняем сверху новыми символами
                 const newGrid = [...grid];
                 let anyChanged = false;
-                // Проходим по столбцам снизу вверх
                 for (let col = 0; col < 5; col++) {
-                    // Собираем символы в столбце, которые НЕ являются выигравшими (снизу вверх)
                     const symbolsInCol = [];
                     for (let row = 4; row >= 0; row--) {
                         const idx = row * 5 + col;
@@ -2293,18 +2579,14 @@
                             symbolsInCol.push(grid[idx]);
                         }
                     }
-                    // Теперь заполняем столбец снизу вверх: сначала оставшиеся, потом новые сверху
                     const newCol = [];
-                    // Оставшиеся символы (снизу)
                     for (let i = 0; i < symbolsInCol.length; i++) {
                         newCol.push(symbolsInCol[i]);
                     }
-                    // Добиваем сверху новыми символами
                     while (newCol.length < 5) {
                         newCol.push(getWeightedSymbol());
                         anyChanged = true;
                     }
-                    // Вставляем обратно в сетку (снизу вверх)
                     for (let row = 0; row < 5; row++) {
                         const idx = row * 5 + col;
                         newGrid[idx] = newCol[4 - row];
@@ -2313,7 +2595,6 @@
                 return { newGrid, anyChanged };
             }
 
-            // Отрисовка сетки по данным
             function renderGrid(gridData) {
                 for (let i = 0; i < GRID_SIZE; i++) {
                     const img = cells[i].img;
@@ -2321,6 +2602,26 @@
                     img.dataset.symbol = gridData[i];
                 }
                 currentGrid = gridData;
+            }
+
+            function animateSymbolLanding() {
+                cells.forEach((c, i) => {
+                    c.cell.classList.remove('landing');
+                    void c.cell.offsetWidth;
+                    setTimeout(() => c.cell.classList.add('landing'), (i % 5) * 60 + Math.floor(i / 5) * 40);
+                });
+            }
+
+            function addSpinRipple(e, btn) {
+                const rect = btn.getBoundingClientRect();
+                const ripple = document.createElement('span');
+                ripple.className = 'ripple';
+                const size = Math.max(rect.width, rect.height);
+                ripple.style.width = ripple.style.height = size + 'px';
+                ripple.style.left = (e.clientX - rect.left - size / 2) + 'px';
+                ripple.style.top = (e.clientY - rect.top - size / 2) + 'px';
+                btn.appendChild(ripple);
+                setTimeout(() => ripple.remove(), 600);
             }
 
             // Асинхронная функция с каскадами
@@ -2341,7 +2642,7 @@
 
                 // Анимация вращения
                 cells.forEach(({ cell, img }) => {
-                    cell.classList.remove('win-highlight', 'scatter-highlight', 'exploding', 'falling');
+                    cell.classList.remove('win-highlight', 'scatter-highlight', 'exploding', 'falling', 'landing');
                     img.style.animation = '';
                     cell.classList.add('spinning');
                 });
@@ -2350,16 +2651,13 @@
                 playSpin();
                 btnSpin.classList.add('spinning-state');
 
-                // Имитация вращения с обновлением символов (как в слотах)
-                const spinDuration = 1000 + Math.random() * 600; // 1-1.6 сек
+                const spinDuration = 1000 + Math.random() * 600;
                 const startTime = Date.now();
 
                 function spinAnimationStep() {
                     const elapsed = Date.now() - startTime;
                     const progress = Math.min(elapsed / spinDuration, 1);
-                    // Замедление к концу (easeOut)
                     const eased = 1 - Math.pow(1 - progress, 3);
-                    // Обновляем символы с частотой
                     if (progress < 0.8 || Math.random() > 0.3) {
                         cells.forEach(({ img }) => {
                             const sym = getWeightedSymbol();
@@ -2371,7 +2669,6 @@
                     if (progress < 1) {
                         requestAnimationFrame(spinAnimationStep);
                     } else {
-                        // Остановка вращения
                         cells.forEach(({ cell }) => cell.classList.remove('spinning'));
                         btnSpin.classList.remove('spinning-state');
                         playStop();
@@ -2381,18 +2678,22 @@
                         const finalGrid = cells.map(c => c.img.dataset.symbol);
                         currentGrid = finalGrid;
 
-                        // Начинаем обработку каскадов
-                        processCascades(bet, isFreeSpin);
+                        // Применяем анимацию landing для плавного опускания
+                        animateSymbolLanding();
+
+                        // Запускаем обработку каскадов с небольшой задержкой
+                        setTimeout(() => {
+                            processCascades(bet, isFreeSpin);
+                        }, 400);
                     }
                 }
                 requestAnimationFrame(spinAnimationStep);
             }
 
-            // Обработка каскадов
             async function processCascades(bet, isFreeSpin) {
                 let grid = [...currentGrid];
                 let totalWin = 0;
-                let multiplier = 1; // увеличивается с каждым каскадом
+                let multiplier = 1;
                 let cascadeCount = 0;
                 let hasWin = false;
 
@@ -2400,98 +2701,74 @@
                     const result = checkWins(grid);
                     const { totalMultiplier, winningIndices, scatterCount } = result;
 
-                    // Если есть выигрыш
                     if (totalMultiplier > 0 || scatterCount >= 3) {
                         hasWin = true;
                         cascadeCount++;
                         const winAmount = Math.floor((bet / NUM_LINES) * totalMultiplier * multiplier);
                         totalWin += winAmount;
 
-                        // Отображаем выигрыш
                         const statusEl = statusBar.querySelector('span') || statusBar;
                         statusEl.textContent = `💰 ВЫИГРЫШ: ${formatNumber(winAmount)} ₽ (x${multiplier})`;
                         statusBar.classList.add('win');
 
-                        // Подсвечиваем выигравшие ячейки
                         winningIndices.forEach(idx => {
                             cells[idx].cell.classList.add('win-highlight');
                         });
 
-                        // Рисуем линии
                         drawWinLines([...winningIndices]);
 
-                        // Звук выигрыша каскада
                         if (cascadeCount === 1) playWin();
                         else playCascadeWin();
 
-                        // Анимация взрыва выигравших символов
+                        // Анимация взрыва
                         const explodePromises = [];
                         winningIndices.forEach(idx => {
                             const cell = cells[idx].cell;
                             cell.classList.add('exploding');
-                            // Создаём частицы
                             const rect = cell.getBoundingClientRect();
                             const cx = rect.left + rect.width / 2;
                             const cy = rect.top + rect.height / 2;
                             spawnBurst(cx, cy, 12, 'spark');
-                            // Звук взрыва
                             playCascadeExplosion();
-                            // Сохраняем промис для ожидания окончания анимации
                             explodePromises.push(new Promise(resolve => {
                                 setTimeout(resolve, 450);
                             }));
                         });
 
-                        // Ждём окончания анимации взрыва
                         await Promise.all(explodePromises);
 
-                        // Убираем подсветку и классы взрыва
                         winningIndices.forEach(idx => {
                             const cell = cells[idx].cell;
                             cell.classList.remove('win-highlight', 'exploding');
                         });
                         winLinesCanvas.classList.remove('active');
 
-                        // Выполняем каскад (падение новых символов)
                         const cascadeResult = performCascade(grid, winningIndices);
                         grid = cascadeResult.newGrid;
 
-                        // Если произошли изменения – анимируем падение
                         if (cascadeResult.anyChanged) {
-                            // Обновляем изображения
                             for (let i = 0; i < GRID_SIZE; i++) {
                                 cells[i].img.src = grid[i];
                                 cells[i].img.dataset.symbol = grid[i];
-                                // Добавляем анимацию падения
                                 cells[i].cell.classList.add('falling');
                             }
-                            // Ждём окончания анимации падения
                             await new Promise(resolve => setTimeout(resolve, 350));
-                            // Убираем класс падения
                             cells.forEach(c => c.cell.classList.remove('falling'));
-                            // Звук каскада
                             playCascadeStart();
                         } else {
-                            // Если изменений нет – выходим из цикла
                             break;
                         }
 
-                        // Увеличиваем множитель каскада
-                        multiplier += 0.5; // каждый каскад увеличивает множитель на 0.5 (x1, x1.5, x2 и т.д.)
-                        // Обновляем статус
+                        multiplier += 0.5;
                         statusEl.textContent = `🔥 КАСКАД x${multiplier.toFixed(1)}!`;
-                        // Небольшая пауза перед следующим каскадом
                         await new Promise(resolve => setTimeout(resolve, 300));
                     } else {
-                        // Нет выигрыша – выходим
                         break;
                     }
                 }
 
-                // Если был хотя бы один выигрыш
                 if (hasWin) {
                     currentWin = totalWin;
-                    // Итоговый выигрыш
                     if (isBonusActive || isFreeSpin) {
                         bonusTotalWin += totalWin;
                         const statusEl = statusBar.querySelector('span') || statusBar;
@@ -2508,7 +2785,6 @@
                     winDisplay.innerText = formatNumber(totalWin);
                     winDisplay.classList.add('win-text');
 
-                    // Проверяем на Big Win
                     if (totalWin > bet * 8) {
                         showBigWinCinematic(totalWin, bet);
                     }
@@ -2517,10 +2793,8 @@
                         triggerLightning();
                     }
 
-                    // Обновляем статистику удачи
                     updateLuckFactor(totalWin, bet);
                 } else {
-                    // Нет выигрыша
                     const statusEl = statusBar.querySelector('span') || statusBar;
                     statusEl.textContent = '❌ ПОПРОБУЙТЕ СНОВА!';
                     statusBar.classList.remove('win');
@@ -2530,7 +2804,6 @@
                     setTimeout(() => statusBar.classList.remove('lose'), 800);
                 }
 
-                // Завершаем спин
                 finishSpin(bet, isFreeSpin);
             }
 
@@ -2541,10 +2814,8 @@
                     updateProfileStats(bet, currentWin);
                 }
 
-                // Проверяем активацию бонуса (фриспины)
                 let bonusTriggered = false;
                 if (!bonusTriggered) {
-                    // Проверяем, есть ли 3+ скаттеров в текущей сетке после всех каскадов
                     let scatterCount = 0;
                     for (let i = 0; i < GRID_SIZE; i++) {
                         if (currentGrid[i] === SCATTER) scatterCount++;
@@ -2568,7 +2839,6 @@
                     }
                 }
 
-                // Обработка бонусных фриспинов
                 if (isBonusActive) {
                     freeSpins--;
                     updateFSDisplay();
@@ -2613,10 +2883,9 @@
             }
 
             // =============================================================
-            // 13. ЗАПУСК СПИНА
+            // 12. ЗАПУСК СПИНА
             // =============================================================
             function startSpin(bet, isFreeSpin = false) {
-                // Инициализируем сетку случайными символами для вращения
                 const initialGrid = generateRandomGrid();
                 for (let i = 0; i < GRID_SIZE; i++) {
                     cells[i].img.src = initialGrid[i];
@@ -2627,7 +2896,7 @@
             }
 
             // =============================================================
-            // 14. BONUS
+            // 13. BONUS
             // =============================================================
             function triggerBonus(spins, triggerText, icon, title, sub, detail) {
                 if (isBonusActive && freeSpins > 0) {
@@ -2701,7 +2970,7 @@
             }
 
             // =============================================================
-            // 15. AUTO SPIN
+            // 14. AUTO SPIN
             // =============================================================
             function toggleAutoSpin() {
                 if (autoSpinActive) { stopAutoSpin('Остановлено пользователем'); return; }
@@ -2763,7 +3032,7 @@
             autoStopBtn.addEventListener('click', function() { stopAutoSpin('Остановлено пользователем'); });
 
             // =============================================================
-            // 16. PROFILE STATS
+            // 15. PROFILE STATS
             // =============================================================
             function updateProfileStats(bet, win) {
                 try {
@@ -2785,97 +3054,101 @@
             }
 
             // =============================================================
-            // 17. BET PRESETS EVENTS
+            // 16. UI HELPERS
             // =============================================================
-            betPresets.forEach(btn => {
-                btn.addEventListener('click', function() {
-                    playClick();
-                    applyBetPreset(this.dataset.amount);
-                });
-            });
-            betInput.addEventListener('input', function() {
-                let raw = this.value.replace(/\s/g, '');
-                let num = parseInt(raw) || 0;
-                if (num < 0) num = 0;
-                if (num > 100000) num = 100000;
-                this.value = formatNumber(num);
-                totalBetDisplay.innerText = formatNumber(num);
+            function formatNumber(num) { return Math.floor(num).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' '); }
+
+            function parseNumber(str) { return parseInt(str.replace(/\s/g, '')) || 0; }
+
+            function updateBalance(amount, animate = false) {
+                balance = Math.floor(amount);
+                localStorage.setItem('casinoBalance', String(balance));
+                balanceDisplay.innerText = formatNumber(balance) + ' ₽';
+                if (animate) {
+                    balanceBox.classList.remove('pop');
+                    void balanceBox.offsetWidth;
+                    balanceBox.classList.add('pop');
+                    balanceDisplay.classList.add('added');
+                    setTimeout(() => balanceDisplay.classList.remove('added'), 500);
+                }
+            }
+
+            function updateFSDisplay() {
+                fsDisplay.innerHTML = `<span class="fs-count">${freeSpins}</span>`;
+                fsDisplay.style.color = freeSpins > 0 ? '#7df9ff' : 'rgba(255,255,255,0.4)';
+            }
+
+            function getBet() {
+                let val = parseNumber(betInput.value);
+                if (isNaN(val) || val < 10) val = 10;
+                if (val > 100000) val = 100000;
+                if (val > balance && balance > 0) val = Math.min(balance, 100000);
+                return val;
+            }
+
+            function applyBetPreset(amount) {
+                if (isSpinning) return;
+                let val;
+                if (amount === 'max') { val = Math.min(balance, 100000); if (val < 10) val = 10; } else { val = parseInt(amount); }
+                val = Math.max(10, Math.min(val, 100000, balance));
+                betInput.value = formatNumber(val);
+                totalBetDisplay.innerText = formatNumber(val);
                 betPresets.forEach(b => b.classList.remove('active'));
                 betPresets.forEach(b => {
-                    let pVal = b.dataset.amount;
-                    if (pVal === 'max') return;
-                    if (parseInt(pVal) === num) b.classList.add('active');
+                    if (b.dataset.amount === String(amount) || (amount === 'max' && b.dataset.amount === 'max'))
+                        b.classList.add('active');
                 });
-            });
-            betInput.addEventListener('blur', function() {
-                let num = parseNumber(this.value);
-                if (isNaN(num) || num < 10) num = 10;
-                if (num > 100000) num = 100000;
-                if (num > balance && balance > 0) num = Math.min(balance, 100000);
-                this.value = formatNumber(num);
-                totalBetDisplay.innerText = formatNumber(num);
-            });
-
-            // =============================================================
-            // 18. SPIN BUTTON
-            // =============================================================
-            function btnSpinClick() {
-                if (isSpinning) return;
-                if (isBonusActive && freeSpins > 0) return;
-                const bet = getBet();
-                if (isNaN(bet) || bet < 10 || bet > 100000) {
-                    const statusEl = statusBar.querySelector('span') || statusBar;
-                    statusEl.textContent = '❌ Ставка от 10 до 100 000 ₽';
-                    statusBar.classList.add('lose');
-                    setTimeout(() => statusBar.classList.remove('lose'), 1200);
-                    return;
-                }
-                if (balance < bet) {
-                    const statusEl = statusBar.querySelector('span') || statusBar;
-                    statusEl.textContent = `❌ Недостаточно средств! Баланс: ${formatNumber(balance)}`;
-                    statusBar.classList.add('lose');
-                    setTimeout(() => statusBar.classList.remove('lose'), 1500);
-                    return;
-                }
-                playClick();
-                if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
-                updateBalance(balance - bet, false);
-                startSpin(bet, false);
             }
-            btnSpin.addEventListener('click', function(e) {
-                if (!isSpinning) addSpinRipple(e, btnSpin);
-                btnSpinClick();
-            });
-            betPresets.forEach(btn => {
-                btn.addEventListener('mouseenter', playHover);
-            });
-            [btnAuto, btnBack].forEach(btn => {
-                btn.addEventListener('click', playClick);
-            });
 
-            // =============================================================
-            // 19. BACK
-            // =============================================================
-            btnBack.addEventListener('click', function() {
-                if (autoSpinActive) stopAutoSpin('Выход в меню');
-                window.location.href = 'casino.html?userId=' + userId;
-            });
-
-            // =============================================================
-            // 20. KEYBOARD
-            // =============================================================
-            document.addEventListener('keydown', function(e) {
-                if (e.code === 'Space' && !e.repeat) {
-                    e.preventDefault();
-                    if (!btnSpin.disabled) btnSpin.click();
+            function animateCoinsToBalance(amount) {
+                if (amount <= 0) return;
+                const rect = balanceBox.getBoundingClientRect();
+                const startX = window.innerWidth / 2 - 40;
+                const startY = window.innerHeight / 2 - 40;
+                const targetX = rect.left + rect.width / 2 - 16;
+                const targetY = rect.top + 6;
+                const count = Math.min(Math.floor(amount / 35) + 5, 25);
+                for (let i = 0; i < count; i++) {
+                    const coin = document.createElement('div');
+                    coin.className = 'coin';
+                    const delay = Math.random() * 300;
+                    const offX = (Math.random() - 0.5) * 120;
+                    const offY = (Math.random() - 0.5) * 80 - 20;
+                    const tx = targetX - startX + offX;
+                    const ty = targetY - startY + offY;
+                    coin.style.setProperty('--tx', tx + 'px');
+                    coin.style.setProperty('--ty', ty + 'px');
+                    coin.style.left = startX + 'px';
+                    coin.style.top = startY + 'px';
+                    coin.style.animationDuration = (800 + Math.random() * 200) + 'ms';
+                    coin.style.animationDelay = delay + 'ms';
+                    coin.style.width = (24 + Math.random() * 16) + 'px';
+                    coin.style.height = (24 + Math.random() * 16) + 'px';
+                    coinContainer.appendChild(coin);
+                    playCoin();
+                    setTimeout(() => coin.remove(), 800 + delay + 150);
                 }
-            });
+            }
+
+            function showBonusPopup(icon, title, sub, detail) {
+                bonusPopupIcon.textContent = icon || '⚡';
+                bonusPopupTitle.textContent = title || 'ГНЕВ ЗЕВСА!';
+                bonusPopupSub.textContent = sub || 'Фриспины активированы!';
+                bonusPopupDetail.textContent = detail || 'x2 множитель на все выигрыши';
+                triggerFSPortal();
+                bonusPopup.classList.add('show');
+                playBonusFanfare();
+                triggerLightning();
+            }
+            bonusPopupClose.addEventListener('click', function() { bonusPopup.classList.remove('show'); });
+            bonusPopup.addEventListener('click', function(e) { if (e.target === this) bonusPopup.classList.remove('show'); });
 
             // =============================================================
-            // 21. INIT
+            // 17. ИНИЦИАЛИЗАЦИЯ
             // =============================================================
             function init() {
                 initAudio();
+
                 // Создаём ячейки
                 gridEl.innerHTML = '';
                 cells = [];
@@ -2898,15 +3171,26 @@
                 betInput.value = formatNumber(initialBet);
                 totalBetDisplay.innerText = formatNumber(initialBet);
                 updateFSDisplay();
-                playMusic();
+
+                // Загружаем настройки
+                applySettings();
+
+                // Музыка
+                if (settings.music) {
+                    playMusic();
+                }
+
+                // Ambient
                 playAmbientWind();
                 setInterval(() => { if (Math.random() > 0.92) playCloudRumble(); }, 8000);
+
                 betPresets.forEach(b => b.classList.remove('active'));
                 betPresets.forEach(b => {
                     let pVal = b.dataset.amount;
                     if (pVal === 'max') return;
                     if (parseInt(pVal) === initialBet) b.classList.add('active');
                 });
+
                 setTimeout(() => {
                     if (btnSpin.disabled && !isSpinning) {
                         btnSpin.disabled = false;
@@ -2919,10 +3203,61 @@
                     if (!document.hidden) { initParticles(); }
                 });
 
+                // Настройки
+                document.getElementById('btnSettings').addEventListener('click', function() {
+                    document.getElementById('settingsOverlay').classList.add('active');
+                });
+                document.getElementById('settingsClose').addEventListener('click', function() {
+                    document.getElementById('settingsOverlay').classList.remove('active');
+                });
+                document.getElementById('settingsOverlay').addEventListener('click', function(e) {
+                    if (e.target === this) this.classList.remove('active');
+                });
+
+                // Обработчики настроек
+                document.querySelectorAll('[data-graphics]').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        settings.graphics = this.dataset.graphics;
+                        saveSettings();
+                        // Переинициализация частиц
+                        initParticles();
+                        // Обновляем молнии
+                        if (settings.graphics === 'balanced') {
+                            lightningContainer.style.display = 'none';
+                        } else {
+                            lightningContainer.style.display = '';
+                        }
+                    });
+                });
+
+                document.getElementById('soundToggle').addEventListener('click', function() {
+                    settings.sound = !settings.sound;
+                    saveSettings();
+                });
+
+                document.getElementById('musicToggle').addEventListener('click', function() {
+                    settings.music = !settings.music;
+                    saveSettings();
+                    if (settings.music) {
+                        playMusic();
+                    } else {
+                        bgMusic.pause();
+                    }
+                });
+
+                // Инициализация частиц и молний
+                initParticles();
+                initLightningCanvas();
+
                 console.log('⚡ ZEUS PREMIUM SLOTS загружен, баланс:', balance);
-                console.log('✅ Каскадные выигрыши, новая анимация, звуки — активированы!');
+                console.log('✅ Каскадные выигрыши, улучшенная анимация, настройки добавлены!');
             }
 
+            // Переопределим глобальные функции для совместимости
+            window.addEventListener('resize', () => { initParticles();
+                initLightningCanvas(); });
+
+            // Запуск
             init();
 
             window.__slots = {
@@ -2932,7 +3267,8 @@
                 freeSpins,
                 isBonusActive,
                 currentGrid,
-                luckFactor
+                luckFactor,
+                settings
             };
 
         })();
