@@ -38,7 +38,6 @@
             --z-overlay: 100;
             --z-bigwin: 180;
             --z-popup: 200;
-            --cell-size: 1fr;
             --reel-height: 100%;
         }
 
@@ -206,7 +205,7 @@
         }
 
         /* ==============================================================
-           HEADER
+           HEADER — логотип увеличен
            ============================================================== */
         .header {
             position: relative;
@@ -214,7 +213,7 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 8px 12px;
+            padding: 6px 12px;
             background: linear-gradient(180deg, rgba(244, 240, 230, 0.08) 0%, transparent 40%), var(--panel-glass);
             border-bottom: 2px solid rgba(255, 213, 74, 0.35);
             box-shadow: 0 8px 40px var(--shadow-deep), inset 0 1px 0 rgba(255, 241, 168, 0.12);
@@ -235,6 +234,7 @@
             background: linear-gradient(90deg, transparent, var(--gold-primary), transparent);
             opacity: 0.6;
         }
+
         .btn-back {
             width: 44px;
             height: 44px;
@@ -268,7 +268,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            height: 80px;
+            height: 90px;
             overflow: visible;
         }
         .brand img {
@@ -465,7 +465,7 @@
         }
 
         /* ==============================================================
-           SLOT FRAME — НОВАЯ РЕАЛИЗАЦИЯ С РУЛОНАМИ
+           SLOT FRAME — РУЛОНЫ
            ============================================================== */
         .slot-wrapper {
             position: relative;
@@ -552,7 +552,6 @@
             box-shadow: inset 0 0 30px rgba(255, 213, 74, 0.04);
         }
 
-        /* ===== НОВАЯ СЕТКА-РУЛОНЫ ===== */
         .grid {
             display: grid;
             grid-template-columns: repeat(5, 1fr);
@@ -572,7 +571,6 @@
             overflow: hidden;
         }
 
-        /* Каждая колонка — рулон */
         .reel-col {
             display: flex;
             flex-direction: column;
@@ -656,7 +654,6 @@
             pointer-events: none;
         }
 
-        /* Выигрышная подсветка */
         .cell.win-highlight {
             background: radial-gradient(circle, rgba(255, 213, 74, 0.4) 0%, rgba(7, 23, 45, 0.9) 75%);
             border-color: var(--gold-primary);
@@ -1779,6 +1776,9 @@
                 min-height: 60px;
                 gap: 4px;
             }
+            .brand {
+                height: 70px;
+            }
             .btn-back {
                 width: 36px;
                 height: 36px;
@@ -1788,9 +1788,6 @@
                 width: 36px;
                 height: 36px;
                 font-size: 16px;
-            }
-            .brand {
-                height: 56px;
             }
             .balance-box {
                 min-width: 60px;
@@ -1992,7 +1989,7 @@
                 font-size: 13px;
             }
             .brand {
-                height: 44px;
+                height: 54px;
             }
             .btn-spin {
                 width: 48px;
@@ -2224,7 +2221,7 @@
     </div>
 
     <!-- ==============================================================
-    JAVASCRIPT — ПОЛНАЯ ЛОГИКА С РУЛОНАМИ
+    JAVASCRIPT — ПОЛНАЯ ЛОГИКА С РУЛОНАМИ (исправленная)
     ============================================================== -->
     <script>
         (function() {
@@ -2322,7 +2319,7 @@
             const SCATTER = SYMBOLS[SYMBOLS.length - 1];
             const GRID_SIZE = 25;
             const NUM_LINES = 25;
-            const REEL_SYMBOLS_COUNT = 12; // символов в каждом рулоне (больше = плавнее прокрутка)
+            const REEL_SYMBOLS_COUNT = 16; // увеличено для плавности
 
             const PAYTABLE = {};
             PAYTABLE[SYMBOLS[0]] = { 5: 220, 4: 80, 3: 22, 2: 2.0 };
@@ -2454,7 +2451,8 @@
             let autoSpinTotal = 0;
             let isAutoStopping = false;
             let currentGrid = [];
-            let reelStrips = []; // массив из 5 рулонов, каждый — массив символов (строки)
+            let reelStrips = [];
+            let reelOffsets = [0, 0, 0, 0, 0];
 
             // =============================================================
             // 5. DOM REFS
@@ -2950,10 +2948,9 @@
             }
 
             // =============================================================
-            // 11. ОСНОВНАЯ ЛОГИКА С РУЛОНАМИ
+            // 11. ОСНОВНАЯ ЛОГИКА С РУЛОНАМИ (исправленная)
             // =============================================================
 
-            // Построение рулонов: каждый рулон — массив символов (длинной REEL_SYMBOLS_COUNT)
             function buildReelStrips() {
                 const strips = [];
                 for (let col = 0; col < 5; col++) {
@@ -2966,66 +2963,54 @@
                 return strips;
             }
 
-            // Получить 5 символов (видимые строки) из рулона начиная с позиции offset
-            function getVisibleFromReel(strip, offset) {
-                const visible = [];
-                const len = strip.length;
-                for (let i = 0; i < 5; i++) {
-                    const idx = (offset + i) % len;
-                    visible.push(strip[idx]);
-                }
-                return visible;
-            }
-
-            // Обновить DOM-ячейки для всех колонок по текущим смещениям
+            // Обновление всех ячеек в рулоне, чтобы они соответствовали strip и offset
             function renderReels(offsets, strips) {
-                const cells = document.querySelectorAll('.reel-col .cell');
                 for (let col = 0; col < 5; col++) {
-                    const visible = getVisibleFromReel(strips[col], offsets[col]);
-                    for (let row = 0; row < 5; row++) {
-                        const idx = col * 5 + row;
-                        if (cells[idx]) {
-                            const img = cells[idx].querySelector('img');
-                            if (img) {
-                                img.src = visible[row];
-                                img.dataset.symbol = visible[row];
-                            }
-                        }
-                    }
+                    const strip = strips[col];
+                    const offset = offsets[col];
+                    const len = strip.length;
+                    const colEl = document.querySelector(`.reel-col[data-col="${col}"]`);
+                    if (!colEl) continue;
+                    const images = colEl.querySelectorAll('.cell img');
+                    images.forEach((img, idx) => {
+                        const sym = strip[(offset + idx) % len];
+                        img.src = sym;
+                        img.dataset.symbol = sym;
+                    });
                 }
                 // Обновляем currentGrid
                 const newGrid = [];
                 for (let col = 0; col < 5; col++) {
-                    const visible = getVisibleFromReel(strips[col], offsets[col]);
+                    const strip = strips[col];
+                    const offset = offsets[col];
+                    const len = strip.length;
                     for (let row = 0; row < 5; row++) {
-                        newGrid.push(visible[row]);
+                        newGrid.push(strip[(offset + row) % len]);
                     }
                 }
                 currentGrid = newGrid;
             }
 
-            // Получить текущую сетку (5x5) из рулонов и смещений
             function getGridFromReels(offsets, strips) {
                 const grid = [];
                 for (let col = 0; col < 5; col++) {
-                    const visible = getVisibleFromReel(strips[col], offsets[col]);
+                    const strip = strips[col];
+                    const offset = offsets[col];
+                    const len = strip.length;
                     for (let row = 0; row < 5; row++) {
-                        grid.push(visible[row]);
+                        grid.push(strip[(offset + row) % len]);
                     }
                 }
                 return grid;
             }
 
-            // Установить сетку в рулоны (для результата после каскадов)
             function setReelsFromGrid(grid, strips, offsets) {
-                // grid — массив 25 символов
+                // grid — 25 символов
                 for (let col = 0; col < 5; col++) {
                     const colSymbols = [];
                     for (let row = 0; row < 5; row++) {
                         colSymbols.push(grid[row * 5 + col]);
                     }
-                    // Находим offset, при котором первые 5 символов совпадают с colSymbols
-                    // Ищем в strip
                     const strip = strips[col];
                     const len = strip.length;
                     let foundOffset = offsets[col];
@@ -3041,7 +3026,6 @@
                 renderReels(offsets, strips);
             }
 
-            // Проверка выигрышей (та же, что и раньше)
             function checkWins(grid) {
                 let totalMultiplier = 0;
                 const winningIndices = new Set();
@@ -3077,7 +3061,6 @@
                 return { totalMultiplier, winningIndices, scatterCount };
             }
 
-            // Каскад: удаляем winningIndices, сдвигаем вниз, добавляем новые сверху
             function performCascadeOnReels(grid, winningIndices, strips, offsets) {
                 const newGrid = [...grid];
                 let anyChanged = false;
@@ -3102,98 +3085,40 @@
                         newGrid[idx] = newCol[4 - row];
                     }
                 }
-                // Обновляем рулоны из newGrid
                 setReelsFromGrid(newGrid, strips, offsets);
                 return { newGrid, anyChanged };
             }
 
             // =============================================================
-            // 12. ВРАЩЕНИЕ РУЛОНОВ
+            // 12. АНИМАЦИЯ ВРАЩЕНИЯ (исправленная)
             // =============================================================
-
-            // offsets — текущие позиции для каждого рулона
-            let reelOffsets = [0, 0, 0, 0, 0];
-            let reelStripsData = [];
-
-            // Инициализация рулонов
-            function initReels() {
-                reelStripsData = buildReelStrips();
-                reelOffsets = [0, 0, 0, 0, 0];
-                // Заполняем DOM
-                gridEl.innerHTML = '';
-                for (let col = 0; col < 5; col++) {
-                    const colDiv = document.createElement('div');
-                    colDiv.className = 'reel-col';
-                    colDiv.dataset.col = col;
-                    const stripDiv = document.createElement('div');
-                    stripDiv.className = 'reel-strip';
-                    stripDiv.id = 'reelStrip-' + col;
-
-                    // Заполняем ячейками (5 видимых + запас)
-                    const totalCells = REEL_SYMBOLS_COUNT;
-                    for (let i = 0; i < totalCells; i++) {
-                        const cell = document.createElement('div');
-                        cell.className = 'cell';
-                        const img = document.createElement('img');
-                        const sym = reelStripsData[col][i % reelStripsData[col].length];
-                        img.src = sym;
-                        img.dataset.symbol = sym;
-                        img.alt = 'symbol';
-                        cell.appendChild(img);
-                        stripDiv.appendChild(cell);
-                    }
-                    colDiv.appendChild(stripDiv);
-                    gridEl.appendChild(colDiv);
-                }
-
-                // Показываем первые 5 символов из каждого рулона
-                renderReels(reelOffsets, reelStripsData);
-                currentGrid = getGridFromReels(reelOffsets, reelStripsData);
-            }
-
-            // Анимация вращения рулонов
             function animateReels(targetOffsets, duration, callback) {
                 const startOffsets = [...reelOffsets];
                 const startTime = performance.now();
 
-                // Применяем blur
                 document.querySelectorAll('.reel-strip').forEach(el => el.classList.add('blurred'));
 
-                // Функция обновления
                 function step(currentTime) {
                     const elapsed = currentTime - startTime;
                     const progress = Math.min(elapsed / duration, 1);
-                    // ease-out cubic
                     const eased = 1 - Math.pow(1 - progress, 3);
 
-                    // Интерполяция для каждого рулона с небольшим смещением для реализма
                     for (let col = 0; col < 5; col++) {
                         const start = startOffsets[col];
                         const target = targetOffsets[col];
-                        // Добавляем небольшой случайный сдвиг для "неровности" остановки
                         let offset = start + (target - start) * eased;
-                        // Для реализма — небольшой овершут в конце (bounce)
+                        // Bounce в конце
                         if (progress > 0.85) {
                             const bounce = Math.sin((progress - 0.85) / 0.15 * Math.PI) * 0.3;
                             offset += bounce * (target - start) * 0.08;
                         }
-                        // Округляем до целого (индекс символа)
-                        const intOffset = Math.round(offset);
-                        // Применяем смещение к рулону
-                        const strip = reelStripsData[col];
-                        const len = strip.length;
-                        const normalizedOffset = ((intOffset % len) + len) % len;
-                        // Сдвигаем strip с помощью transform
+                        // Применяем transform к strip
                         const stripEl = document.getElementById('reelStrip-' + col);
                         if (stripEl) {
-                            // Вычисляем смещение в пикселях: каждый символ занимает 1/5 высоты контейнера
-                            // Но мы используем процентное смещение: 100% / REEL_SYMBOLS_COUNT * (intOffset % len)
-                            // Для плавности используем дробную часть
                             const totalCells = REEL_SYMBOLS_COUNT;
-                            const cellHeight = 100 / 5; // % от высоты колонки
-                            const offsetPx = -(normalizedOffset / totalCells) * 100;
-                            // Также учитываем дробную часть для плавности
+                            const normalizedOffset = ((Math.round(offset) % totalCells) + totalCells) % totalCells;
                             const frac = offset - Math.floor(offset);
+                            const offsetPx = -(normalizedOffset / totalCells) * 100;
                             const extraPx = -(frac / totalCells) * 100;
                             stripEl.style.transform = `translateY(${offsetPx + extraPx}%)`;
                         }
@@ -3202,43 +3127,33 @@
                     if (progress < 1) {
                         requestAnimationFrame(step);
                     } else {
-                        // Фиксируем финальные смещения
+                        // Фиксация
                         for (let col = 0; col < 5; col++) {
                             const target = targetOffsets[col];
-                            const strip = reelStripsData[col];
-                            const len = strip.length;
-                            const normalizedOffset = ((target % len) + len) % len;
+                            const totalCells = REEL_SYMBOLS_COUNT;
+                            const normalizedOffset = ((Math.round(target) % totalCells) + totalCells) % totalCells;
                             reelOffsets[col] = normalizedOffset;
                             const stripEl = document.getElementById('reelStrip-' + col);
                             if (stripEl) {
-                                const totalCells = REEL_SYMBOLS_COUNT;
                                 const offsetPx = -(normalizedOffset / totalCells) * 100;
                                 stripEl.style.transform = `translateY(${offsetPx}%)`;
                             }
                         }
 
-                        // Убираем blur
                         document.querySelectorAll('.reel-strip').forEach(el => el.classList.remove('blurred'));
-
-                        // Обновляем видимые ячейки
                         renderReels(reelOffsets, reelStripsData);
                         currentGrid = getGridFromReels(reelOffsets, reelStripsData);
-
                         if (callback) callback();
                     }
                 }
                 requestAnimationFrame(step);
             }
 
-            // Генерация случайных целевых смещений для рулонов
             function generateTargetOffsets() {
                 const targets = [];
                 const totalCells = REEL_SYMBOLS_COUNT;
                 for (let col = 0; col < 5; col++) {
-                    // Каждый рулон останавливается на случайной позиции
-                    // Делаем так, чтобы символы на стопе были валидными
                     const currentOffset = reelOffsets[col];
-                    // Прокручиваем на 2-4 полных оборота + случайное смещение
                     const extraSpins = 2 + Math.floor(Math.random() * 3);
                     const randomOffset = Math.floor(Math.random() * totalCells);
                     const target = currentOffset + extraSpins * totalCells + randomOffset;
@@ -3247,7 +3162,9 @@
                 return targets;
             }
 
-            // Основной спин с рулонами
+            // =============================================================
+            // 13. ОСНОВНОЙ СПИН
+            // =============================================================
             function spinReels(bet, isFreeSpin = false, callback) {
                 if (isSpinning) return;
                 isSpinning = true;
@@ -3263,19 +3180,17 @@
                 if (isBonusActive) statusBar.classList.add('bonus');
                 else statusBar.classList.remove('bonus');
 
-                // Сначала обновляем рулоны: заменяем символы на случайные (для эффекта "ленты")
-                // Но мы не хотим терять видимость — просто обновляем strip
+                // Обновляем содержимое рулонов (новые символы)
                 for (let col = 0; col < 5; col++) {
                     const strip = reelStripsData[col];
-                    // Обновляем все символы в рулоне на новые (кроме тех, что видны? нет, обновляем все)
                     for (let i = 0; i < strip.length; i++) {
                         strip[i] = getWeightedSymbol();
                     }
-                    // Обновляем DOM для этого рулона
-                    const stripEl = document.getElementById('reelStrip-' + col);
-                    if (stripEl) {
-                        const cells = stripEl.querySelectorAll('.cell img');
-                        cells.forEach((img, idx) => {
+                    // Обновляем все img в этом рулоне
+                    const colEl = document.querySelector(`.reel-col[data-col="${col}"]`);
+                    if (colEl) {
+                        const imgs = colEl.querySelectorAll('.cell img');
+                        imgs.forEach((img, idx) => {
                             const sym = strip[idx % strip.length];
                             img.src = sym;
                             img.dataset.symbol = sym;
@@ -3287,23 +3202,17 @@
                 playSpin();
                 btnSpin.classList.add('spinning-state');
 
-                // Генерируем целевые смещения
                 const targets = generateTargetOffsets();
-
-                // Длительность вращения: 1.8-2.5 сек
                 const duration = 1800 + Math.random() * 700;
 
-                // Запускаем анимацию
                 animateReels(targets, duration, function() {
-                    // Анимация завершена — фиксируем результат
                     btnSpin.classList.remove('spinning-state');
                     playStop();
 
-                    // Получаем финальную сетку
                     const finalGrid = getGridFromReels(reelOffsets, reelStripsData);
                     currentGrid = finalGrid;
 
-                    // Показываем эффект landing на видимых ячейках
+                    // Эффект landing на видимых ячейках
                     const visibleCells = document.querySelectorAll('.reel-col .cell');
                     visibleCells.forEach((cell, idx) => {
                         cell.classList.remove('landing', 'stopping');
@@ -3330,7 +3239,9 @@
                 });
             }
 
-            // Каскады на основе рулонов
+            // =============================================================
+            // 14. КАСКАДЫ
+            // =============================================================
             async function processCascadesReels(bet, isFreeSpin, callback) {
                 let grid = [...currentGrid];
                 let totalWin = 0;
@@ -3352,7 +3263,6 @@
                         statusEl.textContent = `💰 ВЫИГРЫШ: ${formatNumber(winAmount)} ₽ (x${multiplier})`;
                         statusBar.classList.add('win');
 
-                        // Подсветка выигрышных ячеек
                         const cells = document.querySelectorAll('.reel-col .cell');
                         winningIndices.forEach(idx => {
                             if (cells[idx]) cells[idx].classList.add('win-highlight');
@@ -3365,7 +3275,7 @@
 
                         const explodePromises = [];
                         winningIndices.forEach(idx => {
-                            const cell = document.querySelectorAll('.reel-col .cell')[idx];
+                            const cell = cells[idx];
                             if (cell) {
                                 cell.classList.add('exploding');
                                 const rect = cell.getBoundingClientRect();
@@ -3382,19 +3292,17 @@
                         await Promise.all(explodePromises);
 
                         winningIndices.forEach(idx => {
-                            const cell = document.querySelectorAll('.reel-col .cell')[idx];
+                            const cell = cells[idx];
                             if (cell) {
                                 cell.classList.remove('win-highlight', 'exploding');
                             }
                         });
                         winLinesCanvas.classList.remove('active');
 
-                        // Каскад: удаляем выигравшие, сдвигаем вниз, новые сверху
                         const cascadeResult = performCascadeOnReels(grid, winningIndices, reelStripsData, reelOffsets);
                         grid = cascadeResult.newGrid;
 
                         if (cascadeResult.anyChanged) {
-                            // Обновляем DOM
                             const cellsAll = document.querySelectorAll('.reel-col .cell');
                             for (let i = 0; i < GRID_SIZE; i++) {
                                 if (cellsAll[i]) {
@@ -3546,18 +3454,16 @@
                 if (callback) callback();
             }
 
-            // Запуск спина
             function startSpinReels(bet, isFreeSpin = false, callback) {
-                // Генерируем начальные рулоны
                 for (let col = 0; col < 5; col++) {
                     const strip = reelStripsData[col];
                     for (let i = 0; i < strip.length; i++) {
                         strip[i] = getWeightedSymbol();
                     }
-                    const stripEl = document.getElementById('reelStrip-' + col);
-                    if (stripEl) {
-                        const cells = stripEl.querySelectorAll('.cell img');
-                        cells.forEach((img, idx) => {
+                    const colEl = document.querySelector(`.reel-col[data-col="${col}"]`);
+                    if (colEl) {
+                        const imgs = colEl.querySelectorAll('.cell img');
+                        imgs.forEach((img, idx) => {
                             const sym = strip[idx % strip.length];
                             img.src = sym;
                             img.dataset.symbol = sym;
@@ -3569,7 +3475,7 @@
             }
 
             // =============================================================
-            // 13. BONUS (адаптировано)
+            // 15. BONUS
             // =============================================================
             function triggerBonus(spins, triggerText, icon, title, sub, detail) {
                 if (isBonusActive && freeSpins > 0) {
@@ -3643,7 +3549,7 @@
             }
 
             // =============================================================
-            // 14. AUTO SPIN
+            // 16. AUTO SPIN
             // =============================================================
             function toggleAutoSpin() {
                 if (autoSpinActive) { stopAutoSpin('Остановлено пользователем'); return; }
@@ -3703,7 +3609,7 @@
             autoStopBtn.addEventListener('click', function() { stopAutoSpin('Остановлено пользователем'); });
 
             // =============================================================
-            // 15. UI HELPERS
+            // 17. UI HELPERS
             // =============================================================
             function formatNumber(num) { return Math.floor(num).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' '); }
 
@@ -3816,13 +3722,47 @@
             }
 
             // =============================================================
-            // 16. INIT
+            // 18. INIT
             // =============================================================
             function init() {
                 initAudio();
 
                 // Инициализация рулонов
-                initReels();
+                reelStripsData = buildReelStrips();
+                reelOffsets = [0, 0, 0, 0, 0];
+
+                gridEl.innerHTML = '';
+                for (let col = 0; col < 5; col++) {
+                    const colDiv = document.createElement('div');
+                    colDiv.className = 'reel-col';
+                    colDiv.dataset.col = col;
+                    const stripDiv = document.createElement('div');
+                    stripDiv.className = 'reel-strip';
+                    stripDiv.id = 'reelStrip-' + col;
+                    for (let i = 0; i < REEL_SYMBOLS_COUNT; i++) {
+                        const cell = document.createElement('div');
+                        cell.className = 'cell';
+                        const img = document.createElement('img');
+                        const sym = reelStripsData[col][i % reelStripsData[col].length];
+                        img.src = sym;
+                        img.dataset.symbol = sym;
+                        img.alt = 'symbol';
+                        cell.appendChild(img);
+                        stripDiv.appendChild(cell);
+                    }
+                    colDiv.appendChild(stripDiv);
+                    gridEl.appendChild(colDiv);
+                }
+
+                // Устанавливаем начальные смещения
+                for (let col = 0; col < 5; col++) {
+                    const stripEl = document.getElementById('reelStrip-' + col);
+                    if (stripEl) {
+                        stripEl.style.transform = 'translateY(0%)';
+                    }
+                }
+                renderReels(reelOffsets, reelStripsData);
+                currentGrid = getGridFromReels(reelOffsets, reelStripsData);
 
                 updateBalance(balance, false);
                 const initialBet = Math.min(1000, balance);
@@ -3902,14 +3842,14 @@
                 initLightningCanvas();
 
                 console.log('⚡ ZEUS PREMIUM SLOTS с рулонами загружен, баланс:', balance);
-                console.log('✅ Непрерывное вращение без пропадания символов');
+                console.log('✅ Исправлена анимация, символы не пропадают');
             }
 
             window.addEventListener('resize', () => { initParticlesFull();
                 initLightningCanvas(); });
 
             // =============================================================
-            // 17. КНОПКА SPIN
+            // 19. КНОПКА SPIN
             // =============================================================
             function btnSpinClick() {
                 if (isSpinning) {
@@ -3963,7 +3903,7 @@
             });
 
             // =============================================================
-            // 18. BACK
+            // 20. BACK
             // =============================================================
             btnBack.addEventListener('click', function() {
                 if (autoSpinActive) stopAutoSpin('Выход в меню');
@@ -3978,7 +3918,7 @@
             });
 
             // =============================================================
-            // 19. ЗАПУСК
+            // 21. ЗАПУСК
             // =============================================================
             init();
 
