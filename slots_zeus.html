@@ -595,7 +595,7 @@
             box-shadow: inset 0 0 30px rgba(255,213,74,0.04);
         }
 
-        /* ===== КАНВАС ДЛЯ РУЛОНОВ (вместо DOM) ===== */
+        /* ===== CANVAS ДЛЯ РУЛОНОВ ===== */
         #reelsCanvas {
             width: 100%;
             height: 100%;
@@ -604,6 +604,8 @@
             background: transparent;
             box-shadow: inset 0 4px 30px rgba(0,0,0,0.8);
             image-rendering: auto;
+            position: relative;
+            z-index: 1;
         }
 
         /* ===== WIN LINES CANVAS ===== */
@@ -1458,11 +1460,12 @@
 
         <div class="fs-portal-overlay" id="fsPortalOverlay"></div>
 
+        <!-- АУДИО — гром и фоновая музыка -->
         <audio id="bgMusic" loop preload="auto">
             <source src="Античная музыка- древняя греция — Greece (www.lightaudio.ru).mp3" type="audio/mpeg">
         </audio>
         <audio id="thunderSound" preload="auto">
-            <source src="img/fonoteca-raskat-groma.mp3" type="audio/mpeg">
+            <source src="img/fonoteca-raskat-groma%20(1).mp3" type="audio/mpeg">
         </audio>
 
         <div class="bonus-popup" id="bonusPopup">
@@ -2391,7 +2394,7 @@
                 currentGrid = getGridFromOffsets(offsets, strips);
             }
 
-            // Отрисовка рулонов на canvas (оптимизированная, без лишних перерисовок)
+            // ===== НОВАЯ ОТРИСОВКА С ЗОЛОТЫМИ РАЗДЕЛИТЕЛЯМИ =====
             function drawReels(offsets, strips) {
                 const canvas = reelsCanvas;
                 const rect = canvas.parentElement.getBoundingClientRect();
@@ -2424,14 +2427,21 @@
                         const x = pad + col * cellW + (cellW - imgSize) / 2;
                         const y = pad + row * cellH + (cellH - imgSize) / 2;
 
-                        // Рамка ячейки (полупрозрачная)
+                        // Рамка ячейки — золотистая
                         ctx.shadowBlur = 0;
                         ctx.shadowColor = 'transparent';
-                        ctx.fillStyle = 'rgba(18,58,115,0.15)';
-                        ctx.fillRect(x - 2, y - 2, imgSize + 4, imgSize + 4);
-                        ctx.strokeStyle = 'rgba(200,155,44,0.2)';
-                        ctx.lineWidth = 1.5;
+                        // Убираем заливку, оставляем только рамку
+                        ctx.strokeStyle = 'rgba(200,155,44,0.6)';
+                        ctx.lineWidth = 2;
                         ctx.strokeRect(x - 2, y - 2, imgSize + 4, imgSize + 4);
+
+                        // Внутреннее свечение
+                        ctx.shadowBlur = 10;
+                        ctx.shadowColor = 'rgba(255,213,74,0.15)';
+                        ctx.strokeStyle = 'rgba(255,213,74,0.15)';
+                        ctx.lineWidth = 1;
+                        ctx.strokeRect(x - 1, y - 1, imgSize + 2, imgSize + 2);
+                        ctx.shadowBlur = 0;
 
                         // Загрузка изображения
                         const img = new Image();
@@ -2443,12 +2453,114 @@
                                 ctx.drawImage(img, x, y, imgSize, imgSize);
                             };
                             img.onerror = function() {
-                                ctx.fillStyle = 'rgba(255,255,255,0.1)';
+                                // Если изображение не загрузилось, рисуем заглушку
+                                ctx.fillStyle = 'rgba(255,255,255,0.05)';
                                 ctx.fillRect(x, y, imgSize, imgSize);
                             };
                         }
                     }
                 }
+
+                // ===== ЗОЛОТЫЕ РАЗДЕЛИТЕЛИ МЕЖДУ СТОЛБЦАМИ =====
+                ctx.shadowBlur = 0;
+                ctx.shadowColor = 'transparent';
+                ctx.strokeStyle = 'rgba(255,213,74,0.15)';
+                ctx.lineWidth = 1;
+                for (let c = 1; c < cols; c++) {
+                    const x = pad + c * cellW - 1;
+                    ctx.beginPath();
+                    ctx.moveTo(x, pad);
+                    ctx.lineTo(x, rect.height - pad);
+                    ctx.stroke();
+                }
+                // Горизонтальные линии
+                for (let r = 1; r < rows; r++) {
+                    const y = pad + r * cellH - 1;
+                    ctx.beginPath();
+                    ctx.moveTo(pad, y);
+                    ctx.lineTo(rect.width - pad, y);
+                    ctx.stroke();
+                }
+
+                // Дополнительное свечение по краям
+                const grad = ctx.createLinearGradient(0, 0, rect.width, 0);
+                grad.addColorStop(0, 'rgba(255,213,74,0.05)');
+                grad.addColorStop(0.5, 'rgba(255,213,74,0)');
+                grad.addColorStop(1, 'rgba(255,213,74,0.05)');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, rect.width, rect.height);
+            }
+
+            // Отрисовка с дробными смещениями (для плавности) — без лишней заливки
+            function drawReelsFloat(offsets, strips) {
+                const canvas = reelsCanvas;
+                const rect = canvas.parentElement.getBoundingClientRect();
+                const dpr = window.devicePixelRatio || 1;
+                canvas.width = rect.width * dpr;
+                canvas.height = rect.height * dpr;
+                canvas.style.width = rect.width + 'px';
+                canvas.style.height = rect.height + 'px';
+                const ctx = canvas.getContext('2d');
+                ctx.scale(dpr, dpr);
+
+                const cols = 5,
+                    rows = 5;
+                const pad = 4;
+                const cellW = (rect.width - pad * 2) / cols;
+                const cellH = (rect.height - pad * 2) / rows;
+                const gap = 4;
+                const imgSize = Math.min(cellW - gap, cellH - gap) * 0.8;
+
+                // Фон прозрачный
+
+                // Применяем размытие при вращении (эффект движения)
+                const isMoving = Math.abs(offsets[0] - reelOffsets[0]) > 0.1;
+                if (isMoving && settings.graphics !== 'balanced') {
+                    ctx.filter = 'blur(2px)';
+                } else {
+                    ctx.filter = 'none';
+                }
+
+                // Рисуем каждый рулон с учетом дробного смещения
+                // Добавляем дополнительную строку сверху и снизу, чтобы заполнить пробелы
+                for (let col = 0; col < 5; col++) {
+                    const strip = strips[col];
+                    const len = strip.length;
+                    const offset = offsets[col];
+                    const baseIdx = Math.floor(offset) % len;
+                    const frac = offset - Math.floor(offset);
+
+                    for (let row = -1; row < rows + 1; row++) {
+                        const idx = (baseIdx + row) % len;
+                        const sym = strip[idx];
+                        const yPos = pad + (row - frac) * cellH + (cellH - imgSize) / 2;
+                        // Пропускаем, если полностью вне видимой области
+                        if (yPos + imgSize < pad || yPos > pad + rows * cellH) continue;
+                        const xPos = pad + col * cellW + (cellW - imgSize) / 2;
+
+                        // Рамка ячейки
+                        ctx.shadowBlur = 0;
+                        ctx.shadowColor = 'transparent';
+                        ctx.strokeStyle = 'rgba(200,155,44,0.3)';
+                        ctx.lineWidth = 1.5;
+                        ctx.strokeRect(xPos - 2, yPos - 2, imgSize + 4, imgSize + 4);
+
+                        const img = new Image();
+                        img.src = sym;
+                        if (img.complete && img.naturalWidth !== 0) {
+                            ctx.drawImage(img, xPos, yPos, imgSize, imgSize);
+                        } else {
+                            img.onload = function() {
+                                ctx.drawImage(img, xPos, yPos, imgSize, imgSize);
+                            };
+                            img.onerror = function() {
+                                ctx.fillStyle = 'rgba(255,255,255,0.05)';
+                                ctx.fillRect(xPos, yPos, imgSize, imgSize);
+                            };
+                        }
+                    }
+                }
+                ctx.filter = 'none';
             }
 
             // Проверка выигрышей
@@ -2516,7 +2628,7 @@
             }
 
             // =============================================================
-            // 12. АНИМАЦИЯ ВРАЩЕНИЯ НА CANVAS (исправлена, без лагов)
+            // 12. АНИМАЦИЯ ВРАЩЕНИЯ НА CANVAS (исправлена)
             // =============================================================
             let animationId = null;
 
@@ -2560,77 +2672,6 @@
                     }
                 }
                 animationId = requestAnimationFrame(step);
-            }
-
-            // Отрисовка с дробными смещениями (для плавности)
-            function drawReelsFloat(offsets, strips) {
-                const canvas = reelsCanvas;
-                const rect = canvas.parentElement.getBoundingClientRect();
-                const dpr = window.devicePixelRatio || 1;
-                canvas.width = rect.width * dpr;
-                canvas.height = rect.height * dpr;
-                canvas.style.width = rect.width + 'px';
-                canvas.style.height = rect.height + 'px';
-                const ctx = canvas.getContext('2d');
-                ctx.scale(dpr, dpr);
-
-                const cols = 5,
-                    rows = 5;
-                const pad = 4;
-                const cellW = (rect.width - pad * 2) / cols;
-                const cellH = (rect.height - pad * 2) / rows;
-                const gap = 4;
-                const imgSize = Math.min(cellW - gap, cellH - gap) * 0.8;
-
-                // Фон прозрачный
-
-                // Применяем размытие при вращении (эффект движения)
-                const isMoving = Math.abs(offsets[0] - reelOffsets[0]) > 0.1;
-                if (isMoving && settings.graphics !== 'balanced') {
-                    ctx.filter = 'blur(3px)';
-                } else {
-                    ctx.filter = 'none';
-                }
-
-                // Рисуем каждый рулон с учетом дробного смещения
-                for (let col = 0; col < 5; col++) {
-                    const strip = strips[col];
-                    const len = strip.length;
-                    const offset = offsets[col];
-                    const baseIdx = Math.floor(offset) % len;
-                    const frac = offset - Math.floor(offset);
-
-                    for (let row = -1; row < rows + 1; row++) {
-                        const idx = (baseIdx + row) % len;
-                        const sym = strip[idx];
-                        const yPos = pad + (row - frac) * cellH + (cellH - imgSize) / 2;
-                        if (yPos < -imgSize || yPos > rect.height) continue;
-                        const xPos = pad + col * cellW + (cellW - imgSize) / 2;
-
-                        ctx.shadowBlur = 0;
-                        ctx.shadowColor = 'transparent';
-                        ctx.fillStyle = 'rgba(18,58,115,0.15)';
-                        ctx.fillRect(xPos - 2, yPos - 2, imgSize + 4, imgSize + 4);
-                        ctx.strokeStyle = 'rgba(200,155,44,0.2)';
-                        ctx.lineWidth = 1.5;
-                        ctx.strokeRect(xPos - 2, yPos - 2, imgSize + 4, imgSize + 4);
-
-                        const img = new Image();
-                        img.src = sym;
-                        if (img.complete && img.naturalWidth !== 0) {
-                            ctx.drawImage(img, xPos, yPos, imgSize, imgSize);
-                        } else {
-                            img.onload = function() {
-                                ctx.drawImage(img, xPos, yPos, imgSize, imgSize);
-                            };
-                            img.onerror = function() {
-                                ctx.fillStyle = 'rgba(255,255,255,0.1)';
-                                ctx.fillRect(xPos, yPos, imgSize, imgSize);
-                            };
-                        }
-                    }
-                }
-                ctx.filter = 'none';
             }
 
             // Генерация целевых смещений
@@ -3164,6 +3205,11 @@
                 currentGrid = getGridFromOffsets(reelOffsets, reelStrips);
                 drawReels(reelOffsets, reelStrips);
 
+                // Принудительная коррекция размеров после загрузки
+                setTimeout(() => {
+                    drawReels(reelOffsets, reelStrips);
+                }, 100);
+
                 updateBalance(balance, false);
                 const initialBet = Math.min(1000, balance);
                 betInput.value = formatNumber(initialBet);
@@ -3249,7 +3295,7 @@
                 initLightningCanvas();
 
                 console.log('⚡ ZEUS PREMIUM SLOTS (canvas) загружен, баланс:', balance);
-                console.log('✅ Исправлена анимация через canvas, убран баг с балансом');
+                console.log('✅ Исправлена анимация, убран серый фон, добавлены золотые разделители, звук грома');
             }
 
             window.addEventListener('resize', () => {
