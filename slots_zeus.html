@@ -744,18 +744,20 @@
             z-index: -1;
             opacity: 0.6;
         }
+        /* КРЕСТИК — исправлено позиционирование */
         .info-close {
             position: absolute;
-            top: 14px;
-            right: 18px;
-            font-size: 24px;
-            color: rgba(244,240,230,0.3);
+            top: 18px;
+            right: 22px;
+            font-size: 26px;
+            color: rgba(244,240,230,0.4);
             cursor: pointer;
             background: none;
             border: none;
             transition: color 0.2s, transform 0.2s;
             z-index: 10;
-            padding: 4px 12px;
+            padding: 4px 8px;
+            line-height: 1;
         }
         .info-close:hover {
             color: var(--marble-white);
@@ -875,7 +877,25 @@
         }
         .info-rules p:last-child { margin-bottom: 0; }
 
-        /* ===== STATS ===== */
+        /* ===== BOTTOM PANEL — ВОЗВРАЩЁН ФОН ===== */
+        .bottom-panel {
+            position: relative;
+            z-index: var(--z-ui);
+            background: linear-gradient(0deg, rgba(7,23,45,0.9), rgba(18,58,115,0.8));
+            border-top: 2px solid rgba(255,213,74,0.25);
+            padding: 8px 10px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            flex-shrink: 0;
+            box-shadow: 0 -12px 50px var(--shadow-deep);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            transition: backdrop-filter 0.3s ease;
+            transform: translateZ(0);
+            margin-top: 2px;
+        }
+
         .stats {
             display: flex;
             gap: 6px;
@@ -1825,7 +1845,7 @@
             </div>
         </div>
 
-        <!-- ===== НИЖНЯЯ ПАНЕЛЬ ===== -->
+        <!-- ===== НИЖНЯЯ ПАНЕЛЬ (с восстановленным фоном) ===== -->
         <div class="bottom-panel">
             <div class="stats">
                 <div class="stat-box">
@@ -1915,7 +1935,7 @@
     </div>
 
     <!-- ==============================================================
-    JAVASCRIPT — ИСПРАВЛЕННАЯ ИНИЦИАЛИЗАЦИЯ (убрана уменьшенная версия)
+    JAVASCRIPT — ИСПРАВЛЕННАЯ ИНИЦИАЛИЗАЦИЯ
     ============================================================== -->
     <script>
         (function() {
@@ -2160,7 +2180,7 @@
             const payoutGrid = document.getElementById('payoutGrid');
 
             // =============================================================
-            // 6. ЗВУК (сокращённо, без изменений)
+            // 6. ЗВУК (сокращённо)
             // =============================================================
             const SoundManager = { volume: 0.85, setVolume(v) { this.volume = Math.max(0, Math.min(1, v)); }, scale(vol) { return vol *
                         this.volume; } };
@@ -2408,7 +2428,7 @@
             window._particlesInit = true;
 
             // =============================================================
-            // 8. МОЛНИИ (без изменений)
+            // 8. МОЛНИИ
             // =============================================================
             let lCtx = null,
                 lW = 0,
@@ -2611,7 +2631,7 @@
             }
 
             // =============================================================
-            // 11. ОСНОВНАЯ ЛОГИКА — ИСПРАВЛЕННАЯ ИНИЦИАЛИЗАЦИЯ
+            // 11. ОСНОВНАЯ ЛОГИКА — ИНИЦИАЛИЗАЦИЯ
             // =============================================================
 
             function buildReelStrips() {
@@ -2664,7 +2684,7 @@
                 currentGrid = getGridFromOffsets(offsets, strips);
             }
 
-            // ОСНОВНАЯ ОТРИСОВКА — с принудительным очищением canvas
+            // ОСНОВНАЯ ОТРИСОВКА
             function drawReels(offsets, strips) {
                 const canvas = reelsCanvas;
                 const rect = canvas.parentElement.getBoundingClientRect();
@@ -2683,7 +2703,6 @@
                 const cellH = (rect.height - pad * 2) / rows;
                 const imgSize = Math.min(cellW - 4, cellH - 4) * 0.85;
 
-                // ПРИНУДИТЕЛЬНАЯ ОЧИСТКА — убираем все предыдущие символы
                 ctx.clearRect(0, 0, rect.width, rect.height);
 
                 for (let col = 0; col < 5; col++) {
@@ -2745,7 +2764,6 @@
                 }
             }
 
-            // Плавная отрисовка при вращении — тоже с очисткой
             function drawReelsFloat(offsets, strips) {
                 const canvas = reelsCanvas;
                 const rect = canvas.parentElement.getBoundingClientRect();
@@ -2764,7 +2782,6 @@
                 const cellH = (rect.height - pad * 2) / rows;
                 const imgSize = Math.min(cellW - 4, cellH - 4) * 0.85;
 
-                // ОЧИЩАЕМ КАЖДЫЙ КАДР
                 ctx.clearRect(0, 0, rect.width, rect.height);
 
                 const isMoving = Math.abs(offsets[0] - reelOffsets[0]) > 0.1;
@@ -3449,32 +3466,28 @@
             }
 
             // =============================================================
-            // 18. INIT — ГЛАВНОЕ ИСПРАВЛЕНИЕ
+            // 18. INIT — ИСПРАВЛЕННАЯ ИНИЦИАЛИЗАЦИЯ
             // =============================================================
             function init() {
                 initAudio();
 
-                // Построение таблицы выплат
                 buildPayoutGrid();
 
-                // === ИНИЦИАЛИЗАЦИЯ РУЛОНОВ ===
                 reelStrips = buildReelStrips();
                 reelOffsets = [0, 0, 0, 0, 0];
                 currentGrid = getGridFromOffsets(reelOffsets, reelStrips);
 
-                // === ПЕРВИЧНАЯ ОТРИСОВКА — ДВАЖДЫ ДЛЯ НАДЁЖНОСТИ ===
-                // Первый раз — сразу, второй — после рендера layout
-                drawReels(reelOffsets, reelStrips);
-
-                // Второй вызов через requestAnimationFrame гарантирует, что canvas уже имеет финальные размеры
-                requestAnimationFrame(() => {
+                // Первичная отрисовка с задержкой для правильных размеров
+                const render = () => {
                     drawReels(reelOffsets, reelStrips);
-                });
+                };
 
-                // Третий вызов с небольшой задержкой — на случай, если родительский элемент ещё не развернулся
-                setTimeout(() => {
-                    drawReels(reelOffsets, reelStrips);
-                }, 150);
+                // Сразу рисуем, затем через requestAnimationFrame и setTimeout для надежности
+                render();
+                requestAnimationFrame(render);
+                setTimeout(render, 150);
+                // Также при изменении размера окна
+                window.addEventListener('resize', render);
 
                 updateBalance(balance, false);
                 const initialBet = Math.min(1000, balance);
@@ -3574,14 +3587,8 @@
                 initLightningCanvas();
 
                 console.log('⚡ ZEUS PREMIUM SLOTS загружен, баланс:', balance);
-                console.log('✅ Исправлена инициализация — уменьшенная версия убрана');
+                console.log('✅ Исправлена инициализация — уменьшенная версия убрана, фон панели восстановлен');
             }
-
-            window.addEventListener('resize', () => {
-                initParticlesFull();
-                initLightningCanvas();
-                drawReels(reelOffsets, reelStrips);
-            });
 
             // =============================================================
             // 19. КНОПКА SPIN
