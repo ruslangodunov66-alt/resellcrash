@@ -649,6 +649,9 @@
             image-rendering: auto;
             position: relative;
             z-index: 1;
+            /* предотвращаем скачки размера */
+            min-height: 0;
+            min-width: 0;
         }
 
         /* ===== WIN LINES CANVAS ===== */
@@ -744,24 +747,32 @@
             z-index: -1;
             opacity: 0.6;
         }
-        /* КРЕСТИК — исправлено позиционирование */
+        /* КРЕСТИК — исправлено позиционирование и видимость */
         .info-close {
             position: absolute;
-            top: 18px;
-            right: 22px;
-            font-size: 26px;
-            color: rgba(244,240,230,0.4);
+            top: 16px;
+            right: 20px;
+            font-size: 28px;
+            color: rgba(244,240,230,0.8);
             cursor: pointer;
-            background: none;
-            border: none;
-            transition: color 0.2s, transform 0.2s;
-            z-index: 10;
-            padding: 4px 8px;
+            background: rgba(7,23,45,0.6);
+            border: 1px solid rgba(255,213,74,0.2);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.25s var(--ease-bounce);
+            z-index: 20;
+            padding: 0;
             line-height: 1;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.4);
         }
         .info-close:hover {
-            color: var(--marble-white);
-            transform: scale(1.1);
+            color: #fff;
+            border-color: var(--gold-primary);
+            transform: scale(1.1) rotate(90deg);
         }
         .info-title {
             font-family: var(--font-display);
@@ -772,6 +783,7 @@
             margin-bottom: 20px;
             letter-spacing: 5px;
             text-shadow: 0 0 30px rgba(255,213,74,0.2);
+            padding-right: 20px; /* чтобы не наезжал на крестик */
         }
         .info-title small {
             display: block;
@@ -877,7 +889,7 @@
         }
         .info-rules p:last-child { margin-bottom: 0; }
 
-        /* ===== BOTTOM PANEL — ВОЗВРАЩЁН ФОН ===== */
+        /* ===== BOTTOM PANEL ===== */
         .bottom-panel {
             position: relative;
             z-index: var(--z-ui);
@@ -1723,6 +1735,7 @@
             .info-grid { font-size: 8px; }
             .info-grid .cell.symbol-cell img { width: 18px; height: 18px; }
             .btn-info { width: 24px; height: 24px; font-size: 12px; }
+            .info-close { width: 32px; height: 32px; font-size: 22px; top: 12px; right: 14px; }
         }
     </style>
 </head>
@@ -1845,7 +1858,7 @@
             </div>
         </div>
 
-        <!-- ===== НИЖНЯЯ ПАНЕЛЬ (с восстановленным фоном) ===== -->
+        <!-- ===== НИЖНЯЯ ПАНЕЛЬ ===== -->
         <div class="bottom-panel">
             <div class="stats">
                 <div class="stat-box">
@@ -1935,7 +1948,7 @@
     </div>
 
     <!-- ==============================================================
-    JAVASCRIPT — ИСПРАВЛЕННАЯ ИНИЦИАЛИЗАЦИЯ
+    JAVASCRIPT — ИСПРАВЛЕННАЯ ИНИЦИАЛИЗАЦИЯ (БЕЗ РАСТЯЖЕНИЯ)
     ============================================================== -->
     <script>
         (function() {
@@ -2631,7 +2644,7 @@
             }
 
             // =============================================================
-            // 11. ОСНОВНАЯ ЛОГИКА — ИНИЦИАЛИЗАЦИЯ
+            // 11. ОСНОВНАЯ ЛОГИКА — ИСПРАВЛЕННАЯ ИНИЦИАЛИЗАЦИЯ
             // =============================================================
 
             function buildReelStrips() {
@@ -2684,7 +2697,7 @@
                 currentGrid = getGridFromOffsets(offsets, strips);
             }
 
-            // ОСНОВНАЯ ОТРИСОВКА
+            // ОТРИСОВКА — без лишних перерисовок
             function drawReels(offsets, strips) {
                 const canvas = reelsCanvas;
                 const rect = canvas.parentElement.getBoundingClientRect();
@@ -3466,28 +3479,37 @@
             }
 
             // =============================================================
-            // 18. INIT — ИСПРАВЛЕННАЯ ИНИЦИАЛИЗАЦИЯ
+            // 18. INIT — ИСПРАВЛЕННАЯ ИНИЦИАЛИЗАЦИЯ (БЕЗ РАСТЯЖЕНИЯ)
             // =============================================================
             function init() {
                 initAudio();
 
                 buildPayoutGrid();
 
+                // Сначала скрываем canvas, чтобы не было видно процесса рендеринга
+                reelsCanvas.style.opacity = '0';
+
                 reelStrips = buildReelStrips();
                 reelOffsets = [0, 0, 0, 0, 0];
                 currentGrid = getGridFromOffsets(reelOffsets, reelStrips);
 
-                // Первичная отрисовка с задержкой для правильных размеров
+                // Отрисовка будет выполнена после того, как контейнер примет окончательные размеры
                 const render = () => {
                     drawReels(reelOffsets, reelStrips);
+                    reelsCanvas.style.opacity = '1';
                 };
 
-                // Сразу рисуем, затем через requestAnimationFrame и setTimeout для надежности
-                render();
-                requestAnimationFrame(render);
-                setTimeout(render, 150);
-                // Также при изменении размера окна
-                window.addEventListener('resize', render);
+                // Используем requestAnimationFrame для синхронизации с рендерингом браузера
+                requestAnimationFrame(() => {
+                    // Ждём один кадр, чтобы размеры контейнера уже были вычислены
+                    requestAnimationFrame(render);
+                });
+
+                // Также обрабатываем изменение размера окна
+                const resizeObserver = new ResizeObserver(() => {
+                    render();
+                });
+                resizeObserver.observe(reelsCanvas.parentElement);
 
                 updateBalance(balance, false);
                 const initialBet = Math.min(1000, balance);
@@ -3587,7 +3609,7 @@
                 initLightningCanvas();
 
                 console.log('⚡ ZEUS PREMIUM SLOTS загружен, баланс:', balance);
-                console.log('✅ Исправлена инициализация — уменьшенная версия убрана, фон панели восстановлен');
+                console.log('✅ Исправлена инициализация — уменьшенная версия убрана, крестик в инфо поправлен');
             }
 
             // =============================================================
