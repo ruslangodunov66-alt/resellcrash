@@ -34,7 +34,6 @@
             padding-bottom: 6px;
         }
 
-        /* Слот */
         .slot-wrapper {
             flex: 1;
             display: flex;
@@ -92,7 +91,6 @@
             z-index: 1;
         }
 
-        /* Нижняя панель — ПЕРЕРАБОТАНА */
         .bottom-panel {
             flex-shrink: 0;
             background: rgba(10, 6, 18, 0.8);
@@ -129,7 +127,6 @@
         .status-bar.spin { color: #7df9ff; text-shadow: 0 0 20px rgba(125, 249, 255, 0.3); border-color: #7df9ff; }
         .status-bar.idle { color: #a77bff; border-color: rgba(180,77,255,0.1); }
 
-        /* Строка ставки */
         .row-bet {
             display: flex;
             align-items: center;
@@ -185,7 +182,6 @@
             box-shadow: 0 0 15px rgba(180, 77, 255, 0.2);
         }
 
-        /* Строка действий — все кнопки в одной строке, компактно */
         .row-actions {
             display: flex;
             align-items: center;
@@ -282,7 +278,6 @@
         }
         .btn-settings:active, .btn-info:active { background: rgba(180, 77, 255, 0.2); }
 
-        /* Авто-контролы — появляются при активации автоспина */
         #autoControls {
             display: none;
             gap: 8px;
@@ -323,7 +318,6 @@
             color: #ffd93d;
         }
 
-        /* Модалки информации и настроек — без изменений */
         .modal-overlay {
             position: fixed;
             inset: 0;
@@ -523,7 +517,6 @@
 
         @keyframes fadePopup { from { opacity: 0; } to { opacity: 1; } }
 
-        /* Адаптив */
         @media (max-width: 480px) {
             .slot-frame { border-radius: 16px; padding: 4px; }
             .bottom-panel { padding: 4px 8px 10px; gap: 4px; }
@@ -608,7 +601,6 @@
         </div>
     </div>
 
-    <!-- Модалка информации -->
     <div class="modal-overlay" id="infoModal">
         <div class="modal-panel">
             <button class="modal-close" id="infoClose">✕</button>
@@ -616,13 +608,10 @@
                 📊 ТАБЛИЦА ВЫПЛАТ
                 <small>Множители за 3, 4, 5 совпадений на линии</small>
             </div>
-            <div class="paytable" id="paytableContainer">
-                <!-- заполняется скриптом -->
-            </div>
+            <div class="paytable" id="paytableContainer"></div>
         </div>
     </div>
 
-    <!-- Модалка настроек -->
     <div class="modal-overlay" id="settingsModal">
         <div class="modal-panel">
             <button class="modal-close" id="settingsClose">✕</button>
@@ -688,21 +677,63 @@
     }
 
     // =============================================================
-    // 3. СИМВОЛЫ
+    // 3. СИМВОЛЫ И ВЕСА (НОВЫЕ: СНИЖАЕМ ШАНС НА ВЫИГРЫШ)
     // =============================================================
     const SYMBOL_PATHS = [
-        '777/IMG_0413.PNG', '777/IMG_0414.PNG', '777/IMG_0415.PNG', '777/IMG_0416.PNG',
-        '777/IMG_0417.PNG', '777/IMG_0418.PNG', '777/IMG_0419.PNG', '777/IMG_0420.PNG',
-        '777/IMG_0409.PNG', '777/IMG_0410.PNG'
+        '777/IMG_0413.PNG', // 0: 7 (Wild) — очень редкий
+        '777/IMG_0414.PNG', // 1: сливы
+        '777/IMG_0415.PNG', // 2: арбуз
+        '777/IMG_0416.PNG', // 3: виноград
+        '777/IMG_0417.PNG', // 4: яблоко
+        '777/IMG_0418.PNG', // 5: апельсин
+        '777/IMG_0419.PNG', // 6: лимон
+        '777/IMG_0420.PNG', // 7: вишня
+        '777/IMG_0409.PNG', // 8: колокольчик (Scatter) — очень редкий
+        '777/IMG_0410.PNG'  // 9: BAR
     ];
     const SYMBOL_NAMES = ['7', 'Сливы', 'Арбуз', 'Виноград', 'Яблоко', 'Апельсин', 'Лимон', 'Вишня', 'Колокольчик', 'BAR'];
     const WILD_INDEX = 0;
     const SCATTER_INDEX = 8;
+
+    // Веса: чем больше вес, тем чаще выпадает.
+    // Делаем высокие символы редкими, низкие — частыми.
+    const SYMBOL_WEIGHTS = [
+        1,   // 7 (Wild) — очень редко
+        6,   // сливы
+        3,   // арбуз
+        4,   // виноград
+        8,   // яблоко
+        10,  // апельсин
+        12,  // лимон
+        15,  // вишня — очень часто
+        1,   // Scatter — очень редко
+        7    // BAR
+    ];
+
+    function weightedRandom() {
+        const total = SYMBOL_WEIGHTS.reduce((a, b) => a + b, 0);
+        let r = Math.random() * total;
+        for (let i = 0; i < SYMBOL_WEIGHTS.length; i++) {
+            r -= SYMBOL_WEIGHTS[i];
+            if (r <= 0) return i;
+        }
+        return SYMBOL_WEIGHTS.length - 1;
+    }
+
+    // Множители (оставляем как есть, но из-за редкости высоких символов выигрыши будут реже)
     const PAYTABLE = {
-        0: [15, 40, 100], 1: [8, 20, 50], 2: [12, 30, 70], 3: [10, 25, 60],
-        4: [6, 15, 35], 5: [5, 12, 30], 6: [4, 10, 25], 7: [3, 8, 18],
-        8: [0, 0, 0], 9: [5, 12, 25]
+        0: [15, 40, 100],
+        1: [8, 20, 50],
+        2: [12, 30, 70],
+        3: [10, 25, 60],
+        4: [6, 15, 35],
+        5: [5, 12, 30],
+        6: [4, 10, 25],
+        7: [3, 8, 18],
+        8: [0, 0, 0],
+        9: [5, 12, 25]
     };
+
     const LINES = [
         [0,1,2,3,4], [5,6,7,8,9], [10,11,12,13,14],
         [0,6,12,18,24], [4,8,12,16,20]
@@ -885,7 +916,7 @@
     let spinAnimId = null;
 
     // =============================================================
-    // 8. ПОСТРОЕНИЕ ПОЛОС
+    // 8. ПОСТРОЕНИЕ ПОЛОС (С ИСПОЛЬЗОВАНИЕМ ВЕСОВ)
     // =============================================================
     function buildReelStrips() {
         const strips = [];
@@ -893,13 +924,16 @@
             const strip = [];
             for (let i=0; i<REEL_STRIP_LENGTH; i++) {
                 let sym;
-                do { sym = Math.floor(Math.random() * SYMBOL_PATHS.length); } while (i>0 && strip[i-1]===sym && Math.random()<0.4);
+                do {
+                    sym = weightedRandom();
+                } while (i>0 && strip[i-1]===sym && Math.random()<0.4);
                 strip.push(sym);
             }
             strips.push(strip);
         }
         return strips;
     }
+
     function getGridFromOffsets(offsets, strips) {
         const grid = [];
         for (let row=0; row<3; row++) {
@@ -1030,10 +1064,11 @@
         vibrate('medium');
         playSpinStart();
 
+        // Обновляем ленты с использованием взвешенного выбора
         for (let col=0; col<5; col++) {
             const strip = reelStrips[col];
             for (let i=0; i<strip.length; i++) {
-                strip[i] = Math.floor(Math.random() * SYMBOL_PATHS.length);
+                strip[i] = weightedRandom();
             }
         }
 
@@ -1104,7 +1139,7 @@
     }
 
     // =============================================================
-    // 11. ЛОГИКА ВЫИГРЫША
+    // 11. ЛОГИКА ВЫИГРЫША (без изменений)
     // =============================================================
     function checkWins(grid) {
         let totalMult = 0;
@@ -1151,7 +1186,7 @@
                 if (!winIndices.has(idx)) colSymbols.push(grid[idx]);
             }
             while (colSymbols.length < 3) {
-                colSymbols.push(Math.floor(Math.random() * SYMBOL_PATHS.length));
+                colSymbols.push(weightedRandom()); // взвешенный выбор
                 changed = true;
             }
             for (let row=0; row<3; row++) {
@@ -1347,7 +1382,7 @@
         }
         for (let col=0; col<5; col++) {
             const strip = reelStrips[col];
-            for (let i=0; i<strip.length; i++) strip[i] = Math.floor(Math.random() * SYMBOL_PATHS.length);
+            for (let i=0; i<strip.length; i++) strip[i] = weightedRandom();
         }
         currentGrid = getGridFromOffsets(reelOffsets, reelStrips);
         spinReels(bet, isFreeSpin);
@@ -1791,7 +1826,7 @@
             }
         });
 
-        console.log('🍒 FRUIT 777 загружен, баланс:', balance);
+        console.log('🍒 FRUIT 777 (сбалансированный) загружен, баланс:', balance);
     }
 
     init();
