@@ -66,7 +66,7 @@
             image-rendering: auto;
         }
 
-        /* Нижняя панель — новая структура */
+        /* Нижняя панель */
         .bottom-panel {
             flex-shrink: 0;
             background: rgba(10, 6, 18, 0.8);
@@ -79,7 +79,6 @@
             gap: 6px;
         }
 
-        /* Статус */
         .status-bar {
             text-align: center;
             font-size: 14px;
@@ -101,8 +100,8 @@
         .status-bar.lose { color: #ff3b6f; text-shadow: 0 0 20px rgba(255,59,111,0.3); border-color: #ff3b6f; }
         .status-bar.bonus { color: #ffd93d; text-shadow: 0 0 20px rgba(255,217,61,0.3); border-color: #ffd93d; }
         .status-bar.spin { color: #7df9ff; text-shadow: 0 0 20px rgba(125, 249, 255, 0.3); border-color: #7df9ff; }
+        .status-bar.idle { color: #a77bff; border-color: rgba(180,77,255,0.1); }
 
-        /* Строка выбора ставки (над балансом) */
         .row-bet {
             display: flex;
             align-items: center;
@@ -158,7 +157,6 @@
             box-shadow: 0 0 15px rgba(180, 77, 255, 0.2);
         }
 
-        /* Строка баланс + кнопки */
         .row-actions {
             display: flex;
             align-items: center;
@@ -249,7 +247,6 @@
         }
         .btn-settings:active { background: rgba(180, 77, 255, 0.2); }
 
-        /* Авто-контролы (скрыты) */
         #autoControls {
             display: none;
             gap: 6px;
@@ -286,7 +283,7 @@
             color: #ffd93d;
         }
 
-        /* Настройки модалка */
+        /* Настройки */
         .settings-overlay {
             position: fixed;
             inset: 0;
@@ -398,7 +395,6 @@
 
         @keyframes fadePopup { from { opacity: 0; } to { opacity: 1; } }
 
-        /* Адаптив */
         @media (max-width: 480px) {
             .slot-frame { border-radius: 16px; padding: 4px; }
             .bottom-panel { padding: 4px 6px 8px; gap: 4px; }
@@ -424,19 +420,15 @@
 <body>
 
 <div id="app">
-    <!-- Слот -->
     <div class="slot-wrapper">
         <div class="slot-frame">
             <canvas id="reelsCanvas"></canvas>
         </div>
     </div>
 
-    <!-- Нижняя панель -->
     <div class="bottom-panel">
-        <!-- Статус -->
         <div class="status-bar" id="statusBar">⚡ НАЖМИТЕ SPIN</div>
 
-        <!-- Строка выбора ставки -->
         <div class="row-bet">
             <div class="bet-input-wrap">
                 <input type="text" id="betInput" value="100" placeholder="Ставка">
@@ -449,7 +441,6 @@
             </div>
         </div>
 
-        <!-- Строка баланс + кнопки -->
         <div class="row-actions">
             <div class="balance-box">
                 <span class="balance-label">Баланс</span>
@@ -460,7 +451,6 @@
             <button class="btn btn-settings" id="settingsBtn">⚙</button>
         </div>
 
-        <!-- Авто-контролы (скрыты) -->
         <div id="autoControls">
             <label>Кол-во:</label>
             <select id="autoSpinsCount">
@@ -474,7 +464,6 @@
         </div>
     </div>
 
-    <!-- Настройки модалка -->
     <div class="settings-overlay" id="settingsOverlay">
         <div class="settings-panel">
             <button class="settings-close" id="settingsClose">✕</button>
@@ -503,100 +492,57 @@
     </div>
 </div>
 
-<!-- ====== СКРИПТ ====== -->
 <script>
 (function() {
     'use strict';
 
-    // =============================================================
-    // 1. TELEGRAM
-    // =============================================================
     const tg = window.Telegram.WebApp;
-    if (tg) {
-        tg.expand();
-        tg.enableClosingConfirmation();
-    }
-    const urlParams = new URLSearchParams(window.location.search);
-    const userId = urlParams.get('userId') || (tg?.initDataUnsafe?.user?.id) || '';
+    if (tg) { tg.expand(); tg.enableClosingConfirmation(); }
+    const userId = new URLSearchParams(window.location.search).get('userId') || (tg?.initDataUnsafe?.user?.id) || '';
 
-    // =============================================================
-    // 2. НАСТРОЙКИ
-    // =============================================================
-    let settings = {
-        sound: true,
-        music: true,
-        speed: 'normal'
-    };
+    // ===== НАСТРОЙКИ =====
+    let settings = { sound: true, music: true, speed: 'normal' };
     try {
         const saved = localStorage.getItem('fruit_settings');
-        if (saved) {
-            const parsed = JSON.parse(saved);
-            settings = { ...settings, ...parsed };
-        }
+        if (saved) { settings = { ...settings, ...JSON.parse(saved) }; }
     } catch(e) {}
 
     function saveSettings() {
         try { localStorage.setItem('fruit_settings', JSON.stringify(settings)); } catch(e) {}
-        applySettingsUI();
+        applyUI();
         updateAudio();
     }
 
-    function applySettingsUI() {
-        document.querySelectorAll('[data-speed]').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.speed === settings.speed);
-        });
-        const soundBtn = document.getElementById('soundToggle');
-        soundBtn.classList.toggle('active', settings.sound);
-        soundBtn.innerHTML = `<span class="indicator"></span> ${settings.sound ? 'Вкл' : 'Выкл'}`;
-        const musicBtn = document.getElementById('musicToggle');
-        musicBtn.classList.toggle('active', settings.music);
-        musicBtn.innerHTML = `<span class="indicator"></span> ${settings.music ? 'Вкл' : 'Выкл'}`;
+    function applyUI() {
+        document.querySelectorAll('[data-speed]').forEach(b => b.classList.toggle('active', b.dataset.speed === settings.speed));
+        const s = document.getElementById('soundToggle');
+        s.classList.toggle('active', settings.sound);
+        s.innerHTML = `<span class="indicator"></span> ${settings.sound ? 'Вкл' : 'Выкл'}`;
+        const m = document.getElementById('musicToggle');
+        m.classList.toggle('active', settings.music);
+        m.innerHTML = `<span class="indicator"></span> ${settings.music ? 'Вкл' : 'Выкл'}`;
     }
 
-    // =============================================================
-    // 3. СИМВОЛЫ
-    // =============================================================
+    // ===== СИМВОЛЫ =====
     const SYMBOLS = [
-        '777/IMG_0413.PNG', // 7 (Wild)
-        '777/IMG_0414.PNG', // сливы
-        '777/IMG_0415.PNG', // арбуз
-        '777/IMG_0416.PNG', // виноград
-        '777/IMG_0417.PNG', // яблоко
-        '777/IMG_0418.PNG', // апельсин
-        '777/IMG_0419.PNG', // лимон
-        '777/IMG_0420.PNG', // вишня
-        '777/IMG_0409.PNG', // колокольчик (Scatter)
-        '777/IMG_0410.PNG'  // BAR
+        '777/IMG_0413.PNG', '777/IMG_0414.PNG', '777/IMG_0415.PNG', '777/IMG_0416.PNG',
+        '777/IMG_0417.PNG', '777/IMG_0418.PNG', '777/IMG_0419.PNG', '777/IMG_0420.PNG',
+        '777/IMG_0409.PNG', '777/IMG_0410.PNG'
     ];
     const WILD_INDEX = 0;
     const SCATTER_INDEX = 8;
     const PAYTABLE = {
-        0: [15, 40, 100],
-        1: [8, 20, 50],
-        2: [12, 30, 70],
-        3: [10, 25, 60],
-        4: [6, 15, 35],
-        5: [5, 12, 30],
-        6: [4, 10, 25],
-        7: [3, 8, 18],
-        8: [0, 0, 0],
-        9: [5, 12, 25]
+        0: [15, 40, 100], 1: [8, 20, 50], 2: [12, 30, 70], 3: [10, 25, 60],
+        4: [6, 15, 35], 5: [5, 12, 30], 6: [4, 10, 25], 7: [3, 8, 18],
+        8: [0, 0, 0], 9: [5, 12, 25]
     };
     const LINES = [
-        [0,1,2,3,4],
-        [5,6,7,8,9],
-        [10,11,12,13,14],
-        [0,6,12,18,24],
-        [4,8,12,16,20]
+        [0,1,2,3,4], [5,6,7,8,9], [10,11,12,13,14],
+        [0,6,12,18,24], [4,8,12,16,20]
     ];
-    const REEL_ROWS = 3;
-    const REEL_COLS = 5;
-    const GRID_SIZE = REEL_ROWS * REEL_COLS;
-    const REEL_STRIP_LENGTH = 12;
+    const REEL_ROWS = 3, REEL_COLS = 5, GRID_SIZE = REEL_ROWS * REEL_COLS, REEL_STRIP_LENGTH = 12;
 
-    // =============================================================
-    // 4. DOM
-    // =============================================================
+    // ===== DOM =====
     const canvas = document.getElementById('reelsCanvas');
     const ctx = canvas.getContext('2d');
     const balanceDisplay = document.getElementById('balanceDisplay');
@@ -616,19 +562,14 @@
     const speedBtns = document.querySelectorAll('[data-speed]');
     const betPresets = document.querySelectorAll('.bet-preset-btn');
 
-    // =============================================================
-    // 5. ЗВУКИ И ВИБРАЦИИ
-    // =============================================================
-    let audioCtx = null;
-    let bgAudio = null;
-
+    // ===== ЗВУКИ =====
+    let audioCtx = null, bgAudio = null;
     function initAudio() {
         if (!audioCtx) {
             try {
                 audioCtx = new(window.AudioContext || window.webkitAudioContext)();
-                const resume = () => { if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); };
-                document.addEventListener('click', resume, { once: true });
-                document.addEventListener('touchstart', resume, { once: true });
+                document.addEventListener('click', () => audioCtx?.resume(), { once: true });
+                document.addEventListener('touchstart', () => audioCtx?.resume(), { once: true });
             } catch(e) {}
         }
         if (!bgAudio) {
@@ -638,10 +579,8 @@
         }
     }
 
-    function canPlaySound() { return settings.sound && audioCtx; }
-
     function playTone(freq, dur, type='sine', vol=0.07) {
-        if (!canPlaySound()) return;
+        if (!settings.sound || !audioCtx) return;
         try {
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
@@ -656,7 +595,6 @@
         } catch(e) {}
     }
 
-    // Вибрация через Telegram
     function vibrate(style = 'light') {
         if (tg?.HapticFeedback) {
             try {
@@ -669,75 +607,23 @@
         }
     }
 
-    // Звук клика
     function playClick() { playTone(800, 0.04, 'sine', 0.04); }
-
-    // Звук вращения (нарастающий шум)
-    function playSpinSound() {
-        if (!canPlaySound()) return;
-        for (let i = 0; i < 5; i++) {
-            setTimeout(() => {
-                playTone(200 + i * 80, 0.05, 'sawtooth', 0.03);
-            }, i * 30);
-        }
-    }
-
-    // Звук остановки (удар)
-    function playStopSound() {
-        playTone(150, 0.15, 'square', 0.06);
-        setTimeout(() => playTone(100, 0.1, 'square', 0.04), 80);
-    }
-
-    // Победный звук (мелодия)
-    function playWinSound() {
-        const notes = [523, 659, 784, 1047];
-        notes.forEach((f, i) => {
-            setTimeout(() => playTone(f, 0.15, 'sine', 0.07), i * 100);
-        });
-        setTimeout(() => {
-            playTone(880, 0.2, 'sine', 0.09);
-        }, 450);
-    }
-
-    // Проигрыш
-    function playLoseSound() {
-        playTone(300, 0.3, 'sawtooth', 0.05);
-        setTimeout(() => playTone(220, 0.25, 'sawtooth', 0.04), 200);
-    }
-
-    // Бонус
-    function playBonusSound() {
-        const notes = [440, 554, 659, 880, 1108];
-        notes.forEach((f, i) => {
-            setTimeout(() => playTone(f, 0.13, 'sine', 0.06), i * 80);
-        });
-        setTimeout(() => {
-            playTone(1318, 0.25, 'sine', 0.08);
-        }, 500);
-    }
-
-    // Монетка
-    function playCoinSound() {
-        playTone(760, 0.06, 'sine', 0.08);
-        setTimeout(() => playTone(1080, 0.05, 'sine', 0.06), 50);
-    }
+    function playSpinSound() { for (let i=0; i<5; i++) setTimeout(() => playTone(200+i*80, 0.05, 'sawtooth', 0.03), i*30); }
+    function playStopSound() { playTone(150, 0.15, 'square', 0.06); setTimeout(() => playTone(100, 0.1, 'square', 0.04), 80); }
+    function playWinSound() { [523,659,784,1047].forEach((f,i) => setTimeout(() => playTone(f, 0.15, 'sine', 0.07), i*100)); setTimeout(() => playTone(880, 0.2, 'sine', 0.09), 450); }
+    function playLoseSound() { playTone(300, 0.3, 'sawtooth', 0.05); setTimeout(() => playTone(220, 0.25, 'sawtooth', 0.04), 200); }
+    function playBonusSound() { [440,554,659,880,1108].forEach((f,i) => setTimeout(() => playTone(f, 0.13, 'sine', 0.06), i*80)); setTimeout(() => playTone(1318, 0.25, 'sine', 0.08), 500); }
+    function playCoinSound() { playTone(760, 0.06, 'sine', 0.08); setTimeout(() => playTone(1080, 0.05, 'sine', 0.06), 50); }
 
     function updateAudio() {
         if (bgAudio) {
-            if (settings.music) {
-                bgAudio.play().catch(() => {});
-            } else {
-                bgAudio.pause();
-            }
+            if (settings.music) bgAudio.play().catch(() => {});
+            else bgAudio.pause();
         }
     }
 
-    // =============================================================
-    // 6. БАЛАНС
-    // =============================================================
-    let balance = parseInt(localStorage.getItem('casinoBalance'));
-    if (isNaN(balance) || balance < 0) balance = 0;
-
+    // ===== БАЛАНС =====
+    let balance = parseInt(localStorage.getItem('casinoBalance')) || 0;
     function updateBalance(amount, animate = false) {
         balance = Math.floor(amount);
         localStorage.setItem('casinoBalance', String(balance));
@@ -748,7 +634,6 @@
             setTimeout(() => balanceDisplay.style.transform = 'scale(1)', 200);
         }
     }
-
     function getBet() {
         let val = parseInt(betInput.value.replace(/\s/g, ''));
         if (isNaN(val) || val < 10) val = 10;
@@ -756,14 +641,9 @@
         if (val > balance && balance > 0) val = Math.min(balance, 100000);
         return val;
     }
+    function setBetDisplay(val) { betInput.value = val.toLocaleString(); }
 
-    function setBetDisplay(val) {
-        betInput.value = val.toLocaleString();
-    }
-
-    // =============================================================
-    // 7. СОСТОЯНИЕ ИГРЫ
-    // =============================================================
+    // ===== СОСТОЯНИЕ =====
     let isSpinning = false;
     let freeSpins = 0;
     let isBonusActive = false;
@@ -777,40 +657,32 @@
     let reelStrips = [];
     let spinAnimId = null;
 
-    // =============================================================
-    // 8. ПОСТРОЕНИЕ ПОЛОСОК
-    // =============================================================
+    // ===== ПОЛОСЫ =====
     function buildReelStrips() {
         const strips = [];
-        for (let col = 0; col < 5; col++) {
+        for (let col=0; col<5; col++) {
             const strip = [];
-            for (let i = 0; i < REEL_STRIP_LENGTH; i++) {
+            for (let i=0; i<REEL_STRIP_LENGTH; i++) {
                 let sym;
-                do {
-                    sym = Math.floor(Math.random() * SYMBOLS.length);
-                } while (i > 0 && strip[i-1] === sym && Math.random() < 0.4);
+                do { sym = Math.floor(Math.random() * SYMBOLS.length); } while (i>0 && strip[i-1]===sym && Math.random()<0.4);
                 strip.push(sym);
             }
             strips.push(strip);
         }
         return strips;
     }
-
     function getGridFromOffsets(offsets, strips) {
         const grid = [];
-        for (let row = 0; row < 3; row++) {
-            for (let col = 0; col < 5; col++) {
-                const idx = (offsets[col] + row) % strips[col].length;
-                grid.push(strips[col][idx]);
+        for (let row=0; row<3; row++) {
+            for (let col=0; col<5; col++) {
+                grid.push(strips[col][(offsets[col] + row) % strips[col].length]);
             }
         }
         return grid;
     }
 
-    // =============================================================
-    // 9. ОТРИСОВКА С ОБРЕЗКОЙ СИМВОЛОВ
-    // =============================================================
-    function drawReels(offsets, strips, progress = 1) {
+    // ===== ОТРИСОВКА =====
+    function drawReels(offsets, strips) {
         const rect = canvas.parentElement.getBoundingClientRect();
         const dpr = window.devicePixelRatio || 1;
         canvas.width = rect.width * dpr;
@@ -818,54 +690,38 @@
         canvas.style.width = rect.width + 'px';
         canvas.style.height = rect.height + 'px';
         ctx.scale(dpr, dpr);
-
-        const w = rect.width, h = rect.height;
-        const pad = 4;
-        const cellW = (w - pad*2) / 5;
-        const cellH = (h - pad*2) / 3;
-
+        const w = rect.width, h = rect.height, pad = 4;
+        const cellW = (w - pad*2) / 5, cellH = (h - pad*2) / 3;
         ctx.clearRect(0, 0, w, h);
 
-        for (let row = 0; row < 3; row++) {
-            for (let col = 0; col < 5; col++) {
-                const x = pad + col*cellW;
-                const y = pad + row*cellH;
-                ctx.fillStyle = 'rgba(0,0,0,0.3)';
-                ctx.fillRect(x, y, cellW, cellH);
-                ctx.strokeStyle = 'rgba(180,77,255,0.08)';
-                ctx.lineWidth = 1;
-                ctx.strokeRect(x, y, cellW, cellH);
-            }
+        for (let row=0; row<3; row++) for (let col=0; col<5; col++) {
+            const x = pad + col*cellW, y = pad + row*cellH;
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.fillRect(x, y, cellW, cellH);
+            ctx.strokeStyle = 'rgba(180,77,255,0.08)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x, y, cellW, cellH);
         }
 
-        for (let col = 0; col < 5; col++) {
-            const strip = strips[col];
-            const off = offsets[col];
-            const len = strip.length;
-            for (let row = 0; row < 3; row++) {
+        for (let col=0; col<5; col++) {
+            const strip = strips[col], off = offsets[col], len = strip.length;
+            for (let row=0; row<3; row++) {
                 const idx = (Math.floor(off) + row) % len;
                 const symIdx = strip[idx];
-                const x = pad + col*cellW + 2;
-                const y = pad + row*cellH + 2;
-                const imgW = cellW - 4;
-                const imgH = cellH - 4;
-
+                const x = pad + col*cellW + 2, y = pad + row*cellH + 2;
+                const imgW = cellW - 4, imgH = cellH - 4;
                 const img = new Image();
                 img.src = SYMBOLS[symIdx];
                 if (img.complete && img.naturalWidth) {
                     const crop = 0.1;
-                    const sx = img.naturalWidth * crop;
-                    const sy = img.naturalHeight * crop;
-                    const sw = img.naturalWidth * (1 - 2*crop);
-                    const sh = img.naturalHeight * (1 - 2*crop);
+                    const sx = img.naturalWidth * crop, sy = img.naturalHeight * crop;
+                    const sw = img.naturalWidth * (1 - 2*crop), sh = img.naturalHeight * (1 - 2*crop);
                     ctx.drawImage(img, sx, sy, sw, sh, x, y, imgW, imgH);
                 } else {
                     img.onload = () => {
                         const crop = 0.1;
-                        const sx = img.naturalWidth * crop;
-                        const sy = img.naturalHeight * crop;
-                        const sw = img.naturalWidth * (1 - 2*crop);
-                        const sh = img.naturalHeight * (1 - 2*crop);
+                        const sx = img.naturalWidth * crop, sy = img.naturalHeight * crop;
+                        const sw = img.naturalWidth * (1 - 2*crop), sh = img.naturalHeight * (1 - 2*crop);
                         ctx.drawImage(img, sx, sy, sw, sh, x, y, imgW, imgH);
                     };
                     img.onerror = () => {
@@ -877,14 +733,66 @@
         }
     }
 
-    // =============================================================
-    // 10. НОВАЯ СИСТЕМА ПРОКРУТКИ
-    // =============================================================
-    let spinStartTime = 0;
-    let spinDuration = 2000;
-    let spinStartOffsets = [];
-    let spinTargetOffsets = [];
-    let spinCallback = null;
+    function drawReelsFloat(offsets) {
+        const rect = canvas.parentElement.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        canvas.style.width = rect.width + 'px';
+        canvas.style.height = rect.height + 'px';
+        ctx.scale(dpr, dpr);
+        const w = rect.width, h = rect.height, pad = 4;
+        const cellW = (w - pad*2) / 5, cellH = (h - pad*2) / 3;
+        ctx.clearRect(0, 0, w, h);
+
+        const isMoving = Math.abs(offsets[0] - reelOffsets[0]) > 0.1;
+        if (isMoving && settings.speed !== 'slow') ctx.filter = 'blur(2px)';
+
+        for (let row=0; row<3; row++) for (let col=0; col<5; col++) {
+            const x = pad + col*cellW, y = pad + row*cellH;
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.fillRect(x, y, cellW, cellH);
+            ctx.strokeStyle = 'rgba(180,77,255,0.08)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x, y, cellW, cellH);
+        }
+
+        for (let col=0; col<5; col++) {
+            const strip = reelStrips[col], len = strip.length, off = offsets[col];
+            const baseIdx = Math.floor(off) % len, frac = off - Math.floor(off);
+            for (let row=-1; row<4; row++) {
+                const idx = (baseIdx + row) % len;
+                const symIdx = strip[idx];
+                const x = pad + col*cellW + 2;
+                const y = pad + (row - frac) * cellH + 2;
+                if (y + cellH - 4 < pad || y > pad + 3*cellH) continue;
+                const imgW = cellW - 4, imgH = cellH - 4;
+                const img = new Image();
+                img.src = SYMBOLS[symIdx];
+                if (img.complete && img.naturalWidth) {
+                    const crop = 0.1;
+                    const sx = img.naturalWidth * crop, sy = img.naturalHeight * crop;
+                    const sw = img.naturalWidth * (1 - 2*crop), sh = img.naturalHeight * (1 - 2*crop);
+                    ctx.drawImage(img, sx, sy, sw, sh, x, y, imgW, imgH);
+                } else {
+                    img.onload = () => {
+                        const crop = 0.1;
+                        const sx = img.naturalWidth * crop, sy = img.naturalHeight * crop;
+                        const sw = img.naturalWidth * (1 - 2*crop), sh = img.naturalHeight * (1 - 2*crop);
+                        ctx.drawImage(img, sx, sy, sw, sh, x, y, imgW, imgH);
+                    };
+                    img.onerror = () => {
+                        ctx.fillStyle = 'rgba(255,255,255,0.05)';
+                        ctx.fillRect(x, y, imgW, imgH);
+                    };
+                }
+            }
+        }
+        ctx.filter = 'none';
+    }
+
+    // ===== АНИМАЦИЯ =====
+    let spinStartTime = 0, spinDuration = 2000, spinStartOffsets = [], spinTargetOffsets = [];
 
     function getSpeedMultiplier() {
         switch(settings.speed) {
@@ -907,14 +815,12 @@
         betInput.disabled = true;
         betPresets.forEach(b => b.style.pointerEvents = 'none');
 
-        // Статус вращения
         setStatus('🎰 ВРАЩЕНИЕ...', 'spin');
-        vibrate('medium'); // вибрация при старте
+        vibrate('medium');
 
-        // Обновляем полоски перед вращением
-        for (let col = 0; col < 5; col++) {
+        for (let col=0; col<5; col++) {
             const strip = reelStrips[col];
-            for (let i = 0; i < strip.length; i++) {
+            for (let i=0; i<strip.length; i++) {
                 strip[i] = Math.floor(Math.random() * SYMBOLS.length);
             }
         }
@@ -924,18 +830,16 @@
         const baseSpeed = getSpeedMultiplier();
         const extraSpins = 2 + Math.floor(Math.random() * 4);
         const targets = [];
-        for (let col = 0; col < 5; col++) {
+        for (let col=0; col<5; col++) {
             const len = reelStrips[col].length;
             const randomOffset = Math.floor(Math.random() * len);
-            const totalShift = extraSpins * len + randomOffset;
-            targets.push(reelOffsets[col] + totalShift);
+            targets.push(reelOffsets[col] + extraSpins * len + randomOffset);
         }
 
         spinStartOffsets = [...reelOffsets];
         spinTargetOffsets = targets;
         spinDuration = 1500 * baseSpeed + Math.random() * 500;
         spinStartTime = performance.now();
-        spinCallback = callback;
 
         if (spinAnimId) cancelAnimationFrame(spinAnimId);
         animateSpin(bet, isFreeSpin);
@@ -945,7 +849,6 @@
         const now = performance.now();
         const elapsed = now - spinStartTime;
         let progress = Math.min(elapsed / spinDuration, 1);
-
         let eased;
         if (progress < 1) {
             eased = 1 - Math.pow(1 - progress, 3);
@@ -958,11 +861,10 @@
         }
 
         const currentOffsets = [];
-        for (let col = 0; col < 5; col++) {
+        for (let col=0; col<5; col++) {
             const start = spinStartOffsets[col];
             const target = spinTargetOffsets[col];
-            const offset = start + (target - start) * eased;
-            currentOffsets.push(offset);
+            currentOffsets.push(start + (target - start) * eased);
         }
 
         drawReelsFloat(currentOffsets);
@@ -970,141 +872,53 @@
         if (progress < 1) {
             spinAnimId = requestAnimationFrame(() => animateSpin(bet, isFreeSpin));
         } else {
-            for (let col = 0; col < 5; col++) {
+            for (let col=0; col<5; col++) {
                 const len = reelStrips[col].length;
                 reelOffsets[col] = Math.round(spinTargetOffsets[col]) % len;
                 if (reelOffsets[col] < 0) reelOffsets[col] += len;
             }
             drawReels(reelOffsets, reelStrips);
             playStopSound();
-            vibrate('light'); // лёгкая вибрация при остановке
+            vibrate('light');
             currentGrid = getGridFromOffsets(reelOffsets, reelStrips);
-
             setTimeout(() => {
                 processResult(bet, isFreeSpin);
             }, 300);
         }
     }
 
-    function drawReelsFloat(offsets) {
-        const rect = canvas.parentElement.getBoundingClientRect();
-        const dpr = window.devicePixelRatio || 1;
-        canvas.width = rect.width * dpr;
-        canvas.height = rect.height * dpr;
-        canvas.style.width = rect.width + 'px';
-        canvas.style.height = rect.height + 'px';
-        ctx.scale(dpr, dpr);
-
-        const w = rect.width, h = rect.height;
-        const pad = 4;
-        const cellW = (w - pad*2) / 5;
-        const cellH = (h - pad*2) / 3;
-
-        ctx.clearRect(0, 0, w, h);
-
-        const isMoving = Math.abs(offsets[0] - reelOffsets[0]) > 0.1;
-        if (isMoving && settings.speed !== 'slow') {
-            ctx.filter = 'blur(2px)';
-        }
-
-        for (let row = 0; row < 3; row++) {
-            for (let col = 0; col < 5; col++) {
-                const x = pad + col*cellW;
-                const y = pad + row*cellH;
-                ctx.fillStyle = 'rgba(0,0,0,0.3)';
-                ctx.fillRect(x, y, cellW, cellH);
-                ctx.strokeStyle = 'rgba(180,77,255,0.08)';
-                ctx.lineWidth = 1;
-                ctx.strokeRect(x, y, cellW, cellH);
-            }
-        }
-
-        for (let col = 0; col < 5; col++) {
-            const strip = reelStrips[col];
-            const len = strip.length;
-            const off = offsets[col];
-            const baseIdx = Math.floor(off) % len;
-            const frac = off - Math.floor(off);
-
-            for (let row = -1; row < 4; row++) {
-                const idx = (baseIdx + row) % len;
-                const symIdx = strip[idx];
-                const x = pad + col*cellW + 2;
-                const y = pad + (row - frac) * cellH + 2;
-                if (y + cellH - 4 < pad || y > pad + 3*cellH) continue;
-
-                const imgW = cellW - 4;
-                const imgH = cellH - 4;
-
-                const img = new Image();
-                img.src = SYMBOLS[symIdx];
-                if (img.complete && img.naturalWidth) {
-                    const crop = 0.1;
-                    const sx = img.naturalWidth * crop;
-                    const sy = img.naturalHeight * crop;
-                    const sw = img.naturalWidth * (1 - 2*crop);
-                    const sh = img.naturalHeight * (1 - 2*crop);
-                    ctx.drawImage(img, sx, sy, sw, sh, x, y, imgW, imgH);
-                } else {
-                    img.onload = () => {
-                        const crop = 0.1;
-                        const sx = img.naturalWidth * crop;
-                        const sy = img.naturalHeight * crop;
-                        const sw = img.naturalWidth * (1 - 2*crop);
-                        const sh = img.naturalHeight * (1 - 2*crop);
-                        ctx.drawImage(img, sx, sy, sw, sh, x, y, imgW, imgH);
-                    };
-                    img.onerror = () => {
-                        ctx.fillStyle = 'rgba(255,255,255,0.05)';
-                        ctx.fillRect(x, y, imgW, imgH);
-                    };
-                }
-            }
-        }
-        ctx.filter = 'none';
-    }
-
-    // =============================================================
-    // 11. ПРОВЕРКА ВЫИГРЫША И КАСКАДЫ
-    // =============================================================
+    // ===== ЛОГИКА ВЫИГРЫША =====
     function checkWins(grid) {
         let totalMult = 0;
         const winIndices = new Set();
         let scatterCount = 0;
-        for (let i = 0; i < grid.length; i++) {
-            if (grid[i] === SCATTER_INDEX) scatterCount++;
-        }
+        for (let i=0; i<grid.length; i++) if (grid[i] === SCATTER_INDEX) scatterCount++;
 
         LINES.forEach(line => {
             const first = grid[line[0]];
             if (first === SCATTER_INDEX) return;
             let match = 1;
-            for (let i = 1; i < 5; i++) {
+            for (let i=1; i<5; i++) {
                 const sym = grid[line[i]];
                 if (sym === WILD_INDEX || sym === first) match++;
                 else break;
             }
             if (match >= 3) {
-                let baseSym = first;
-                let mult = PAYTABLE[baseSym] && PAYTABLE[baseSym][match-3];
+                let mult = PAYTABLE[first] && PAYTABLE[first][match-3];
                 if (mult) {
                     let wilds = 0;
-                    for (let i = 0; i < match; i++) {
-                        if (grid[line[i]] === WILD_INDEX) wilds++;
-                    }
+                    for (let i=0; i<match; i++) if (grid[line[i]] === WILD_INDEX) wilds++;
                     let finalMult = mult * (wilds > 0 ? 2 : 1);
                     totalMult += finalMult;
-                    for (let i = 0; i < match; i++) winIndices.add(line[i]);
+                    for (let i=0; i<match; i++) winIndices.add(line[i]);
                 }
             }
         });
 
         if (scatterCount >= 3) {
-            const sm = (scatterCount === 5) ? 4 : (scatterCount === 4 ? 1.5 : 0.4);
+            const sm = scatterCount === 5 ? 4 : (scatterCount === 4 ? 1.5 : 0.4);
             totalMult += sm;
-            for (let i = 0; i < grid.length; i++) {
-                if (grid[i] === SCATTER_INDEX) winIndices.add(i);
-            }
+            for (let i=0; i<grid.length; i++) if (grid[i] === SCATTER_INDEX) winIndices.add(i);
         }
         return { totalMult, winIndices, scatterCount };
     }
@@ -1112,9 +926,9 @@
     function performCascade(grid, winIndices) {
         const newGrid = [...grid];
         let changed = false;
-        for (let col = 0; col < 5; col++) {
+        for (let col=0; col<5; col++) {
             const colSymbols = [];
-            for (let row = 2; row >= 0; row--) {
+            for (let row=2; row>=0; row--) {
                 const idx = row*5 + col;
                 if (!winIndices.has(idx)) colSymbols.push(grid[idx]);
             }
@@ -1122,21 +936,36 @@
                 colSymbols.push(Math.floor(Math.random() * SYMBOLS.length));
                 changed = true;
             }
-            for (let row = 0; row < 3; row++) {
+            for (let row=0; row<3; row++) {
                 newGrid[row*5 + col] = colSymbols[2 - row];
             }
         }
         return { newGrid, changed };
     }
 
-    // =============================================================
-    // 12. ОБРАБОТКА РЕЗУЛЬТАТА
-    // =============================================================
+    function syncGridToReels(grid) {
+        for (let col=0; col<5; col++) {
+            const colSymbols = [];
+            for (let row=0; row<3; row++) colSymbols.push(grid[row*5 + col]);
+            const strip = reelStrips[col];
+            const len = strip.length;
+            let foundOffset = reelOffsets[col];
+            for (let off=0; off<len; off++) {
+                let match = true;
+                for (let i=0; i<3; i++) {
+                    if (strip[(off + i) % len] !== colSymbols[i]) { match = false; break; }
+                }
+                if (match) { foundOffset = off; break; }
+            }
+            reelOffsets[col] = foundOffset;
+        }
+        drawReels(reelOffsets, reelStrips);
+    }
+
+    // ===== ОБРАБОТКА РЕЗУЛЬТАТА =====
     async function processResult(bet, isFreeSpin) {
         let grid = [...currentGrid];
-        let totalWin = 0;
-        let cascadeCount = 0;
-        let hasWin = false;
+        let totalWin = 0, cascadeCount = 0, hasWin = false;
 
         while (true) {
             const result = checkWins(grid);
@@ -1148,7 +977,6 @@
                 const winAmount = Math.floor(bet * totalMult);
                 totalWin += winAmount;
 
-                // Сообщение о выигрыше
                 if (cascadeCount === 1) {
                     setStatus(`💰 ВЫИГРЫШ: ${winAmount.toLocaleString()} ₽`, 'win');
                 } else {
@@ -1157,14 +985,11 @@
                 vibrate('success');
 
                 winIndices.forEach(idx => {
-                    const col = idx % 5;
-                    const row = Math.floor(idx / 5);
+                    const col = idx % 5, row = Math.floor(idx / 5);
                     const rect = canvas.getBoundingClientRect();
                     const pad = 4;
-                    const cellW = (rect.width - pad*2)/5;
-                    const cellH = (rect.height - pad*2)/3;
-                    const x = pad + col*cellW + cellW/2;
-                    const y = pad + row*cellH + cellH/2;
+                    const cellW = (rect.width - pad*2)/5, cellH = (rect.height - pad*2)/3;
+                    const x = pad + col*cellW + cellW/2, y = pad + row*cellH + cellH/2;
                     spawnBurst(x, y, 8);
                 });
 
@@ -1208,42 +1033,18 @@
             updateProfileStats(bet, 0);
         }
 
-        // ВСЕГДА разблокируем после завершения обработки
+        // ГАРАНТИРОВАННАЯ РАЗБЛОКИРОВКА
         finishSpin(bet, isFreeSpin);
     }
 
-    function syncGridToReels(grid) {
-        for (let col = 0; col < 5; col++) {
-            const colSymbols = [];
-            for (let row = 0; row < 3; row++) {
-                colSymbols.push(grid[row*5 + col]);
-            }
-            const strip = reelStrips[col];
-            const len = strip.length;
-            let foundOffset = reelOffsets[col];
-            for (let off = 0; off < len; off++) {
-                let match = true;
-                for (let i = 0; i < 3; i++) {
-                    if (strip[(off + i) % len] !== colSymbols[i]) { match = false; break; }
-                }
-                if (match) { foundOffset = off; break; }
-            }
-            reelOffsets[col] = foundOffset;
-        }
-        drawReels(reelOffsets, reelStrips);
-    }
-
-    // =============================================================
-    // 13. ЗАВЕРШЕНИЕ СПИНА (ГАРАНТИРОВАННАЯ РАЗБЛОКИРОВКА)
-    // =============================================================
+    // ===== ЗАВЕРШЕНИЕ СПИНА (ГАРАНТИРОВАННАЯ РАЗБЛОКИРОВКА) =====
     function finishSpin(bet, isFreeSpin) {
-        // Сбрасываем флаг вращения
+        // Сброс флага
         isSpinning = false;
 
         // Если бонус активен — управляем фриспинами
         if (isBonusActive) {
             freeSpins--;
-            updateFSDisplay();
             if (freeSpins > 0) {
                 setStatus(`⚡ ФРИСПИН ${freeSpins}`, 'bonus');
                 setTimeout(() => {
@@ -1258,14 +1059,25 @@
             }
         }
 
-        // Если не бонус — разблокируем всё
-        if (!isFreeSpin && !autoSpinActive) {
+        // Разблокировка для обычного режима (не бонус, не автоспин)
+        if (!autoSpinActive) {
             spinBtn.disabled = false;
             autoBtn.disabled = false;
             betInput.disabled = false;
             betPresets.forEach(b => b.style.pointerEvents = 'auto');
-        } else if (!isFreeSpin && autoSpinActive && !isAutoStopping) {
-            // Автоспин
+            // Если статус был win/lose, оставляем его, иначе ставим idle
+            if (!statusBar.classList.contains('win') && !statusBar.classList.contains('lose')) {
+                setStatus('⚡ НАЖМИТЕ SPIN', 'idle');
+            } else {
+                // через 2 секунды возвращаем idle
+                setTimeout(() => {
+                    if (!isSpinning && !isBonusActive) {
+                        setStatus('⚡ НАЖМИТЕ SPIN', 'idle');
+                    }
+                }, 2000);
+            }
+        } else if (autoSpinActive && !isAutoStopping) {
+            // Автоспин продолжается
             autoSpinRemaining--;
             updateAutoTotal();
             if (autoSpinRemaining > 0 && balance >= getBet()) {
@@ -1291,23 +1103,18 @@
             setStatus('❌ Недостаточно средств!', 'lose');
             return;
         }
-        for (let col = 0; col < 5; col++) {
+        for (let col=0; col<5; col++) {
             const strip = reelStrips[col];
-            for (let i = 0; i < strip.length; i++) {
-                strip[i] = Math.floor(Math.random() * SYMBOLS.length);
-            }
+            for (let i=0; i<strip.length; i++) strip[i] = Math.floor(Math.random() * SYMBOLS.length);
         }
         currentGrid = getGridFromOffsets(reelOffsets, reelStrips);
         spinReels(bet, isFreeSpin);
     }
 
-    // =============================================================
-    // 14. БОНУС
-    // =============================================================
+    // ===== БОНУС =====
     function triggerBonus(spins, triggerText, icon, title, sub, detail) {
         if (isBonusActive && freeSpins > 0) {
             freeSpins += spins;
-            updateFSDisplay();
             showBonusPopup(icon, title, `+${spins} фриспинов! (всего ${freeSpins})`, detail);
             setStatus(`⚡ БОНУС! +${spins} ФРИСПИНОВ`, 'bonus');
             return;
@@ -1318,7 +1125,6 @@
         bonusTotalWin = 0;
         showBonusPopup(icon, title, sub, detail);
         setStatus(`⚡ ${triggerText} ⚡ ${freeSpins} ФРИСПИНОВ!`, 'bonus');
-        updateFSDisplay();
         setTimeout(() => {
             if (!isSpinning) {
                 const bet = getBet();
@@ -1331,13 +1137,12 @@
         isBonusActive = false;
         freeSpins = 0;
         bonusMultiplier = 1;
-        updateFSDisplay();
         setStatus(`🍒 БОНУС ЗАВЕРШЕН: +${bonusTotalWin.toLocaleString()} ₽`, '');
         if (bonusTotalWin > 0) {
             animateCoinsToBalance(bonusTotalWin);
             updateBalance(balance + bonusTotalWin, true);
         }
-        // Разблокируем после бонуса
+        // Разблокировка после бонуса
         spinBtn.disabled = false;
         autoBtn.disabled = false;
         betInput.disabled = false;
@@ -1360,22 +1165,19 @@
             } else {
                 stopAutoSpin('Авто-спин завершён');
             }
+        } else {
+            setStatus('⚡ НАЖМИТЕ SPIN', 'idle');
         }
         if (bonusPopup.classList.contains('show')) {
             setTimeout(() => bonusPopup.classList.remove('show'), 400);
         }
     }
 
-    // =============================================================
-    // 15. ВСПОМОГАТЕЛЬНЫЕ UI
-    // =============================================================
+    // ===== ВСПОМОГАТЕЛЬНЫЕ =====
     function setStatus(text, type = '') {
-        const el = statusBar;
-        el.textContent = text;
-        el.className = 'status-bar' + (type ? ' ' + type : '');
+        statusBar.textContent = text;
+        statusBar.className = 'status-bar' + (type ? ' ' + type : '');
     }
-
-    function updateFSDisplay() {}
 
     function updateAutoTotal() {
         if (autoSpinActive && autoSpinRemaining > 0) {
@@ -1387,11 +1189,8 @@
 
     function delay(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
-    // =============================================================
-    // 16. АНИМАЦИИ
-    // =============================================================
     function spawnBurst(x, y, count) {
-        for (let i = 0; i < count; i++) {
+        for (let i=0; i<count; i++) {
             const el = document.createElement('div');
             el.style.cssText = `
                 position: fixed; left:${x}px; top:${y}px;
@@ -1417,12 +1216,12 @@
     function animateCoinsToBalance(amount) {
         if (amount <= 0) return;
         const rect = balanceDisplay.getBoundingClientRect();
-        const startX = window.innerWidth / 2 - 20;
-        const startY = window.innerHeight / 2 - 20;
+        const startX = window.innerWidth/2 - 20;
+        const startY = window.innerHeight/2 - 20;
         const targetX = rect.left + rect.width/2 - 16;
         const targetY = rect.top + 6;
         const count = Math.min(Math.floor(amount / 50) + 3, 15);
-        for (let i = 0; i < count; i++) {
+        for (let i=0; i<count; i++) {
             const coin = document.createElement('div');
             coin.style.cssText = `
                 position: fixed; left:${startX}px; top:${startY}px;
@@ -1486,9 +1285,75 @@
     `;
     document.head.appendChild(styleSheet);
 
-    // =============================================================
-    // 17. СТАТИСТИКА
-    // =============================================================
+    function showBonusPopup(icon, title, sub, detail) {
+        document.getElementById('bonusPopupIcon').textContent = icon || '🍒';
+        document.getElementById('bonusPopupTitle').textContent = title || 'ФРИСПИНЫ!';
+        document.getElementById('bonusPopupSub').textContent = sub || 'Вы получили 5 бесплатных вращений!';
+        document.getElementById('bonusPopupDetail').textContent = detail || 'x2 множитель на все выигрыши';
+        const popup = document.getElementById('bonusPopup');
+        popup.classList.add('show');
+        setTimeout(() => popup.classList.remove('show'), 3000);
+    }
+    // Добавляем бонус-попап в DOM (если его нет)
+    if (!document.getElementById('bonusPopup')) {
+        const popup = document.createElement('div');
+        popup.id = 'bonusPopup';
+        popup.className = 'bonus-popup';
+        popup.innerHTML = `
+            <div class="bonus-popup-content">
+                <span class="icon-big" id="bonusPopupIcon">🍒</span>
+                <div class="title" id="bonusPopupTitle">ФРИСПИНЫ!</div>
+                <div class="sub" id="bonusPopupSub">Вы получили 5 бесплатных вращений!</div>
+                <div style="margin-top:12px;font-size:14px;color:rgba(255,255,255,0.25);">
+                    <span id="bonusPopupDetail">x2 множитель на все выигрыши</span>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(popup);
+    }
+    // Стили для бонус-попапа (добавим, если нет)
+    if (!document.querySelector('#bonusPopupStyle')) {
+        const style = document.createElement('style');
+        style.id = 'bonusPopupStyle';
+        style.textContent = `
+            .bonus-popup {
+                position: fixed; inset:0; z-index:999; display:none;
+                align-items:center; justify-content:center;
+                background: rgba(10,6,18,0.85);
+                backdrop-filter: blur(8px);
+                animation: fadePopup 0.3s ease;
+            }
+            .bonus-popup.show { display:flex; }
+            .bonus-popup-content {
+                background: linear-gradient(160deg, rgba(180,77,255,0.15), rgba(10,6,18,0.98));
+                border-radius: 28px; padding: 30px 20px 20px;
+                max-width: 380px; width:92%;
+                border: 2px solid rgba(180,77,255,0.2);
+                text-align:center;
+                box-shadow: 0 0 80px rgba(180,77,255,0.1);
+                position:relative;
+                animation: popupSlide 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            }
+            @keyframes popupSlide {
+                0% { transform:scale(0.7) translateY(30px); opacity:0; }
+                100% { transform:scale(1) translateY(0); opacity:1; }
+            }
+            .bonus-popup-content .icon-big { font-size:52px; display:block; margin-bottom:6px; }
+            .bonus-popup-content .title {
+                font-family: 'Montserrat', sans-serif;
+                font-size:22px; font-weight:900;
+                background: linear-gradient(135deg, #FFD93D, #FF8C42, #FF3B6F);
+                -webkit-background-clip: text;
+                background-clip: text;
+                color:transparent;
+                text-transform:uppercase;
+                letter-spacing:4px;
+            }
+            .bonus-popup-content .sub { font-size:14px; color:rgba(255,255,255,0.6); font-weight:700; }
+        `;
+        document.head.appendChild(style);
+    }
+
     function updateProfileStats(bet, win) {
         try {
             let played = parseInt(localStorage.getItem('profile_games_played')) || 0;
@@ -1496,8 +1361,7 @@
             let totalWin = parseInt(localStorage.getItem('profile_total_win')) || 0;
             let wins = parseInt(localStorage.getItem('profile_wins')) || 0;
             let losses = parseInt(localStorage.getItem('profile_losses')) || 0;
-            played++;
-            totalBet += bet;
+            played++; totalBet += bet;
             if (win > 0) { wins++; totalWin += win; } else { losses++; }
             localStorage.setItem('profile_games_played', String(played));
             localStorage.setItem('profile_total_bet', String(totalBet));
@@ -1507,9 +1371,7 @@
         } catch(e) {}
     }
 
-    // =============================================================
-    // 18. АВТОСПИН
-    // =============================================================
+    // ===== АВТОСПИН =====
     function toggleAutoSpin() {
         if (autoSpinActive) { stopAutoSpin('Остановлено пользователем'); return; }
         if (isSpinning) return;
@@ -1547,11 +1409,10 @@
         betPresets.forEach(b => b.style.pointerEvents = 'auto');
         if (reason) setStatus(`⏹ ${reason}`, '');
         autoTotalDisplay.textContent = '';
+        setStatus('⚡ НАЖМИТЕ SPIN', 'idle');
     }
 
-    // =============================================================
-    // 19. ИНИЦИАЛИЗАЦИЯ
-    // =============================================================
+    // ===== ИНИЦИАЛИЗАЦИЯ =====
     function init() {
         initAudio();
 
@@ -1561,12 +1422,11 @@
 
         updateBalance(balance, false);
         setBetDisplay(100);
-        applySettingsUI();
+        applyUI();
         updateAudio();
 
         drawReels(reelOffsets, reelStrips);
 
-        // Обработчики
         spinBtn.addEventListener('click', function() {
             if (isSpinning) return;
             if (isBonusActive && freeSpins > 0) return;
@@ -1591,13 +1451,7 @@
         betPresets.forEach(btn => {
             btn.addEventListener('click', function() {
                 const amt = this.dataset.amount;
-                let val;
-                if (amt === 'max') {
-                    val = Math.min(balance, 100000);
-                    if (val < 10) val = 10;
-                } else {
-                    val = parseInt(amt);
-                }
+                let val = amt === 'max' ? Math.min(balance, 100000) : parseInt(amt);
                 val = Math.max(10, Math.min(val, 100000, balance));
                 setBetDisplay(val);
                 betPresets.forEach(b => b.classList.remove('active'));
