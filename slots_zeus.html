@@ -2332,44 +2332,7 @@
                     document.addEventListener('touchstart', fn, { once: true }); }); }
 
             // =============================================================
-            // 7. ПРЕДЗАГРУЗКА ИЗОБРАЖЕНИЙ (НОВОЕ!)
-            // =============================================================
-            const imageCache = {};
-            let imagesLoaded = 0;
-            const totalImages = SYMBOLS.length;
-
-            function preloadImages(callback) {
-                SYMBOLS.forEach((src, index) => {
-                    const img = new Image();
-                    img.crossOrigin = 'anonymous';
-                    img.src = src;
-                    img.onload = function() {
-                        imageCache[src] = img;
-                        imagesLoaded++;
-                        if (imagesLoaded === totalImages) callback();
-                    };
-                    img.onerror = function() {
-                        // если не загрузилось, создаём пустой холст
-                        const canvas = document.createElement('canvas');
-                        canvas.width = 100;
-                        canvas.height = 100;
-                        const ctx = canvas.getContext('2d');
-                        ctx.fillStyle = '#333';
-                        ctx.fillRect(0, 0, 100, 100);
-                        ctx.fillStyle = '#fff';
-                        ctx.font = '20px sans-serif';
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'middle';
-                        ctx.fillText('?', 50, 50);
-                        imageCache[src] = canvas;
-                        imagesLoaded++;
-                        if (imagesLoaded === totalImages) callback();
-                    };
-                });
-            }
-
-            // =============================================================
-            // 8. ЧАСТИЦЫ (без изменений)
+            // 7. ЧАСТИЦЫ (без изменений)
             // =============================================================
             let particles = [],
                 burstParticles = [];
@@ -2504,7 +2467,7 @@
             window._particlesInit = true;
 
             // =============================================================
-            // 9. МОЛНИИ
+            // 8. МОЛНИИ
             // =============================================================
             let lCtx = null,
                 lW = 0,
@@ -2590,7 +2553,7 @@
             }
 
             // =============================================================
-            // 10. WIN LINES CANVAS
+            // 9. WIN LINES CANVAS
             // =============================================================
             function drawWinLines(winningIndices) {
                 const canvas = winLinesCanvas;
@@ -2652,7 +2615,7 @@
             }
 
             // =============================================================
-            // 11. BIG WIN
+            // 10. BIG WIN
             // =============================================================
             let bigWinAnimId = null;
             const BIG_WIN_TIERS = [
@@ -2707,7 +2670,7 @@
             }
 
             // =============================================================
-            // 12. ОСНОВНАЯ ЛОГИКА С CANVAS (С ИСПОЛЬЗОВАНИЕМ КЭША)
+            // 11. ОСНОВНАЯ ЛОГИКА С CANVAS
             // =============================================================
 
             function buildReelStrips() {
@@ -2760,6 +2723,7 @@
                 currentGrid = getGridFromOffsets(offsets, strips);
             }
 
+            // ВАЖНО: изменён размер символов с 0.85 на 0.95 — баг с расползанием исправлен
             function drawReels(offsets, strips) {
                 const canvas = reelsCanvas;
                 const rect = canvas.parentElement.getBoundingClientRect();
@@ -2776,8 +2740,7 @@
                 const pad = 6;
                 const cellW = (rect.width - pad * 2) / cols;
                 const cellH = (rect.height - pad * 2) / rows;
-                // УВЕЛИЧИЛИ РАЗМЕР СИМВОЛОВ: 0.85 -> 0.95
-                const imgSize = Math.min(cellW - 4, cellH - 4) * 0.95;
+                const imgSize = Math.min(cellW - 4, cellH - 4) * 0.95; // УВЕЛИЧЕН РАЗМЕР
 
                 ctx.clearRect(0, 0, rect.width, rect.height);
 
@@ -2803,14 +2766,18 @@
                         ctx.strokeRect(x - 1, y - 1, imgSize + 2, imgSize + 2);
                         ctx.shadowBlur = 0;
 
-                        // ИСПОЛЬЗУЕМ КЭШ
-                        const img = imageCache[sym];
-                        if (img) {
+                        const img = new Image();
+                        img.src = sym;
+                        if (img.complete && img.naturalWidth !== 0) {
                             ctx.drawImage(img, x, y, imgSize, imgSize);
                         } else {
-                            // fallback
-                            ctx.fillStyle = 'rgba(255,255,255,0.06)';
-                            ctx.fillRect(x, y, imgSize, imgSize);
+                            img.onload = function() {
+                                ctx.drawImage(img, x, y, imgSize, imgSize);
+                            };
+                            img.onerror = function() {
+                                ctx.fillStyle = 'rgba(255,255,255,0.06)';
+                                ctx.fillRect(x, y, imgSize, imgSize);
+                            };
                         }
                     }
                 }
@@ -2851,7 +2818,7 @@
                 const pad = 6;
                 const cellW = (rect.width - pad * 2) / cols;
                 const cellH = (rect.height - pad * 2) / rows;
-                const imgSize = Math.min(cellW - 4, cellH - 4) * 0.95;
+                const imgSize = Math.min(cellW - 4, cellH - 4) * 0.95; // УВЕЛИЧЕН РАЗМЕР
 
                 ctx.clearRect(0, 0, rect.width, rect.height);
 
@@ -2882,12 +2849,18 @@
                         ctx.lineWidth = 1.5;
                         ctx.strokeRect(xPos - 2, yPos - 2, imgSize + 4, imgSize + 4);
 
-                        const img = imageCache[sym];
-                        if (img) {
+                        const img = new Image();
+                        img.src = sym;
+                        if (img.complete && img.naturalWidth !== 0) {
                             ctx.drawImage(img, xPos, yPos, imgSize, imgSize);
                         } else {
-                            ctx.fillStyle = 'rgba(255,255,255,0.04)';
-                            ctx.fillRect(xPos, yPos, imgSize, imgSize);
+                            img.onload = function() {
+                                ctx.drawImage(img, xPos, yPos, imgSize, imgSize);
+                            };
+                            img.onerror = function() {
+                                ctx.fillStyle = 'rgba(255,255,255,0.04)';
+                                ctx.fillRect(xPos, yPos, imgSize, imgSize);
+                            };
                         }
                     }
                 }
@@ -2954,7 +2927,7 @@
             }
 
             // =============================================================
-            // 13. АНИМАЦИЯ ВРАЩЕНИЯ
+            // 12. АНИМАЦИЯ ВРАЩЕНИЯ
             // =============================================================
             let animationId = null;
 
@@ -3010,7 +2983,7 @@
             }
 
             // =============================================================
-            // 14. ОСНОВНОЙ СПИН
+            // 13. ОСНОВНОЙ СПИН
             // =============================================================
             function spinReels(bet, isFreeSpin = false, callback) {
                 if (isSpinning) return;
@@ -3263,7 +3236,7 @@
             }
 
             // =============================================================
-            // 15. BONUS
+            // 14. BONUS
             // =============================================================
             function triggerBonus(spins, triggerText, icon, title, sub, detail) {
                 if (isBonusActive && freeSpins > 0) {
@@ -3337,7 +3310,7 @@
             }
 
             // =============================================================
-            // 16. AUTO SPIN
+            // 15. AUTO SPIN
             // =============================================================
             function toggleAutoSpin() {
                 if (autoSpinActive) { stopAutoSpin('Остановлено пользователем'); return; }
@@ -3397,7 +3370,7 @@
             autoStopBtn.addEventListener('click', function() { stopAutoSpin('Остановлено пользователем'); });
 
             // =============================================================
-            // 17. UI HELPERS
+            // 16. UI HELPERS
             // =============================================================
             function formatNumber(num) { return Math.floor(num).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' '); }
 
@@ -3510,7 +3483,7 @@
             }
 
             // =============================================================
-            // 18. ИНФО-ПОПАП
+            // 17. ИНФО-ПОПАП
             // =============================================================
             function buildPayoutGrid() {
                 if (!payoutGrid) return;
@@ -3531,137 +3504,133 @@
             }
 
             // =============================================================
-            // 19. INIT
+            // 18. INIT
             // =============================================================
             function init() {
                 initAudio();
 
                 buildPayoutGrid();
 
-                // Предзагружаем изображения, затем инициализируем
-                preloadImages(function() {
-                    console.log('✅ Все изображения загружены');
-                    reelStrips = buildReelStrips();
-                    reelOffsets = [0, 0, 0, 0, 0];
-                    currentGrid = getGridFromOffsets(reelOffsets, reelStrips);
+                reelStrips = buildReelStrips();
+                reelOffsets = [0, 0, 0, 0, 0];
+                currentGrid = getGridFromOffsets(reelOffsets, reelStrips);
 
-                    const render = () => {
-                        drawReels(reelOffsets, reelStrips);
-                        reelsCanvas.style.opacity = '1';
-                    };
+                const render = () => {
+                    drawReels(reelOffsets, reelStrips);
+                    reelsCanvas.style.opacity = '1';
+                };
 
-                    requestAnimationFrame(() => {
-                        requestAnimationFrame(render);
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(render);
+                });
+
+                const resizeObserver = new ResizeObserver(() => { render(); });
+                resizeObserver.observe(reelsCanvas.parentElement);
+
+                updateBalance(balance, false);
+                const initialBet = Math.min(1000, balance);
+                betInput.value = formatNumber(initialBet);
+                totalBetDisplay.innerText = formatNumber(initialBet);
+                updateFSDisplay();
+
+                applySettings();
+
+                if (settings.music) {
+                    playMusic();
+                }
+
+                playAmbientWind();
+                setInterval(() => { if (Math.random() > 0.92) playCloudRumble(); }, 8000);
+
+                betPresets.forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        playClick();
+                        applyBetPreset(this.dataset.amount);
                     });
+                    btn.addEventListener('mouseenter', playHover);
+                });
 
-                    const resizeObserver = new ResizeObserver(() => { render(); });
-                    resizeObserver.observe(reelsCanvas.parentElement);
+                setTimeout(() => {
+                    if (btnSpin.disabled && !isSpinning) {
+                        btnSpin.disabled = false;
+                        betInput.disabled = false;
+                        betPresets.forEach(b => b.style.pointerEvents = 'auto');
+                    }
+                }, 2000);
 
-                    updateBalance(balance, false);
-                    const initialBet = Math.min(1000, balance);
-                    betInput.value = formatNumber(initialBet);
-                    totalBetDisplay.innerText = formatNumber(initialBet);
-                    updateFSDisplay();
+                document.addEventListener('visibilitychange', () => {
+                    if (!document.hidden) { initParticlesFull(); }
+                });
 
-                    applySettings();
+                // Настройки
+                document.getElementById('btnSettings').addEventListener('click', function() {
+                    document.getElementById('settingsOverlay').classList.add('active');
+                });
+                document.getElementById('settingsClose').addEventListener('click', function() {
+                    document.getElementById('settingsOverlay').classList.remove('active');
+                });
+                document.getElementById('settingsOverlay').addEventListener('click', function(e) {
+                    if (e.target === this) this.classList.remove('active');
+                });
 
+                document.querySelectorAll('[data-graphics]').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        settings.graphics = this.dataset.graphics;
+                        saveSettings();
+                        if (settings.graphics === 'balanced') {
+                            initParticlesBalanced();
+                            lightningContainer.style.display = 'none';
+                        } else {
+                            initParticlesFull();
+                            lightningContainer.style.display = '';
+                        }
+                    });
+                });
+
+                document.querySelectorAll('[data-screen]').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        settings.screen = this.dataset.screen;
+                        saveSettings();
+                    });
+                });
+
+                document.getElementById('soundToggle').addEventListener('click', function() {
+                    settings.sound = !settings.sound;
+                    saveSettings();
+                });
+
+                document.getElementById('musicToggle').addEventListener('click', function() {
+                    settings.music = !settings.music;
+                    saveSettings();
                     if (settings.music) {
                         playMusic();
+                    } else {
+                        bgMusic.pause();
                     }
-
-                    playAmbientWind();
-                    setInterval(() => { if (Math.random() > 0.92) playCloudRumble(); }, 8000);
-
-                    betPresets.forEach(btn => {
-                        btn.addEventListener('click', function() {
-                            playClick();
-                            applyBetPreset(this.dataset.amount);
-                        });
-                        btn.addEventListener('mouseenter', playHover);
-                    });
-
-                    setTimeout(() => {
-                        if (btnSpin.disabled && !isSpinning) {
-                            btnSpin.disabled = false;
-                            betInput.disabled = false;
-                            betPresets.forEach(b => b.style.pointerEvents = 'auto');
-                        }
-                    }, 2000);
-
-                    document.addEventListener('visibilitychange', () => {
-                        if (!document.hidden) { initParticlesFull(); }
-                    });
-
-                    // Настройки
-                    document.getElementById('btnSettings').addEventListener('click', function() {
-                        document.getElementById('settingsOverlay').classList.add('active');
-                    });
-                    document.getElementById('settingsClose').addEventListener('click', function() {
-                        document.getElementById('settingsOverlay').classList.remove('active');
-                    });
-                    document.getElementById('settingsOverlay').addEventListener('click', function(e) {
-                        if (e.target === this) this.classList.remove('active');
-                    });
-
-                    document.querySelectorAll('[data-graphics]').forEach(btn => {
-                        btn.addEventListener('click', function() {
-                            settings.graphics = this.dataset.graphics;
-                            saveSettings();
-                            if (settings.graphics === 'balanced') {
-                                initParticlesBalanced();
-                                lightningContainer.style.display = 'none';
-                            } else {
-                                initParticlesFull();
-                                lightningContainer.style.display = '';
-                            }
-                        });
-                    });
-
-                    document.querySelectorAll('[data-screen]').forEach(btn => {
-                        btn.addEventListener('click', function() {
-                            settings.screen = this.dataset.screen;
-                            saveSettings();
-                        });
-                    });
-
-                    document.getElementById('soundToggle').addEventListener('click', function() {
-                        settings.sound = !settings.sound;
-                        saveSettings();
-                    });
-
-                    document.getElementById('musicToggle').addEventListener('click', function() {
-                        settings.music = !settings.music;
-                        saveSettings();
-                        if (settings.music) {
-                            playMusic();
-                        } else {
-                            bgMusic.pause();
-                        }
-                    });
-
-                    // ИНФО
-                    btnInfo.addEventListener('click', function() {
-                        infoOverlay.classList.add('active');
-                        playClick();
-                    });
-                    infoClose.addEventListener('click', function() {
-                        infoOverlay.classList.remove('active');
-                    });
-                    infoOverlay.addEventListener('click', function(e) {
-                        if (e.target === this) this.classList.remove('active');
-                    });
-
-                    initParticlesFull();
-                    initLightningCanvas();
-
-                    console.log('⚡ ZEUS PREMIUM SLOTS загружен, баланс:', balance);
-                    console.log('✅ Увеличен логотип, усилены периоды везения/невезения, повышен шанс SCATTER');
-                    console.log('✅ Исправлен баг с отображением символов при загрузке, увеличен их размер');
                 });
+
+                // ИНФО
+                btnInfo.addEventListener('click', function() {
+                    infoOverlay.classList.add('active');
+                    playClick();
+                });
+                infoClose.addEventListener('click', function() {
+                    infoOverlay.classList.remove('active');
+                });
+                infoOverlay.addEventListener('click', function(e) {
+                    if (e.target === this) this.classList.remove('active');
+                });
+
+                initParticlesFull();
+                initLightningCanvas();
+
+                console.log('⚡ ZEUS PREMIUM SLOTS загружен, баланс:', balance);
+                console.log('✅ Увеличен логотип, усилены периоды везения/невезения, повышен шанс SCATTER');
+                console.log('✅ Исправлен баг с отображением символов при загрузке, увеличен их размер (0.95)');
             }
 
             // =============================================================
-            // 20. КНОПКА SPIN
+            // 19. КНОПКА SPIN
             // =============================================================
             function btnSpinClick() {
                 if (isSpinning) return;
@@ -3707,7 +3676,7 @@
             });
 
             // =============================================================
-            // 21. BACK
+            // 20. BACK
             // =============================================================
             btnBack.addEventListener('click', function() {
                 if (autoSpinActive) stopAutoSpin('Выход в меню');
