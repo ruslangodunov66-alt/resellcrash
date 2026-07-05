@@ -692,10 +692,13 @@
             window.addEventListener('resize', resizeCanvas);
 
             // =============================================================
-            // 8. ОТРИСОВКА — с фиксированными Y для каждой дорожки
+            // 8. ОТРИСОВКА — с фиксированными Y для каждой дорожки (с отступами)
             // =============================================================
             function getLaneY(laneIndex, totalLanes, h) {
-                return (laneIndex + 0.5) * (h / totalLanes);
+                // Отступы сверху и снизу, чтобы дорожки не прилипали к краям
+                const padding = h * 0.06;
+                const usable = h - padding * 2;
+                return padding + (laneIndex + 0.5) * (usable / totalLanes);
             }
 
             function render() {
@@ -755,8 +758,9 @@
                         const px = x - drawW * 0.1;
                         const py = y - drawH / 2;
 
+                        // Покачивание только во время забега, после финиша — нет
                         let bob = 0;
-                        if (isRaceRunning || raceFinished) {
+                        if (isRaceRunning) {
                             bob = Math.sin(progress * 40 + i * 1.2) * 2;
                         }
                         ctx.save();
@@ -880,7 +884,6 @@
                 resultOverlay.classList.remove('show');
                 if (animationId) { cancelAnimationFrame(animationId);
                     animationId = null; }
-                // Останавливаем звук, если он играл
                 raceSound.pause();
                 raceSound.currentTime = 0;
                 render();
@@ -997,7 +1000,7 @@
             }
 
             // =============================================================
-            // 14. ЗАБЕГ (со звуком)
+            // 14. ЗАБЕГ (увеличенная длительность, исправлен баг с тряской)
             // =============================================================
             function startRace() {
                 if (!hasBet || isRaceRunning || raceFinished) return;
@@ -1029,9 +1032,11 @@
                 }
                 winnerId = winIdx;
 
-                const duration = 2800 + Math.random() * 1200;
+                // Увеличенная длительность: 8-10 секунд
+                const duration = 8000 + Math.random() * 2000;
                 const startTime = performance.now();
 
+                // Скорости лошадей (индивидуальные)
                 const speeds = HORSES.map((h, i) => {
                     const base = 0.7 + Math.random() * 0.3;
                     const bonus = (i === winnerId) ? 0.25 : (Math.random() * 0.05);
@@ -1054,6 +1059,7 @@
                         }
                         racePositions[i] = Math.min(p, 1);
                     }
+                    // Гарантируем, что победитель на финише
                     if (progress > 0.96) {
                         racePositions[winnerId] = 1;
                     }
@@ -1063,13 +1069,18 @@
                     if (progress < 1) {
                         animationId = requestAnimationFrame(animateRace);
                     } else {
+                        // Финиш
                         racePositions[winnerId] = 1;
                         render();
                         isRaceRunning = false;
                         raceFinished = true;
-                        // ОСТАНАВЛИВАЕМ ЗВУК
                         raceSound.pause();
                         raceSound.currentTime = 0;
+                        // Останавливаем анимационный цикл
+                        if (animationId) {
+                            cancelAnimationFrame(animationId);
+                            animationId = null;
+                        }
                         showResult();
                     }
                 }
