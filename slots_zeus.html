@@ -2090,18 +2090,22 @@
             function getWeightedSymbol() {
                 const weights = { ...BASE_WEIGHTS };
                 const highSymbols = [SYMBOLS[8], SYMBOLS[9], SYMBOLS[10], SYMBOLS[11], SYMBOLS[12]];
+                // Усиливаем влияние luckFactor
                 if (luckFactor > 1.0) {
-                    const boost = 1 + (luckFactor - 1) * 1.2;
+                    const boost = 1 + (luckFactor - 1) * 1.2; // раньше 0.8
                     highSymbols.forEach(sym => {
                         weights[sym] = Math.floor(weights[sym] * boost);
                     });
+                    // Также увеличиваем вес SCATTER при везении
                     weights[SYMBOLS[13]] = Math.floor(weights[SYMBOLS[13]] * (1 + (luckFactor - 1) * 0.5));
                 } else if (luckFactor < 1.0) {
-                    const reduce = 1 - (1 - luckFactor) * 0.9;
+                    const reduce = 1 - (1 - luckFactor) * 0.9; // раньше 0.6
                     highSymbols.forEach(sym => {
                         weights[sym] = Math.max(1, Math.floor(weights[sym] * reduce));
                     });
+                    // SCATTER тоже снижаем
                     weights[SYMBOLS[13]] = Math.max(1, Math.floor(weights[SYMBOLS[13]] * (1 - (1 - luckFactor) * 0.4)));
+                    // Низкие символы становятся чаще
                     for (let i = 0; i <= 7; i++) {
                         weights[SYMBOLS[i]] = Math.floor(weights[SYMBOLS[i]] * (1 + (1 - luckFactor) * 0.6));
                     }
@@ -2127,9 +2131,11 @@
                 }
                 if (recentWins.length > 15) recentWins.shift();
 
+                // Проверяем каждые 2 спина для более быстрой реакции
                 if (spinCounter % 2 === 0) {
                     const avgWin = recentWins.reduce((a, b) => a + b, 0) / recentWins.length;
                     let delta = 0;
+                    // Сильная коррекция при проигрышах
                     if (consecutiveLosses >= 3) {
                         delta = 0.25 + (consecutiveLosses - 3) * 0.08;
                     } else if (consecutiveWins >= 2) {
@@ -2139,13 +2145,16 @@
                     } else if (avgWin < 0.02 && recentWins.length > 3) {
                         delta = 0.15;
                     } else {
+                        // Случайные флуктуации
                         delta = (Math.random() - 0.5) * 0.2;
                     }
                     luckFactor = Math.max(0.4, Math.min(2.5, luckFactor + delta));
 
+                    // Дополнительный всплеск удачи при очень долгой серии проигрышей (более 8)
                     if (consecutiveLosses > 8) {
                         luckFactor = Math.min(2.8, luckFactor + 0.2);
                     }
+                    // Если баланс низкий, помогаем
                     if (balance < 5000 && spinCounter > 5) {
                         luckFactor = Math.min(2.8, luckFactor + 0.05);
                     }
@@ -2219,7 +2228,7 @@
             const payoutGrid = document.getElementById('payoutGrid');
 
             // =============================================================
-            // 6. ЗВУК
+            // 6. ЗВУК (сокращённо, без изменений)
             // =============================================================
             const SoundManager = { volume: 0.85, setVolume(v) { this.volume = Math.max(0, Math.min(1, v)); }, scale(vol) { return vol *
                         this.volume; } };
@@ -2467,7 +2476,7 @@
             window._particlesInit = true;
 
             // =============================================================
-            // 8. МОЛНИИ
+            // 8. МОЛНИИ (без изменений)
             // =============================================================
             let lCtx = null,
                 lW = 0,
@@ -2670,7 +2679,7 @@
             }
 
             // =============================================================
-            // 11. ОСНОВНАЯ ЛОГИКА С CANVAS
+            // 11. ОСНОВНАЯ ЛОГИКА С CANVAS (БЕЗ ИЗМЕНЕНИЙ)
             // =============================================================
 
             function buildReelStrips() {
@@ -3156,7 +3165,7 @@
                         if (currentGrid[i] === SCATTER) scatterCount++;
                     }
                     if (scatterCount >= 3) {
-                        const baseChance = 0.02 + (scatterCount - 3) * 0.035;
+                        const baseChance = 0.02 + (scatterCount - 3) * 0.035; // повысили шанс
                         const finalChance = baseChance * luckFactor * 0.9;
                         if (Math.random() < finalChance || scatterCount >= 5) {
                             const fsReward = scatterCount >= 5 ? 10 : 5;
@@ -3510,6 +3519,9 @@
 
                 buildPayoutGrid();
 
+                // Скрываем canvas до окончательной отрисовки
+                reelsCanvas.style.opacity = '0';
+
                 reelStrips = buildReelStrips();
                 reelOffsets = [0, 0, 0, 0, 0];
                 currentGrid = getGridFromOffsets(reelOffsets, reelStrips);
@@ -3687,6 +3699,24 @@
                     if (!btnSpin.disabled) btnSpin.click();
                 }
             });
+
+            // =============================================================
+            // 21. ЗАПУСК
+            // =============================================================
+            init();
+
+            window.__slots = {
+                balance,
+                isSpinning,
+                autoSpinActive,
+                freeSpins,
+                isBonusActive,
+                currentGrid,
+                luckFactor,
+                settings,
+                reelOffsets,
+                reelStrips
+            };
 
         })();
     </script>
