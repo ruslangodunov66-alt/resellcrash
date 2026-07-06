@@ -7,6 +7,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js">
     </script>
     <style>
+        /* (стили без изменений, оставляем как в предыдущей версии) */
         @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Nunito:wght@600;700;800;900&display=swap');
 
         * {
@@ -37,7 +38,6 @@
             padding: 8px 10px 10px;
         }
 
-        /* ===== HEADER ===== */
         .header {
             display: flex;
             justify-content: space-between;
@@ -114,7 +114,6 @@
             color: #fff;
         }
 
-        /* ===== CANVAS ===== */
         .race-wrapper {
             flex: 1;
             position: relative;
@@ -132,7 +131,6 @@
             image-rendering: auto;
         }
 
-        /* ===== БОТТОМ ===== */
         .bottom-panel {
             flex-shrink: 0;
             padding: 8px 0 4px;
@@ -301,7 +299,6 @@
             color: #7DF9FF;
         }
 
-        /* ===== RESULT OVERLAY ===== */
         .result-overlay {
             position: absolute;
             inset: 0;
@@ -407,7 +404,6 @@
             }
         }
 
-        /* ===== RESPONSIVE ===== */
         @media (max-width: 480px) {
             .header {
                 padding: 6px 10px;
@@ -510,7 +506,6 @@
 <body>
 
     <div id="app">
-        <!-- HEADER -->
         <div class="header">
             <div class="left">
                 <button class="btn-back" id="backBtn">◁</button>
@@ -522,7 +517,6 @@
             </div>
         </div>
 
-        <!-- CANVAS -->
         <div class="race-wrapper">
             <canvas id="raceCanvas"></canvas>
             <div class="result-overlay" id="resultOverlay">
@@ -536,7 +530,6 @@
             </div>
         </div>
 
-        <!-- BOTTOM -->
         <div class="bottom-panel">
             <div class="horse-selector" id="horseSelector"></div>
 
@@ -550,7 +543,6 @@
         </div>
     </div>
 
-    <!-- ЗВУК ГОНКИ -->
     <audio id="raceSound" loop preload="auto">
         <source src="0011299.mp3" type="audio/mpeg">
     </audio>
@@ -580,24 +572,17 @@
             updateBalanceDisplay();
 
             // =============================================================
-            // 3. КОНФИГ ЛОШАДЕЙ — НОВЫЙ ПОРЯДОК (СВЕРХУ ВНИЗ)
+            // 3. КОНФИГ ЛОШАДЕЙ — ИСХОДНЫЙ ПОРЯДОК (СВЕРХУ ВНИЗ)
             // =============================================================
             const BASE_URL = 'https://raw.githubusercontent.com/ruslangodunov66-alt/resellcrash/main/horse/';
 
-            // Порядок сверху вниз:
-            // 0 - Сокол (самый верх)
-            // 1 - Тень (чуть ниже)
-            // 2 - Гром (выше на 1)
-            // 3 - Зефир (опустить на 2)
-            // 4 - Вихрь (опустить на 2)
-            // 5 - Молния (опустить на 3-4)
             const HORSES = [
-                { id: 0, name: 'Сокол', img: BASE_URL + 'IMG_0457.PNG', color: '#E67E22', lane: 0 },
-                { id: 1, name: 'Тень', img: BASE_URL + 'IMG_0456.PNG', color: '#9B59B6', lane: 1 },
+                { id: 0, name: 'Молния', img: BASE_URL + 'IMG_0452.PNG', color: '#E74C3C', lane: 0 },
+                { id: 1, name: 'Вихрь', img: BASE_URL + 'IMG_0453.PNG', color: '#3498DB', lane: 1 },
                 { id: 2, name: 'Гром', img: BASE_URL + 'IMG_0454.PNG', color: '#2ECC71', lane: 2 },
                 { id: 3, name: 'Зефир', img: BASE_URL + 'IMG_0455.PNG', color: '#F1C40F', lane: 3 },
-                { id: 4, name: 'Вихрь', img: BASE_URL + 'IMG_0453.PNG', color: '#3498DB', lane: 4 },
-                { id: 5, name: 'Молния', img: BASE_URL + 'IMG_0452.PNG', color: '#E74C3C', lane: 5 }
+                { id: 4, name: 'Тень', img: BASE_URL + 'IMG_0456.PNG', color: '#9B59B6', lane: 4 },
+                { id: 5, name: 'Сокол', img: BASE_URL + 'IMG_0457.PNG', color: '#E67E22', lane: 5 }
             ];
 
             const TRACK_IMAGE = BASE_URL + 'photo_2026-07-05_16-58-03.jpg';
@@ -701,8 +686,15 @@
             window.addEventListener('resize', resizeCanvas);
 
             // =============================================================
-            // 8. ОТРИСОВКА — рисуем свои дорожки поверх фона
+            // 8. ОТРИСОВКА — С ЛИНИЯМИ И ПОДПИСЯМИ
             // =============================================================
+            // Точные доли высоты для центров дорожек (подобраны под картинку)
+            const LANE_FRACTIONS = [0.12, 0.245, 0.385, 0.525, 0.665, 0.805];
+
+            function getLaneY(laneIndex, h) {
+                return h * LANE_FRACTIONS[laneIndex];
+            }
+
             function render() {
                 const w = canvas.width / (window.devicePixelRatio || 1);
                 const h = canvas.height / (window.devicePixelRatio || 1);
@@ -721,7 +713,7 @@
                     ctx.fillRect(0, 0, w, h);
                 }
 
-                // ---- РИСУЕМ СВОИ ДОРОЖКИ (поверх фона) ----
+                // ---- РИСУЕМ ЛИНИИ ДОРОЖЕК С ПОДПИСЯМИ ----
                 const laneCount = HORSES.length;
                 const padding = h * 0.06;
                 const usable = h - padding * 2;
@@ -729,24 +721,42 @@
 
                 for (let i = 0; i < laneCount; i++) {
                     const y = padding + i * laneHeight;
-                    // Полупрозрачная полоса для визуального разделения
+                    // Полоса-фон (слегка затемнённая)
                     ctx.fillStyle = (i % 2 === 0) ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.02)';
                     ctx.fillRect(0, y, w, laneHeight);
-                    // Линия между дорожками
-                    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+
+                    // Горизонтальная линия
+                    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
                     ctx.lineWidth = 1.5;
                     ctx.beginPath();
                     ctx.moveTo(0, y + laneHeight);
                     ctx.lineTo(w, y + laneHeight);
                     ctx.stroke();
+
+                    // Подпись слева (номер дорожки)
+                    ctx.shadowBlur = 0;
+                    ctx.shadowColor = 'transparent';
+                    ctx.font = `bold 14px Nunito, sans-serif`;
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'middle';
+                    const labelX = 10;
+                    const labelY = y + laneHeight / 2;
+                    // Белый текст с тенью для читаемости
+                    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                    ctx.fillText(`Дор. ${i+1}`, labelX + 1, labelY + 1);
+                    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+                    ctx.shadowColor = 'rgba(0,0,0,0.8)';
+                    ctx.shadowBlur = 6;
+                    ctx.fillText(`Дор. ${i+1}`, labelX, labelY);
+                    ctx.shadowBlur = 0;
                 }
 
-                // ---- ЛОШАДИ (УВЕЛИЧЕННЫЙ РАЗМЕР) ----
+                // ---- ЛОШАДИ (поверх линий) ----
                 const trackStart = w * 0.06;
                 const trackEnd = w * 0.94;
                 const trackWidth = trackEnd - trackStart;
 
-                // УВЕЛИЧИЛИ РАЗМЕР ЛОШАДЕЙ
+                // Увеличенный размер лошадей
                 const horseHeight = h * 0.12;
                 const horseWidth = horseHeight * 1.6;
 
@@ -754,8 +764,7 @@
                     const horse = HORSES[i];
                     const progress = racePositions[i] || 0;
                     const x = trackStart + progress * trackWidth;
-                    // Центр дорожки
-                    const y = padding + (i + 0.5) * laneHeight;
+                    const y = getLaneY(i, h); // центр дорожки
 
                     const img = horseImages[horse.id];
                     const size = horseHeight;
@@ -770,7 +779,6 @@
                         const px = x - drawW * 0.15;
                         const py = y - drawH / 2;
 
-                        // Покачивание только во время забега
                         let bob = 0;
                         if (isRaceRunning) {
                             bob = Math.sin(progress * 40 + i * 1.2) * 2;
@@ -794,7 +802,6 @@
                             ctx.shadowBlur = 0;
                         }
 
-                        // имя над лошадью
                         ctx.shadowBlur = 0;
                         ctx.shadowOffsetY = 0;
                         ctx.font = `bold ${Math.max(12, size * 0.3)}px Nunito, sans-serif`;
@@ -952,7 +959,7 @@
             }
 
             // =============================================================
-            // 12. ПОСТРОЕНИЕ КНОПОК ЛОШАДЕЙ (в новом порядке)
+            // 12. ПОСТРОЕНИЕ КНОПОК ЛОШАДЕЙ
             // =============================================================
             function buildHorseButtons() {
                 horseSelector.innerHTML = '';
@@ -1012,7 +1019,7 @@
             }
 
             // =============================================================
-            // 14. ЗАБЕГ (длительность 8–10 секунд)
+            // 14. ЗАБЕГ
             // =============================================================
             function startRace() {
                 if (!hasBet || isRaceRunning || raceFinished) return;
