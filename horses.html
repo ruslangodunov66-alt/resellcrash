@@ -593,8 +593,7 @@
                 { id: 5, name: 'Сокол', img: BASE_URL + 'IMG_0457.PNG', color: '#E67E22', lane: 5 }
             ];
 
-            // НОВЫЙ ФОН
-            const TRACK_IMAGE = BASE_URL + 'photo_2026-07-06_10-35-48.jpg';
+            const TRACK_IMAGE = BASE_URL + 'photo_2026-07-05_16-58-03.jpg';
 
             // =============================================================
             // 4. DOM
@@ -695,22 +694,8 @@
             window.addEventListener('resize', resizeCanvas);
 
             // =============================================================
-            // 8. ОТРИСОВКА — точные координаты для нового фона
+            // 8. ОТРИСОВКА — рисуем свои дорожки поверх фона
             // =============================================================
-            // Доли высоты для центров дорожек (измерены по новому фону)
-            const LANE_Y_FRACTIONS = [
-                0.205, // 1 дорожка
-                0.330, // 2 дорожка
-                0.455, // 3 дорожка
-                0.580, // 4 дорожка
-                0.705, // 5 дорожка
-                0.830  // 6 дорожка
-            ];
-
-            function getLaneY(laneIndex, h) {
-                return h * LANE_Y_FRACTIONS[laneIndex];
-            }
-
             function render() {
                 const w = canvas.width / (window.devicePixelRatio || 1);
                 const h = canvas.height / (window.devicePixelRatio || 1);
@@ -721,7 +706,6 @@
                 if (trackImage && trackImage.complete && trackImage.naturalWidth > 0) {
                     ctx.drawImage(trackImage, 0, 0, w, h);
                 } else {
-                    // fallback
                     const grad = ctx.createLinearGradient(0, 0, 0, h);
                     grad.addColorStop(0, '#1a3a1a');
                     grad.addColorStop(0.5, '#2d5a2d');
@@ -730,20 +714,41 @@
                     ctx.fillRect(0, 0, w, h);
                 }
 
-                // ---- ЛОШАДИ ----
-                const START_X = w * 0.105;
-                const FINISH_X = w * 0.94;
-                const TRACK_WIDTH = FINISH_X - START_X;
+                // ---- РИСУЕМ СВОИ ДОРОЖКИ (поверх фона) ----
+                const laneCount = HORSES.length;
+                const padding = h * 0.06;
+                const usable = h - padding * 2;
+                const laneHeight = usable / laneCount;
 
-                // Размер лошади для нового фона
-                const horseHeight = h * 0.075;
-                const horseWidth = horseHeight * 1.55;
+                for (let i = 0; i < laneCount; i++) {
+                    const y = padding + i * laneHeight;
+                    // Полупрозрачная полоса для визуального разделения
+                    ctx.fillStyle = (i % 2 === 0) ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.02)';
+                    ctx.fillRect(0, y, w, laneHeight);
+                    // Линия между дорожками
+                    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    ctx.moveTo(0, y + laneHeight);
+                    ctx.lineTo(w, y + laneHeight);
+                    ctx.stroke();
+                }
+
+                // ---- ЛОШАДИ ----
+                const trackStart = w * 0.06;
+                const trackEnd = w * 0.94;
+                const trackWidth = trackEnd - trackStart;
+
+                // Размер лошади — фиксированный относительно высоты холста
+                const horseHeight = h * 0.095;
+                const horseWidth = horseHeight * 1.6;
 
                 for (let i = 0; i < HORSES.length; i++) {
                     const horse = HORSES[i];
                     const progress = racePositions[i] || 0;
-                    const x = START_X + progress * TRACK_WIDTH;
-                    const y = getLaneY(i, h);
+                    const x = trackStart + progress * trackWidth;
+                    // Центр дорожки
+                    const y = padding + (i + 0.5) * laneHeight;
 
                     const img = horseImages[horse.id];
                     const size = horseHeight;
