@@ -692,13 +692,13 @@
             window.addEventListener('resize', resizeCanvas);
 
             // =============================================================
-            // 8. ОТРИСОВКА — с фиксированными Y для каждой дорожки (с отступами)
+            // 8. ОТРИСОВКА — с фиксированными пропорциями дорожек
             // =============================================================
-            function getLaneY(laneIndex, totalLanes, h) {
-                // Отступы сверху и снизу, чтобы дорожки не прилипали к краям
-                const padding = h * 0.06;
-                const usable = h - padding * 2;
-                return padding + (laneIndex + 0.5) * (usable / totalLanes);
+            // Доли от высоты холста для центров дорожек (подобраны под картинку)
+            const LANE_FRACTIONS = [0.13, 0.26, 0.39, 0.52, 0.65, 0.78];
+
+            function getLaneY(laneIndex, h) {
+                return h * LANE_FRACTIONS[laneIndex];
             }
 
             function render() {
@@ -711,54 +711,44 @@
                 if (trackImage && trackImage.complete && trackImage.naturalWidth > 0) {
                     ctx.drawImage(trackImage, 0, 0, w, h);
                 } else {
+                    // fallback
                     const grad = ctx.createLinearGradient(0, 0, 0, h);
                     grad.addColorStop(0, '#1a3a1a');
                     grad.addColorStop(0.5, '#2d5a2d');
                     grad.addColorStop(1, '#1a3a1a');
                     ctx.fillStyle = grad;
                     ctx.fillRect(0, 0, w, h);
-
-                    const laneCount = HORSES.length;
-                    const laneHeight = h / laneCount;
-                    for (let i = 0; i < laneCount; i++) {
-                        const y = i * laneHeight;
-                        ctx.fillStyle = (i % 2 === 0) ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.02)';
-                        ctx.fillRect(0, y, w, laneHeight);
-                        ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-                        ctx.lineWidth = 1;
-                        ctx.beginPath();
-                        ctx.moveTo(0, y + laneHeight);
-                        ctx.lineTo(w, y + laneHeight);
-                        ctx.stroke();
-                    }
                 }
 
                 // ---- ЛОШАДИ ----
-                const laneCount = HORSES.length;
                 const trackStart = w * 0.06;
                 const trackEnd = w * 0.94;
                 const trackWidth = trackEnd - trackStart;
 
-                for (let i = 0; i < laneCount; i++) {
+                // Размер лошади — фиксированный относительно высоты холста
+                const horseHeight = h * 0.095;
+                const horseWidth = horseHeight * 1.55;
+
+                for (let i = 0; i < HORSES.length; i++) {
                     const horse = HORSES[i];
                     const progress = racePositions[i] || 0;
                     const x = trackStart + progress * trackWidth;
-                    const y = getLaneY(i, laneCount, h);
+                    const y = getLaneY(i, h);
 
                     const img = horseImages[horse.id];
-                    const size = Math.min(w, h) * 0.13;
+                    const size = horseHeight; // используем высоту как базовую
 
                     ctx.shadowColor = 'rgba(0,0,0,0.4)';
                     ctx.shadowBlur = 15;
                     ctx.shadowOffsetY = 4;
 
                     if (img && img.complete && img.naturalWidth > 0) {
-                        const drawW = size * 1.6;
-                        const drawH = size * 1.3;
+                        const drawW = horseWidth;
+                        const drawH = horseHeight;
                         const px = x - drawW * 0.1;
                         const py = y - drawH / 2;
 
-                        // Покачивание только во время забега, после финиша — нет
+                        // Покачивание только во время забега
                         let bob = 0;
                         if (isRaceRunning) {
                             bob = Math.sin(progress * 40 + i * 1.2) * 2;
@@ -1000,7 +990,7 @@
             }
 
             // =============================================================
-            // 14. ЗАБЕГ (увеличенная длительность, исправлен баг с тряской)
+            // 14. ЗАБЕГ (длительность 8–10 секунд, без тряски после финиша)
             // =============================================================
             function startRace() {
                 if (!hasBet || isRaceRunning || raceFinished) return;
@@ -1032,7 +1022,7 @@
                 }
                 winnerId = winIdx;
 
-                // Увеличенная длительность: 8-10 секунд
+                // Увеличенная длительность: 8–10 секунд
                 const duration = 8000 + Math.random() * 2000;
                 const startTime = performance.now();
 
@@ -1076,7 +1066,6 @@
                         raceFinished = true;
                         raceSound.pause();
                         raceSound.currentTime = 0;
-                        // Останавливаем анимационный цикл
                         if (animationId) {
                             cancelAnimationFrame(animationId);
                             animationId = null;
