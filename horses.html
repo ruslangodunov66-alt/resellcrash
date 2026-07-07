@@ -571,7 +571,7 @@
             updateBalanceDisplay();
 
             // =============================================================
-            // 3. КОНФИГ ЛОШАДЕЙ (БЕЗ ФОНА)
+            // 3. КОНФИГ ЛОШАДЕЙ
             // =============================================================
             const BASE_URL = 'https://raw.githubusercontent.com/ruslangodunov66-alt/resellcrash/main/horse/';
 
@@ -584,7 +584,8 @@
                 { id: 5, name: 'Сокол', img: BASE_URL + 'IMG_0457.PNG', color: '#E67E22', lane: 5 }
             ];
 
-            // ФОНА БОЛЬШЕ НЕТ — убираем trackImage
+            // НОВЫЙ ФОН
+            const TRACK_IMAGE = BASE_URL + 'VEux9kYOWxh76c7RwQzuXANIZG1ubOe0RnNv6F9hUF4X8sf87LkBB913Dok_RAxCn_noaI-gouxxGx-9rEECChGn.jpg';
 
             // =============================================================
             // 4. DOM
@@ -617,10 +618,11 @@
             let winnerId = null;
             let animationId = null;
             let horseImages = {};
+            let trackImage = null;
             let ready = false;
 
             // =============================================================
-            // 6. ЗАГРУЗКА ИЗОБРАЖЕНИЙ (ТОЛЬКО ЛОШАДИ)
+            // 6. ЗАГРУЗКА ИЗОБРАЖЕНИЙ
             // =============================================================
             function loadImage(src) {
                 return new Promise((resolve) => {
@@ -649,6 +651,7 @@
 
             async function loadAllImages() {
                 try {
+                    trackImage = await loadImage(TRACK_IMAGE);
                     for (const h of HORSES) {
                         const img = await loadImage(h.img);
                         horseImages[h.id] = img;
@@ -683,82 +686,62 @@
             window.addEventListener('resize', resizeCanvas);
 
             // =============================================================
-            // 8. ОТРИСОВКА — ТОЛЬКО ДОРОЖКИ С ПОДПИСЯМИ (БЕЗ ФОНА)
+            // 8. ОТРИСОВКА — ТОЧНЫЕ КООРДИНАТЫ (БЕЗ ВЫЧИСЛЕНИЙ)
             // =============================================================
+            // Фиксированные центры дорожек (доли от высоты)
+            const LANE_Y = [
+                0.083333, // дорожка 1
+                0.250000, // дорожка 2
+                0.416667, // дорожка 3
+                0.583333, // дорожка 4
+                0.750000, // дорожка 5
+                0.916667 // дорожка 6
+            ];
+
+            // Старт и финиш (доли от ширины)
+            const START_X = 0.07;
+            const FINISH_X = 0.90;
+
+            // Размер лошади (доли от высоты)
+            const HORSE_HEIGHT_RATIO = 0.07;
+            const HORSE_WIDTH_RATIO = 0.07 * 1.55;
+
+            // Смещение для позиционирования
+            const DRAW_OFFSET_X = 0.15;
+            const DRAW_OFFSET_Y = 0.52;
+
             function render() {
                 const w = canvas.width / (window.devicePixelRatio || 1);
                 const h = canvas.height / (window.devicePixelRatio || 1);
 
                 ctx.clearRect(0, 0, w, h);
 
-                // ---- ТЁМНЫЙ ФОН ----
-                const grad = ctx.createLinearGradient(0, 0, 0, h);
-                grad.addColorStop(0, '#0a0f1a');
-                grad.addColorStop(0.5, '#111827');
-                grad.addColorStop(1, '#0a0f1a');
-                ctx.fillStyle = grad;
-                ctx.fillRect(0, 0, w, h);
-
-                // ---- РИСУЕМ ДОРОЖКИ ----
-                const laneCount = HORSES.length;
-                const padding = h * 0.06;
-                const usable = h - padding * 2;
-                const laneHeight = usable / laneCount;
-
-                for (let i = 0; i < laneCount; i++) {
-                    const y = padding + i * laneHeight;
-                    // Чередование полос
-                    ctx.fillStyle = (i % 2 === 0) ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.02)';
-                    ctx.fillRect(0, y, w, laneHeight);
-
-                    // Горизонтальная линия
-                    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-                    ctx.lineWidth = 1.5;
-                    ctx.beginPath();
-                    ctx.moveTo(0, y + laneHeight);
-                    ctx.lineTo(w, y + laneHeight);
-                    ctx.stroke();
-
-                    // Подпись слева (номер дорожки)
-                    ctx.shadowBlur = 0;
-                    ctx.shadowColor = 'transparent';
-                    ctx.font = `bold 16px Nunito, sans-serif`;
-                    ctx.textAlign = 'left';
-                    ctx.textBaseline = 'middle';
-                    const labelX = 14;
-                    const labelY = y + laneHeight / 2;
-                    // Белый текст с тенью для читаемости
-                    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-                    ctx.fillText(`Дор. ${i+1}`, labelX + 1, labelY + 1);
-                    ctx.fillStyle = 'rgba(255,255,255,0.9)';
-                    ctx.shadowColor = 'rgba(0,0,0,0.8)';
-                    ctx.shadowBlur = 6;
-                    ctx.fillText(`Дор. ${i+1}`, labelX, labelY);
-                    ctx.shadowBlur = 0;
-
-                    // Старт/финиш (декоративно)
-                    ctx.fillStyle = 'rgba(255,255,255,0.15)';
-                    ctx.font = '12px Nunito, sans-serif';
-                    ctx.textAlign = 'left';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillText('🏁 СТАРТ', 60, labelY);
-                    ctx.textAlign = 'right';
-                    ctx.fillText('🏁 ФИНИШ', w - 60, labelY);
+                // ---- ФОН (трек) ----
+                if (trackImage && trackImage.complete && trackImage.naturalWidth > 0) {
+                    ctx.drawImage(trackImage, 0, 0, w, h);
+                } else {
+                    // fallback
+                    const grad = ctx.createLinearGradient(0, 0, 0, h);
+                    grad.addColorStop(0, '#1a3a1a');
+                    grad.addColorStop(0.5, '#2d5a2d');
+                    grad.addColorStop(1, '#1a3a1a');
+                    ctx.fillStyle = grad;
+                    ctx.fillRect(0, 0, w, h);
                 }
 
-                // ---- ЛОШАДИ (ПОВЕРХ ДОРОЖЕК) ----
-                const trackStart = w * 0.06;
-                const trackEnd = w * 0.94;
+                // ---- ЛОШАДИ ----
+                const trackStart = w * START_X;
+                const trackEnd = w * FINISH_X;
                 const trackWidth = trackEnd - trackStart;
 
-                const horseHeight = h * 0.12;
-                const horseWidth = horseHeight * 1.6;
+                const horseHeight = h * HORSE_HEIGHT_RATIO;
+                const horseWidth = horseHeight * 1.55;
 
                 for (let i = 0; i < HORSES.length; i++) {
                     const horse = HORSES[i];
                     const progress = racePositions[i] || 0;
                     const x = trackStart + progress * trackWidth;
-                    const y = padding + (i + 0.5) * laneHeight; // центр дорожки
+                    const y = h * LANE_Y[i];
 
                     const img = horseImages[horse.id];
                     const size = horseHeight;
@@ -770,8 +753,8 @@
                     if (img && img.complete && img.naturalWidth > 0) {
                         const drawW = horseWidth;
                         const drawH = horseHeight;
-                        const px = x - drawW * 0.15;
-                        const py = y - drawH / 2;
+                        const px = x - drawW * DRAW_OFFSET_X;
+                        const py = y - drawH * DRAW_OFFSET_Y;
 
                         let bob = 0;
                         if (isRaceRunning) {
@@ -875,7 +858,7 @@
             }
 
             // =============================================================
-            // 9. СБРОС (без изменений)
+            // 9. СБРОС
             // =============================================================
             function resetPositions() {
                 racePositions = HORSES.map(() => 0);
