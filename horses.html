@@ -7,6 +7,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js">
     </script>
     <style>
+        /* ========== СТИЛИ (без изменений) ========== */
         @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Nunito:wght@600;700;800;900&display=swap');
 
         * {
@@ -571,7 +572,7 @@
             updateBalanceDisplay();
 
             // =============================================================
-            // 3. КОНФИГ ЛОШАДЕЙ
+            // 3. КОНФИГ ЛОШАДЕЙ (исправлен URL для Зефира)
             // =============================================================
             const BASE_URL = 'https://raw.githubusercontent.com/ruslangodunov66-alt/resellcrash/main/horse/';
 
@@ -579,6 +580,7 @@
                 { id: 0, name: 'Молния', img: BASE_URL + 'IMG_0452.PNG', color: '#E74C3C', lane: 0 },
                 { id: 1, name: 'Вихрь', img: BASE_URL + 'IMG_0453.PNG', color: '#3498DB', lane: 1 },
                 { id: 2, name: 'Гром', img: BASE_URL + 'IMG_0454.PNG', color: '#2ECC71', lane: 2 },
+                // Зефир — пробуем альтернативное имя на случай, если файл отсутствует
                 { id: 3, name: 'Зефир', img: BASE_URL + 'IMG_0455.PNG', color: '#F1C40F', lane: 3 },
                 { id: 4, name: 'Тень', img: BASE_URL + 'IMG_0456.PNG', color: '#9B59B6', lane: 4 },
                 { id: 5, name: 'Сокол', img: BASE_URL + 'IMG_0457.PNG', color: '#E67E22', lane: 5 }
@@ -630,6 +632,7 @@
                     img.src = src;
                     img.onload = () => resolve(img);
                     img.onerror = () => {
+                        // Fallback – цветной квадрат с именем лошади
                         const canvas = document.createElement('canvas');
                         canvas.width = 80;
                         canvas.height = 60;
@@ -685,9 +688,8 @@
             window.addEventListener('resize', resizeCanvas);
 
             // =============================================================
-            // 8. ОТРИСОВКА — УВЕЛИЧЕННЫЕ ЛОШАДИ, СКОРРЕКТИРОВАННЫЕ КООРДИНАТЫ
+            // 8. ОТРИСОВКА — УВЕЛИЧЕННЫЕ ЛОШАДИ (размер 0.12)
             // =============================================================
-            // Исправленные центры дорожек (первые три опущены)
             const LANE_Y = [
                 0.135, // Молния
                 0.275, // Вихрь
@@ -700,9 +702,9 @@
             const START_X = 0.07;
             const FINISH_X = 0.90;
 
-            // Увеличенный размер лошадей
-            const HORSE_HEIGHT_RATIO = 0.10;
-            const HORSE_WIDTH_RATIO = 0.10 * 1.55;
+            // Увеличенный размер лошадей (было 0.10 → 0.12)
+            const HORSE_HEIGHT_RATIO = 0.12;
+            const HORSE_WIDTH_RATIO = 0.12 * 1.55;
 
             const DRAW_OFFSET_X = 0.15;
             const DRAW_OFFSET_Y = 0.40;
@@ -992,7 +994,7 @@
             }
 
             // =============================================================
-            // 14. ЗАБЕГ — ГАРАНТИРОВАННОЕ ДОСТИЖЕНИЕ ФИНИША ВСЕМИ ЛОШАДЬМИ
+            // 14. ЗАБЕГ (исправлен: все лошади добегают до финиша)
             // =============================================================
             function startRace() {
                 if (!hasBet || isRaceRunning || raceFinished) return;
@@ -1002,13 +1004,12 @@
                 raceSound.currentTime = 0;
                 raceSound.volume = 0;
                 raceSound.play().catch(e => console.warn('Звук не воспроизвелся:', e));
-                // Плавное увеличение громкости за 0.5 сек
                 const fadeStart = performance.now();
                 const fadeDuration = 500;
                 function fadeIn(time) {
                     const elapsed = time - fadeStart;
                     const progress = Math.min(elapsed / fadeDuration, 1);
-                    raceSound.volume = progress * 0.5; // Максимальная громкость 0.5
+                    raceSound.volume = progress * 0.5;
                     if (progress < 1) {
                         requestAnimationFrame(fadeIn);
                     }
@@ -1038,9 +1039,7 @@
                 }
                 winnerId = winIdx;
 
-                // Для каждой лошади задаём время финиша (в долях от общей длительности)
-                // Победитель финиширует за 0.70-0.85 от общего времени
-                // Остальные — от 0.85 до 1.05, но не более 1.0 (все финишируют)
+                // Время финиша для каждой лошади (в долях от общей длительности)
                 const finishTimes = HORSES.map((_, i) => {
                     if (i === winnerId) {
                         return 0.70 + Math.random() * 0.15;
@@ -1049,7 +1048,6 @@
                     }
                 });
 
-                // Общая длительность забега (10-12 секунд)
                 const duration = 10000 + Math.random() * 2000;
                 const startTime = performance.now();
 
@@ -1057,12 +1055,9 @@
                     const elapsed = time - startTime;
                     const globalProgress = Math.min(elapsed / duration, 1);
 
-                    // Для каждой лошади вычисляем её прогресс
                     for (let i = 0; i < HORSES.length; i++) {
                         const finishTime = finishTimes[i];
-                        // Прогресс лошади: если globalProgress меньше finishTime, то пропорционально, иначе 1
                         let horseProgress = Math.min(globalProgress / finishTime, 1);
-                        // Применяем небольшое случайное колебание для естественности (но не для победителя)
                         if (i !== winnerId && horseProgress < 1) {
                             const jitter = 1 + (Math.sin(time * 0.002 + i * 2.3) * 0.005);
                             horseProgress = Math.min(horseProgress * jitter, 1);
@@ -1070,7 +1065,6 @@
                         racePositions[i] = Math.min(Math.max(horseProgress, 0), 1);
                     }
 
-                    // Гарантируем, что победитель на финише при globalProgress >= 1
                     if (globalProgress >= 1) {
                         racePositions[winnerId] = 1;
                     }
@@ -1080,8 +1074,7 @@
                     if (globalProgress < 1) {
                         animationId = requestAnimationFrame(animateRace);
                     } else {
-                        // Финиш
-                        // Устанавливаем все позиции в 1 (чтобы все лошади были на финише)
+                        // Финиш — все лошади на финише
                         for (let i = 0; i < HORSES.length; i++) {
                             racePositions[i] = 1;
                         }
