@@ -7,6 +7,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js">
     </script>
     <style>
+        /* (стили без изменений) */
         @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Nunito:wght@600;700;800;900&display=swap');
 
         * {
@@ -807,7 +808,7 @@
             // =============================================================
             let selectedHorseId = null;
             let betAmount = 100;
-            let isRaceRunning = false;
+            let isRaceRunning = false;   // <-- добавлена ваша переменная
             let hasBet = false;
             let raceFinished = false;
             let racePositions = [];
@@ -1275,12 +1276,17 @@
             }
 
             // =============================================================
-            // 16. ЗАБЕГ — ИСПРАВЛЕННАЯ ВЕРСИЯ (гарантированный финиш)
+            // 16. ЗАБЕГ — ВАШ КОД (адаптированный)
             // =============================================================
             function startRace() {
-                // ИСПРАВЛЕНО: добавлены операторы ||
-                if (!hasBet || isRaceRunning || raceFinished) return;
-                if (selectedHorseId === null) return;
+                if (isRaceRunning) return;
+                if (!hasBet || selectedHorseId === null) return;
+
+                isRaceRunning = true;
+                startBtn.disabled = true;
+                betBtn.disabled = true;
+                statusMsg.textContent = '🏇 Забег начался!';
+                statusMsg.className = 'status-bar race';
 
                 // ЗВУКИ
                 herdSound.currentTime = 0;
@@ -1293,92 +1299,61 @@
                     raceSound.play().catch(e => console.warn('Звук не воспроизвелся:', e));
                 }, 200);
 
-                isRaceRunning = true;
-                startBtn.disabled = true;
-                betBtn.disabled = true;
-                statusMsg.textContent = '🏇 Забег начался!';
-                statusMsg.className = 'status-bar race';
-
                 resetPositions();
                 dustParticles = [];
 
-                // Определяем победителя
-                const weights = HORSES.map((h, i) => {
-                    const base = 0.6 + Math.random() * 0.8;
-                    const bonus = (i === selectedHorseId) ? 0.15 : 0;
-                    return base + bonus;
-                });
-                const total = weights.reduce((a, b) => a + b, 0);
-                let rnd = Math.random() * total;
-                let winIdx = 0;
-                for (let i = 0; i < weights.length; i++) {
-                    rnd -= weights[i];
-                    if (rnd <= 0) { winIdx = i; break; }
-                }
-                winnerId = winIdx;
+                let winnerFound = false;
 
-                // Настройки времени и скоростей
-                const duration = 7000 + Math.random() * 2000; // 7-9 секунд
-                let lastTime = performance.now();
+                function raceLoop() {
+                    if (!isRaceRunning) return;
 
-                // Базовая скорость (единиц прогресса в миллисекунду)
-                const baseSpeeds = HORSES.map((h, i) => {
-                    if (i === winnerId) return (1.0 / duration) * 1.05;
-                    return (1.0 / duration) * (0.82 + Math.random() * 0.15);
-                });
-
-                function animateRace(time) {
-                    const dt = time - lastTime;
-                    lastTime = time;
-
-                    let winnerFinished = false;
-
+                    // Двигаем каждую лошадь строго вперёд
                     for (let i = 0; i < HORSES.length; i++) {
-                        let speed = baseSpeeds[i];
-                        // лёгкая пульсация для живости
-                        const pulse = 1 + 0.5 * Math.sin(time / 150 + i);
-                        speed *= pulse;
+                        if (racePositions[i] >= 1.0) continue;
+                        // случайный шаг от 0.005 до 0.025 (≈ 0.3–1.5 сек до финиша)
+                        const step = 0.005 + Math.random() * 0.02;
+                        racePositions[i] = Math.min(racePositions[i] + step, 1.0);
+                    }
 
-                        racePositions[i] += speed * dt;
-
-                        if (racePositions[i] >= 1) {
-                            racePositions[i] = 1;
-                            if (i === winnerId) {
-                                winnerFinished = true;
-                            }
+                    // Проверяем, есть ли победитель (кто первый достиг 1.0)
+                    for (let i = 0; i < HORSES.length; i++) {
+                        if (racePositions[i] >= 1.0) {
+                            winnerId = i;
+                            winnerFound = true;
+                            break;
                         }
                     }
 
                     updateDust();
                     render();
 
-                    if (!winnerFinished) {
-                        animationId = requestAnimationFrame(animateRace);
-                    } else {
+                    if (winnerFound) {
                         // Финиш
-                        for (let i = 0; i < HORSES.length; i++) {
-                            racePositions[i] = 1;
-                        }
-                        updateDust();
-                        render();
-
                         isRaceRunning = false;
                         raceFinished = true;
+                        // Дотягиваем всех до 1.0 для красоты
+                        for (let i = 0; i < HORSES.length; i++) {
+                            racePositions[i] = 1.0;
+                        }
+                        render();
 
                         raceSound.pause();
                         raceSound.currentTime = 0;
                         herdSound.pause();
                         herdSound.currentTime = 0;
+
                         if (animationId) {
                             cancelAnimationFrame(animationId);
                             animationId = null;
                         }
 
                         showResult();
+                    } else {
+                        animationId = requestAnimationFrame(raceLoop);
                     }
                 }
 
-                animationId = requestAnimationFrame(animateRace);
+                animationId = requestAnimationFrame(raceLoop);
             }
 
             // =============================================================
