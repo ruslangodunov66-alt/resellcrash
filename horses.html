@@ -500,6 +500,7 @@
         }
         .result-card .r-amount {
             font-size: 18px;
+            color: #3DDC84;
             margin: 6px 0 4px;
             font-weight: 800;
         }
@@ -1274,7 +1275,7 @@
             }
 
             // =============================================================
-            // 14. ЗАБЕГ — ПЛАВНАЯ ДИНАМИКА И ЧЕСТНЫЙ ФИНИШ
+            // 14. ЗАБЕГ — ГАРАНТИРОВАННОЕ ДОСТИЖЕНИЕ ФИНИША ВСЕМИ ЛОШАДЬМИ
             // =============================================================
             function startRace() {
                 if (!hasBet || isRaceRunning || raceFinished) return;
@@ -1284,14 +1285,16 @@
                 raceSound.currentTime = 0;
                 raceSound.volume = 0;
                 raceSound.play().catch(e => console.warn('Звук не воспроизвелся:', e));
-                
+                // Плавное увеличение громкости за 0.5 сек
                 const fadeStart = performance.now();
                 const fadeDuration = 500;
                 function fadeIn(time) {
                     const elapsed = time - fadeStart;
                     const progress = Math.min(elapsed / fadeDuration, 1);
-                    raceSound.volume = progress * 0.5;
-                    if (progress < 1) requestAnimationFrame(fadeIn);
+                    raceSound.volume = progress * 0.5; // Максимальная громкость 0.5
+                    if (progress < 1) {
+                        requestAnimationFrame(fadeIn);
+                    }
                 }
                 requestAnimationFrame(fadeIn);
 
@@ -1303,10 +1306,10 @@
 
                 resetPositions();
 
-                // 1. Сначала честно выбираем ID победителя (с небольшим бонусом любимчику)
+                // Определяем победителя с весами
                 const weights = HORSES.map((h, i) => {
-                    const base = 0.5 + Math.random() * 0.5;
-                    const bonus = (i === selectedHorseId) ? 0.1 : 0;
+                    const base = 0.6 + Math.random() * 0.8;
+                    const bonus = (i === selectedHorseId) ? 0.15 : 0;
                     return base + bonus;
                 });
                 const total = weights.reduce((a, b) => a + b, 0);
@@ -1318,58 +1321,58 @@
                 }
                 winnerId = winIdx;
 
-                // 2. Генерируем базовые скорости. У победителя она будет чуть выше к концу.
-                const horseSpeeds = HORSES.map((_, i) => {
-                    return i === winnerId ? 0.0016 + Math.random() * 0.0004 : 0.0013 + Math.random() * 0.0004;
+                // Для каждой лошади задаём время финиша (в долях от общей длительности)
+                // Победитель финиширует за 0.70-0.85 от общего времени
+                // Остальные — от 0.85 до 1.05, но не более 1.0 (все финишируют)
+                const finishTimes = HORSES.map((_, i) => {
+                    if (i === winnerId) {
+                        return 0.70 + Math.random() * 0.15;
+                    } else {
+                        return 0.85 + Math.random() * 0.20;
+                    }
                 });
 
+                // Общая длительность забега (10-12 секунд)
+                const duration = 10000 + Math.random() * 2000;
                 const startTime = performance.now();
-                let raceActive = true;
 
                 function animateRace(time) {
-                    if (!raceActive) return;
+                    const elapsed = time - startTime;
+                    const globalProgress = Math.min(elapsed / duration, 1);
 
-                    let someoneFinished = false;
-
+                    // Для каждой лошади вычисляем её прогресс
                     for (let i = 0; i < HORSES.length; i++) {
-                        // Если лошадь уже пересекла финиш (1.0), не двигаем её
-                        if (racePositions[i] >= 1) {
-                            if (i === winnerId) someoneFinished = true;
-                            continue;
+                        const finishTime = finishTimes[i];
+                        // Прогресс лошади: если globalProgress меньше finishTime, то пропорционально, иначе 1
+                        let horseProgress = Math.min(globalProgress / finishTime, 1);
+                        // Применяем небольшое случайное колебание для естественности (но не для победителя)
+                        if (i !== winnerId && horseProgress < 1) {
+                            const jitter = 1 + (Math.sin(time * 0.002 + i * 2.3) * 0.005);
+                            horseProgress = Math.min(horseProgress * jitter, 1);
                         }
+                        racePositions[i] = Math.min(Math.max(horseProgress, 0), 1);
+                    }
 
-                        // Динамическое изменение скорости (рывки и замедления для реализма)
-                        let jitter = 1 + (Math.sin(time * 0.005 + i * 1.7) * 0.25);
-                        
-                        // Ближе к финишу победитель делает финальный рывок, а остальные слегка устают
-                        if (racePositions[i] > 0.75) {
-                            jitter = (i === winnerId) ? jitter * 1.3 : jitter * 0.85;
-                        }
-
-                        // Наращиваем прогресс
-                        racePositions[i] += horseSpeeds[i] * jitter;
-
-                        // Ограничиваем финишную черту
-                        if (racePositions[i] >= 1) {
-                            racePositions[i] = 1;
-                            if (i === winnerId) someoneFinished = true;
-                        }
+                    // Гарантируем, что победитель на финише при globalProgress >= 1
+                    if (globalProgress >= 1) {
+                        racePositions[winnerId] = 1;
                     }
 
                     render();
 
-                    // Забег продолжается, пока НАСТОЯЩИЙ победитель не пересечет черту
-                    if (!someoneFinished) {
+                    if (globalProgress < 1) {
                         animationId = requestAnimationFrame(animateRace);
                     } else {
-                        // Финиш зафиксирован! Stop лог.
-                        raceActive = false;
+                        // Финиш
+                        // Устанавливаем все позиции в 1 (чтобы все лошади были на финише)
+                        for (let i = 0; i < HORSES.length; i++) {
+                            racePositions[i] = 1;
+                        }
+                        render();
                         isRaceRunning = false;
                         raceFinished = true;
-                        
                         raceSound.pause();
                         raceSound.currentTime = 0;
-                        
                         if (animationId) {
                             cancelAnimationFrame(animationId);
                             animationId = null;
@@ -1382,60 +1385,94 @@
             }
 
             // =============================================================
-            // 15. РЕЗУЛЬТАТ (С ПРОВЕРКОЙ НА ПОБЕДУ ИГРОКА)
+            // 17. РЕЗУЛЬТАТ
             // =============================================================
             function showResult() {
                 const horse = HORSES[winnerId];
-                const isWin = (selectedHorseId === winnerId);
+                const multiplier = 1.5 + Math.random() * 2.0;
+                const winAmount = Math.floor(betAmount * multiplier);
 
-                if (isWin) {
-                    // Игрок выиграл
-                    const multiplier = 1.5 + Math.random() * 2.0;
-                    const winAmount = Math.floor(betAmount * multiplier);
+                balance += winAmount;
+                localStorage.setItem('casinoBalance', String(balance));
+                updateBalanceDisplay();
 
-                    balance += winAmount;
-                    localStorage.setItem('casinoBalance', String(balance));
-                    updateBalanceDisplay();
-
-                    rEmoji.textContent = '👑';
-                    rName.textContent = `Победа! ${horse.name}`;
-                    rAmount.textContent = `+${winAmount.toLocaleString()} ₽`;
-                    rAmount.style.color = '#3DDC84';
-                    rSub.textContent = `коэффициент x${multiplier.toFixed(1)} · ставка ${betAmount.toLocaleString()} ₽`;
-                    
-                    statusMsg.textContent = `🏆 Победил ${horse.name}! Выигрыш ${winAmount.toLocaleString()} ₽`;
-                    statusMsg.className = 'status-bar win';
-                } else {
-                    // Игрок проиграл
-                    rEmoji.textContent = '❌';
-                    rName.textContent = `Финиш! Победил ${horse.name}`;
-                    rAmount.textContent = `-${betAmount.toLocaleString()} ₽`;
-                    rAmount.style.color = '#E85555';
-                    rSub.textContent = `Вы ставили на ${HORSES[selectedHorseId].name}`;
-
-                    statusMsg.textContent = `😔 Победил ${horse.name}. Повезет в следующий раз!`;
-                    statusMsg.className = 'status-bar lose';
-                }
-
+                rEmoji.textContent = '🐎';
+                rName.textContent = `🏆 ${horse.name}`;
+                rAmount.textContent = `+${winAmount.toLocaleString()} ₽`;
+                rSub.textContent = `коэффициент x${multiplier.toFixed(1)} · ставка ${betAmount.toLocaleString()} ₽`;
                 resultOverlay.classList.add('show');
+
+                winTextArea.innerHTML = '';
+                const titleEl = document.createElement('div');
+                titleEl.id = 'winTitle';
+                titleEl.style.cssText = `
+                    font-family: 'Cinzel', serif;
+                    font-size: clamp(22px, 5vw, 36px);
+                    font-weight: 900;
+                    text-align: center;
+                    color: #FFD54A;
+                    text-shadow: 0 0 30px rgba(255,213,74,0.2);
+                    margin-bottom: 4px;
+                    letter-spacing: 2px;
+                `;
+                titleEl.textContent = 'ПОЗДРАВЛЯЕМ!';
+
+                const subEl = document.createElement('div');
+                subEl.id = 'winSub';
+                subEl.style.cssText = `
+                    font-family: 'Nunito', sans-serif;
+                    font-size: clamp(16px, 3.5vw, 22px);
+                    font-weight: 800;
+                    text-align: center;
+                    color: rgba(255,255,255,0.7);
+                    margin-bottom: 6px;
+                `;
+                subEl.textContent = 'Вы выиграли!';
+
+                const amountEl = document.createElement('div');
+                amountEl.id = 'winAmount';
+                amountEl.style.cssText = `
+                    font-family: 'Montserrat', sans-serif;
+                    font-size: clamp(28px, 7vw, 48px);
+                    font-weight: 900;
+                    text-align: center;
+                    background: linear-gradient(180deg, #FFF8CC, #FFD95A, #FFB400, #D88A00);
+                    -webkit-background-clip: text;
+                    background-clip: text;
+                    color: transparent;
+                    text-shadow: 0 2px 20px rgba(255,213,74,0.3);
+                    letter-spacing: 1px;
+                    line-height: 1.2;
+                `;
+                amountEl.textContent = `${winAmount.toLocaleString()} ₽`;
+
+                winTextArea.appendChild(titleEl);
+                winTextArea.appendChild(subEl);
+                winTextArea.appendChild(amountEl);
+
+                winHorseSlot.innerHTML = '';
+                winCoinSlot.innerHTML = '';
+
+                winOverlay.classList.add('show');
+
+                statusMsg.textContent = `🏆 Победил ${horse.name}! Выигрыш ${winAmount.toLocaleString()} ₽`;
+                statusMsg.className = 'status-bar win';
+
                 hasBet = false;
                 updateUI();
 
-                // Салют внутри карточки (только при выигрыше)
-                if (isWin) {
-                    const card = document.querySelector('.result-card');
-                    const emojis = ['🎉', '🎊', '✨', '⭐', '🏆'];
-                    for (let i = 0; i < 6; i++) {
-                        const span = document.createElement('span');
-                        span.className = 'confetti';
-                        span.textContent = emojis[i % emojis.length];
-                        span.style.left = (10 + Math.random() * 80) + '%';
-                        span.style.top = (5 + Math.random() * 30) + '%';
-                        span.style.animationDelay = (Math.random() * 0.5) + 's';
-                        span.style.fontSize = (16 + Math.random() * 16) + 'px';
-                        card.appendChild(span);
-                        setTimeout(() => span.remove(), 3000);
-                    }
+                const card = document.querySelector('.result-card');
+                const emojis = ['🎉', '🎊', '✨', '⭐', '🏆'];
+                for (let i = 0; i < 6; i++) {
+                    const span = document.createElement('span');
+                    span.className = 'confetti';
+                    span.textContent = emojis[i % emojis.length];
+                    span.style.left = (10 + Math.random() * 80) + '%';
+                    span.style.top = (5 + Math.random() * 30) + '%';
+                    span.style.animationDelay = (Math.random() * 0.5) + 's';
+                    span.style.fontSize = (16 + Math.random() * 16) + 'px';
+                    card.appendChild(span);
+                    setTimeout(() => span.remove(), 3000);
                 }
             }
 
