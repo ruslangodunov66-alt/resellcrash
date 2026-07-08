@@ -1277,8 +1277,9 @@
             // =============================================================
             // 16. ЗАБЕГ — ИСПРАВЛЕННАЯ ВЕРСИЯ (гарантированный финиш)
             // =============================================================
-         function startRace() {
-                if (!hasBet  isRaceRunning  raceFinished) return;
+            function startRace() {
+                // ИСПРАВЛЕНО: добавлены операторы ||
+                if (!hasBet || isRaceRunning || raceFinished) return;
                 if (selectedHorseId === null) return;
 
                 // ЗВУКИ
@@ -1317,13 +1318,13 @@
                 winnerId = winIdx;
 
                 // Настройки времени и скоростей
-                const duration = 7000 + Math.random() * 2000;
+                const duration = 7000 + Math.random() * 2000; // 7-9 секунд
                 let lastTime = performance.now();
-                
-                // Базовая скорость (расстояние 1.0 делим на время)
+
+                // Базовая скорость (единиц прогресса в миллисекунду)
                 const baseSpeeds = HORSES.map((h, i) => {
-                    if (i === winnerId) return (1.0 / duration) * 1.05; // Победитель бежит чуть быстрее
-                    return (1.0 / duration) * (0.82 + Math.random() * 0.15); // Остальные медленнее
+                    if (i === winnerId) return (1.0 / duration) * 1.05;
+                    return (1.0 / duration) * (0.82 + Math.random() * 0.15);
                 });
 
                 function animateRace(time) {
@@ -1334,16 +1335,12 @@
 
                     for (let i = 0; i < HORSES.length; i++) {
                         let speed = baseSpeeds[i];
-                        
-                        // Плавное покачивание скорости (имитация галопа).
-                        // Значение строго от 0.5 до 1.5, поэтому скорость всегда ПЛЮСОВАЯ.
-                        const pulse = 1 + 0.5 * Math.sin(time / 150 + i); 
+                        // лёгкая пульсация для живости
+                        const pulse = 1 + 0.5 * Math.sin(time / 150 + i);
                         speed *= pulse;
 
-                        // Инкрементально прибавляем позицию (исключает лунную походку)
                         racePositions[i] += speed * dt;
 
-                        // Ограничитель финиша
                         if (racePositions[i] >= 1) {
                             racePositions[i] = 1;
                             if (i === winnerId) {
@@ -1355,21 +1352,19 @@
                     updateDust();
                     render();
 
-                    // Если победитель еще не на финише — продолжаем
                     if (!winnerFinished) {
                         animationId = requestAnimationFrame(animateRace);
                     } else {
-                        // Финиш (дотягиваем всех)
+                        // Финиш
                         for (let i = 0; i < HORSES.length; i++) {
                             racePositions[i] = 1;
                         }
                         updateDust();
                         render();
-                        
+
                         isRaceRunning = false;
                         raceFinished = true;
-                        
-                        // Останавливаем звуки
+
                         raceSound.pause();
                         raceSound.currentTime = 0;
                         herdSound.pause();
@@ -1378,7 +1373,7 @@
                             cancelAnimationFrame(animationId);
                             animationId = null;
                         }
-                        
+
                         showResult();
                     }
                 }
