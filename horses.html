@@ -1275,7 +1275,7 @@
             }
 
             // =============================================================
-            // 16. ЗАБЕГ — ГАРАНТИРОВАННО ВСЕ ДОБЕГАЮТ
+            // 16. ЗАБЕГ — ГАРАНТИРОВАННО ВСЕ ДОБЕГАЮТ (ФИКС)
             // =============================================================
             function startRace() {
                 if (!hasBet || isRaceRunning || raceFinished) return;
@@ -1301,7 +1301,7 @@
                 resetPositions();
                 dustParticles = [];
 
-                // Определяем победителя
+                // Определяем победителя (взвешенный случайный выбор)
                 const weights = HORSES.map((h, i) => {
                     const base = 0.6 + Math.random() * 0.8;
                     const bonus = (i === selectedHorseId) ? 0.15 : 0;
@@ -1316,11 +1316,14 @@
                 }
                 winnerId = winIdx;
 
-                // Скорости
-                const speeds = HORSES.map((h, i) => {
-                    const base = 0.7 + Math.random() * 0.6;
-                    const bonus = (i === winnerId) ? 0.15 : 0;
-                    return Math.min(1.2, base + bonus);
+                // Время финиша для каждой лошади (доля от общей длительности)
+                // Победитель финиширует раньше (0.75–0.85), остальные — 0.88–1.0
+                const finishTimes = HORSES.map((_, i) => {
+                    if (i === winnerId) {
+                        return 0.75 + Math.random() * 0.10;
+                    } else {
+                        return 0.88 + Math.random() * 0.12;
+                    }
                 });
 
                 const duration = 7000 + Math.random() * 2000;
@@ -1329,41 +1332,47 @@
                 function animateRace(time) {
                     const elapsed = time - startTime;
                     const globalProgress = Math.min(elapsed / duration, 1);
-                    // Плавная кривая
+
+                    // Плавная кривая для общего прогресса
                     const eased = 1 - Math.pow(1 - globalProgress, 2.5);
 
                     for (let i = 0; i < HORSES.length; i++) {
-                        let p = eased * speeds[i];
-                        // Если победитель, он всегда чуть впереди
-                        if (i === winnerId) {
-                            p = Math.min(p * 1.03, 1);
-                        } else {
-                            // Остальные могут немного отставать
-                            const lag = 0.92 + 0.04 * Math.sin(i + globalProgress * 6);
-                            p = Math.min(p * lag, 0.99);
+                        // Прогресс лошади: достигает 1.0 в момент finishTimes[i]
+                        let horseProgress = Math.min(eased / finishTimes[i], 1);
+                        // Небольшой джиттер для естественности (но не для победителя)
+                        if (i !== winnerId && horseProgress < 1) {
+                            const jitter = 1 + (Math.sin(time * 0.0015 + i * 2.7) * 0.008);
+                            horseProgress = Math.min(horseProgress * jitter, 1);
                         }
-                        racePositions[i] = Math.min(Math.max(p, 0), 1);
+                        // Если это победитель, он всегда чуть впереди
+                        if (i === winnerId && horseProgress < 1) {
+                            horseProgress = Math.min(horseProgress * 1.03, 1);
+                        }
+                        racePositions[i] = Math.min(Math.max(horseProgress, 0), 1);
                     }
 
-                    // В конце — все на финише
+                    // В конце все лошади на финише
                     if (globalProgress >= 1) {
                         for (let i = 0; i < HORSES.length; i++) {
                             racePositions[i] = 1;
                         }
                     }
 
+                    // Обновляем пыль
                     updateDust();
+
                     render();
 
                     if (globalProgress < 1) {
                         animationId = requestAnimationFrame(animateRace);
                     } else {
-                        // Финиш
+                        // ФИНИШ
                         for (let i = 0; i < HORSES.length; i++) {
                             racePositions[i] = 1;
                         }
                         updateDust();
                         render();
+
                         isRaceRunning = false;
                         raceFinished = true;
                         raceSound.pause();
