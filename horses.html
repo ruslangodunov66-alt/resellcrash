@@ -584,7 +584,6 @@
                 { id: 5, name: 'Сокол', img: BASE_URL + 'IMG_0457.PNG', color: '#E67E22', lane: 5 }
             ];
 
-            // НОВЫЙ ФОН
             const TRACK_IMAGE = BASE_URL + 'VEux9kYOWxh76c7RwQzuXANIZG1ubOe0RnNv6F9hUF4X8sf87LkBB913Dok_RAxCn_noaI-gouxxGx-9rEECChGn.jpg';
 
             // =============================================================
@@ -686,27 +685,25 @@
             window.addEventListener('resize', resizeCanvas);
 
             // =============================================================
-            // 8. ОТРИСОВКА — НОВЫЕ КООРДИНАТЫ И СМЕЩЕНИЕ
+            // 8. ОТРИСОВКА — УВЕЛИЧЕННЫЕ ЛОШАДИ, СКОРРЕКТИРОВАННЫЕ КООРДИНАТЫ
             // =============================================================
-            // Исправленные центры дорожек (по скриншоту)
+            // Исправленные центры дорожек (первые три опущены)
             const LANE_Y = [
-                0.115, // Молния
-                0.255, // Вихрь
-                0.395, // Гром
+                0.13,  // Молния (было 0.115)
+                0.27,  // Вихрь  (было 0.255)
+                0.41,  // Гром   (было 0.395)
                 0.535, // Зефир
                 0.675, // Тень
-                0.815 // Сокол
+                0.815  // Сокол
             ];
 
-            // Старт и финиш (доли от ширины)
             const START_X = 0.07;
             const FINISH_X = 0.90;
 
-            // Размер лошади
-            const HORSE_HEIGHT_RATIO = 0.07;
-            const HORSE_WIDTH_RATIO = 0.07 * 1.55;
+            // Увеличенный размер лошадей
+            const HORSE_HEIGHT_RATIO = 0.085; // было 0.07
+            const HORSE_WIDTH_RATIO = 0.085 * 1.55;
 
-            // Смещение по Y — теперь 0.40 (вместо 0.52)
             const DRAW_OFFSET_X = 0.15;
             const DRAW_OFFSET_Y = 0.40;
 
@@ -740,7 +737,7 @@
                     const horse = HORSES[i];
                     const progress = racePositions[i] || 0;
                     const x = trackStart + progress * trackWidth;
-                    const y = h * LANE_Y[i]; // центр дорожки
+                    const y = h * LANE_Y[i];
 
                     const img = horseImages[horse.id];
                     const size = horseHeight;
@@ -753,7 +750,7 @@
                         const drawW = horseWidth;
                         const drawH = horseHeight;
                         const px = x - drawW * DRAW_OFFSET_X;
-                        const py = y - drawH * DRAW_OFFSET_Y; // новое смещение
+                        const py = y - drawH * DRAW_OFFSET_Y;
 
                         let bob = 0;
                         if (isRaceRunning) {
@@ -995,7 +992,7 @@
             }
 
             // =============================================================
-            // 14. ЗАБЕГ
+            // 14. ЗАБЕГ — ПЛАВНАЯ АНИМАЦИЯ, УВЕЛИЧЕННАЯ ДЛИТЕЛЬНОСТЬ
             // =============================================================
             function startRace() {
                 if (!hasBet || isRaceRunning || raceFinished) return;
@@ -1026,9 +1023,11 @@
                 }
                 winnerId = winIdx;
 
-                const duration = 8000 + Math.random() * 2000;
+                // Увеличенная длительность для плавности
+                const duration = 10000 + Math.random() * 2000; // 10-12 секунд
                 const startTime = performance.now();
 
+                // Индивидуальные скорости (чтобы лошади двигались с разной скоростью)
                 const speeds = HORSES.map((h, i) => {
                     const base = 0.7 + Math.random() * 0.3;
                     const bonus = (i === winnerId) ? 0.25 : (Math.random() * 0.05);
@@ -1038,19 +1037,25 @@
                 function animateRace(time) {
                     const elapsed = time - startTime;
                     const progress = Math.min(elapsed / duration, 1);
+                    // Плавное замедление в конце (easeOutCubic)
                     const eased = 1 - Math.pow(1 - progress, 3);
 
                     for (let i = 0; i < HORSES.length; i++) {
                         const spd = speeds[i];
                         let p = eased * spd;
+                        // Победитель всегда чуть впереди
                         if (i === winnerId) {
                             p = Math.min(p * 1.1, 1);
                         } else {
-                            const lag = 0.92 + Math.random() * 0.04;
+                            // Остальные с небольшим случайным отставанием, но без рывков
+                            const lag = 0.92 + 0.04 * Math.sin(i + progress * 10); // плавное отставание
                             p = Math.min(p * lag, 0.98);
                         }
-                        racePositions[i] = Math.min(p, 1);
+                        // Фиксируем позиции, чтобы они не выходили за пределы
+                        racePositions[i] = Math.min(Math.max(p, 0), 1);
                     }
+
+                    // Гарантируем, что победитель на финише в самом конце
                     if (progress > 0.96) {
                         racePositions[winnerId] = 1;
                     }
@@ -1060,7 +1065,15 @@
                     if (progress < 1) {
                         animationId = requestAnimationFrame(animateRace);
                     } else {
+                        // Финиш — все позиции фиксированы
                         racePositions[winnerId] = 1;
+                        // Для остальных устанавливаем точные значения (без случайных отклонений)
+                        for (let i = 0; i < HORSES.length; i++) {
+                            if (i !== winnerId) {
+                                // Оставляем их позиции такими, какими они были на последнем кадре, но округляем
+                                racePositions[i] = Math.min(racePositions[i], 0.99);
+                            }
+                        }
                         render();
                         isRaceRunning = false;
                         raceFinished = true;
