@@ -7,6 +7,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js">
     </script>
     <style>
+        /* (все стили без изменений, они уже были) */
         @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Nunito:wght@600;700;800;900&display=swap');
 
         * {
@@ -942,7 +943,7 @@
             }
 
             // =============================================================
-            // 10. РЕНДЕРИНГ
+            // 10. РЕНДЕРИНГ (без изменений)
             // =============================================================
             function render() {
                 const w = canvas.width / (window.devicePixelRatio || 1);
@@ -1275,7 +1276,7 @@
             }
 
             // =============================================================
-            // 14. ЗАБЕГ — ГАРАНТИРОВАННЫЙ ФИНИШ (инкрементальный шаг)
+            // 14. ЗАБЕГ — ПОЛНОСТЬЮ ПЕРЕПИСАНА
             // =============================================================
             function startRace() {
                 if (!hasBet || isRaceRunning || raceFinished) return;
@@ -1295,7 +1296,7 @@
                 resetPositions();
                 dustParticles = [];
 
-                // Определяем победителя (с бонусом к выбранной)
+                // 1. Выбираем победителя (с бонусом к выбранной)
                 const weights = HORSES.map((h, i) => {
                     const base = 0.6 + Math.random() * 0.8;
                     const bonus = (i === selectedHorseId) ? 0.15 : 0;
@@ -1310,35 +1311,43 @@
                 }
                 winnerId = winIdx;
 
-                // Задаём базовые скорости: победитель чуть быстрее
+                // 2. Базовая скорость — победитель чуть быстрее, но все добегут
                 const baseSpeeds = HORSES.map((_, i) => {
                     if (i === winnerId) return 0.0018 + Math.random() * 0.0005;
                     return 0.0014 + Math.random() * 0.0005;
                 });
 
                 let lastTime = performance.now();
-                let raceActive = true;
+                const startTime = lastTime;
+                const maxDuration = 15000; // 15 секунд — принудительный финиш
 
                 function animateRace(time) {
-                    if (!raceActive) return;
                     const dt = Math.min((time - lastTime) / 16.67, 3); // нормализуем dt
                     lastTime = time;
 
                     let allFinished = true;
+
                     for (let i = 0; i < HORSES.length; i++) {
                         if (racePositions[i] >= 1.0) continue;
                         allFinished = false;
-                        let step = baseSpeeds[i] * dt * (0.9 + Math.random() * 0.2);
-                        // рывок на финише
+
+                        // Инкремент с учётом времени
+                        let increment = baseSpeeds[i] * dt * (0.9 + Math.random() * 0.2);
+                        // Ускорение на финише
                         if (racePositions[i] > 0.8) {
-                            step *= 1.2;
+                            increment *= 1.2;
                         }
-                        racePositions[i] = Math.min(racePositions[i] + step, 1.0);
+                        racePositions[i] = Math.min(racePositions[i] + increment, 1.0);
                     }
 
-                    // Если все финишировали, завершаем
-                    if (allFinished) {
-                        raceActive = false;
+                    // Если все на финише или превысили лимит времени
+                    const elapsed = time - startTime;
+                    if (allFinished || elapsed > maxDuration) {
+                        // Принудительно ставим всех на финиш
+                        for (let i = 0; i < HORSES.length; i++) {
+                            racePositions[i] = 1.0;
+                        }
+                        render();
                         isRaceRunning = false;
                         raceFinished = true;
                         raceSound.pause();
@@ -1347,18 +1356,12 @@
                             cancelAnimationFrame(animationId);
                             animationId = null;
                         }
-                        // Убедимся, что все точно на 1.0
-                        for (let i = 0; i < HORSES.length; i++) {
-                            racePositions[i] = 1.0;
-                        }
-                        render();
                         showResult();
                         return;
                     }
 
                     updateDust();
                     render();
-
                     animationId = requestAnimationFrame(animateRace);
                 }
 
