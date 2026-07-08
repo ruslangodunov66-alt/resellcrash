@@ -1276,7 +1276,7 @@
             }
 
             // =============================================================
-            // 16. ЗАБЕГ — ВАШ КОД (адаптированный)
+            // 16. ЗАБЕГ — ВАШ КОД (raceLoop с уменьшенным шагом)
             // =============================================================
             function startRace() {
                 if (isRaceRunning) return;
@@ -1302,41 +1302,47 @@
                 resetPositions();
                 dustParticles = [];
 
-                let winnerFound = false;
-
                 function raceLoop() {
                     if (!isRaceRunning) return;
+
+                    let finishLineReached = false;
 
                     // Двигаем каждую лошадь строго вперёд
                     for (let i = 0; i < HORSES.length; i++) {
                         if (racePositions[i] >= 1.0) continue;
-                        // случайный шаг от 0.005 до 0.025 (≈ 0.3–1.5 сек до финиша)
-                        const step = 0.005 + Math.random() * 0.02;
+                        // ЗНАЧИТЕЛЬНО УМЕНЬШИЛИ ШАГ: теперь от ~0.001 до 0.0035 за кадр.
+                        // Это даст плавный и красивый бег на 6-8 секунд.
+                        const step = 0.001 + Math.random() * 0.0025;
                         racePositions[i] = Math.min(racePositions[i] + step, 1.0);
                     }
 
-                    // Проверяем, есть ли победитель (кто первый достиг 1.0)
+                    // Сначала проверяем, пересёк ли КТО-ТО финишную черту (1.0)
                     for (let i = 0; i < HORSES.length; i++) {
                         if (racePositions[i] >= 1.0) {
-                            winnerId = i;
-                            winnerFound = true;
+                            finishLineReached = true;
                             break;
                         }
                     }
 
                     updateDust();
-                    render();
+                    render(); // Отрисовываем актуальные позиции
 
-                    if (winnerFound) {
-                        // Финиш
+                    if (finishLineReached) {
+                        // Останавливаем забег
                         isRaceRunning = false;
                         raceFinished = true;
-                        // Дотягиваем всех до 1.0 для красоты
-                        for (let i = 0; i < HORSES.length; i++) {
-                            racePositions[i] = 1.0;
-                        }
-                        render();
 
+                        // Определяем реального лидера, у которого позиция ровно 1.0
+                        // (или вы вычисляем того, у кого она максимальна)
+                        let maxPos = -1;
+                        for (let i = 0; i < HORSES.length; i++) {
+                            if (racePositions[i] > maxPos) {
+                                maxPos = racePositions[i];
+                                winnerId = i;
+                            }
+                        }
+
+                        // Убираем звуки
                         raceSound.pause();
                         raceSound.currentTime = 0;
                         herdSound.pause();
@@ -1347,7 +1353,11 @@
                             animationId = null;
                         }
 
-                        showResult();
+                        // Даем микропаузу в 500мс, чтобы игрок зафиксировал финиш глазами,
+                        // и только потом показываем модалку выигрыша
+                        setTimeout(() => {
+                            showResult();
+                        }, 500);
                     } else {
                         animationId = requestAnimationFrame(raceLoop);
                     }
