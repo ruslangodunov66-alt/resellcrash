@@ -942,7 +942,7 @@
             }
 
             // =============================================================
-            // 10. РЕНДЕРИНГ
+            // 10. РЕНДЕРИНГ (без изменений)
             // =============================================================
             function render() {
                 const w = canvas.width / (window.devicePixelRatio || 1);
@@ -1275,7 +1275,7 @@
             }
 
             // =============================================================
-            // 16. ЗАБЕГ — ГАРАНТИРОВАННО ВСЕ ДОБЕГАЮТ (ФИКС)
+            // 16. ЗАБЕГ — ИСПРАВЛЕННАЯ ВЕРСИЯ (ИНКРЕМЕНТАЛЬНАЯ)
             // =============================================================
             function startRace() {
                 if (!hasBet || isRaceRunning || raceFinished) return;
@@ -1316,63 +1316,39 @@
                 }
                 winnerId = winIdx;
 
-                // Время финиша для каждой лошади (доля от общей длительности)
-                // Победитель финиширует раньше (0.75–0.85), остальные — 0.88–1.0
-                const finishTimes = HORSES.map((_, i) => {
-                    if (i === winnerId) {
-                        return 0.75 + Math.random() * 0.10;
-                    } else {
-                        return 0.88 + Math.random() * 0.12;
-                    }
+                // Базовая скорость для каждой лошади (победитель чуть быстрее)
+                const baseSpeeds = HORSES.map((_, i) => {
+                    const base = 0.8 + Math.random() * 0.4;
+                    return (i === winnerId) ? base * 1.12 : base;
                 });
 
-                const duration = 7000 + Math.random() * 2000;
-                const startTime = performance.now();
+                // Задаём максимальное время в кадрах (чтобы не бежать вечно)
+                let frames = 0;
+                const maxFrames = 3000; // запас
 
-                function animateRace(time) {
-                    const elapsed = time - startTime;
-                    const globalProgress = Math.min(elapsed / duration, 1);
+                // Делим длительность на шаги: примерно 0.005 за кадр при 60fps даст 0.3 за секунду
+                // Нужно подогнать так, чтобы забег длился ~7-10 секунд
+                // При 60 кадрах в секунду и скорости ~0.01 за кадр, за 500 кадров (8.3 сек) достигнем 5.0,
+                // но мы обрезаем до 1.0.
+                const dt = 0.015; // шаг прироста
 
-                    // Плавная кривая для общего прогресса
-                    const eased = 1 - Math.pow(1 - globalProgress, 2.5);
+                function animateRace() {
+                    if (!isRaceRunning) return;
 
+                    let allFinished = true;
                     for (let i = 0; i < HORSES.length; i++) {
-                        // Прогресс лошади: достигает 1.0 в момент finishTimes[i]
-                        let horseProgress = Math.min(eased / finishTimes[i], 1);
-                        // Небольшой джиттер для естественности (но не для победителя)
-                        if (i !== winnerId && horseProgress < 1) {
-                            const jitter = 1 + (Math.sin(time * 0.0015 + i * 2.7) * 0.008);
-                            horseProgress = Math.min(horseProgress * jitter, 1);
-                        }
-                        // Если это победитель, он всегда чуть впереди
-                        if (i === winnerId && horseProgress < 1) {
-                            horseProgress = Math.min(horseProgress * 1.03, 1);
-                        }
-                        racePositions[i] = Math.min(Math.max(horseProgress, 0), 1);
-                    }
-
-                    // В конце все лошади на финише
-                    if (globalProgress >= 1) {
-                        for (let i = 0; i < HORSES.length; i++) {
-                            racePositions[i] = 1;
+                        if (racePositions[i] < 1.0) {
+                            allFinished = false;
                         }
                     }
 
-                    // Обновляем пыль
-                    updateDust();
-
-                    render();
-
-                    if (globalProgress < 1) {
-                        animationId = requestAnimationFrame(animateRace);
-                    } else {
-                        // ФИНИШ
+                    // Если все финишировали, завершаем
+                    if (allFinished) {
+                        // Финиш
                         for (let i = 0; i < HORSES.length; i++) {
                             racePositions[i] = 1;
                         }
-                        updateDust();
                         render();
-
                         isRaceRunning = false;
                         raceFinished = true;
                         raceSound.pause();
@@ -1384,9 +1360,74 @@
                             animationId = null;
                         }
                         showResult();
+                        return;
                     }
+
+                    // Приращение для каждой лошади
+                    for (let i = 0; i < HORSES.length; i++) {
+                        if (racePositions[i] >= 1.0) continue;
+                        // Текущая скорость с небольшим случайным шумом
+                        let speed = baseSpeeds[i] * (0.9 + Math.random() * 0.2);
+                        // Чем ближе к финишу, тем больше ускорение (для драматизма)
+                        const remaining = 1.0 - racePositions[i];
+                        if (remaining < 0.15) {
+                            speed *= 1.0 + (0.15 - remaining) * 2.0; // рывок на финише
+                        }
+                        // Случайное замедление/ускорение (имитация усталости)
+                        if (Math.random() < 0.02) {
+                            speed *= 0.7 + Math.random() * 0.6;
+                        }
+                        const increment = speed * dt;
+                        racePositions[i] = Math.min(racePositions[i] + increment, 1.0);
+                    }
+
+                    // Если победитель ещё не достиг 1.0, но уже близко, можно форсировать
+                    if (racePositions[winnerId] < 1.0) {
+                        // Если все остальные отстают сильно, немного подтягиваем победителя
+                        let maxOther = 0;
+                        for (let i = 0; i < HORSES.length; i++) {
+                            if (i !== winnerId && racePositions[i] > maxOther) maxOther = racePositions[i];
+                        }
+                        if (racePositions[winnerId] - maxOther > 0.15) {
+                            // Победитель слишком далеко впереди — немного замедлим его
+                            // Но не будем тормозить сильно, чтобы не потерять интригу
+                            racePositions[winnerId] = Math.min(racePositions[winnerId] + 0.001, 1.0);
+                        }
+                    }
+
+                    // Обновляем пыль
+                    updateDust();
+
+                    // Рендерим
+                    render();
+
+                    frames++;
+                    // Безопасное завершение по времени (если застряли)
+                    if (frames > maxFrames) {
+                        // Принудительно финишируем
+                        for (let i = 0; i < HORSES.length; i++) {
+                            racePositions[i] = 1;
+                        }
+                        render();
+                        isRaceRunning = false;
+                        raceFinished = true;
+                        raceSound.pause();
+                        raceSound.currentTime = 0;
+                        herdSound.pause();
+                        herdSound.currentTime = 0;
+                        if (animationId) {
+                            cancelAnimationFrame(animationId);
+                            animationId = null;
+                        }
+                        showResult();
+                        return;
+                    }
+
+                    // Продолжаем анимацию
+                    animationId = requestAnimationFrame(animateRace);
                 }
 
+                // Запускаем анимацию
                 animationId = requestAnimationFrame(animateRace);
             }
 
