@@ -7,7 +7,6 @@
     <script src="https://telegram.org/js/telegram-web-app.js">
     </script>
     <style>
-        /* (все стили без изменений, они уже были) */
         @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Nunito:wght@600;700;800;900&display=swap');
 
         * {
@@ -943,7 +942,7 @@
             }
 
             // =============================================================
-            // 10. РЕНДЕРИНГ (без изменений)
+            // 10. РЕНДЕРИНГ
             // =============================================================
             function render() {
                 const w = canvas.width / (window.devicePixelRatio || 1);
@@ -1276,7 +1275,7 @@
             }
 
             // =============================================================
-            // 14. ЗАБЕГ — ПОЛНОСТЬЮ ПЕРЕПИСАНА
+            // 14. ЗАБЕГ — ПРОСТАЯ И НАДЁЖНАЯ ВЕРСИЯ (НОВАЯ)
             // =============================================================
             function startRace() {
                 if (!hasBet || isRaceRunning || raceFinished) return;
@@ -1296,7 +1295,7 @@
                 resetPositions();
                 dustParticles = [];
 
-                // 1. Выбираем победителя (с бонусом к выбранной)
+                // Определяем победителя (случайно, с бонусом к выбранной)
                 const weights = HORSES.map((h, i) => {
                     const base = 0.6 + Math.random() * 0.8;
                     const bonus = (i === selectedHorseId) ? 0.15 : 0;
@@ -1307,23 +1306,28 @@
                 let winIdx = 0;
                 for (let i = 0; i < weights.length; i++) {
                     rnd -= weights[i];
-                    if (rnd <= 0) { winIdx = i; break; }
+                    if (rnd <= 0) {
+                        winIdx = i;
+                        break;
+                    }
                 }
                 winnerId = winIdx;
 
-                // 2. Базовая скорость — победитель чуть быстрее, но все добегут
-                const baseSpeeds = HORSES.map((_, i) => {
-                    if (i === winnerId) return 0.0018 + Math.random() * 0.0005;
-                    return 0.0014 + Math.random() * 0.0005;
+                // Задаём скорости: победитель чуть быстрее, но все финишируют
+                // Скорость = прогресс в секунду (от 0.08 до 0.15 за секунду)
+                // При 60 FPS это даст ~0.0013-0.0025 за кадр, что даст забег ~7-12 секунд
+                const speeds = HORSES.map((_, i) => {
+                    const base = 0.08 + Math.random() * 0.07; // от 0.08 до 0.15
+                    if (i === winnerId) return base * 1.15;
+                    return base;
                 });
 
-                let lastTime = performance.now();
-                const startTime = lastTime;
-                const maxDuration = 15000; // 15 секунд — принудительный финиш
+                const startTime = performance.now();
+                let lastTimestamp = startTime;
 
-                function animateRace(time) {
-                    const dt = Math.min((time - lastTime) / 16.67, 3); // нормализуем dt
-                    lastTime = time;
+                function raceLoop(timestamp) {
+                    const dt = Math.min((timestamp - lastTimestamp) / 1000, 0.05); // секунды с момента прошлого кадра
+                    lastTimestamp = timestamp;
 
                     let allFinished = true;
 
@@ -1331,19 +1335,38 @@
                         if (racePositions[i] >= 1.0) continue;
                         allFinished = false;
 
-                        // Инкремент с учётом времени
-                        let increment = baseSpeeds[i] * dt * (0.9 + Math.random() * 0.2);
-                        // Ускорение на финише
+                        // Прирост за этот кадр
+                        let increment = speeds[i] * dt;
+                        // Добавляем немного случайности
+                        increment *= (0.9 + Math.random() * 0.2);
+                        // Небольшой рывок на финише
                         if (racePositions[i] > 0.8) {
-                            increment *= 1.2;
+                            increment *= 1.15;
                         }
                         racePositions[i] = Math.min(racePositions[i] + increment, 1.0);
                     }
 
-                    // Если все на финише или превысили лимит времени
-                    const elapsed = time - startTime;
-                    if (allFinished || elapsed > maxDuration) {
-                        // Принудительно ставим всех на финиш
+                    // Обновляем пыль и рендерим
+                    updateDust();
+                    render();
+
+                    // Проверяем, финишировали ли все
+                    if (allFinished) {
+                        // Все лошади на финише
+                        isRaceRunning = false;
+                        raceFinished = true;
+                        raceSound.pause();
+                        raceSound.currentTime = 0;
+                        if (animationId) {
+                            cancelAnimationFrame(animationId);
+                            animationId = null;
+                        }
+                        showResult();
+                        return;
+                    }
+
+                    // Если прошло больше 12 секунд, принудительно финишируем
+                    if ((timestamp - startTime) > 12000) {
                         for (let i = 0; i < HORSES.length; i++) {
                             racePositions[i] = 1.0;
                         }
@@ -1360,12 +1383,11 @@
                         return;
                     }
 
-                    updateDust();
-                    render();
-                    animationId = requestAnimationFrame(animateRace);
+                    // Продолжаем анимацию
+                    animationId = requestAnimationFrame(raceLoop);
                 }
 
-                animationId = requestAnimationFrame(animateRace);
+                animationId = requestAnimationFrame(raceLoop);
             }
 
             // =============================================================
