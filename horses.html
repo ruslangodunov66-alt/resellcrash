@@ -7,6 +7,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js">
     </script>
     <style>
+        /* ===== СТИЛИ (без изменений) ===== */
         @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Nunito:wght@600;700;800;900&display=swap');
 
         * {
@@ -773,7 +774,6 @@
             ];
 
             const TRACK_IMAGE = BASE_URL + 'VEux9kYOWxh76c7RwQzuXANIZG1ubOe0RnNv6F9hUF4X8sf87LkBB913Dok_RAxCn_noaI-gouxxGx-9rEECChGn.jpg';
-            // Используем прямой URL к картинке выигрыша из корня репозитория
             const WIN_BG_IMAGE = 'https://raw.githubusercontent.com/ruslangodunov66-alt/resellcrash/main/photo_2026-07-08_11-53-52.jpg';
 
             // =============================================================
@@ -821,6 +821,9 @@
             let camOffsetX = 0;
             let camZoom = 1;
 
+            // ===== ЧАСТИЦЫ ПЫЛИ =====
+            let dustParticles = [];
+
             // =============================================================
             // 6. ЗАГРУЗКА ИЗОБРАЖЕНИЙ
             // =============================================================
@@ -831,7 +834,6 @@
                     img.src = src;
                     img.onload = () => resolve(img);
                     img.onerror = () => {
-                        // Fallback – серый квадрат
                         const canvas = document.createElement('canvas');
                         canvas.width = 80;
                         canvas.height = 60;
@@ -894,7 +896,55 @@
             const DRAW_OFFSET_Y = 0.40;
 
             // =============================================================
-            // 9. РЕНДЕРИНГ
+            // 9. ЧАСТИЦЫ ПЫЛИ
+            // =============================================================
+            function spawnDust(x, y, count) {
+                for (let i = 0; i < count; i++) {
+                    dustParticles.push({
+                        x: x + (Math.random() - 0.5) * 20,
+                        y: y + (Math.random() - 0.5) * 10,
+                        vx: (Math.random() - 0.5) * 0.8 - 0.3,
+                        vy: -0.2 - Math.random() * 0.5,
+                        life: 1,
+                        decay: 0.008 + Math.random() * 0.015,
+                        size: 2 + Math.random() * 5,
+                        alpha: 0.4 + Math.random() * 0.3
+                    });
+                }
+            }
+
+            function updateDust() {
+                for (let i = dustParticles.length - 1; i >= 0; i--) {
+                    const p = dustParticles[i];
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    p.vy += 0.01;
+                    p.life -= p.decay;
+                    if (p.life <= 0) {
+                        dustParticles.splice(i, 1);
+                    }
+                }
+                // Ограничиваем количество частиц
+                if (dustParticles.length > 400) {
+                    dustParticles.splice(0, dustParticles.length - 400);
+                }
+            }
+
+            function drawDust(w, h) {
+                for (const p of dustParticles) {
+                    const alpha = p.life * p.alpha;
+                    ctx.globalAlpha = alpha * 0.6;
+                    ctx.fillStyle = '#c4a882';
+                    ctx.shadowBlur = 0;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.globalAlpha = 1;
+            }
+
+            // =============================================================
+            // 10. РЕНДЕРИНГ
             // =============================================================
             function render() {
                 const w = canvas.width / (window.devicePixelRatio || 1);
@@ -914,7 +964,7 @@
                     ctx.fillRect(0, 0, w, h);
                 }
 
-                // ---- КАМЕРА ----
+                // ---- РАССЧИТЫВАЕМ КАМЕРУ ----
                 let maxProgress = 0;
                 for (let i = 0; i < racePositions.length; i++) {
                     if (racePositions[i] > maxProgress) maxProgress = racePositions[i];
@@ -946,6 +996,11 @@
 
                     const img = horseImages[horse.id];
                     const size = horseHeight;
+
+                    // ---- ПЫЛЬ ЗА ЛОШАДЬЮ ----
+                    if (isRaceRunning && progress > 0.05 && progress < 0.98) {
+                        spawnDust(x - 10, y + 2, 1);
+                    }
 
                     ctx.shadowColor = 'rgba(0,0,0,0.4)';
                     ctx.shadowBlur = 15;
@@ -1009,7 +1064,6 @@
                             ctx.shadowBlur = 0;
                         }
                     } else {
-                        // fallback
                         ctx.shadowBlur = 10;
                         ctx.shadowColor = 'rgba(0,0,0,0.3)';
                         ctx.fillStyle = horse.color;
@@ -1026,6 +1080,9 @@
                     ctx.shadowBlur = 0;
                     ctx.shadowOffsetY = 0;
                 }
+
+                // ---- РИСУЕМ ПЫЛЬ ----
+                drawDust(w, h);
 
                 ctx.restore();
 
@@ -1059,7 +1116,7 @@
             }
 
             // =============================================================
-            // 10. СБРОС
+            // 11. СБРОС
             // =============================================================
             function resetPositions() {
                 racePositions = HORSES.map(() => 0);
@@ -1067,6 +1124,7 @@
                 raceFinished = false;
                 camOffsetX = 0;
                 camZoom = 1;
+                dustParticles = [];
             }
 
             function resetGame() {
@@ -1093,7 +1151,7 @@
             }
 
             // =============================================================
-            // 11. UI ОБНОВЛЕНИЕ
+            // 12. UI ОБНОВЛЕНИЕ
             // =============================================================
             function updateUI() {
                 const bet = parseInt(betInput.value) || 0;
@@ -1125,7 +1183,7 @@
             }
 
             // =============================================================
-            // 12. ВЫБОР ЛОШАДИ
+            // 13. ВЫБОР ЛОШАДИ
             // =============================================================
             function selectHorse(id) {
                 if (isRaceRunning || raceFinished || hasBet) {
@@ -1142,7 +1200,7 @@
             }
 
             // =============================================================
-            // 13. ПОСТРОЕНИЕ КНОПОК
+            // 14. ПОСТРОЕНИЕ КНОПОК
             // =============================================================
             function buildHorseButtons() {
                 horseSelector.innerHTML = '';
@@ -1180,7 +1238,7 @@
             });
 
             // =============================================================
-            // 14. СТАВКА
+            // 15. СТАВКА
             // =============================================================
             function placeBet() {
                 if (isRaceRunning || raceFinished) {
@@ -1219,7 +1277,7 @@
             }
 
             // =============================================================
-            // 15. КИНЕМАТОГРАФИЧНЫЙ ЗАБЕГ (ВСЕ ЛОШАДИ ДОБЕГАЮТ)
+            // 16. ЗАБЕГ — ВСЕ ЛОШАДИ ДОБЕГАЮТ ДО ФИНИША
             // =============================================================
             function startRace() {
                 if (!hasBet || isRaceRunning || raceFinished) return;
@@ -1243,6 +1301,7 @@
                 statusMsg.className = 'status-bar race';
 
                 resetPositions();
+                dustParticles = [];
 
                 // Определяем победителя с весами
                 const weights = HORSES.map((h, i) => {
@@ -1259,51 +1318,58 @@
                 }
                 winnerId = winIdx;
 
-                // Время финиша для каждой лошади (в долях от общей длительности)
-                const finishTimes = HORSES.map((_, i) => {
-                    if (i === winnerId) {
-                        return 0.70 + Math.random() * 0.15; // победитель финиширует раньше
-                    } else {
-                        return 0.85 + Math.random() * 0.15; // остальные чуть позже, но все <= 1
-                    }
-                });
+                // Случайные скорости для каждой лошади (0.7-1.3)
+                const speeds = HORSES.map(() => 0.7 + Math.random() * 0.6);
+                // Победитель получает небольшой бонус
+                speeds[winnerId] *= 1.08;
 
                 const duration = 7000 + Math.random() * 2000;
                 const startTime = performance.now();
 
                 function animateRace(time) {
                     const elapsed = time - startTime;
-                    const globalProgress = Math.min(elapsed / duration, 1);
+                    let progress = Math.min(elapsed / duration, 1);
+
+                    // Плавная кривая ускорения (ease-out)
+                    const eased = 1 - Math.pow(1 - progress, 2.5);
 
                     for (let i = 0; i < HORSES.length; i++) {
-                        const finishTime = finishTimes[i];
-                        // Прогресс лошади: достигает 1.0 в свой finishTime
-                        let horseProgress = Math.min(globalProgress / finishTime, 1);
-                        // Небольшой случайный джиттер для естественности (но не для победителя)
-                        if (i !== winnerId && horseProgress < 1) {
-                            const jitter = 1 + (Math.sin(time * 0.002 + i * 2.3) * 0.005);
-                            horseProgress = Math.min(horseProgress * jitter, 1);
+                        let p = eased * speeds[i];
+                        // Если это победитель, он всегда чуть впереди (но не слишком)
+                        if (i === winnerId) {
+                            p = Math.min(p * 1.03, 1);
+                        } else {
+                            // Остальные могут немного отставать, но не более чем на 8%
+                            const lag = 0.92 + 0.04 * Math.sin(i + progress * 6);
+                            p = Math.min(p * lag, 0.99);
                         }
-                        racePositions[i] = Math.min(Math.max(horseProgress, 0), 1);
+                        // Гарантируем, что значение в пределах [0, 1]
+                        racePositions[i] = Math.min(Math.max(p, 0), 1);
                     }
 
-                    // Если глобальный прогресс достиг 1, все лошади на финише
-                    if (globalProgress >= 1) {
+                    // В конце — все лошади на финише
+                    if (progress >= 1) {
                         for (let i = 0; i < HORSES.length; i++) {
                             racePositions[i] = 1;
                         }
                     }
 
+                    // Обновляем частицы пыли
+                    updateDust();
+
                     render();
 
-                    if (globalProgress < 1) {
+                    if (progress < 1) {
                         animationId = requestAnimationFrame(animateRace);
                     } else {
                         // Финиш
                         for (let i = 0; i < HORSES.length; i++) {
                             racePositions[i] = 1;
                         }
+                        // Финальный рендер с пылью
+                        updateDust();
                         render();
+
                         isRaceRunning = false;
                         raceFinished = true;
                         raceSound.pause();
@@ -1322,7 +1388,7 @@
             }
 
             // =============================================================
-            // 16. РЕЗУЛЬТАТ (НОВЫЙ ЭКРАН)
+            // 17. РЕЗУЛЬТАТ
             // =============================================================
             function showResult() {
                 const horse = HORSES[winnerId];
@@ -1333,7 +1399,7 @@
                 localStorage.setItem('casinoBalance', String(balance));
                 updateBalanceDisplay();
 
-                // Старый overlay (для совместимости)
+                // Старый overlay
                 rEmoji.textContent = '🐎';
                 rName.textContent = `🏆 ${horse.name}`;
                 rAmount.textContent = `+${winAmount.toLocaleString()} ₽`;
@@ -1400,7 +1466,7 @@
                 hasBet = false;
                 updateUI();
 
-                // Конфетти в старом оверлее
+                // Конфетти
                 const card = document.querySelector('.result-card');
                 const emojis = ['🎉', '🎊', '✨', '⭐', '🏆'];
                 for (let i = 0; i < 6; i++) {
@@ -1417,7 +1483,7 @@
             }
 
             // =============================================================
-            // 17. ЗАКРЫТИЕ РЕЗУЛЬТАТА
+            // 18. ЗАКРЫТИЕ РЕЗУЛЬТАТА
             // =============================================================
             function closeResult() {
                 resultOverlay.classList.remove('show');
@@ -1435,7 +1501,7 @@
             winCloseBtn.addEventListener('click', closeResult);
 
             // =============================================================
-            // 18. ОБРАБОТЧИКИ
+            // 19. ОБРАБОТЧИКИ
             // =============================================================
             betBtn.addEventListener('click', placeBet);
             startBtn.addEventListener('click', startRace);
@@ -1458,7 +1524,7 @@
             });
 
             // =============================================================
-            // 19. КЛАВИАТУРА
+            // 20. КЛАВИАТУРА
             // =============================================================
             document.addEventListener('keydown', (e) => {
                 if (e.code === 'Space' && !e.repeat) {
@@ -1469,7 +1535,7 @@
             });
 
             // =============================================================
-            // 20. ИНИЦИАЛИЗАЦИЯ
+            // 21. ИНИЦИАЛИЗАЦИЯ
             // =============================================================
             resetPositions();
 
