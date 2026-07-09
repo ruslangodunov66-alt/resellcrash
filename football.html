@@ -759,31 +759,65 @@
             }
 
             // =============================================================
-            // 3. THE ODDS API — РЕАЛЬНЫЕ ДАННЫЕ СО СТАВКАМИ
+            // 3. THE ODDS API — РЕАЛЬНЫЕ ДАННЫЕ СО СТАВКАМИ (ИСПРАВЛЕННАЯ ВЕРСИЯ)
             // =============================================================
 
             // ✅ Ваш API-ключ
             const ODDS_API_KEY = '13f0b3f2e08095c7b5142e3b48e26e4e';
 
-            async function fetchRealMatches() {
-                // Запрашиваем предстоящие матчи (футбол) с коэффициентами на исходы (h2h) и тоталы (totals)
-                // Используем регион 'eu' (Европа) для популярных букмекеров
-                const url =
-                    `https://api.the-odds-api.com/v4/sports/soccer/odds/?apiKey=${ODDS_API_KEY}&regions=eu&markets=h2h,totals&bookmakers=1xBet,Pinnacle,Betfair`;
+            // Список поддерживаемых лиг в The Odds API (ID для v4)
+            const SPORTS_IDS = [
+                'soccer_epl',        // Англия
+                'soccer_spain_la_liga', // Испания
+                'soccer_germany_bundesliga',
+                'soccer_italy_serie_a',
+                'soccer_france_ligue_one'
+                // 'soccer_russia_premier_league' // иногда недоступно
+            ];
 
-                try {
-                    const response = await fetch(url);
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    const data = await response.json();
-                    return data || [];
-                } catch (e) {
-                    console.warn('⚠️ Ошибка загрузки The Odds API:', e);
-                    return [];
-                }
+            async function fetchRealMatches() {
+                const allMatches = [];
+
+                // Параллельно запрашиваем все лиги
+                const promises = SPORTS_IDS.map(async (sport) => {
+                    const url =
+                        `https://api.the-odds-api.com/v4/sports/${sport}/odds/?apiKey=${ODDS_API_KEY}&regions=eu&markets=h2h,totals&bookmakers=1xBet,Pinnacle,Betfair`;
+                    try {
+                        const response = await fetch(url);
+                        if (!response.ok) {
+                            console.warn(`⚠️ ${sport} не отвечает: ${response.status}`);
+                            return [];
+                        }
+                        const data = await response.json();
+                        return data || [];
+                    } catch (e) {
+                        console.warn(`⚠️ Ошибка ${sport}:`, e);
+                        return [];
+                    }
+                });
+
+                const results = await Promise.all(promises);
+                // Объединяем все результаты
+                results.forEach(data => {
+                    if (data && data.length > 0) {
+                        allMatches.push(...data);
+                    }
+                });
+
+                return allMatches;
             }
 
             function mapRealMatches(apiData) {
                 const mapped = [];
+                // Сопоставление названия лиги из API с твоим фильтром
+                const leagueMap = {
+                    'Premier League': 'АПЛ',
+                    'La Liga': 'Ла Лига',
+                    'Bundesliga': 'Бундеслига',
+                    'Serie A': 'Серия А',
+                    'Ligue 1': 'Лига 1'
+                };
+
                 for (const match of apiData) {
                     if (!match.bookmakers || match.bookmakers.length === 0) continue;
                     const bookmaker = match.bookmakers[0];
@@ -803,13 +837,11 @@
                     let over = 1.9,
                         under = 1.9;
                     if (totalsMarket) {
-                        let targetTotal = totalsMarket.outcomes.find(o => o.point === 2.5);
+                        const targetTotal = totalsMarket.outcomes.find(o => o.point === 2.5);
                         if (targetTotal) {
                             totalsMarket.outcomes.forEach(outcome => {
-                                if (outcome.name === 'Over' && outcome.point === 2.5) over = outcome
-                                .price;
-                                if (outcome.name === 'Under' && outcome.point === 2.5) under = outcome
-                                    .price;
+                                if (outcome.name === 'Over' && outcome.point === 2.5) over = outcome.price;
+                                if (outcome.name === 'Under' && outcome.point === 2.5) under = outcome.price;
                             });
                         }
                     }
@@ -821,30 +853,35 @@
 
                     const home = { name: match.home_team, emblem: '⚽' };
                     const away = { name: match.away_team, emblem: '⚽' };
-                    const leagueName = match.sport_title || 'Футбол';
-
-                    const odds = {
-                        win1: +(win1).toFixed(2),
-                        draw: +(draw).toFixed(2),
-                        win2: +(win2).toFixed(2),
-                        over: +(over).toFixed(2),
-                        under: +(under).toFixed(2),
-                    };
-
-                    // Дополнительные рынки (API их не даёт, можно добавить статичные или случайные)
-                    const extra = {
-                        'Обе забьют (Да)': +(1.7 + Math.random() * 0.5).toFixed(2),
-                        'Обе забьют (Нет)': +(1.8 + Math.random() * 0.5).toFixed(2),
-                        'Угловые > 9.5': +(1.9).toFixed(2),
-                        'Угловые < 9.5': +(1.9).toFixed(2)
-                    };
+                    // Пытаемся получить название лиги
+                    let leagueName = match.sport_title || 'Футбол';
+                    // Пробуем сопоставить
+                    for (const [key, value] of Object.entries(leagueMap)) {
+                        if (leagueName.includes(key)) {
+                            leagueName = value;
+                            break;
+                        }
+                    }
 
                     mapped.push({
                         id: match.id,
                         league: leagueName,
                         home, away,
-                        odds, extra,
+                        odds: {
+                            win1: +(win1).toFixed(2),
+                            draw: +(draw).toFixed(2),
+                            win2: +(win2).toFixed(2),
+                            over: +(over).toFixed(2),
+                            under: +(under).toFixed(2),
+                        },
+                        extra: {
+                            'Обе забьют (Да)': +(1.7 + Math.random() * 0.5).toFixed(2),
+                            'Обе забьют (Нет)': +(1.8 + Math.random() * 0.5).toFixed(2),
+                            'Угловые > 9.5': +(1.9).toFixed(2),
+                            'Угловые < 9.5': +(1.9).toFixed(2)
+                        },
                         time: timeStr,
+                        timestamp: matchDate.getTime(), // 🔥 для сортировки
                         status: 'NS',
                         real: true,
                         source: 'the-odds-api'
@@ -883,6 +920,7 @@
                         away: { name: awayName, emblem: awayEmblem },
                         odds, extra,
                         time: timeStr,
+                        timestamp: date.getTime(),
                         status: 'NS',
                         real: false,
                         source: 'fallback'
@@ -976,7 +1014,7 @@
             });
 
             // =============================================================
-            // 6. ОСТАЛЬНОЙ КОД (купоны, рендеринг, навигация — без изменений)
+            // 6. ОСТАЛЬНОЙ КОД (купоны, рендеринг, навигация — с исправленной сортировкой)
             // =============================================================
             let coupon = [];
 
@@ -1020,13 +1058,11 @@
                 if (currentLeague !== 'all') {
                     filtered = filtered.filter(m => m.league === currentLeague);
                 }
-                // Сортировка: LIVE → NS (по дате)
+                // ИСПРАВЛЕНАЯ СОРТИРОВКА — используем timestamp
                 filtered.sort((a, b) => {
                     const order = { 'LIVE': 0, 'NS': 1 };
                     if (a.status !== b.status) return (order[a.status] || 1) - (order[b.status] || 1);
-                    const dateA = new Date(a.time.split(' ').reverse().join(' '));
-                    const dateB = new Date(b.time.split(' ').reverse().join(' '));
-                    return dateA - dateB;
+                    return a.timestamp - b.timestamp; // безопасно
                 });
 
                 if (filtered.length === 0) {
