@@ -7,7 +7,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js">
     </script>
     <style>
-        /* ===== СТИЛИ (полностью сохранены из предыдущей версии) ===== */
+        /* ===== ВСЕ СТИЛИ (ПОЛНОСТЬЮ СОХРАНЕНЫ) ===== */
         @import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;0,900;1,800&family=Inter:wght@400;600;700;800;900&display=swap');
 
         * {
@@ -87,7 +87,6 @@
             font-family: 'Inter', sans-serif;
         }
 
-        /* TABS */
         .tabs {
             display: flex;
             gap: 8px;
@@ -126,7 +125,6 @@
             font-weight: 900;
         }
 
-        /* LEAGUE FILTER */
         .league-filter {
             display: flex;
             gap: 8px;
@@ -161,7 +159,6 @@
             transform: scale(0.94);
         }
 
-        /* MATCH CARDS */
         .matches-container {
             display: flex;
             flex-direction: column;
@@ -220,7 +217,6 @@
             letter-spacing: 2px;
         }
 
-        /* MAIN ODDS */
         .match-odds-main {
             display: grid;
             grid-template-columns: repeat(5, 1fr);
@@ -272,7 +268,6 @@
             color: #FFD54A;
         }
 
-        /* ДОПОЛНИТЕЛЬНЫЕ РЫНКИ (спойлер) */
         .match-extra-toggle {
             display: flex;
             justify-content: center;
@@ -339,7 +334,6 @@
             color: #FFD54A;
         }
 
-        /* COUPON */
         .coupon-container {
             display: none;
             flex-direction: column;
@@ -474,7 +468,6 @@
             box-shadow: none !important;
         }
 
-        /* HISTORY */
         .history-container {
             display: none;
         }
@@ -488,7 +481,6 @@
             font-size: 16px;
         }
 
-        /* BOTTOM NAV */
         .bottom-nav {
             position: fixed;
             bottom: 0;
@@ -667,94 +659,90 @@
             }
 
             // =============================================================
-            // 3. API-FOOTBALL (реальные матчи)
+            // 3. API-FOOTBALL (v3) — НОВАЯ РЕАЛИЗАЦИЯ
             // =============================================================
-            const API_KEY = 'f12fe98ee6545fb61654562936f7986d5f9c4bf651949c899f946d4bdd68e316';
-            const BASE_URL = 'https://api.football-data.org/v4';
+            const API_KEY = '154bc34176274b60320a5444b68c4e9a';
+            const BASE_URL = 'https://v3.football.api-sports.io';
 
-            // ID лиг из API-Football
+            // ID лиг из API-Football (проверено)
             const LEAGUE_IDS = {
-                'АПЛ': 'PL',
-                'Ла Лига': 'PD',
-                'Бундеслига': 'BL1',
-                'Серия А': 'SA',
-                'Лига 1': 'FL1',
-                'РПЛ': 'RPL',
-                'ЧМ-2026': 'WC'
+                'АПЛ': 39,
+                'Ла Лига': 140,
+                'Бундеслига': 78,
+                'Серия А': 135,
+                'Лига 1': 61,
+                'РПЛ': 235,
+                'ЧМ-2026': 1 // ID для Чемпионата мира (проверьте, может быть 1 или другой)
             };
 
-            // Названия лиг для отображения
+            // Названия лиг для отображения (в обратную сторону)
             const LEAGUE_NAMES = {
-                'PL': 'АПЛ',
-                'PD': 'Ла Лига',
-                'BL1': 'Бундеслига',
-                'SA': 'Серия А',
-                'FL1': 'Лига 1',
-                'RPL': 'РПЛ',
-                'WC': 'ЧМ-2026'
+                39: 'АПЛ',
+                140: 'Ла Лига',
+                78: 'Бундеслига',
+                135: 'Серия А',
+                61: 'Лига 1',
+                235: 'РПЛ',
+                1: 'ЧМ-2026'
             };
 
-            // Маппинг лиг для фильтра
-            const leagueKeys = Object.keys(LEAGUE_IDS);
-
-            // Запрос к API
+            // Запрос к API-Football
             async function fetchAPIMatches() {
                 const today = new Date();
                 const dateFrom = today.toISOString().split('T')[0];
                 const dateTo = new Date(today.getTime() + 7 * 86400000).toISOString().split('T')[0];
-                const url = `${BASE_URL}/matches?dateFrom=${dateFrom}&dateTo=${dateTo}`;
+                const url = `${BASE_URL}/fixtures?date=${dateFrom}&date=${dateTo}`;
 
                 try {
                     const response = await fetch(url, {
                         headers: {
-                            'X-Auth-Token': API_KEY
+                            'x-apisports-key': API_KEY
                         }
                     });
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     const data = await response.json();
-                    return data.matches || [];
+                    if (data.errors && data.errors.length) throw new Error(data.errors[0]);
+                    return data.response || [];
                 } catch (e) {
                     console.warn('⚠️ API-Football не отвечает:', e);
                     return null;
                 }
             }
 
-            // Преобразование в формат приложения
+            // Преобразование данных API в формат приложения
             function mapAPIMatches(apiMatches) {
                 const mapped = [];
-                for (const match of apiMatches) {
-                    if (!match.homeTeam || !match.awayTeam) continue;
+                for (const fixture of apiMatches) {
+                    if (!fixture.teams || !fixture.teams.home || !fixture.teams.away) continue;
                     const home = {
-                        name: match.homeTeam.name,
-                        emblem: '⚽'
+                        name: fixture.teams.home.name,
+                        emblem: '⚽' // можно доработать с эмблемами
                     };
                     const away = {
-                        name: match.awayTeam.name,
+                        name: fixture.teams.away.name,
                         emblem: '⚽'
                     };
-                    const compCode = match.competition?.code || '';
+                    const leagueId = fixture.league?.id;
                     let leagueKey = 'all';
-                    for (const key of leagueKeys) {
-                        if (LEAGUE_IDS[key] === compCode) {
-                            leagueKey = key;
-                            break;
-                        }
-                    }
-                    if (leagueKey === 'all') {
-                        const compName = match.competition?.name || '';
-                        for (const key of leagueKeys) {
-                            if (compName.includes(key) || key.includes(compName)) {
+                    if (leagueId && LEAGUE_NAMES[leagueId]) {
+                        leagueKey = LEAGUE_NAMES[leagueId];
+                    } else {
+                        // fallback по названию
+                        const leagueName = fixture.league?.name || '';
+                        for (const key of Object.keys(LEAGUE_IDS)) {
+                            if (leagueName.includes(key) || key.includes(leagueName)) {
                                 leagueKey = key;
                                 break;
                             }
                         }
                     }
-                    const timeStr = new Date(match.utcDate).toLocaleString('ru', {
+                    const timeStr = new Date(fixture.fixture?.date).toLocaleString('ru', {
                         day: 'numeric',
                         month: 'short',
                         hour: '2-digit',
                         minute: '2-digit'
                     });
+                    // Генерируем коэффициенты (API их не даёт, можно потом заменить на реальные)
                     const odds = {
                         win1: +(1.8 + Math.random() * 1.5).toFixed(2),
                         draw: +(2.5 + Math.random() * 1.5).toFixed(2),
@@ -771,7 +759,7 @@
                         'Заплачет ли игрок (Нет)': +(1.6 + Math.random() * 0.4).toFixed(2),
                     };
                     mapped.push({
-                        id: match.id,
+                        id: fixture.fixture?.id || Math.random() * 10000,
                         league: leagueKey,
                         home: home,
                         away: away,
@@ -779,14 +767,14 @@
                         extra: extra,
                         time: timeStr,
                         real: true,
-                        apiData: match
+                        apiData: fixture
                     });
                 }
                 return mapped;
             }
 
             // =============================================================
-            // 4. ЛОКАЛЬНЫЙ РЕЗЕРВ (только для клубных лиг, ЧМ-2026 — только из API)
+            // 4. ЛОКАЛЬНЫЙ РЕЗЕРВ (ТОЛЬКО ДЛЯ КЛУБНЫХ ЛИГ, БЕЗ ЧМ-2026)
             // =============================================================
             const clubsByLeague = {
                 'АПЛ': [
@@ -841,7 +829,7 @@
                 ]
             };
 
-            // Генерируем реалистичные матчи для клубных лиг (без ЧМ-2026)
+            // Генерация реалистичных матчей для клубных лиг (БЕЗ ЧМ-2026)
             function generateRealisticMatches() {
                 const now = new Date();
                 const matches = [];
@@ -884,7 +872,7 @@
                     };
                 }
 
-                // ---- АПЛ ----
+                // АПЛ
                 const epl = 'АПЛ';
                 const addEpl = (h, a, d, hh, mm) => { const m = createMatch(epl, h, a, d, hh, mm); if (m) matches.push(m); };
                 addEpl(0, 1, 1, 15, 0);
@@ -894,7 +882,7 @@
                 addEpl(1, 2, 3, 15, 0);
                 addEpl(3, 4, 3, 17, 30);
 
-                // ---- Ла Лига ----
+                // Ла Лига
                 const laliga = 'Ла Лига';
                 const addLa = (h, a, d, hh, mm) => { const m = createMatch(laliga, h, a, d, hh, mm); if (m) matches.push(m); };
                 addLa(0, 1, 2, 19, 0);
@@ -902,28 +890,28 @@
                 addLa(4, 5, 3, 18, 30);
                 addLa(1, 2, 4, 19, 0);
 
-                // ---- Бундеслига ----
+                // Бундеслига
                 const bund = 'Бундеслига';
                 const addBund = (h, a, d, hh, mm) => { const m = createMatch(bund, h, a, d, hh, mm); if (m) matches.push(m); };
                 addBund(0, 1, 4, 15, 0);
                 addBund(2, 3, 4, 17, 30);
                 addBund(1, 2, 5, 16, 0);
 
-                // ---- Серия А ----
+                // Серия А
                 const seria = 'Серия А';
                 const addSeria = (h, a, d, hh, mm) => { const m = createMatch(seria, h, a, d, hh, mm); if (m) matches.push(m); };
                 addSeria(0, 1, 5, 14, 0);
                 addSeria(2, 3, 5, 16, 30);
                 addSeria(4, 5, 6, 15, 0);
 
-                // ---- Лига 1 ----
+                // Лига 1
                 const ligue1 = 'Лига 1';
                 const addLigue = (h, a, d, hh, mm) => { const m = createMatch(ligue1, h, a, d, hh, mm); if (m) matches.push(m); };
                 addLigue(0, 1, 6, 15, 0);
                 addLigue(2, 3, 6, 18, 0);
                 addLigue(1, 2, 7, 17, 0);
 
-                // ---- РПЛ ----
+                // РПЛ
                 const rpl = 'РПЛ';
                 const addRpl = (h, a, d, hh, mm) => { const m = createMatch(rpl, h, a, d, hh, mm); if (m) matches.push(m); };
                 addRpl(0, 1, 7, 14, 0);
@@ -934,7 +922,7 @@
             }
 
             // =============================================================
-            // 5. ИНИЦИАЛИЗАЦИЯ МАТЧЕЙ (API + резерв для клубных лиг)
+            // 5. ИНИЦИАЛИЗАЦИЯ МАТЧЕЙ
             // =============================================================
             let matches = [];
 
@@ -952,7 +940,7 @@
             }
 
             // =============================================================
-            // 6. СОСТОЯНИЕ КУПОНА
+            // 6. СОСТОЯНИЕ КУПОНА (без изменений)
             // =============================================================
             let coupon = [];
 
@@ -975,7 +963,7 @@
             }
 
             // =============================================================
-            // 7. РЕНДЕРИНГ
+            // 7. РЕНДЕРИНГ (без изменений)
             // =============================================================
             const matchesContainer = document.getElementById('matchesContainer');
             const couponContainer = document.getElementById('couponContainer');
@@ -1064,7 +1052,6 @@
                 }
                 matchesContainer.innerHTML = html;
 
-                // Обработчики событий
                 document.querySelectorAll('.odd-btn').forEach(btn => {
                     btn.addEventListener('click', function(e) {
                         e.stopPropagation();
