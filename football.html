@@ -7,7 +7,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js">
     </script>
     <style>
-        /* ===== СТИЛИ (без изменений) ===== */
+        /* ===== ВСЕ СТИЛИ (без изменений) ===== */
         @import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;0,900;1,800&family=Inter:wght@400;600;700;800;900&display=swap');
 
         * {
@@ -233,7 +233,7 @@
         }
         .match-card.finished {
             opacity: 0.6;
-            display: none; /* скрываем завершённые */
+            display: none;
         }
 
         .match-header {
@@ -759,143 +759,108 @@
             }
 
             // =============================================================
-            // 3. API ИСТОЧНИКИ (ТОЛЬКО РАБОТАЮЩИЕ)
+            // 3. THE ODDS API — РЕАЛЬНЫЕ ДАННЫЕ СО СТАВКАМИ
             // =============================================================
 
-            // 3.1. OpenLigaDB – Бундеслига (работает)
-            async function fetchOpenLigaDB() {
-                try {
-                    const response = await fetch('https://api.openligadb.de/getmatchdata/bl1/2024');
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    const data = await response.json();
-                    return data || [];
-                } catch (e) {
-                    console.warn('⚠️ OpenLigaDB:', e);
-                    return null;
-                }
-            }
+            // ✅ Ваш API-ключ
+            const ODDS_API_KEY = '13f0b3f2e08095c7b5142e3b48e26e4e';
 
-            function mapOpenLigaDB(apiData) {
-                const mapped = [];
-                const leagueKey = 'Бундеслига';
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                for (const match of apiData) {
-                    if (!match.team1 || !match.team2) continue;
-                    const matchDate = new Date(match.matchDateTime);
-                    // Пропускаем завершённые и прошедшие
-                    if (match.matchIsFinished || matchDate < today) continue;
-                    const home = { name: match.team1.teamName, emblem: '⚽' };
-                    const away = { name: match.team2.teamName, emblem: '⚽' };
-                    const timeStr = matchDate.toLocaleString('ru', {
-                        day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
-                    });
-                    let status = 'NS';
-                    if (match.matchIsLive) status = 'LIVE';
-                    const odds = {
-                        win1: +(1.8 + Math.random() * 1.5).toFixed(2),
-                        draw: +(2.5 + Math.random() * 1.5).toFixed(2),
-                        win2: +(1.8 + Math.random() * 1.5).toFixed(2),
-                        over: +(1.7 + Math.random() * 0.8).toFixed(2),
-                        under: +(1.7 + Math.random() * 0.8).toFixed(2),
-                    };
-                    const extra = {
-                        'Забьёт через 20 мин (Да)': +(1.9 + Math.random() * 0.5).toFixed(2),
-                        'Забьёт через 20 мин (Нет)': +(1.9 + Math.random() * 0.5).toFixed(2),
-                        'Угловой в первые 10 мин (Да)': +(2.0 + Math.random() * 0.4).toFixed(2),
-                        'Угловой в первые 10 мин (Нет)': +(2.0 + Math.random() * 0.4).toFixed(2),
-                        'Заплачет ли игрок (Да)': +(2.2 + Math.random() * 1.0).toFixed(2),
-                        'Заплачет ли игрок (Нет)': +(1.6 + Math.random() * 0.4).toFixed(2),
-                    };
-                    mapped.push({
-                        id: match.matchID || 'ol_' + Math.random(),
-                        league: leagueKey,
-                        home, away,
-                        odds, extra,
-                        time: timeStr,
-                        status: status,
-                        real: true,
-                        source: 'openliga'
-                    });
-                }
-                return mapped;
-            }
+            async function fetchRealMatches() {
+                // Запрашиваем предстоящие матчи (футбол) с коэффициентами на исходы (h2h) и тоталы (totals)
+                // Используем регион 'eu' (Европа) для популярных букмекеров
+                const url =
+                    `https://api.the-odds-api.com/v4/sports/soccer/odds/?apiKey=${ODDS_API_KEY}&regions=eu&markets=h2h,totals&bookmakers=1xBet,Pinnacle,Betfair`;
 
-            // 3.2. TheSportsDB – для АПЛ, Ла Лига, Серия А, Лига 1, РПЛ
-            // Используем публичный API (без ключа)
-            const SPORTSDB_KEY = '3'; // публичный ключ
-            const LEAGUE_IDS = {
-                'АПЛ': '4328',
-                'Ла Лига': '4335',
-                'Серия А': '4332',
-                'Лига 1': '4334',
-                'РПЛ': '4372'
-            };
-            // РПЛ ID может быть другим, но оставим 4372 (проверим)
-
-            async function fetchSportsDB(leagueId) {
-                const url = `https://www.thesportsdb.com/api/v1/json/${SPORTSDB_KEY}/eventsnext.php?id=${leagueId}`;
                 try {
                     const response = await fetch(url);
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     const data = await response.json();
-                    return data.events || [];
+                    return data || [];
                 } catch (e) {
-                    console.warn(`⚠️ SportsDB (${leagueId}):`, e);
-                    return null;
+                    console.warn('⚠️ Ошибка загрузки The Odds API:', e);
+                    return [];
                 }
             }
 
-            function mapSportsDB(events, leagueKey) {
+            function mapRealMatches(apiData) {
                 const mapped = [];
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                for (const ev of events) {
-                    const matchDate = new Date(ev.dateEvent + 'T' + (ev.strTime || '00:00'));
-                    if (matchDate < today) continue; // только будущие
-                    const home = { name: ev.strHomeTeam, emblem: '⚽' };
-                    const away = { name: ev.strAwayTeam, emblem: '⚽' };
+                for (const match of apiData) {
+                    if (!match.bookmakers || match.bookmakers.length === 0) continue;
+                    const bookmaker = match.bookmakers[0];
+                    let h2hMarket = bookmaker.markets.find(m => m.key === 'h2h');
+                    let totalsMarket = bookmaker.markets.find(m => m.key === 'totals');
+                    if (!h2hMarket) continue;
+
+                    let win1 = 1.0,
+                        draw = 1.0,
+                        win2 = 1.0;
+                    h2hMarket.outcomes.forEach(outcome => {
+                        if (outcome.name === match.home_team) win1 = outcome.price;
+                        else if (outcome.name === match.away_team) win2 = outcome.price;
+                        else if (outcome.name === 'Draw') draw = outcome.price;
+                    });
+
+                    let over = 1.9,
+                        under = 1.9;
+                    if (totalsMarket) {
+                        let targetTotal = totalsMarket.outcomes.find(o => o.point === 2.5);
+                        if (targetTotal) {
+                            totalsMarket.outcomes.forEach(outcome => {
+                                if (outcome.name === 'Over' && outcome.point === 2.5) over = outcome
+                                .price;
+                                if (outcome.name === 'Under' && outcome.point === 2.5) under = outcome
+                                    .price;
+                            });
+                        }
+                    }
+
+                    const matchDate = new Date(match.commence_time);
                     const timeStr = matchDate.toLocaleString('ru', {
                         day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
                     });
-                    // Статус – TheSportsDB не даёт LIVE, только предстоящие
-                    let status = 'NS';
-                    // Если есть счёт, значит матч завершён – но мы уже отфильтровали по дате
+
+                    const home = { name: match.home_team, emblem: '⚽' };
+                    const away = { name: match.away_team, emblem: '⚽' };
+                    const leagueName = match.sport_title || 'Футбол';
+
                     const odds = {
-                        win1: +(1.8 + Math.random() * 1.5).toFixed(2),
-                        draw: +(2.5 + Math.random() * 1.5).toFixed(2),
-                        win2: +(1.8 + Math.random() * 1.5).toFixed(2),
-                        over: +(1.7 + Math.random() * 0.8).toFixed(2),
-                        under: +(1.7 + Math.random() * 0.8).toFixed(2),
+                        win1: +(win1).toFixed(2),
+                        draw: +(draw).toFixed(2),
+                        win2: +(win2).toFixed(2),
+                        over: +(over).toFixed(2),
+                        under: +(under).toFixed(2),
                     };
+
+                    // Дополнительные рынки (API их не даёт, можно добавить статичные или случайные)
                     const extra = {
-                        'Забьёт через 20 мин (Да)': +(1.9 + Math.random() * 0.5).toFixed(2),
-                        'Забьёт через 20 мин (Нет)': +(1.9 + Math.random() * 0.5).toFixed(2),
-                        'Угловой в первые 10 мин (Да)': +(2.0 + Math.random() * 0.4).toFixed(2),
-                        'Угловой в первые 10 мин (Нет)': +(2.0 + Math.random() * 0.4).toFixed(2),
-                        'Заплачет ли игрок (Да)': +(2.2 + Math.random() * 1.0).toFixed(2),
-                        'Заплачет ли игрок (Нет)': +(1.6 + Math.random() * 0.4).toFixed(2),
+                        'Обе забьют (Да)': +(1.7 + Math.random() * 0.5).toFixed(2),
+                        'Обе забьют (Нет)': +(1.8 + Math.random() * 0.5).toFixed(2),
+                        'Угловые > 9.5': +(1.9).toFixed(2),
+                        'Угловые < 9.5': +(1.9).toFixed(2)
                     };
+
                     mapped.push({
-                        id: ev.idEvent || 'sdb_' + Math.random(),
-                        league: leagueKey,
+                        id: match.id,
+                        league: leagueName,
                         home, away,
                         odds, extra,
                         time: timeStr,
-                        status: status,
+                        status: 'NS',
                         real: true,
-                        source: 'sportsdb'
+                        source: 'the-odds-api'
                     });
                 }
                 return mapped;
             }
 
-            // 3.3. ЧМ-2026 – статический список (реалистичный, обновляется вручную)
-            function getWorldCup2026Matches() {
+            // =============================================================
+            // 4. FALLBACK (на случай, если API недоступен)
+            // =============================================================
+            function getFallbackMatches() {
                 const now = new Date();
                 const matches = [];
 
-                function createWCMatch(homeName, homeEmblem, awayName, awayEmblem, daysOffset, hour, minute = 0) {
+                function createFallbackMatch(league, homeName, homeEmblem, awayName, awayEmblem, daysOffset, hour, minute = 0) {
                     const date = new Date(now.getTime() + daysOffset * 86400000 + hour * 3600000 + minute * 60000);
                     const timeStr = date.toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
                     const odds = {
@@ -906,42 +871,65 @@
                         under: +(1.7 + Math.random() * 0.8).toFixed(2),
                     };
                     const extra = {
-                        'Забьёт через 20 мин (Да)': +(1.9 + Math.random() * 0.5).toFixed(2),
-                        'Забьёт через 20 мин (Нет)': +(1.9 + Math.random() * 0.5).toFixed(2),
-                        'Угловой в первые 10 мин (Да)': +(2.0 + Math.random() * 0.4).toFixed(2),
-                        'Угловой в первые 10 мин (Нет)': +(2.0 + Math.random() * 0.4).toFixed(2),
-                        'Заплачет ли игрок (Да)': +(2.2 + Math.random() * 1.0).toFixed(2),
-                        'Заплачет ли игрок (Нет)': +(1.6 + Math.random() * 0.4).toFixed(2),
+                        'Обе забьют (Да)': +(1.7 + Math.random() * 0.5).toFixed(2),
+                        'Обе забьют (Нет)': +(1.8 + Math.random() * 0.5).toFixed(2),
+                        'Угловые > 9.5': +(1.9).toFixed(2),
+                        'Угловые < 9.5': +(1.9).toFixed(2)
                     };
                     return {
-                        id: 'wc_' + matches.length,
-                        league: 'ЧМ-2026',
+                        id: matches.length,
+                        league: league,
                         home: { name: homeName, emblem: homeEmblem },
                         away: { name: awayName, emblem: awayEmblem },
                         odds, extra,
                         time: timeStr,
                         status: 'NS',
                         real: false,
-                        source: 'worldcup-static'
+                        source: 'fallback'
                     };
                 }
 
-                // Реальное расписание (ближайшие дни)
-                // Групповой этап (примерные пары)
-                matches.push(createWCMatch('Аргентина', '🇦🇷', 'Саудовская Аравия', '🇸🇦', 2, 14, 0));
-                matches.push(createWCMatch('Франция', '🇫🇷', 'Австралия', '🇦🇺', 2, 17, 0));
-                matches.push(createWCMatch('Испания', '🇪🇸', 'Коста-Рика', '🇨🇷', 3, 14, 0));
-                matches.push(createWCMatch('Германия', '🇩🇪', 'Япония', '🇯🇵', 3, 17, 0));
-                matches.push(createWCMatch('Англия', '🏴󠁧󠁢󠁥󠁮󠁧󠁿', 'Иран', '🇮🇷', 4, 14, 0));
-                matches.push(createWCMatch('Бразилия', '🇧🇷', 'Швейцария', '🇨🇭', 4, 17, 0));
-                matches.push(createWCMatch('Португалия', '🇵🇹', 'Гана', '🇬🇭', 5, 14, 0));
-                matches.push(createWCMatch('Нидерланды', '🇳🇱', 'Сенегал', '🇸🇳', 5, 17, 0));
+                // ЧМ-2026
+                const wc = 'ЧМ-2026';
+                matches.push(createFallbackMatch(wc, 'Франция', '🇫🇷', 'Марокко', '🇲🇦', 0, 20, 0));
+                matches.push(createFallbackMatch(wc, 'Аргентина', '🇦🇷', 'Бразилия', '🇧🇷', 0, 20, 0));
+                matches.push(createFallbackMatch(wc, 'Испания', '🇪🇸', 'Португалия', '🇵🇹', 1, 18, 0));
+                matches.push(createFallbackMatch(wc, 'Англия', '🏴󠁧󠁢󠁥󠁮󠁧󠁿', 'Нидерланды', '🇳🇱', 1, 20, 0));
+                matches.push(createFallbackMatch(wc, 'Германия', '🇩🇪', 'Уругвай', '🇺🇾', 2, 19, 0));
+
+                // АПЛ
+                const epl = 'АПЛ';
+                matches.push(createFallbackMatch(epl, 'Манчестер Сити', '🔵', 'Арсенал', '🔴', 1, 15, 0));
+                matches.push(createFallbackMatch(epl, 'Ливерпуль', '🔴', 'Челси', '🔵', 1, 17, 30));
+                matches.push(createFallbackMatch(epl, 'Тоттенхэм', '⚪', 'Ньюкасл', '⚫', 2, 14, 0));
+                matches.push(createFallbackMatch(epl, 'Манчестер Юнайтед', '🔴', 'Астон Вилла', '🟣', 2, 16, 30));
+
+                // Ла Лига
+                const laliga = 'Ла Лига';
+                matches.push(createFallbackMatch(laliga, 'Реал Мадрид', '👑', 'Барселона', '🔴🔵', 2, 19, 0));
+                matches.push(createFallbackMatch(laliga, 'Атлетико', '🔴⚪', 'Севилья', '⚪🔴', 3, 16, 0));
+
+                // Бундеслига
+                const bund = 'Бундеслига';
+                matches.push(createFallbackMatch(bund, 'Бавария', '🔴⚪', 'Боруссия Дортмунд', '🟡⚫', 4, 15, 0));
+
+                // Серия А
+                const seria = 'Серия А';
+                matches.push(createFallbackMatch(seria, 'Ювентус', '⚫⚪', 'Интер', '🔵⚫', 5, 14, 0));
+
+                // Лига 1
+                const ligue1 = 'Лига 1';
+                matches.push(createFallbackMatch(ligue1, 'ПСЖ', '🔵🔴', 'Марсель', '⚪🔵', 6, 15, 0));
+
+                // РПЛ
+                const rpl = 'РПЛ';
+                matches.push(createFallbackMatch(rpl, 'Зенит', '🔵⚪', 'Спартак', '🔴⚪', 7, 14, 0));
 
                 return matches;
             }
 
             // =============================================================
-            // 4. ОСНОВНАЯ ЗАГРУЗКА (СБОР ВСЕХ ИСТОЧНИКОВ)
+            // 5. ОСНОВНАЯ ЗАГРУЗКА (API + FALLBACK)
             // =============================================================
             let matches = [];
             let isRefreshing = false;
@@ -949,37 +937,22 @@
             async function loadMatches() {
                 if (isRefreshing) return;
                 isRefreshing = true;
+
+                const refreshBtn = document.getElementById('refreshBtn');
+                const originalText = refreshBtn.innerHTML;
+                refreshBtn.innerHTML = '<span class="icon">⏳</span> Загрузка...';
+
                 try {
                     let allMapped = [];
 
-                    // 1. OpenLigaDB (Бундеслига)
-                    const olData = await fetchOpenLigaDB();
-                    if (olData && olData.length > 0) {
-                        const olMapped = mapOpenLigaDB(olData);
-                        allMapped = allMapped.concat(olMapped);
-                        console.log(`✅ OpenLigaDB: ${olMapped.length} будущих матчей`);
-                    }
-
-                    // 2. TheSportsDB (АПЛ, Ла Лига, Серия А, Лига 1, РПЛ)
-                    for (const [league, id] of Object.entries(LEAGUE_IDS)) {
-                        const events = await fetchSportsDB(id);
-                        if (events && events.length > 0) {
-                            const mapped = mapSportsDB(events, league);
-                            allMapped = allMapped.concat(mapped);
-                            console.log(`✅ SportsDB (${league}): ${mapped.length} матчей`);
-                        }
-                    }
-
-                    // 3. ЧМ-2026 (статический список)
-                    const wcMatches = getWorldCup2026Matches();
-                    allMapped = allMapped.concat(wcMatches);
-                    console.log(`✅ ЧМ-2026: ${wcMatches.length} матчей`);
-
-                    // Если ничего не загрузилось – fallback (но у нас всегда будет хотя бы ЧМ-2026)
-                    if (allMapped.length === 0) {
-                        // Используем минимальный fallback
-                        allMapped = getWorldCup2026Matches();
-                        console.log(`⚠️ Используем только ЧМ-2026 как fallback`);
+                    // Пытаемся загрузить реальные матчи из The Odds API
+                    const rawData = await fetchRealMatches();
+                    if (rawData && rawData.length > 0) {
+                        allMapped = mapRealMatches(rawData);
+                        console.log(`✅ The Odds API: загружено ${allMapped.length} реальных матчей`);
+                    } else {
+                        console.log('⚠️ The Odds API не вернул данные, используем fallback');
+                        allMapped = getFallbackMatches();
                     }
 
                     matches = allMapped;
@@ -987,12 +960,12 @@
                     renderCoupon();
                 } catch (e) {
                     console.error('Ошибка загрузки:', e);
-                    // В случае ошибки показываем только ЧМ-2026
-                    matches = getWorldCup2026Matches();
+                    matches = getFallbackMatches();
                     renderMatches();
                     renderCoupon();
                 } finally {
                     isRefreshing = false;
+                    refreshBtn.innerHTML = originalText;
                 }
             }
 
@@ -1003,7 +976,7 @@
             });
 
             // =============================================================
-            // 5. ОСТАЛЬНОЙ КОД (купоны, рендеринг, навигация — без изменений)
+            // 6. ОСТАЛЬНОЙ КОД (купоны, рендеринг, навигация — без изменений)
             // =============================================================
             let coupon = [];
 
@@ -1051,7 +1024,6 @@
                 filtered.sort((a, b) => {
                     const order = { 'LIVE': 0, 'NS': 1 };
                     if (a.status !== b.status) return (order[a.status] || 1) - (order[b.status] || 1);
-                    // По дате (из времени)
                     const dateA = new Date(a.time.split(' ').reverse().join(' '));
                     const dateB = new Date(b.time.split(' ').reverse().join(' '));
                     return dateA - dateB;
@@ -1077,7 +1049,7 @@
                     } else {
                         statusHtml = `<span class="time">${m.time}</span>`;
                     }
-                    const disabledClass = ''; // все матчи предстоящие, можно ставить
+                    const disabledClass = '';
 
                     html += `
                         <div class="${cardClass}" data-match-id="${m.id}">
