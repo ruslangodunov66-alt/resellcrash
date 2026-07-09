@@ -679,8 +679,8 @@
                 'Бундеслига': 'BL1',
                 'Серия А': 'SA',
                 'Лига 1': 'FL1',
-                'РПЛ': 'RPL', // не уверен, но оставлю
-                'ЧМ-2026': 'WC' // возможно, но в API есть "WC"
+                'РПЛ': 'RPL',
+                'ЧМ-2026': 'WC'
             };
 
             // Названия лиг для отображения
@@ -723,7 +723,6 @@
             function mapAPIMatches(apiMatches) {
                 const mapped = [];
                 for (const match of apiMatches) {
-                    // Пропускаем матчи без названий команд
                     if (!match.homeTeam || !match.awayTeam) continue;
                     const home = {
                         name: match.homeTeam.name,
@@ -733,7 +732,6 @@
                         name: match.awayTeam.name,
                         emblem: '⚽'
                     };
-                    // Определяем лигу
                     const compCode = match.competition?.code || '';
                     let leagueKey = 'all';
                     for (const key of leagueKeys) {
@@ -742,7 +740,6 @@
                             break;
                         }
                     }
-                    // Если не нашли, пробуем по названию
                     if (leagueKey === 'all') {
                         const compName = match.competition?.name || '';
                         for (const key of leagueKeys) {
@@ -752,15 +749,12 @@
                             }
                         }
                     }
-
                     const timeStr = new Date(match.utcDate).toLocaleString('ru', {
                         day: 'numeric',
                         month: 'short',
                         hour: '2-digit',
                         minute: '2-digit'
                     });
-
-                    // Генерируем коэффициенты (API их не даёт)
                     const odds = {
                         win1: +(1.8 + Math.random() * 1.5).toFixed(2),
                         draw: +(2.5 + Math.random() * 1.5).toFixed(2),
@@ -792,9 +786,8 @@
             }
 
             // =============================================================
-            // 4. ЛОКАЛЬНЫЙ РЕЗЕРВ (реалистичные матчи на случай ошибки API)
+            // 4. ЛОКАЛЬНЫЙ РЕЗЕРВ (только для клубных лиг, ЧМ-2026 — только из API)
             // =============================================================
-            // Клубы по лигам (правильные страны)
             const clubsByLeague = {
                 'АПЛ': [
                     { name: 'Манчестер Сити', emblem: '🔵' },
@@ -845,26 +838,10 @@
                     { name: 'Динамо', emblem: '⚪🔵' },
                     { name: 'Локомотив', emblem: '🔴🟢' },
                     { name: 'Краснодар', emblem: '🟢⚫' },
-                ],
-                'ЧМ-2026': [
-                    { name: 'Аргентина', emblem: '🇦🇷' },
-                    { name: 'Бразилия', emblem: '🇧🇷' },
-                    { name: 'Франция', emblem: '🇫🇷' },
-                    { name: 'Испания', emblem: '🇪🇸' },
-                    { name: 'Германия', emblem: '🇩🇪' },
-                    { name: 'Англия', emblem: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' },
-                    { name: 'Португалия', emblem: '🇵🇹' },
-                    { name: 'Нидерланды', emblem: '🇳🇱' },
-                    { name: 'Бельгия', emblem: '🇧🇪' },
-                    { name: 'Хорватия', emblem: '🇭🇷' },
-                    { name: 'Уругвай', emblem: '🇺🇾' },
-                    { name: 'США', emblem: '🇺🇸' },
-                    { name: 'Мексика', emblem: '🇲🇽' },
-                    { name: 'Швейцария', emblem: '🇨🇭' },
                 ]
             };
 
-            // Генерация реалистичных матчей (на случай, если API не работает)
+            // Генерируем реалистичные матчи для клубных лиг (без ЧМ-2026)
             function generateRealisticMatches() {
                 const now = new Date();
                 const matches = [];
@@ -907,25 +884,7 @@
                     };
                 }
 
-                // ЧМ-2026
-                const wc = 'ЧМ-2026';
-                const addWc = (h, a, d, hh, mm) => { const m = createMatch(wc, h, a, d, hh, mm); if (m) matches.push(m); };
-                addWc(0, 1, 1, 20, 0);
-                addWc(2, 3, 1, 20, 0);
-                addWc(4, 5, 2, 18, 0);
-                addWc(6, 7, 2, 20, 0);
-                addWc(8, 9, 3, 19, 0);
-                addWc(10, 11, 3, 21, 0);
-                addWc(12, 13, 4, 18, 0);
-                addWc(1, 2, 4, 20, 0);
-                addWc(3, 4, 5, 19, 0);
-                addWc(5, 6, 5, 21, 0);
-                addWc(7, 8, 6, 18, 0);
-                addWc(9, 10, 6, 20, 0);
-                addWc(11, 12, 7, 19, 0);
-                addWc(13, 0, 7, 21, 0);
-
-                // АПЛ
+                // ---- АПЛ ----
                 const epl = 'АПЛ';
                 const addEpl = (h, a, d, hh, mm) => { const m = createMatch(epl, h, a, d, hh, mm); if (m) matches.push(m); };
                 addEpl(0, 1, 1, 15, 0);
@@ -935,7 +894,7 @@
                 addEpl(1, 2, 3, 15, 0);
                 addEpl(3, 4, 3, 17, 30);
 
-                // Ла Лига
+                // ---- Ла Лига ----
                 const laliga = 'Ла Лига';
                 const addLa = (h, a, d, hh, mm) => { const m = createMatch(laliga, h, a, d, hh, mm); if (m) matches.push(m); };
                 addLa(0, 1, 2, 19, 0);
@@ -943,28 +902,28 @@
                 addLa(4, 5, 3, 18, 30);
                 addLa(1, 2, 4, 19, 0);
 
-                // Бундеслига
+                // ---- Бундеслига ----
                 const bund = 'Бундеслига';
                 const addBund = (h, a, d, hh, mm) => { const m = createMatch(bund, h, a, d, hh, mm); if (m) matches.push(m); };
                 addBund(0, 1, 4, 15, 0);
                 addBund(2, 3, 4, 17, 30);
                 addBund(1, 2, 5, 16, 0);
 
-                // Серия А
+                // ---- Серия А ----
                 const seria = 'Серия А';
                 const addSeria = (h, a, d, hh, mm) => { const m = createMatch(seria, h, a, d, hh, mm); if (m) matches.push(m); };
                 addSeria(0, 1, 5, 14, 0);
                 addSeria(2, 3, 5, 16, 30);
                 addSeria(4, 5, 6, 15, 0);
 
-                // Лига 1
+                // ---- Лига 1 ----
                 const ligue1 = 'Лига 1';
                 const addLigue = (h, a, d, hh, mm) => { const m = createMatch(ligue1, h, a, d, hh, mm); if (m) matches.push(m); };
                 addLigue(0, 1, 6, 15, 0);
                 addLigue(2, 3, 6, 18, 0);
                 addLigue(1, 2, 7, 17, 0);
 
-                // РПЛ
+                // ---- РПЛ ----
                 const rpl = 'РПЛ';
                 const addRpl = (h, a, d, hh, mm) => { const m = createMatch(rpl, h, a, d, hh, mm); if (m) matches.push(m); };
                 addRpl(0, 1, 7, 14, 0);
@@ -975,7 +934,7 @@
             }
 
             // =============================================================
-            // 5. ИНИЦИАЛИЗАЦИЯ МАТЧЕЙ (API + резерв)
+            // 5. ИНИЦИАЛИЗАЦИЯ МАТЧЕЙ (API + резерв для клубных лиг)
             // =============================================================
             let matches = [];
 
