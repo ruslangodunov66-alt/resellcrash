@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>⚽ R-GAME · Ставки</title>
+    <title>⚽ R-GAME · Live</title>
     <script src="https://telegram.org/js/telegram-web-app.js">
     </script>
     <style>
-        /* ===== ВСЕ СТИЛИ (БЕЗ ИЗМЕНЕНИЙ) ===== */
+        /* ===== СТИЛИ (ДОПОЛНЕНЫ ДЛЯ LIVE-ИНДИКАТОРОВ) ===== */
         @import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;0,900;1,800&family=Inter:wght@400;600;700;800;900&display=swap');
 
         * {
@@ -84,13 +84,69 @@
             color: #FFD54A;
             backdrop-filter: blur(4px);
             cursor: default;
-            font-family: 'Inter', sans-serif;
         }
 
+        /* ТОП-ПАНЕЛЬ С ОБНОВЛЕНИЕМ */
+        .top-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 10px 0 14px;
+            gap: 8px;
+        }
+        .refresh-btn {
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 215, 0, 0.2);
+            border-radius: 30px;
+            padding: 6px 16px;
+            color: #FFD54A;
+            font-weight: 700;
+            font-size: 13px;
+            cursor: pointer;
+            transition: 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+        .refresh-btn:active {
+            transform: scale(0.92);
+            background: rgba(255, 215, 0, 0.1);
+        }
+        .refresh-btn .icon {
+            font-size: 18px;
+        }
+        .live-indicator {
+            color: var(--accent-red);
+            font-weight: 800;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(240, 48, 67, 0.1);
+            padding: 4px 12px;
+            border-radius: 30px;
+            border: 1px solid rgba(240, 48, 67, 0.3);
+        }
+        .live-indicator .pulse {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #f03043;
+            border-radius: 50%;
+            animation: pulse 1.2s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.3; transform: scale(0.7); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        /* TABS */
         .tabs {
             display: flex;
             gap: 8px;
-            margin: 18px 0 14px;
+            margin: 0 0 14px;
         }
         .tab-btn {
             flex: 1;
@@ -125,6 +181,7 @@
             font-weight: 900;
         }
 
+        /* LEAGUE FILTER */
         .league-filter {
             display: flex;
             gap: 8px;
@@ -159,6 +216,7 @@
             transform: scale(0.94);
         }
 
+        /* MATCH CARDS */
         .matches-container {
             display: flex;
             flex-direction: column;
@@ -171,7 +229,16 @@
             border: 1px solid rgba(255, 255, 255, 0.05);
             transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
             backdrop-filter: blur(4px);
+            position: relative;
         }
+        .match-card.live {
+            border-color: rgba(240, 48, 67, 0.4);
+            box-shadow: 0 0 20px rgba(240, 48, 67, 0.05);
+        }
+        .match-card.finished {
+            opacity: 0.6;
+        }
+
         .match-header {
             display: flex;
             justify-content: space-between;
@@ -185,6 +252,28 @@
             color: rgba(255, 255, 255, 0.6);
             letter-spacing: 0.3px;
         }
+        .match-header .status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+        .match-header .status.live {
+            color: #f03043;
+        }
+        .match-header .status.live .dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #f03043;
+            border-radius: 50%;
+            animation: pulse 1.2s ease-in-out infinite;
+        }
+        .match-header .status.finished {
+            color: rgba(255, 255, 255, 0.2);
+        }
         .match-header .time {
             background: rgba(0, 0, 0, 0.3);
             padding: 2px 12px;
@@ -192,6 +281,7 @@
             font-size: 12px;
             font-weight: 600;
         }
+
         .match-teams {
             display: flex;
             justify-content: space-between;
@@ -267,7 +357,12 @@
         .odd-btn.selected .value {
             color: #FFD54A;
         }
+        .odd-btn.disabled {
+            opacity: 0.3;
+            pointer-events: none;
+        }
 
+        /* ДОПОЛНИТЕЛЬНЫЕ РЫНКИ (спойлер) */
         .match-extra-toggle {
             display: flex;
             justify-content: center;
@@ -333,7 +428,12 @@
         .odd-btn-extra.selected .value {
             color: #FFD54A;
         }
+        .odd-btn-extra.disabled {
+            opacity: 0.3;
+            pointer-events: none;
+        }
 
+        /* COUPON (без изменений) */
         .coupon-container {
             display: none;
             flex-direction: column;
@@ -554,6 +654,16 @@
             <div class="balance" id="balanceDisplay">0 ₽</div>
         </div>
 
+        <!-- Верхняя панель: Live-индикатор + обновление -->
+        <div class="top-actions">
+            <div class="live-indicator">
+                <span class="pulse"></span> LIVE
+            </div>
+            <button class="refresh-btn" id="refreshBtn">
+                <span class="icon">🔄</span> Обновить
+            </button>
+        </div>
+
         <div class="tabs">
             <button class="tab-btn active" data-tab="matches">Матчи</button>
             <button class="tab-btn" data-tab="coupon">Купон <span class="badge" id="couponCount">0</span></button>
@@ -659,15 +769,13 @@
             }
 
             // =============================================================
-            // 3. SSTATS API (реальные матчи)
+            // 3. SSTATS API (реальные матчи с живыми статусами)
             // =============================================================
             const SSTATS_KEY = '89tvsqa5839pqgx1';
             const BASE_URL = 'https://api.sstats.net';
 
-            // Маппинг лиг SStats → наши названия (будет заполнен динамически)
             let leagueMap = {};
 
-            // ID лиг в SStats (если известны)
             const LEAGUE_IDS_SSTATS = {
                 'АПЛ': 39,
                 'Ла Лига': 140,
@@ -678,7 +786,7 @@
                 'ЧМ-2026': 1
             };
 
-            // Загрузка списка лиг с SStats
+            // Загрузка лиг
             async function fetchLeagues() {
                 try {
                     const response = await fetch(`${BASE_URL}/Leagues`, {
@@ -689,7 +797,6 @@
                     });
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     const data = await response.json();
-                    // Создаём маппинг по названию
                     data.forEach(league => {
                         const name = league.name.toLowerCase();
                         for (const key of Object.keys(LEAGUE_IDS_SSTATS)) {
@@ -731,7 +838,7 @@
                 }
             }
 
-            // Преобразование данных SStats в формат приложения
+            // Преобразование данных SStats в формат приложения (с добавлением статуса)
             function mapSStatsMatches(apiMatches) {
                 const mapped = [];
                 for (const match of apiMatches) {
@@ -746,14 +853,12 @@
                     };
                     const leagueName = match.league?.name || 'Неизвестная лига';
                     let leagueKey = 'all';
-                    // Определяем лигу по названию
                     for (const key of Object.keys(leagueMap)) {
                         if (leagueName.includes(key) || key.includes(leagueName)) {
                             leagueKey = key;
                             break;
                         }
                     }
-                    // Если не нашли, пробуем по ID
                     if (leagueKey === 'all' && match.league?.id) {
                         for (const key of Object.keys(leagueMap)) {
                             if (leagueMap[key] === match.league.id) {
@@ -762,6 +867,13 @@
                             }
                         }
                     }
+                    // Статус матча (если есть)
+                    let status = match.status || 'NS'; // NS – Not Started, LIVE – в прямом эфире, FT – Finished
+                    // Приводим к единому виду
+                    if (status === 'LIVE' || status === '1' || status === 'In Progress') status = 'LIVE';
+                    else if (status === 'FT' || status === 'Finished' || status === '2') status = 'FT';
+                    else status = 'NS';
+
                     const timeStr = new Date(match.startTime).toLocaleString('ru', {
                         day: 'numeric',
                         month: 'short',
@@ -792,6 +904,7 @@
                         odds: odds,
                         extra: extra,
                         time: timeStr,
+                        status: status,
                         real: true,
                         apiData: match
                     });
@@ -800,7 +913,7 @@
             }
 
             // =============================================================
-            // 4. ЛОКАЛЬНЫЙ РЕЗЕРВ (ТОЛЬКО ДЛЯ КЛУБНЫХ ЛИГ, БЕЗ ЧМ-2026)
+            // 4. ЛОКАЛЬНЫЙ РЕЗЕРВ (только для клубных лиг, без ЧМ-2026)
             // =============================================================
             const clubsByLeague = {
                 'АПЛ': [
@@ -855,7 +968,7 @@
                 ]
             };
 
-            // Генерация только для клубных лиг (без ЧМ-2026)
+            // Генерация клубных матчей (без ЧМ-2026)
             function generateClubMatches() {
                 const now = new Date();
                 const matches = [];
@@ -894,6 +1007,7 @@
                         odds: odds,
                         extra: extra,
                         time: timeStr,
+                        status: 'NS',
                         real: true
                     };
                 }
@@ -948,31 +1062,68 @@
             }
 
             // =============================================================
-            // 5. ИНИЦИАЛИЗАЦИЯ МАТЧЕЙ (SStats + резерв для клубных лиг)
+            // 5. ЗАГРУЗКА МАТЧЕЙ (С ОБНОВЛЕНИЕМ)
             // =============================================================
             let matches = [];
+            let isRefreshing = false;
 
             async function loadMatches() {
-                // Сначала загружаем лиги
-                await fetchLeagues();
-
-                const apiData = await fetchSStatsMatches();
-                if (apiData && apiData.length > 0) {
-                    const mapped = mapSStatsMatches(apiData);
-                    // Фильтруем только те лиги, которые есть в нашей карте
-                    matches = mapped.filter(m => m.league !== 'all');
-                    console.log(`✅ Загружено ${matches.length} матчей из SStats`);
-                } else {
-                    // Если API не отвечает, используем локальный список (только клубные лиги)
-                    matches = generateClubMatches();
-                    console.log(`✅ Загружено ${matches.length} локальных матчей (API недоступен)`);
+                if (isRefreshing) return;
+                isRefreshing = true;
+                try {
+                    // Если лиги ещё не загружены
+                    if (Object.keys(leagueMap).length === 0) {
+                        await fetchLeagues();
+                    }
+                    const apiData = await fetchSStatsMatches();
+                    if (apiData && apiData.length > 0) {
+                        const mapped = mapSStatsMatches(apiData);
+                        matches = mapped.filter(m => m.league !== 'all');
+                        console.log(`✅ Загружено ${matches.length} матчей из SStats (обновлено)`);
+                    } else {
+                        // Если API не отвечает, используем локальный список
+                        matches = generateClubMatches();
+                        console.log(`✅ Загружено ${matches.length} локальных матчей (API недоступен)`);
+                    }
+                    renderMatches();
+                    renderCoupon();
+                } catch (e) {
+                    console.error('Ошибка обновления матчей:', e);
+                } finally {
+                    isRefreshing = false;
                 }
-                renderMatches();
-                renderCoupon();
             }
 
             // =============================================================
-            // 6. СОСТОЯНИЕ КУПОНА (без изменений)
+            // 6. АВТООБНОВЛЕНИЕ (КАЖДЫЕ 30 СЕКУНД)
+            // =============================================================
+            let refreshInterval = null;
+
+            function startAutoRefresh() {
+                if (refreshInterval) clearInterval(refreshInterval);
+                refreshInterval = setInterval(() => {
+                    // Обновляем только если мы на вкладке "Матчи"
+                    if (currentTab === 'matches') {
+                        loadMatches();
+                    }
+                }, 30000);
+            }
+
+            function stopAutoRefresh() {
+                if (refreshInterval) {
+                    clearInterval(refreshInterval);
+                    refreshInterval = null;
+                }
+            }
+
+            // Ручное обновление по кнопке
+            document.getElementById('refreshBtn').addEventListener('click', function() {
+                vibrate('light');
+                loadMatches();
+            });
+
+            // =============================================================
+            // 7. СОСТОЯНИЕ КУПОНА
             // =============================================================
             let coupon = [];
 
@@ -995,7 +1146,7 @@
             }
 
             // =============================================================
-            // 7. РЕНДЕРИНГ (без изменений)
+            // 8. РЕНДЕРИНГ (С ОТОБРАЖЕНИЕМ СТАТУСОВ)
             // =============================================================
             const matchesContainer = document.getElementById('matchesContainer');
             const couponContainer = document.getElementById('couponContainer');
@@ -1020,6 +1171,12 @@
                     filtered = filtered.filter(m => m.league === currentLeague);
                 }
 
+                // Сортировка: сначала LIVE, потом NS, потом FT
+                filtered.sort((a, b) => {
+                    const order = { 'LIVE': 0, 'NS': 1, 'FT': 2 };
+                    return (order[a.status] || 1) - (order[b.status] || 1);
+                });
+
                 if (filtered.length === 0) {
                     matchesContainer.innerHTML =
                         `<div style="text-align:center;padding:40px 0;color:rgba(255,255,255,0.2);font-size:16px;">Нет матчей в этой лиге</div>`;
@@ -1032,12 +1189,28 @@
                     const extraIsSelected = (type) => coupon.some(item => item.matchId === m.id && item.type === type &&
                         item.marketType === 'extra');
                     const isOpen = extraOpen[m.id] || false;
+                    const isLive = m.status === 'LIVE';
+                    const isFinished = m.status === 'FT';
+                    const cardClass = isLive ? 'match-card live' : (isFinished ? 'match-card finished' : 'match-card');
+
+                    // Статусная строка
+                    let statusHtml = '';
+                    if (isLive) {
+                        statusHtml = `<span class="status live"><span class="dot"></span> LIVE</span>`;
+                    } else if (isFinished) {
+                        statusHtml = `<span class="status finished">Завершён</span>`;
+                    } else {
+                        statusHtml = `<span class="time">${m.time}</span>`;
+                    }
+
+                    // Блокируем кнопки, если матч завершён
+                    const disabledClass = isFinished ? 'disabled' : '';
 
                     html += `
-                        <div class="match-card" data-match-id="${m.id}">
+                        <div class="${cardClass}" data-match-id="${m.id}">
                             <div class="match-header">
                                 <span class="league-name">${m.league}</span>
-                                <span class="time">${m.time}</span>
+                                ${statusHtml}
                             </div>
                             <div class="match-teams">
                                 <div class="team"><span class="emblem">${m.home.emblem}</span> ${m.home.name}</div>
@@ -1045,23 +1218,23 @@
                                 <div class="team"><span class="emblem">${m.away.emblem}</span> ${m.away.name}</div>
                             </div>
                             <div class="match-odds-main">
-                                <div class="odd-btn ${isSelected('win1')?'selected':''}" data-match="${m.id}" data-type="win1" data-label="П1" data-odds="${m.odds.win1}" data-teams="${m.home.name} - ${m.away.name}">
+                                <div class="odd-btn ${isSelected('win1')?'selected':''} ${disabledClass}" data-match="${m.id}" data-type="win1" data-label="П1" data-odds="${m.odds.win1}" data-teams="${m.home.name} - ${m.away.name}">
                                     <span class="label">П1</span>
                                     <span class="value">${m.odds.win1}</span>
                                 </div>
-                                <div class="odd-btn ${isSelected('draw')?'selected':''}" data-match="${m.id}" data-type="draw" data-label="Х" data-odds="${m.odds.draw}" data-teams="${m.home.name} - ${m.away.name}">
+                                <div class="odd-btn ${isSelected('draw')?'selected':''} ${disabledClass}" data-match="${m.id}" data-type="draw" data-label="Х" data-odds="${m.odds.draw}" data-teams="${m.home.name} - ${m.away.name}">
                                     <span class="label">Х</span>
                                     <span class="value">${m.odds.draw}</span>
                                 </div>
-                                <div class="odd-btn ${isSelected('win2')?'selected':''}" data-match="${m.id}" data-type="win2" data-label="П2" data-odds="${m.odds.win2}" data-teams="${m.home.name} - ${m.away.name}">
+                                <div class="odd-btn ${isSelected('win2')?'selected':''} ${disabledClass}" data-match="${m.id}" data-type="win2" data-label="П2" data-odds="${m.odds.win2}" data-teams="${m.home.name} - ${m.away.name}">
                                     <span class="label">П2</span>
                                     <span class="value">${m.odds.win2}</span>
                                 </div>
-                                <div class="odd-btn ${isSelected('over')?'selected':''}" data-match="${m.id}" data-type="over" data-label="ТБ(2.5)" data-odds="${m.odds.over}" data-teams="${m.home.name} - ${m.away.name}">
+                                <div class="odd-btn ${isSelected('over')?'selected':''} ${disabledClass}" data-match="${m.id}" data-type="over" data-label="ТБ(2.5)" data-odds="${m.odds.over}" data-teams="${m.home.name} - ${m.away.name}">
                                     <span class="label">ТБ(2.5)</span>
                                     <span class="value">${m.odds.over}</span>
                                 </div>
-                                <div class="odd-btn ${isSelected('under')?'selected':''}" data-match="${m.id}" data-type="under" data-label="ТМ(2.5)" data-odds="${m.odds.under}" data-teams="${m.home.name} - ${m.away.name}">
+                                <div class="odd-btn ${isSelected('under')?'selected':''} ${disabledClass}" data-match="${m.id}" data-type="under" data-label="ТМ(2.5)" data-odds="${m.odds.under}" data-teams="${m.home.name} - ${m.away.name}">
                                     <span class="label">ТМ(2.5)</span>
                                     <span class="value">${m.odds.under}</span>
                                 </div>
@@ -1073,7 +1246,7 @@
                             </div>
                             <div class="match-odds-extra ${isOpen?'open':''}" data-match="${m.id}">
                                 ${Object.entries(m.extra).map(([label, odds]) => `
-                                    <div class="odd-btn-extra ${extraIsSelected(label)?'selected':''}" data-match="${m.id}" data-type="${label}" data-label="${label}" data-odds="${odds}" data-teams="${m.home.name} - ${m.away.name}" data-market="extra">
+                                    <div class="odd-btn-extra ${extraIsSelected(label)?'selected':''} ${disabledClass}" data-match="${m.id}" data-type="${label}" data-label="${label}" data-odds="${odds}" data-teams="${m.home.name} - ${m.away.name}" data-market="extra">
                                         <span class="label">${label}</span>
                                         <span class="value">${odds}</span>
                                     </div>
@@ -1084,8 +1257,8 @@
                 }
                 matchesContainer.innerHTML = html;
 
-                // Обработчики (без изменений)
-                document.querySelectorAll('.odd-btn').forEach(btn => {
+                // Обработчики событий (с проверкой на завершённость)
+                document.querySelectorAll('.odd-btn:not(.disabled)').forEach(btn => {
                     btn.addEventListener('click', function(e) {
                         e.stopPropagation();
                         const matchId = parseInt(this.dataset.match);
@@ -1113,7 +1286,7 @@
                     });
                 });
 
-                document.querySelectorAll('.odd-btn-extra').forEach(btn => {
+                document.querySelectorAll('.odd-btn-extra:not(.disabled)').forEach(btn => {
                     btn.addEventListener('click', function(e) {
                         e.stopPropagation();
                         const matchId = parseInt(this.dataset.match);
@@ -1216,7 +1389,7 @@
             }
 
             // =============================================================
-            // 8. НАВИГАЦИЯ
+            // 9. НАВИГАЦИЯ
             // =============================================================
             function switchTab(tab) {
                 currentTab = tab;
@@ -1230,6 +1403,8 @@
                     .forEach(el => el.classList.remove('show'));
                 if (tab === 'matches') {
                     document.querySelector('.matches-container').classList.add('show');
+                    // Если мы вернулись на вкладку матчей, можно обновить
+                    loadMatches();
                 } else if (tab === 'coupon') {
                     document.querySelector('.coupon-container').classList.add('show');
                 } else if (tab === 'history') {
@@ -1253,7 +1428,7 @@
             });
 
             // =============================================================
-            // 9. ФИЛЬТР ЛИГ
+            // 10. ФИЛЬТР ЛИГ
             // =============================================================
             document.querySelectorAll('.league-btn').forEach(btn => {
                 btn.addEventListener('click', function() {
@@ -1266,7 +1441,7 @@
             });
 
             // =============================================================
-            // 10. СТАВКА
+            // 11. СТАВКА
             // =============================================================
             betSumInput.addEventListener('input', function() {
                 let val = parseInt(this.value) || 0;
@@ -1303,10 +1478,14 @@
             });
 
             // =============================================================
-            // 11. ЗАПУСК
+            // 12. ЗАПУСК
             // =============================================================
             document.querySelector('.matches-container').classList.add('show');
-            loadMatches();
+            // Первичная загрузка
+            loadMatches().then(() => {
+                // Запускаем автообновление после первой загрузки
+                startAutoRefresh();
+            });
 
             window.addEventListener('storage', (e) => {
                 if (e.key === 'casinoBalance') {
@@ -1317,6 +1496,11 @@
             });
 
             initAudio();
+
+            // Остановка автообновления при уходе со страницы (опционально)
+            window.addEventListener('beforeunload', function() {
+                stopAutoRefresh();
+            });
 
         })();
     </script>
