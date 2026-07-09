@@ -389,6 +389,7 @@
             pointer-events: none;
         }
 
+        /* ===== КУПОН (НОВЫЙ ДИЗАЙН) ===== */
         .coupon-container {
             display: none;
             flex-direction: column;
@@ -454,6 +455,16 @@
         .coupon-item .remove-btn:active {
             transform: scale(0.8);
             color: #f03043;
+        }
+        /* Обратный отсчёт в купоне */
+        .coupon-item .countdown {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.3);
+            font-weight: 600;
+            margin-top: 2px;
+        }
+        .coupon-item .countdown .time {
+            color: #FFD54A;
         }
 
         .coupon-total {
@@ -523,19 +534,54 @@
             box-shadow: none !important;
         }
 
-        .history-container {
+        /* ===== МОИ СТАВКИ (новая вкладка) ===== */
+        .bets-container {
             display: none;
+            flex-direction: column;
+            gap: 12px;
         }
-        .history-container.show {
-            display: block;
+        .bets-container.show {
+            display: flex;
         }
-        .history-empty {
+        .bet-history-item {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 16px;
+            padding: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .bet-history-item .top {
+            display: flex;
+            justify-content: space-between;
+            font-weight: 700;
+            font-size: 14px;
+        }
+        .bet-history-item .top .result {
+            font-weight: 800;
+        }
+        .bet-history-item .top .result.win {
+            color: #3DDC84;
+        }
+        .bet-history-item .top .result.lose {
+            color: #f03043;
+        }
+        .bet-history-item .detail {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.4);
+        }
+        .bet-history-item .detail .coef {
+            color: #FFD54A;
+        }
+        .bet-history-empty {
             text-align: center;
             padding: 50px 0;
             color: rgba(255, 255, 255, 0.15);
             font-size: 16px;
         }
 
+        /* BOTTOM NAV */
         .bottom-nav {
             position: fixed;
             bottom: 0;
@@ -616,10 +662,10 @@
         <div class="tabs">
             <button class="tab-btn active" data-tab="matches">Матчи</button>
             <button class="tab-btn" data-tab="coupon">Купон <span class="badge" id="couponCount">0</span></button>
-            <button class="tab-btn" data-tab="history">История</button>
+            <button class="tab-btn" data-tab="bets">Мои ставки</button>
         </div>
 
-        <!-- Скрытый фильтр лиг (оставлен, но не отображается) -->
+        <!-- Скрытый фильтр лиг -->
         <div class="league-filter" id="leagueFilter">
             <button class="league-btn active" data-league="all">Все</button>
         </div>
@@ -639,15 +685,17 @@
             </div>
         </div>
 
-        <div class="history-container" id="historyContainer">
-            <div class="history-empty">📋 История ставок пока пуста</div>
+        <!-- Мои ставки (новая вкладка) -->
+        <div class="bets-container" id="betsContainer">
+            <div class="bet-history-empty" id="betsEmpty">📋 У вас пока нет сделанных ставок</div>
+            <div id="betsList"></div>
         </div>
     </div>
 
     <div class="bottom-nav" id="bottomNav">
         <button class="nav-item active" data-tab="matches"><span class="icon">🏠</span> Матчи</button>
         <button class="nav-item" data-tab="coupon"><span class="icon">🧾</span> Купон <span class="badge" id="navCouponBadge">0</span></button>
-        <button class="nav-item" data-tab="history"><span class="icon">📊</span> История</button>
+        <button class="nav-item" data-tab="bets"><span class="icon">📊</span> Ставки</button>
     </div>
 
     <script>
@@ -712,7 +760,7 @@
             }
 
             // =============================================================
-            // 3. THE ODDS API — РЕАЛЬНЫЕ ДАННЫЕ СО СТАВКАМИ
+            // 3. THE ODDS API — РЕАЛЬНЫЕ ДАННЫЕ
             // =============================================================
             const ODDS_API_KEY = '13f0b3f2e08095c7b5142e3b48e26e4e';
             const SPORTS_IDS = [
@@ -755,7 +803,6 @@
                     'Serie A': 'Серия А',
                     'Ligue 1': 'Лига 1'
                 };
-                // Приводим названия команд к более узнаваемым (для эмодзи)
                 const emblemMap = {
                     'Argentina': '🇦🇷',
                     'Brazil': '🇧🇷',
@@ -809,7 +856,6 @@
                         day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
                     });
 
-                    // Получаем эмодзи для команд
                     const homeEmblem = emblemMap[match.home_team] || '⚽';
                     const awayEmblem = emblemMap[match.away_team] || '⚽';
 
@@ -892,9 +938,15 @@
                 matches.push(createFallbackMatch(wc, 'Англия', '🏴󠁧󠁢󠁥󠁮󠁧󠁿', 'Нидерланды', '🇳🇱', 1, 20, 0));
                 matches.push(createFallbackMatch(wc, 'Германия', '🇩🇪', 'Уругвай', '🇺🇾', 2, 19, 0));
 
-                // Клубы (для демонстрации)
+                // Клубы
                 const clubs = [
-                    { league: 'АПЛ', teams: [['Манчестер Сити', '🔵'], ['Арсенал', '🔴'], ['Ливерпуль', '🔴'], ['Челси', '🔵'], ['Тоттенхэм', '⚪']] },
+                    { league: 'АПЛ', teams: [
+                            ['Манчестер Сити', '🔵'],
+                            ['Арсенал', '🔴'],
+                            ['Ливерпуль', '🔴'],
+                            ['Челси', '🔵'],
+                            ['Тоттенхэм', '⚪']
+                        ] },
                     { league: 'Ла Лига', teams: [
                             ['Реал Мадрид', '👑'],
                             ['Барселона', '🔴🔵'],
@@ -977,7 +1029,7 @@
             });
 
             // =============================================================
-            // 6. ОСТАЛЬНОЙ КОД (купоны, рендеринг, навигация)
+            // 6. КУПОН И СТАВКИ (НОВАЯ ЛОГИКА)
             // =============================================================
             let coupon = [];
 
@@ -999,6 +1051,59 @@
                 updateUI();
             }
 
+            // =============================================================
+            // 7. ИСТОРИЯ СТАВОК (localStorage)
+            // =============================================================
+            function getBetHistory() {
+                try {
+                    return JSON.parse(localStorage.getItem('football_bets')) || [];
+                } catch { return []; }
+            }
+
+            function addBetHistory(bet) {
+                const history = getBetHistory();
+                history.push({
+                    ...bet,
+                    date: new Date().toISOString()
+                });
+                localStorage.setItem('football_bets', JSON.stringify(history));
+                renderBetHistory();
+            }
+
+            function renderBetHistory() {
+                const container = document.getElementById('betsList');
+                const empty = document.getElementById('betsEmpty');
+                const history = getBetHistory();
+                if (history.length === 0) {
+                    empty.style.display = 'block';
+                    container.innerHTML = '';
+                    return;
+                }
+                empty.style.display = 'none';
+                let html = '';
+                for (const bet of history) {
+                    const resultClass = bet.result === 'win' ? 'win' : (bet.result === 'lose' ? 'lose' : '');
+                    html += `
+                        <div class="bet-history-item">
+                            <div class="top">
+                                <span>${bet.teams}</span>
+                                <span class="result ${resultClass}">${bet.result === 'win' ? '✅ Выигрыш' : bet.result === 'lose' ? '❌ Проигрыш' : '⏳ В процессе'}</span>
+                            </div>
+                            <div class="detail">
+                                Ставка: <span class="coef">${bet.label}</span> | Коэф: ${bet.odds} | Сумма: ${bet.betSum} ₽
+                            </div>
+                            <div class="detail" style="font-size:11px;color:rgba(255,255,255,0.2);">
+                                ${new Date(bet.date).toLocaleString('ru')}
+                            </div>
+                        </div>
+                    `;
+                }
+                container.innerHTML = html;
+            }
+
+            // =============================================================
+            // 8. РЕНДЕРИНГ
+            // =============================================================
             const matchesContainer = document.getElementById('matchesContainer');
             const couponContainer = document.getElementById('couponContainer');
             const couponList = document.getElementById('couponList');
@@ -1011,6 +1116,8 @@
             const placeBetBtn = document.getElementById('placeBetBtn');
             const couponCount = document.getElementById('couponCount');
             const navCouponBadge = document.getElementById('navCouponBadge');
+            const betsContainer = document.getElementById('betsContainer');
+            const betsEmpty = document.getElementById('betsEmpty');
 
             let currentLeague = 'all';
             let currentTab = 'matches';
@@ -1018,7 +1125,6 @@
 
             function renderMatches() {
                 let filtered = matches;
-                // Если currentLeague не 'all' – фильтруем (но у нас только 'all')
                 if (currentLeague !== 'all') {
                     filtered = filtered.filter(m => m.league === currentLeague);
                 }
@@ -1100,6 +1206,7 @@
                 }
                 matchesContainer.innerHTML = html;
 
+                // Обработчики кликов (с выделением)
                 document.querySelectorAll('.odd-btn').forEach(btn => {
                     btn.addEventListener('click', function(e) {
                         e.stopPropagation();
@@ -1119,6 +1226,7 @@
                             const idx = coupon.findIndex(item => item.matchId === matchId && item.type === type && item
                                 .marketType === 'main');
                             if (idx !== -1) removeFromCoupon(idx);
+                            // снимаем выделение со всех кнопок этого типа
                             document.querySelectorAll('.odd-btn').forEach(b => {
                                 const mid = parseInt(b.dataset.match);
                                 const t = b.dataset.type;
@@ -1166,6 +1274,23 @@
                 });
             }
 
+            // Функция обратного отсчёта для купона
+            function updateCountdowns() {
+                const now = Date.now();
+                document.querySelectorAll('.coupon-item .countdown .time').forEach(el => {
+                    const timestamp = parseInt(el.dataset.timestamp);
+                    if (!timestamp) return;
+                    const diff = timestamp - now;
+                    if (diff <= 0) {
+                        el.textContent = '⏳ Скоро';
+                        return;
+                    }
+                    const hours = Math.floor(diff / 3600000);
+                    const minutes = Math.floor((diff % 3600000) / 60000);
+                    el.textContent = `${hours}h ${minutes}m`;
+                });
+            }
+
             function renderCoupon() {
                 if (coupon.length === 0) {
                     couponEmpty.style.display = 'block';
@@ -1181,11 +1306,27 @@
                 let html = '';
                 for (let i = 0; i < coupon.length; i++) {
                     const item = coupon[i];
+                    // Находим матч по ID, чтобы получить timestamp
+                    const match = matches.find(m => m.id === item.matchId);
+                    const timestamp = match ? match.timestamp : null;
+                    let countdownHtml = '';
+                    if (timestamp) {
+                        const diff = timestamp - Date.now();
+                        if (diff > 0) {
+                            const hours = Math.floor(diff / 3600000);
+                            const minutes = Math.floor((diff % 3600000) / 60000);
+                            countdownHtml =
+                                `<div class="countdown">⏳ <span class="time" data-timestamp="${timestamp}">${hours}h ${minutes}m</span></div>`;
+                        } else {
+                            countdownHtml = `<div class="countdown">⏳ <span class="time">Скоро</span></div>`;
+                        }
+                    }
                     html += `
                         <div class="coupon-item">
                             <div class="info">
                                 <div class="teams">${item.teamNames}</div>
                                 <div class="detail">${item.label} <span class="coef">${item.odds}</span></div>
+                                ${countdownHtml}
                             </div>
                             <button class="remove-btn" data-index="${i}">✕</button>
                         </div>
@@ -1223,13 +1364,22 @@
                 const betSum = parseInt(betSumInput.value) || 0;
                 potentialWin.textContent = (betSum * total).toFixed(0) + ' ₽';
                 placeBetBtn.disabled = (coupon.length === 0 || betSum < 10 || betSum > balance);
+
+                // Запускаем обновление таймера каждую минуту
+                if (coupon.length > 0) {
+                    setTimeout(updateCountdowns, 1000);
+                }
             }
 
             function updateUI() {
                 renderMatches();
                 renderCoupon();
+                renderBetHistory();
             }
 
+            // =============================================================
+            // 9. НАВИГАЦИЯ
+            // =============================================================
             function switchTab(tab) {
                 currentTab = tab;
                 document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -1238,14 +1388,15 @@
                 document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
                 const activeNav = document.querySelector(`.nav-item[data-tab="${tab}"]`);
                 if (activeNav) activeNav.classList.add('active');
-                document.querySelectorAll('.matches-container, .coupon-container, .history-container')
+                document.querySelectorAll('.matches-container, .coupon-container, .bets-container')
                     .forEach(el => el.classList.remove('show'));
                 if (tab === 'matches') {
                     document.querySelector('.matches-container').classList.add('show');
                 } else if (tab === 'coupon') {
                     document.querySelector('.coupon-container').classList.add('show');
-                } else if (tab === 'history') {
-                    document.querySelector('.history-container').classList.add('show');
+                } else if (tab === 'bets') {
+                    document.querySelector('.bets-container').classList.add('show');
+                    renderBetHistory();
                 }
                 vibrate('light');
             }
@@ -1264,6 +1415,9 @@
                 });
             });
 
+            // =============================================================
+            // 10. СТАВКА
+            // =============================================================
             betSumInput.addEventListener('input', function() {
                 let val = parseInt(this.value) || 0;
                 if (val < 0) this.value = 0;
@@ -1291,6 +1445,18 @@
                 balance -= betSum;
                 updateBalanceDisplay();
                 const win = Math.floor(betSum * total);
+                // Записываем в историю (условно выигрыш или проигрыш – для примера показываем выигрыш)
+                const result = Math.random() > 0.3 ? 'win' : 'lose'; // имитация
+                const teams = coupon.map(item => item.teamNames).join(', ');
+                const label = coupon.map(item => item.label).join(' + ');
+                const odds = coupon.map(item => item.odds).join(' x ');
+                addBetHistory({
+                    teams: teams,
+                    label: label,
+                    odds: odds,
+                    betSum: betSum,
+                    result: result
+                });
                 alert(`✅ Ставка принята!\nСумма: ${betSum} ₽\nКоэффициент: ${total.toFixed(2)}\nПотенциальный выигрыш: ${win} ₽`);
                 vibrate('success');
                 clearCoupon();
@@ -1298,8 +1464,12 @@
                 switchTab('matches');
             });
 
+            // =============================================================
+            // 11. ЗАПУСК
+            // =============================================================
             document.querySelector('.matches-container').classList.add('show');
             loadMatches();
+            renderBetHistory();
 
             window.addEventListener('storage', (e) => {
                 if (e.key === 'casinoBalance') {
@@ -1307,7 +1477,13 @@
                     updateBalanceDisplay();
                     renderCoupon();
                 }
+                if (e.key === 'football_bets') {
+                    renderBetHistory();
+                }
             });
+
+            // Обновление таймера каждую минуту
+            setInterval(updateCountdowns, 60000);
 
             initAudio();
 
