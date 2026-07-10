@@ -7,6 +7,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js">
     </script>
     <style>
+        /* ===== ВСЕ СТИЛИ (без изменений, см. предыдущую версию) ===== */
         @import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;0,900;1,800&family=Inter:wght@400;600;700;800;900&display=swap');
 
         * {
@@ -593,7 +594,7 @@
             box-shadow: none !important;
         }
 
-        /* ===== МОИ СТАВКИ (с корректным отображением статуса) ===== */
+        /* ===== МОИ СТАВКИ ===== */
         .bets-container {
             display: none;
             flex-direction: column;
@@ -602,6 +603,27 @@
         }
         .bets-container.show {
             display: flex;
+        }
+        .bets-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .bets-header .update-status-btn {
+            background: rgba(255, 215, 0, 0.08);
+            border: 1px solid rgba(255, 215, 0, 0.15);
+            border-radius: 30px;
+            padding: 6px 16px;
+            color: #FFD54A;
+            font-weight: 700;
+            font-size: 13px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .bets-header .update-status-btn:active {
+            transform: scale(0.9);
+            background: rgba(255, 215, 0, 0.15);
         }
         .bet-history-item {
             background: rgba(255, 255, 255, 0.03);
@@ -799,6 +821,10 @@
 
         <!-- Мои ставки -->
         <div class="bets-container" id="betsContainer">
+            <div class="bets-header">
+                <span style="font-weight:700;font-size:16px;color:rgba(255,255,255,0.6);">📋 История ставок</span>
+                <button class="update-status-btn" id="updateStatusBtn">🔄 Обновить статусы</button>
+            </div>
             <div class="bet-history-empty" id="betsEmpty">📋 У вас пока нет сделанных ставок</div>
             <div id="betsList"></div>
         </div>
@@ -876,7 +902,7 @@
             }
 
             // =============================================================
-            // 3. API С КЕШИРОВАНИЕМ (5 минут)
+            // 3. THE ODDS API (коэффициенты)
             // =============================================================
             const ODDS_API_KEY = '13f0b3f2e08095c7b5142e3b48e26e4e';
             const SPORTS_IDS = [
@@ -1029,7 +1055,133 @@
             }
 
             // =============================================================
-            // 4. FALLBACK
+            // 4. FOOTBALL-DATA.ORG (результаты завершённых матчей)
+            // =============================================================
+            const FOOTBALL_DATA_KEY = '154bc34176274b60320a5444b68c4e9a';
+            const FINISHED_CACHE_KEY = 'finished_matches_cache';
+            const FINISHED_TTL = 5 * 60 * 1000; // 5 минут
+
+            async function fetchFinishedMatches() {
+                const cached = localStorage.getItem(FINISHED_CACHE_KEY);
+                if (cached) {
+                    try {
+                        const data = JSON.parse(cached);
+                        if (Date.now() - data.timestamp < FINISHED_TTL) {
+                            console.log('✅ Используем кеш завершённых матчей');
+                            return data.matches;
+                        }
+                    } catch (e) { /* ignore */ }
+                }
+
+                const today = new Date();
+                const dateFrom = new Date(today.getTime() - 3 * 86400000).toISOString().split('T')[0];
+                const dateTo = today.toISOString().split('T')[0];
+                const url =
+                    `https://api.football-data.org/v4/matches?dateFrom=${dateFrom}&dateTo=${dateTo}&status=FINISHED`;
+
+                try {
+                    const response = await fetch(url, {
+                        headers: { 'X-Auth-Token': FOOTBALL_DATA_KEY }
+                    });
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const data = await response.json();
+                    const matches = data.matches || [];
+
+                    localStorage.setItem(FINISHED_CACHE_KEY, JSON.stringify({
+                        timestamp: Date.now(),
+                        matches: matches
+                    }));
+                    console.log(`✅ Загружено ${matches.length} завершённых матчей`);
+                    return matches;
+                } catch (e) {
+                    console.warn('⚠️ Ошибка загрузки завершённых матчей:', e);
+                    return [];
+                }
+            }
+
+            // =============================================================
+            // 5. ОБНОВЛЕНИЕ СТАТУСОВ СТАВОК
+            // =============================================================
+            async function updateBetsStatus() {
+                const history = getBetHistory();
+                const pending = history.filter(b => b.status === 'pending');
+                if (pending.length === 0) return;
+
+                const finishedMatches = await fetchFinishedMatches();
+                if (finishedMatches.length === 0) return;
+
+                let updated = false;
+
+                for (const bet of pending) {
+                    // Пытаемся найти матч по названиям команд и дате
+                    // Из bet.teams у нас строка "TeamA - TeamB", нужно разделить
+                    const teams = bet.teams.split(' - ');
+                    if (teams.length !== 2) continue;
+
+                    const homeName = teams[0].trim();
+                    const awayName = teams[1].trim();
+
+                    // Ищем матч в завершённых
+                    const found = finishedMatches.find(m => {
+                        const home = m.homeTeam?.name;
+                        const away = m.awayTeam?.name;
+                        if (!home || !away) return false;
+                        // Сравниваем названия (приблизительно)
+                        const homeMatch = home.includes(homeName) || homeName.includes(home);
+                        const awayMatch = away.includes(awayName) || awayName.includes(away);
+                        if (!homeMatch || !awayMatch) return false;
+
+                        // Проверяем дату (примерно в тот же день)
+                        const matchDate = new Date(m.utcDate);
+                        const betDate = new Date(bet.date);
+                        const diffDays = Math.abs((matchDate - betDate) / 86400000);
+                        return diffDays < 2;
+                    });
+
+                    if (!found) continue;
+
+                    // Определяем результат
+                    const score = found.score?.fullTime;
+                    if (!score) continue;
+
+                    const homeScore = parseInt(score.home) || 0;
+                    const awayScore = parseInt(score.away) || 0;
+
+                    // Сопоставляем с типом ставки (сохраняем тип в истории)
+                    const type = bet.type; // 'win1', 'draw', 'win2', 'over', 'under'
+                    let result = 'pending';
+
+                    if (type === 'win1') {
+                        result = homeScore > awayScore ? 'win' : 'lose';
+                    } else if (type === 'draw') {
+                        result = homeScore === awayScore ? 'win' : 'lose';
+                    } else if (type === 'win2') {
+                        result = homeScore < awayScore ? 'win' : 'lose';
+                    } else if (type === 'over') {
+                        const total = homeScore + awayScore;
+                        result = total > 2.5 ? 'win' : 'lose';
+                    } else if (type === 'under') {
+                        const total = homeScore + awayScore;
+                        result = total < 2.5 ? 'win' : 'lose';
+                    }
+
+                    if (result !== 'pending') {
+                        bet.status = result;
+                        updated = true;
+                    }
+                }
+
+                if (updated) {
+                    localStorage.setItem('football_bets', JSON.stringify(history));
+                    renderBetHistory();
+                    alert('✅ Статусы ставок обновлены!');
+                } else {
+                    alert('ℹ️ Новых завершённых матчей для ваших ставок не найдено.');
+                }
+            }
+
+            // =============================================================
+            // 6. FALLBACK
             // =============================================================
             function getFallbackMatches() {
                 const now = new Date();
@@ -1119,7 +1271,7 @@
             }
 
             // =============================================================
-            // 5. ЗАГРУЗКА МАТЧЕЙ
+            // 7. ЗАГРУЗКА МАТЧЕЙ
             // =============================================================
             let matches = [];
             let isRefreshing = false;
@@ -1181,7 +1333,7 @@
             });
 
             // =============================================================
-            // 6. КУПОН И СТАВКИ
+            // 8. КУПОН И СТАВКИ
             // =============================================================
             let coupon = [];
 
@@ -1204,7 +1356,7 @@
             }
 
             // =============================================================
-            // 7. ИСТОРИЯ СТАВОК (БЕЗ ИМИТАЦИИ РЕЗУЛЬТАТА)
+            // 9. ИСТОРИЯ СТАВОК (С СОХРАНЕНИЕМ ТИПА И ID)
             // =============================================================
             function getBetHistory() {
                 try {
@@ -1214,13 +1366,13 @@
 
             function addBetHistory(bet) {
                 const history = getBetHistory();
-                // Если результат не передан, ставим 'pending'
-                const status = bet.status || 'pending';
-                history.push({
+                // Добавляем поля для обновления статуса
+                const betWithMeta = {
                     ...bet,
-                    status: status,
+                    status: bet.status || 'pending',
                     date: new Date().toISOString()
-                });
+                };
+                history.push(betWithMeta);
                 localStorage.setItem('football_bets', JSON.stringify(history));
                 renderBetHistory();
             }
@@ -1258,7 +1410,7 @@
             }
 
             // =============================================================
-            // 8. РЕНДЕРИНГ
+            // 10. РЕНДЕРИНГ
             // =============================================================
             const matchesContainer = document.getElementById('matchesContainer');
             const couponContainer = document.getElementById('couponContainer');
@@ -1554,7 +1706,7 @@
             });
 
             // =============================================================
-            // 9. НАВИГАЦИЯ
+            // 11. НАВИГАЦИЯ
             // =============================================================
             function switchTab(tab) {
                 currentTab = tab;
@@ -1583,7 +1735,7 @@
             });
 
             // =============================================================
-            // 10. СТАВКА (БЕЗ ИМИТАЦИИ РЕЗУЛЬТАТА)
+            // 12. СТАВКА (С СОХРАНЕНИЕМ ТИПА ДЛЯ ОБНОВЛЕНИЯ)
             // =============================================================
             betSumInput.addEventListener('input', function() {
                 let val = parseInt(this.value) || 0;
@@ -1612,17 +1764,27 @@
                 balance -= betSum;
                 updateBalanceDisplay();
                 const win = Math.floor(betSum * total);
-                // Сохраняем в историю со статусом 'pending'
+
+                // Сохраняем историю с matchId и type для каждого события
                 const teams = coupon.map(item => item.teamNames).join(', ');
                 const label = coupon.map(item => item.label).join(' + ');
                 const odds = coupon.map(item => item.odds).join(' x ');
+                // Для первого события сохраняем matchId и type (для обновления статуса)
+                const firstItem = coupon[0];
+                // Если экспресс из нескольких матчей, то сложно определить win/lose, оставляем pending
+                const matchId = coupon.length === 1 ? firstItem.matchId : null;
+                const type = coupon.length === 1 ? firstItem.type : null;
+
                 addBetHistory({
                     teams: teams,
                     label: label,
                     odds: odds,
                     betSum: betSum,
+                    matchId: matchId,
+                    type: type,
                     status: 'pending'
                 });
+
                 alert(`✅ Ставка принята!\nСумма: ${betSum} ₽\nКоэффициент: ${total.toFixed(2)}\nПотенциальный выигрыш: ${win} ₽`);
                 vibrate('success');
                 clearCoupon();
@@ -1631,11 +1793,24 @@
             });
 
             // =============================================================
-            // 11. ЗАПУСК
+            // 13. КНОПКА ОБНОВЛЕНИЯ СТАТУСОВ
+            // =============================================================
+            document.getElementById('updateStatusBtn').addEventListener('click', function() {
+                vibrate('light');
+                updateBetsStatus();
+            });
+
+            // =============================================================
+            // 14. ЗАПУСК
             // =============================================================
             document.querySelector('.matches-container').classList.add('show');
             loadMatches();
             renderBetHistory();
+
+            // При загрузке также обновляем статусы (если есть завершённые матчи)
+            setTimeout(() => {
+                updateBetsStatus();
+            }, 3000);
 
             window.addEventListener('storage', (e) => {
                 if (e.key === 'casinoBalance') {
