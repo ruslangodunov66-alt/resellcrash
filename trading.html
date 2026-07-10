@@ -11,7 +11,7 @@
         body { background: radial-gradient(circle at 30% 10%, #0c1120, #020408); color: #ddd; padding: 20px; min-height: 100vh; }
         .container { max-width: 700px; margin: 0 auto; }
         .glass-card { background: rgba(20,30,45,0.7); backdrop-filter: blur(12px); border-radius: 48px; padding: 20px; margin-bottom: 20px; border: 1px solid rgba(0,255,255,0.3); }
-        h2 { font-size: 28px; background: linear-gradient(135deg, #ffcc44, #ff6644); background-clip: text; -webkit-background-clip: text; color: transparent; margin-bottom: 15px; }
+        h2 { font-size: 28px; background: linear-gradient(135deg, #ffcc44, #ff6644); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 15px; }
         .balance { font-size: 18px; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 40px; text-align: center; margin-bottom: 20px; }
         .asset-selector { display: flex; gap: 12px; justify-content: center; margin-bottom: 20px; flex-wrap: wrap; }
         .asset-btn { background: #1e2a3a; border: none; padding: 8px 20px; border-radius: 40px; color: #c0e0ff; cursor: pointer; transition: 0.2s; }
@@ -31,7 +31,9 @@
         .history-item { padding: 8px; border-bottom: 1px solid #2a3e55; font-size: 13px; }
         .win { color: #2ecc71; }
         .loss { color: #e74c3c; }
-        .back-btn { background: #555; width: 100%; margin-top: 20px; }
+        .back-btn { background: #555; width: 100%; margin-top: 20px; color: white; }
+        .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #333; padding: 8px 20px; border-radius: 30px; font-size: 14px; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+        .toast.show { opacity: 1; }
     </style>
 </head>
 <body>
@@ -53,98 +55,165 @@
             <button class="btn-down" id="btnDown">🔻 ВНИЗ</button>
         </div>
         <div class="history">
-            <h3>📋 История сделок</h3>
+            <h3>📋 Последние сделки</h3>
             <div id="historyList">Нет сделок</div>
         </div>
     </div>
     <button class="back-btn" onclick="window.location.href='index.html'">🔙 На главную</button>
 </div>
+<div class="toast" id="toast"></div>
 
 <script>
+    // ---------- ИНИЦИАЛИЗАЦИЯ TELEGRAM ----------
     const tg = window.Telegram.WebApp;
     tg.expand();
     tg.ready();
 
-    // НАСТРОЙКИ
-    const API_BASE = "https://nl12.bothost.ru";
-    const USE_REAL_API = false;
-    const userId = tg.initDataUnsafe?.user?.id || 1475910449;
+    // Получаем userId (из URL-параметра или из данных пользователя)
+    const urlParams = new URLSearchParams(window.location.search);
+    const userId = urlParams.get('userId') || tg.initDataUnsafe?.user?.id;
+    if (!userId) {
+        tg.showAlert('❌ Не удалось определить пользователя. Перезапустите игру.');
+    }
 
-    // Активы
+    // ---------- НАСТРОЙКИ ----------
     const assets = {
-        BTC: { name: "Bitcoin", color: "#f7931a", minBet: 100, maxBet: 10000, volatility: 0.05, basePrice: 51200 },
-        ETH: { name: "Ethereum", color: "#627eea", minBet: 50, maxBet: 5000, volatility: 0.06, basePrice: 3100 },
-        SOL: { name: "Solana", color: "#14f195", minBet: 10, maxBet: 2000, volatility: 0.08, basePrice: 145 },
-        DOGE: { name: "Dogecoin", color: "#c2a633", minBet: 5, maxBet: 1000, volatility: 0.10, basePrice: 0.18 }
+        BTC: { name: "Bitcoin", color: "#f7931a", minBet: 100, maxBet: 10000, basePrice: 51200 },
+        ETH: { name: "Ethereum", color: "#627eea", minBet: 50,  maxBet: 5000,  basePrice: 3100 },
+        SOL: { name: "Solana",   color: "#14f195", minBet: 10,  maxBet: 2000,  basePrice: 145 },
+        DOGE:{ name: "Dogecoin", color: "#c2a633", minBet: 5,   maxBet: 1000,  basePrice: 0.18 }
     };
-    let currentAsset = "BTC";
+
+    let currentAsset = 'BTC';
     let balance = 0;
-    let priceHistory = [];   // массив цен для графика (последние 30)
+    let priceHistory = [];      // массив цен для графика (последние 60)
     let chart = null;
     let currentPrice = 0;
-    let priceTrend = 0;
-    let history = [];
+    let tradeHistory = [];      // последние 10 сделок
 
-    // Загрузка баланса
-    async function loadBalance() {
-        if (!USE_REAL_API) { balance = 150000; updateBalanceUI(); return; }
+    // ---------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ----------
+    function showToast(msg) {
+        const el = document.getElementById('toast');
+        el.textContent = msg;
+        el.classList.add('show');
+        clearTimeout(el._timeout);
+        el._timeout = setTimeout(() => el.classList.remove('show'), 3000);
+    }
+
+    // ---------- ОТПРАВКА ДАННЫХ В БОТ ----------
+    function sendToBot(action, data = {}) {
+        const payload = { action, ...data, userId };
+        tg.sendData(JSON.stringify(payload));
+    }
+
+    // ---------- ЗАПРОС ЦЕН ----------
+    function fetchPrices() {
+        sendToBot('get_trading_prices');
+    }
+
+    // ---------- ЗАПРОС ПОРТФЕЛЯ ----------
+    function fetchPortfolio() {
+        sendToBot('get_trading_portfolio');
+    }
+
+    // ---------- ОБРАБОТКА ОТВЕТОВ ОТ БОТА ----------
+    tg.onEvent('webAppData', (event) => {
         try {
-            const resp = await fetch(`${API_BASE}/api/me?tg_id=${userId}`);
-            const data = await resp.json();
-            balance = data.balance || 0;
-            updateBalanceUI();
-        } catch(e) { console.warn(e); balance = 150000; updateBalanceUI(); }
-    }
-    function updateBalanceUI() {
-        document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`;
-    }
+            const response = JSON.parse(event.data);
+            if (!response.success) {
+                showToast('❌ ' + (response.error || 'Ошибка'));
+                return;
+            }
 
-    // Генерация новой цены (симуляция)
-    function generateNewPrice(asset, oldPrice) {
-        const volatility = assets[asset].volatility;
-        let change = (Math.random() - 0.5) * 2 * volatility;
-        change += priceTrend * 0.01;
-        let newPrice = oldPrice * (1 + change);
-        if (newPrice > oldPrice * 1.1) newPrice = oldPrice * 1.09;
-        if (newPrice < oldPrice * 0.9) newPrice = oldPrice * 0.91;
-        if (newPrice <= 0) newPrice = oldPrice * 0.95;
-        priceTrend = priceTrend * 0.9 + change * 0.1;
-        return newPrice;
-    }
+            // Ответ от get_trading_prices
+            if (response.prices) {
+                updatePrices(response.prices);
+            }
 
-    // Инициализация цен для выбранного актива
-    function initPrices(asset) {
-        currentPrice = assets[asset].basePrice;
-        priceHistory = [];
-        let price = currentPrice;
-        for (let i = 0; i < 30; i++) {
-            priceHistory.push(price);
-            price = generateNewPrice(asset, price);
+            // Ответ от get_trading_portfolio
+            if (response.portfolio) {
+                updatePortfolio(response.portfolio);
+            }
+
+            // Ответ от trade_bet (подтверждение ставки)
+            if (response.bet_id) {
+                showToast('✅ Ставка принята! Результат придёт в чат.');
+                // Сразу обновим портфель, чтобы увидеть списание
+                setTimeout(fetchPortfolio, 500);
+            }
+
+            // Общее сообщение
+            if (response.message) {
+                showToast(response.message);
+            }
+        } catch (e) {
+            console.error('Ошибка обработки ответа бота:', e);
         }
-        currentPrice = priceHistory[priceHistory.length-1];
+    });
+
+    // ---------- ОБНОВЛЕНИЕ ЦЕН ----------
+    function updatePrices(prices) {
+        const assetData = prices[currentAsset];
+        if (!assetData) return;
+        const price = assetData.price;
+        const trend = assetData.trend || 0;
+        const history = assetData.history || [];
+
+        currentPrice = price;
+
+        // Обновляем график
+        priceHistory = history.slice(-60);
+        if (priceHistory.length < 2) {
+            // Если истории нет, заполним текущей ценой
+            while (priceHistory.length < 2) priceHistory.push(price);
+        }
         updateChart();
-        updatePriceDisplay();
-    }
 
-    function updatePriceDisplay() {
-        const priceElem = document.getElementById('currentPrice');
+        // Обновляем отображение цены
+        document.getElementById('currentPrice').textContent = price.toFixed(2);
+        const changePct = ((price - (priceHistory[priceHistory.length-2] || price)) / (priceHistory[priceHistory.length-2] || price) * 100).toFixed(2);
         const changeElem = document.getElementById('changePercent');
-        if (priceHistory.length < 2) return;
-        const lastPrice = priceHistory[priceHistory.length-1];
-        const prevPrice = priceHistory[priceHistory.length-2];
-        const change = ((lastPrice - prevPrice) / prevPrice * 100).toFixed(2);
-        priceElem.innerText = lastPrice.toFixed(2);
-        changeElem.innerText = `${change > 0 ? '+' : ''}${change}%`;
-        changeElem.className = `change ${change >= 0 ? 'positive' : 'negative'}`;
+        changeElem.textContent = (changePct >= 0 ? '+' : '') + changePct + '%';
+        changeElem.className = 'change ' + (changePct >= 0 ? 'positive' : 'negative');
     }
 
-    // График
+    // ---------- ОБНОВЛЕНИЕ ПОРТФЕЛЯ ----------
+    function updatePortfolio(portfolio) {
+        balance = portfolio.balance || 0;
+        document.getElementById('balance').innerHTML = `💰 Баланс: ${balance.toLocaleString()}₽`;
+
+        // История ставок
+        const history = portfolio.history || [];
+        tradeHistory = history.slice(-10);
+        renderHistory();
+    }
+
+    function renderHistory() {
+        const container = document.getElementById('historyList');
+        if (!tradeHistory.length) {
+            container.innerHTML = '<div>Нет сделок</div>';
+            return;
+        }
+        let html = '';
+        for (let h of tradeHistory.slice().reverse()) {
+            const sign = h.result === 'win' ? '✅' : '❌';
+            const profit = h.profit || 0;
+            const direction = h.direction === 'up' ? 'ВВЕРХ' : 'ВНИЗ';
+            html += `<div class="history-item">
+                ${sign} ${h.asset} ${direction} | ${h.bet}₽ → ${profit >= 0 ? '+' : ''}${profit}₽
+                <span style="float:right;color:#888;">${new Date(h.time).toLocaleTimeString()}</span>
+            </div>`;
+        }
+        container.innerHTML = html;
+    }
+
+    // ---------- ГРАФИК ----------
     function initChart() {
         const ctx = document.getElementById('priceChart').getContext('2d');
         chart = new Chart(ctx, {
             type: 'line',
             data: {
-                labels: Array.from({length: 30}, (_,i) => i+1),
+                labels: Array.from({length: 60}, (_,i) => i+1),
                 datasets: [{
                     label: 'Цена USD',
                     data: [],
@@ -160,103 +229,98 @@
                 responsive: true,
                 maintainAspectRatio: true,
                 plugins: { legend: { display: false }, tooltip: { mode: 'index' } },
-                scales: { x: { grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { display: false } }, y: { grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#ccc' } } }
+                scales: {
+                    x: { grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { display: false } },
+                    y: { grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#ccc' } }
+                }
             }
         });
     }
+
     function updateChart() {
         if (!chart) return;
-        chart.data.datasets[0].data = priceHistory;
+        chart.data.datasets[0].data = priceHistory.slice(-60);
         chart.update();
-        updatePriceDisplay();
     }
 
-    // Обновление цены каждые 3 секунды
-    function startPriceSimulation() {
-        setInterval(() => {
-            const newPrice = generateNewPrice(currentAsset, currentPrice);
-            currentPrice = newPrice;
-            priceHistory.push(newPrice);
-            if (priceHistory.length > 60) priceHistory.shift();
-            updateChart();
-        }, 3000);
-    }
-
-    // Переключение актива
+    // ---------- ПЕРЕКЛЮЧЕНИЕ АКТИВА ----------
     function switchAsset(asset) {
         currentAsset = asset;
-        const minBet = assets[asset].minBet, maxBet = assets[asset].maxBet;
+        const info = assets[asset];
         const betInput = document.getElementById('betAmount');
-        betInput.min = minBet; betInput.max = maxBet;
-        betInput.value = Math.min(Math.max(betInput.value, minBet), maxBet);
-        initPrices(asset);
+        betInput.min = info.minBet;
+        betInput.max = info.maxBet;
+        betInput.value = Math.min(Math.max(betInput.value, info.minBet), info.maxBet);
+
+        // Сброс графика и цен (запросим новые)
+        priceHistory = [];
+        fetchPrices();
+
+        // Подсветка кнопок
         document.querySelectorAll('.asset-btn').forEach(btn => {
-            if (btn.dataset.asset === asset) btn.classList.add('active');
-            else btn.classList.remove('active');
+            btn.classList.toggle('active', btn.dataset.asset === asset);
         });
     }
 
-    // Ставка
-    async function makeBet(direction) {
+    // ---------- СТАВКА ----------
+    function makeBet(direction) {
         let amount = parseInt(document.getElementById('betAmount').value);
-        const minBet = assets[currentAsset].minBet, maxBet = assets[currentAsset].maxBet;
-        if (isNaN(amount) || amount < minBet || amount > maxBet) {
-            tg.showAlert(`❌ Ставка от ${minBet} до ${maxBet}₽`);
+        const info = assets[currentAsset];
+        if (isNaN(amount) || amount < info.minBet || amount > info.maxBet) {
+            tg.showAlert(`❌ Ставка должна быть от ${info.minBet} до ${info.maxBet}₽`);
             return;
         }
-        if (balance < amount) { tg.showAlert("❌ Недостаточно средств"); return; }
-        if (!USE_REAL_API) {
-            const winChance = 0.5;
-            const win = Math.random() < winChance;
-            const profit = win ? amount * (Math.random() * 1.2 + 1.5) : -amount;
-            balance += profit;
-            updateBalanceUI();
-            const resultText = win ? `✅ ВЫИГРЫШ! +${profit}₽` : `❌ ПРОИГРЫШ -${amount}₽`;
-            tg.showAlert(resultText);
-            history.unshift({ asset: currentAsset, direction: direction==='up'?'ВВЕРХ':'ВНИЗ', amount, profit: profit, win, time: new Date().toLocaleTimeString() });
-            if (history.length > 10) history.pop();
-            renderHistory();
+        if (balance < amount) {
+            tg.showAlert('❌ Недостаточно средств!');
             return;
         }
-        // реальный API – заглушка
-        tg.showAlert("Демо-режим, реальный API будет после настройки сервера");
+        sendToBot('trade_bet', {
+            asset: currentAsset,
+            direction: direction,
+            amount: amount
+        });
+        // Блокируем кнопки на 3 секунды, чтобы избежать спама
+        document.getElementById('btnUp').disabled = true;
+        document.getElementById('btnDown').disabled = true;
+        setTimeout(() => {
+            document.getElementById('btnUp').disabled = false;
+            document.getElementById('btnDown').disabled = false;
+        }, 3000);
     }
 
-    function renderHistory() {
-        const container = document.getElementById('historyList');
-        if (!history.length) { container.innerHTML = '<div>Нет сделок</div>'; return; }
-        let html = '';
-        for (let h of history) {
-            const sign = h.win ? '✅' : '❌';
-            html += `<div class="history-item">${sign} ${h.asset} ${h.direction} | ${Math.abs(h.profit)}₽ (${h.profit>=0?'+':''}${h.profit}₽) | ${h.time}</div>`;
-        }
-        container.innerHTML = html;
-    }
-
+    // ---------- ИНИЦИАЛИЗАЦИЯ UI ----------
     function initAssetSelector() {
         const container = document.getElementById('assetSelector');
         container.innerHTML = '';
         for (let [symbol, info] of Object.entries(assets)) {
             const btn = document.createElement('button');
-            btn.className = 'asset-btn';
-            if (symbol === currentAsset) btn.classList.add('active');
+            btn.className = 'asset-btn' + (symbol === currentAsset ? ' active' : '');
             btn.dataset.asset = symbol;
-            btn.innerText = symbol;
+            btn.textContent = symbol;
             btn.onclick = () => switchAsset(symbol);
             container.appendChild(btn);
         }
     }
 
-    document.getElementById('btnUp').onclick = () => makeBet('up');
-    document.getElementById('btnDown').onclick = () => makeBet('down');
-
+    // ---------- ЗАПУСК ----------
     async function init() {
         initAssetSelector();
         initChart();
-        await loadBalance();
-        initPrices(currentAsset);
-        startPriceSimulation();
+
+        // Загружаем портфель и цены
+        fetchPortfolio();
+        fetchPrices();
+
+        // Периодическое обновление цен
+        setInterval(fetchPrices, 3000);
+        // Обновление портфеля каждые 15 секунд (чтобы видеть изменения баланса)
+        setInterval(fetchPortfolio, 15000);
+
+        // Обработчики кнопок ставок
+        document.getElementById('btnUp').onclick = () => makeBet('up');
+        document.getElementById('btnDown').onclick = () => makeBet('down');
     }
+
     init();
 </script>
 </body>
