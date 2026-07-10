@@ -32,7 +32,56 @@
                 radial-gradient(circle at 10% 0%, rgba(24, 130, 255, 0.12), transparent 50%),
                 radial-gradient(circle at 90% 100%, rgba(139, 92, 246, 0.08), transparent 50%);
             background-attachment: fixed;
+            position: relative;
             padding-bottom: 80px;
+        }
+
+        /* Фон с полупрозрачной надписью R-GAME */
+        .bg-watermarks {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            pointer-events: none;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 150px;
+        }
+        .bg-text {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 140px;
+            font-weight: 800;
+            font-style: italic;
+            white-space: nowrap;
+            background: linear-gradient(135deg, #ffffff, #a0c4ff);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            text-transform: uppercase;
+            opacity: 0.03;
+            transform: rotate(-10deg);
+            animation: floatText 15s ease-in-out infinite alternate;
+        }
+        .bg-text span {
+            color: #1882ff;
+            -webkit-text-fill-color: #1882ff;
+        }
+        .bg-text:nth-child(2) {
+            margin-left: 200px;
+            animation-delay: -5s;
+        }
+        .bg-text:nth-child(3) {
+            margin-right: 300px;
+            animation-delay: -10s;
+        }
+        @keyframes floatText {
+            0% { transform: rotate(-10deg) translate(0, 0); }
+            100% { transform: rotate(-10deg) translate(20px, -20px); }
         }
 
         #app {
@@ -389,7 +438,7 @@
             pointer-events: none;
         }
 
-        /* ===== ВКЛАДКА КУПОН (УЛУЧШЕННЫЙ ДИЗАЙН) ===== */
+        /* ===== КУПОН ===== */
         .coupon-container {
             display: none;
             flex-direction: column;
@@ -545,7 +594,55 @@
             box-shadow: none !important;
         }
 
-        /* ===== ПЛАВАЮЩАЯ ПАНЕЛЬ СТАВОК ===== */
+        /* ===== МОИ СТАВКИ ===== */
+        .bets-container {
+            display: none;
+            flex-direction: column;
+            gap: 12px;
+            padding-bottom: 100px;
+        }
+        .bets-container.show {
+            display: flex;
+        }
+        .bet-history-item {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 16px;
+            padding: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .bet-history-item .top {
+            display: flex;
+            justify-content: space-between;
+            font-weight: 700;
+            font-size: 14px;
+        }
+        .bet-history-item .top .result {
+            font-weight: 800;
+        }
+        .bet-history-item .top .result.win {
+            color: #3DDC84;
+        }
+        .bet-history-item .top .result.lose {
+            color: #f03043;
+        }
+        .bet-history-item .detail {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.4);
+        }
+        .bet-history-item .detail .coef {
+            color: #FFD54A;
+        }
+        .bet-history-empty {
+            text-align: center;
+            padding: 50px 0;
+            color: rgba(255, 255, 255, 0.15);
+            font-size: 16px;
+        }
+
+        /* ===== ПЛАВАЮЩАЯ ПАНЕЛЬ ===== */
         .floating-bet-panel {
             position: fixed;
             bottom: 0;
@@ -629,12 +726,6 @@
             background: rgba(240, 48, 67, 0.1);
         }
 
-        /* Убираем старую историю ставок */
-        .bets-container {
-            display: none;
-        }
-
-        /* Адаптив */
         @media (max-width: 420px) {
             .match-odds-main { grid-template-columns: repeat(5, 1fr); gap: 4px; }
             .odd-btn .value { font-size: 16px; }
@@ -644,16 +735,25 @@
             .floating-bet-panel { padding: 10px 12px; flex-wrap: wrap; }
             .floating-bet-panel .info .odds-sum { font-size: 17px; }
             .floating-bet-panel .bet-btn { font-size: 15px; padding: 10px 16px; }
+            .bg-text { font-size: 80px; }
         }
         @media (max-width: 360px) {
             .match-odds-main { grid-template-columns: repeat(3, 1fr); }
             .match-odds-main .odd-btn:nth-child(4),
             .match-odds-main .odd-btn:nth-child(5) { grid-column: span 1; }
             .match-odds-extra { grid-template-columns: repeat(2, 1fr); }
+            .bg-text { font-size: 60px; }
         }
     </style>
 </head>
 <body>
+
+    <!-- Фоновые водяные знаки R-GAME -->
+    <div class="bg-watermarks">
+        <div class="bg-text">R-<span>GAME</span></div>
+        <div class="bg-text">R-<span>GAME</span></div>
+        <div class="bg-text">R-<span>GAME</span></div>
+    </div>
 
     <div id="app">
         <div class="header">
@@ -668,6 +768,7 @@
         <div class="tabs">
             <button class="tab-btn active" data-tab="matches">Матчи</button>
             <button class="tab-btn" data-tab="coupon">Купон <span class="badge" id="couponCount">0</span></button>
+            <button class="tab-btn" data-tab="bets">Мои ставки</button>
         </div>
 
         <!-- Скрытый фильтр -->
@@ -690,7 +791,13 @@
             </div>
         </div>
 
-        <!-- Плавающая панель ставок -->
+        <!-- Мои ставки -->
+        <div class="bets-container" id="betsContainer">
+            <div class="bet-history-empty" id="betsEmpty">📋 У вас пока нет сделанных ставок</div>
+            <div id="betsList"></div>
+        </div>
+
+        <!-- Плавающая панель -->
         <div class="floating-bet-panel" id="floatingPanel">
             <div class="info">
                 <div class="events" id="panelEvents">0 событий</div>
@@ -778,7 +885,6 @@
             const CACHE_TTL = 5 * 60 * 1000; // 5 минут
 
             async function fetchRealMatches() {
-                // Проверяем кеш
                 const cached = localStorage.getItem(CACHE_KEY);
                 if (cached) {
                     try {
@@ -808,7 +914,6 @@
                     if (data && data.length > 0) allMatches.push(...data);
                 });
 
-                // Сохраняем в кеш
                 localStorage.setItem(CACHE_KEY, JSON.stringify({
                     timestamp: Date.now(),
                     matches: allMatches
@@ -1008,7 +1113,7 @@
             }
 
             // =============================================================
-            // 5. ЗАГРУЗКА МАТЧЕЙ (С КЕШИРОВАНИЕМ)
+            // 5. ЗАГРУЗКА МАТЧЕЙ
             // =============================================================
             let matches = [];
             let isRefreshing = false;
@@ -1025,7 +1130,6 @@
                     let allMapped = [];
                     let rawData = [];
                     if (!force) {
-                        // Проверяем кеш
                         const cached = localStorage.getItem(CACHE_KEY);
                         if (cached) {
                             try {
@@ -1094,7 +1198,57 @@
             }
 
             // =============================================================
-            // 7. РЕНДЕРИНГ
+            // 7. ИСТОРИЯ СТАВОК
+            // =============================================================
+            function getBetHistory() {
+                try {
+                    return JSON.parse(localStorage.getItem('football_bets')) || [];
+                } catch { return []; }
+            }
+
+            function addBetHistory(bet) {
+                const history = getBetHistory();
+                history.push({
+                    ...bet,
+                    date: new Date().toISOString()
+                });
+                localStorage.setItem('football_bets', JSON.stringify(history));
+                renderBetHistory();
+            }
+
+            function renderBetHistory() {
+                const container = document.getElementById('betsList');
+                const empty = document.getElementById('betsEmpty');
+                const history = getBetHistory();
+                if (history.length === 0) {
+                    empty.style.display = 'block';
+                    container.innerHTML = '';
+                    return;
+                }
+                empty.style.display = 'none';
+                let html = '';
+                for (const bet of history) {
+                    const resultClass = bet.result === 'win' ? 'win' : (bet.result === 'lose' ? 'lose' : '');
+                    html += `
+                        <div class="bet-history-item">
+                            <div class="top">
+                                <span>${bet.teams}</span>
+                                <span class="result ${resultClass}">${bet.result === 'win' ? '✅ Выигрыш' : bet.result === 'lose' ? '❌ Проигрыш' : '⏳ В процессе'}</span>
+                            </div>
+                            <div class="detail">
+                                Ставка: <span class="coef">${bet.label}</span> | Коэф: ${bet.odds} | Сумма: ${bet.betSum} ₽
+                            </div>
+                            <div class="detail" style="font-size:11px;color:rgba(255,255,255,0.2);">
+                                ${new Date(bet.date).toLocaleString('ru')}
+                            </div>
+                        </div>
+                    `;
+                }
+                container.innerHTML = html;
+            }
+
+            // =============================================================
+            // 8. РЕНДЕРИНГ
             // =============================================================
             const matchesContainer = document.getElementById('matchesContainer');
             const couponContainer = document.getElementById('couponContainer');
@@ -1107,7 +1261,6 @@
             const potentialWin = document.getElementById('potentialWin');
             const placeBetBtn = document.getElementById('placeBetBtn');
             const couponCount = document.getElementById('couponCount');
-
             const floatingPanel = document.getElementById('floatingPanel');
             const panelEvents = document.getElementById('panelEvents');
             const panelOdds = document.getElementById('panelOdds');
@@ -1201,6 +1354,7 @@
                 }
                 matchesContainer.innerHTML = html;
 
+                // === ОБРАБОТЧИКИ КОЭФФИЦИЕНТОВ ===
                 document.querySelectorAll('.odd-btn').forEach(btn => {
                     btn.addEventListener('click', function(e) {
                         e.stopPropagation();
@@ -1373,20 +1527,18 @@
                 renderMatches();
                 renderCoupon();
                 updateFloatingPanel();
+                renderBetHistory();
             }
 
-            // Обработчики для плавающей панели
+            // Обработчики плавающей панели
             panelClearBtn.addEventListener('click', function() {
                 clearCoupon();
-                // снять выделение со всех кнопок
                 document.querySelectorAll('.odd-btn, .odd-btn-extra').forEach(b => b.classList.remove('selected'));
                 vibrate('light');
             });
 
             panelBetBtn.addEventListener('click', function() {
-                // Открываем вкладку купона
                 switchTab('coupon');
-                // Прокручиваем к кнопке "Сделать ставку"
                 setTimeout(() => {
                     const btn = document.getElementById('placeBetBtn');
                     if (btn) btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1394,20 +1546,23 @@
             });
 
             // =============================================================
-            // 8. НАВИГАЦИЯ
+            // 9. НАВИГАЦИЯ
             // =============================================================
             function switchTab(tab) {
                 currentTab = tab;
                 document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
                 const activeTabBtn = document.querySelector(`.tab-btn[data-tab="${tab}"]`);
                 if (activeTabBtn) activeTabBtn.classList.add('active');
-                document.querySelectorAll('.matches-container, .coupon-container')
+                document.querySelectorAll('.matches-container, .coupon-container, .bets-container')
                     .forEach(el => el.classList.remove('show'));
                 if (tab === 'matches') {
                     document.querySelector('.matches-container').classList.add('show');
                 } else if (tab === 'coupon') {
                     document.querySelector('.coupon-container').classList.add('show');
                     renderCoupon();
+                } else if (tab === 'bets') {
+                    document.querySelector('.bets-container').classList.add('show');
+                    renderBetHistory();
                 }
                 vibrate('light');
             }
@@ -1420,7 +1575,7 @@
             });
 
             // =============================================================
-            // 9. СТАВКА
+            // 10. СТАВКА
             // =============================================================
             betSumInput.addEventListener('input', function() {
                 let val = parseInt(this.value) || 0;
@@ -1449,6 +1604,18 @@
                 balance -= betSum;
                 updateBalanceDisplay();
                 const win = Math.floor(betSum * total);
+                // Сохраняем в историю (имитация результата)
+                const result = Math.random() > 0.3 ? 'win' : 'lose';
+                const teams = coupon.map(item => item.teamNames).join(', ');
+                const label = coupon.map(item => item.label).join(' + ');
+                const odds = coupon.map(item => item.odds).join(' x ');
+                addBetHistory({
+                    teams: teams,
+                    label: label,
+                    odds: odds,
+                    betSum: betSum,
+                    result: result
+                });
                 alert(`✅ Ставка принята!\nСумма: ${betSum} ₽\nКоэффициент: ${total.toFixed(2)}\nПотенциальный выигрыш: ${win} ₽`);
                 vibrate('success');
                 clearCoupon();
@@ -1457,10 +1624,11 @@
             });
 
             // =============================================================
-            // 10. ЗАПУСК
+            // 11. ЗАПУСК
             // =============================================================
             document.querySelector('.matches-container').classList.add('show');
             loadMatches();
+            renderBetHistory();
 
             window.addEventListener('storage', (e) => {
                 if (e.key === 'casinoBalance') {
@@ -1468,6 +1636,9 @@
                     updateBalanceDisplay();
                     renderCoupon();
                     updateFloatingPanel();
+                }
+                if (e.key === 'football_bets') {
+                    renderBetHistory();
                 }
             });
 
