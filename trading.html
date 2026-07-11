@@ -1047,27 +1047,13 @@
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred(type);
         }
 
+        // Универсальная отправка в бот
         function sendToBot(action, data = {}) {
             return new Promise((resolve) => {
                 const payload = JSON.stringify({ action, ...data });
                 console.log('📤 Отправка:', payload);
                 tg.sendData(payload);
-                // Ответ будет обработан через onEvent
-                // Сохраним колбэк во временное хранилище
-                const callbackId = 'cb_' + Date.now();
-                window._pendingCallbacks = window._pendingCallbacks || {};
-                window._pendingCallbacks[callbackId] = resolve;
-                // В обработчике ответа будем вызывать
-                // Для упрощения используем глобальный обработчик
-                // Но мы не знаем, когда придёт ответ, поэтому подпишемся на событие один раз
-                // Лучше использовать универсальный обработчик, который будет вызывать все колбэки по полю action
-                // Сделаем так: ответы содержат поле action или type.
-                // Мы будем хранить колбэк в Map по id запроса, но у нас нет id.
-                // Вариант: в ответе будет поле 'responseTo' с действием.
-                // Мы можем сохранить последний запрос и ожидать.
-                // Для простоты: будем обрабатывать ответ в общем обработчике и вызывать колбэк, если он есть.
-                // Сделаем глобальную переменную.
-                window._lastAction = action;
+                // Сохраняем колбэк в глобальную переменную, он будет вызван в обработчике
                 window._lastResolve = resolve;
             });
         }
@@ -1082,42 +1068,29 @@
                     window._lastResolve(response);
                     window._lastResolve = null;
                 }
-                // Обработка конкретных ответов для обновления UI
-                if (response.balance !== undefined) {
+                // Автоматическое обновление баланса
+                if (response.new_balance !== undefined) {
+                    const newBal = response.new_balance;
+                    localStorage.setItem('tradeBalance', String(newBal));
+                    balanceDisplay.innerText = newBal.toLocaleString() + ' ₽';
+                    showToast('✅ Баланс обновлён!');
+                } else if (response.balance !== undefined) {
                     const newBal = response.balance;
                     localStorage.setItem('tradeBalance', String(newBal));
                     balanceDisplay.innerText = newBal.toLocaleString() + ' ₽';
                 }
-                if (response.action === 'deposit_success' || response.action === 'withdraw_success') {
-                    if (response.new_balance !== undefined) {
-                        const newBal = response.new_balance;
-                        localStorage.setItem('tradeBalance', String(newBal));
-                        balanceDisplay.innerText = newBal.toLocaleString() + ' ₽';
-                        showToast('✅ Операция выполнена! Баланс обновлён.');
-                    }
-                }
+                // Обработка результатов торговли
                 if (response.type === 'trade_result') {
                     if (response.win) {
                         showToast(`✅ Выигрыш! +${response.profit} ₽`);
                     } else {
                         showToast(`❌ Проигрыш. -${response.bet} ₽`);
                     }
-                    // Обновляем баланс, если пришёл новый баланс
-                    if (response.new_balance !== undefined) {
-                        localStorage.setItem('tradeBalance', String(response.new_balance));
-                        balanceDisplay.innerText = response.new_balance.toLocaleString() + ' ₽';
-                    }
                 }
+                // Профиль
                 if (response.type === 'profile_data') {
                     updateProfileStats(response.data);
                 }
-                if (response.type === 'referral_info') {
-                    showReferralInfo(response);
-                }
-                if (response.type === 'history_data') {
-                    showHistory(response.history);
-                }
-                // Другие обработчики...
             } catch (e) {
                 console.error('Ошибка обработки ответа:', e);
             }
@@ -1144,7 +1117,6 @@
             sendToBot('get_trading_portfolio').then(res => {
                 if (res && res.success) {
                     const data = res.portfolio || {};
-                    // Отправляем в функцию обновления UI
                     updateProfileStats(data);
                 }
             });
@@ -1156,7 +1128,7 @@
             const losses = data.losses || 0;
             const totalProfit = data.total_profit || 0;
             const winrate = totalBets > 0 ? (wins / totalBets * 100) : 0;
-            const volume = data.total_bet || 0; // можно использовать total_bet
+            const volume = data.total_bet || 0;
 
             statPnL.textContent = (totalProfit >= 0 ? '+' : '') + totalProfit.toLocaleString() + ' ₽';
             statPnL.className = 'stat-value ' + (totalProfit >= 0 ? 'green' : 'red');
@@ -1165,7 +1137,6 @@
             statVolume.textContent = volume.toLocaleString() + ' ₽';
             statTrades.textContent = totalBets;
 
-            // Обновим аватар и ник
             if (data.nickname) {
                 profileName.innerHTML = data.nickname + ' <span class="uid-tag" id="profileUid">UID: ' + (userId || '—') + '</span>';
                 avatarLetter.textContent = data.nickname.charAt(0).toUpperCase();
@@ -1191,10 +1162,8 @@
                 return;
             }
             const leverage = parseInt(leverageInput.value) || 1;
-            // Получаем выбранный актив
             const activePair = document.querySelector('#pairSelector .pill-btn.active');
             const asset = activePair ? activePair.getAttribute('data-pair') : 'BTC';
-            // Отправляем запрос на торговлю
             sendToBot('trade_bet', {
                 asset: asset,
                 direction: direction === 'long' ? 'up' : 'down',
@@ -1223,7 +1192,7 @@
         });
 
         // ============================================================
-        // 6. КАССА (ПОПОЛНЕНИЕ / ВЫВОД)
+        // 6. КАССА (ПОПОЛНЕНИЕ / ВЫВОД) – используем trade_deposit / trade_withdraw
         // ============================================================
         let cashierMode = 'deposit';
 
@@ -1240,14 +1209,14 @@
             cashierMode = 'deposit';
             this.classList.add('active');
             tabWithdraw.classList.remove('active');
-            btnConfirmCashier.textContent = 'ПЕРЕЙТИ К ОПЛАТЕ';
+            btnConfirmCashier.textContent = 'ПОПОЛНИТЬ';
         });
         tabWithdraw.addEventListener('click', function() {
             vibrate('light');
             cashierMode = 'withdraw';
             this.classList.add('active');
             tabDeposit.classList.remove('active');
-            btnConfirmCashier.textContent = 'СОЗДАТЬ ЗАЯВКУ';
+            btnConfirmCashier.textContent = 'ВЫВЕСТИ';
         });
 
         btnConfirmCashier.addEventListener('click', function() {
@@ -1257,33 +1226,19 @@
                 showToast('❌ Введите корректную сумму');
                 return;
             }
-            if (cashierMode === 'deposit') {
-                sendToBot('deposit', { amount: amount }).then(res => {
-                    if (res && res.success) {
-                        showToast('✅ Пополнение выполнено!');
-                        if (res.new_balance !== undefined) {
-                            localStorage.setItem('tradeBalance', String(res.new_balance));
-                            balanceDisplay.innerText = res.new_balance.toLocaleString() + ' ₽';
-                        }
-                        cashierModal.classList.remove('active');
-                    } else {
-                        showToast('❌ Ошибка: ' + (res?.error || 'неизвестная'));
+            const action = cashierMode === 'deposit' ? 'trade_deposit' : 'trade_withdraw';
+            sendToBot(action, { amount: amount }).then(res => {
+                if (res && res.success) {
+                    showToast('✅ ' + res.message);
+                    if (res.new_balance !== undefined) {
+                        localStorage.setItem('tradeBalance', String(res.new_balance));
+                        balanceDisplay.innerText = res.new_balance.toLocaleString() + ' ₽';
                     }
-                });
-            } else {
-                sendToBot('withdraw', { amount: amount }).then(res => {
-                    if (res && res.success) {
-                        showToast('✅ Заявка на вывод отправлена!');
-                        if (res.new_balance !== undefined) {
-                            localStorage.setItem('tradeBalance', String(res.new_balance));
-                            balanceDisplay.innerText = res.new_balance.toLocaleString() + ' ₽';
-                        }
-                        cashierModal.classList.remove('active');
-                    } else {
-                        showToast('❌ Ошибка: ' + (res?.error || 'неизвестная'));
-                    }
-                });
-            }
+                    cashierModal.classList.remove('active');
+                } else {
+                    showToast('❌ Ошибка: ' + (res?.message || 'неизвестная'));
+                }
+            });
         });
 
         btnCloseCashier.addEventListener('click', () => {
@@ -1291,82 +1246,33 @@
         });
 
         // ============================================================
-        // 7. ПРОФИЛЬ – МЕНЮ
+        // 7. МЕНЮ ПРОФИЛЯ – переход на отдельные страницы
         // ============================================================
-        menuWallet.addEventListener('click', openCashier);
+        const BASE_URL = window.location.origin + window.location.pathname.replace(/[^/]*$/, '');
 
-        menuRewards.addEventListener('click', function() {
+        menuWallet.addEventListener('click', () => {
             vibrate('medium');
-            // Запросим квесты и достижения у бота
-            sendToBot('get_achievements').then(res => {
-                if (res && res.success) {
-                    let text = '🎁 <b>Центр Наград</b>\n\n';
-                    const quests = res.quests || {};
-                    const achievements = res.achievements || {};
-                    text += '📅 <b>Ежедневные задания:</b>\n';
-                    for (const [id, q] of Object.entries(quests)) {
-                        const completed = q.completed ? '✅' : '⏳';
-                        const progress = q.progress || 0;
-                        const target = q.target || 1;
-                        text += `${completed} ${id}: ${progress}/${target}\n`;
-                    }
-                    text += '\n🏆 <b>Достижения:</b>\n';
-                    for (const [id, a] of Object.entries(achievements)) {
-                        const completed = a.completed ? '✅' : '⏳';
-                        text += `${completed} ${id}\n`;
-                    }
-                    tg.showAlert(text);
-                } else {
-                    showToast('❌ Не удалось загрузить награды');
-                }
-            });
+            openCashier();
         });
 
-        menuReferral.addEventListener('click', function() {
+        menuRewards.addEventListener('click', () => {
             vibrate('medium');
-            if (!userId) return;
-            sendToBot('get_referral_data').then(res => {
-                if (res && res.success) {
-                    const invited = res.invited || [];
-                    const count = invited.length;
-                    const link = `https://t.me/${tg.initDataUnsafe?.user?.username || 'R_TradeBot'}?start=ref_${userId}`;
-                    let text = `👥 <b>Партнерская программа</b>\n\n`;
-                    text += `Ваша ссылка:\n<code>${link}</code>\n\n`;
-                    text += `👤 Приглашено: ${count} чел.\n`;
-                    text += `💰 Бонус: ${count * 20000} ₽\n`;
-                    text += `🎁 За каждые 15 чел. +150 000 ₽`;
-                    tg.showAlert(text);
-                } else {
-                    showToast('❌ Ошибка загрузки рефералов');
-                }
-            });
+            window.location.href = BASE_URL + 'rewards.html?userId=' + userId;
         });
 
-        menuHistory.addEventListener('click', function() {
+        menuReferral.addEventListener('click', () => {
             vibrate('medium');
-            sendToBot('stock_transactions').then(res => {
-                if (res && res.success) {
-                    const history = res.history || [];
-                    if (history.length === 0) {
-                        tg.showAlert('📋 История сделок пуста.');
-                        return;
-                    }
-                    let text = '📊 <b>История сделок</b>\n\n';
-                    history.slice(0, 10).forEach(tx => {
-                        const sign = tx.type === 'buy' ? '🟢' : tx.type === 'sell' ? '🔴' : '💎';
-                        text += `${sign} ${tx.symbol} ${tx.type}: ${tx.quantity} шт. по ${tx.price} ₽ = ${tx.total} ₽\n`;
-                        text += `   ${tx.date}\n\n`;
-                    });
-                    tg.showAlert(text);
-                } else {
-                    showToast('❌ Ошибка загрузки истории');
-                }
-            });
+            window.location.href = BASE_URL + 'referral.html?userId=' + userId;
         });
 
-        menuSettings.addEventListener('click', function() {
+        menuHistory.addEventListener('click', () => {
             vibrate('medium');
-            tg.showAlert('⚙️ Настройки безопасности\n\n• 2FA: включена\n• API ключи: активны\n• Сессии: 1 активная');
+            window.location.href = BASE_URL + 'history.html?userId=' + userId;
+        });
+
+        menuSettings.addEventListener('click', () => {
+            vibrate('medium');
+            window.location.href = BASE_URL + 'settings.html?userId=' + userId;
         });
 
         // ============================================================
@@ -1388,11 +1294,9 @@
                         view.classList.add('active');
                     }
                 });
-                // Если переключились на график, ресайзим
                 if (targetId === 'viewTrade' && chart) {
                     setTimeout(() => chart.resize(document.getElementById('tvchart').clientWidth, document.getElementById('tvchart').clientHeight), 10);
                 }
-                // Если переключились на профиль, подгружаем свежие данные
                 if (targetId === 'viewProfile') {
                     loadProfile();
                 }
@@ -1445,7 +1349,6 @@
             candleSeries.setData(data);
             const last = data[data.length - 1];
             updatePriceBadge(last.close, last.open);
-            // Обновляем стакан
             updateOrderBook(last.close);
         }
 
@@ -1458,7 +1361,6 @@
         }
 
         function updateOrderBook(price) {
-            const spread = 2.5;
             const ask1 = (price + 0.5 + Math.random() * 2).toFixed(2);
             const ask2 = (price + 1.0 + Math.random() * 3).toFixed(2);
             const ask3 = (price + 1.5 + Math.random() * 4).toFixed(2);
@@ -1471,7 +1373,6 @@
             document.getElementById('bid1').textContent = bid1;
             document.getElementById('bid2').textContent = bid2;
             document.getElementById('bid3').textContent = bid3;
-            // Обновим размеры (случайные)
             document.querySelectorAll('.ob-bg').forEach(el => {
                 el.style.width = (20 + Math.random() * 70) + '%';
             });
@@ -1479,13 +1380,12 @@
 
         generateMockData();
 
-        // Периодическое обновление цены (симуляция)
         setInterval(() => {
             const last = chartData[chartData.length - 1];
             const newClose = last.close + (Math.random() - 0.5) * 60;
             const newHigh = Math.max(last.high, newClose);
             const newLow = Math.min(last.low, newClose);
-            const newTime = last.time + 60; // каждую минуту
+            const newTime = last.time + 60;
             const newCandle = { time: newTime, open: last.close, high: newHigh, low: newLow, close: newClose };
             chartData.push(newCandle);
             if (chartData.length > 200) chartData.shift();
@@ -1494,13 +1394,11 @@
             updateOrderBook(newClose);
         }, 5000);
 
-        // Переключение пары (симуляция)
         document.querySelectorAll('#pairSelector .pill-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 vibrate('light');
                 document.querySelectorAll('#pairSelector .pill-btn').forEach(b => b.classList.remove('active'));
                 this.classList.add('active');
-                // Генерируем новые данные с другим базовым price
                 const base = Math.random() * 40000 + 20000;
                 generateMockDataWithBase(base);
             });
@@ -1526,7 +1424,6 @@
             updateOrderBook(last.close);
         }
 
-        // Ресайз
         window.addEventListener('resize', () => {
             chart.resize(chartContainer.clientWidth, chartContainer.clientHeight);
         });
@@ -1542,7 +1439,6 @@
             showToast('⚠️ Ошибка: не удалось определить пользователя', 3000);
         }
 
-        // Обновляем баланс при фокусе
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden && userId) {
                 loadBalance();
