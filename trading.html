@@ -1047,80 +1047,72 @@
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred(type);
         }
 
+        // Отправка данных в бота через WebApp
+        function sendToBot(action, data = {}) {
+            return new Promise((resolve) => {
+                const payload = JSON.stringify({ action, ...data });
+                console.log('📤 Отправка:', payload);
+                tg.sendData(payload);
+                window._lastResolve = resolve;
+                // Таймаут на случай отсутствия ответа
+                setTimeout(() => {
+                    if (window._lastResolve) {
+                        window._lastResolve({ success: false, error: 'timeout' });
+                        window._lastResolve = null;
+                    }
+                }, 10000);
+            });
+        }
+
         // ============================================================
-        // 4. HTTP API ДЛЯ РАБОТЫ С БАЛАНСОМ (ПОПОЛНЕНИЕ/ВЫВОД)
+        // 4. ОБРАБОТЧИК ОТВЕТОВ ОТ БОТА
         // ============================================================
-        // Базовый URL для API (замените на ваш реальный адрес сервера)
-        const API_BASE = window.location.origin + '/'; // предполагаем, что сервер на том же хосте
-
-        async function fetchBalance() {
-            if (!userId) return;
+        tg.onEvent('web_app_data', function(data) {
             try {
-                const resp = await fetch(API_BASE + 'balance/' + userId);
-                if (!resp.ok) throw new Error('Network error');
-                const data = await resp.json();
-                if (data.balance !== undefined) {
-                    const newBal = data.balance;
+                const response = JSON.parse(data);
+                console.log('📩 Ответ от бота:', response);
+
+                // Вызов колбэка, если есть
+                if (window._lastResolve) {
+                    window._lastResolve(response);
+                    window._lastResolve = null;
+                }
+
+                // Автоматическое обновление баланса
+                if (response.new_balance !== undefined) {
+                    const newBal = response.new_balance;
+                    localStorage.setItem('tradeBalance', String(newBal));
+                    balanceDisplay.innerText = newBal.toLocaleString() + ' ₽';
+                    showToast('✅ Баланс обновлён!');
+                } else if (response.balance !== undefined) {
+                    const newBal = response.balance;
                     localStorage.setItem('tradeBalance', String(newBal));
                     balanceDisplay.innerText = newBal.toLocaleString() + ' ₽';
                 }
-            } catch (e) {
-                console.error('Ошибка получения баланса:', e);
-                // Пробуем получить из localStorage
-                const saved = localStorage.getItem('tradeBalance');
-                if (saved) {
-                    balanceDisplay.innerText = parseInt(saved).toLocaleString() + ' ₽';
-                }
-            }
-        }
 
-        async function performDeposit(amount) {
-            try {
-                const resp = await fetch(API_BASE + 'trade/deposit', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ tg_id: userId, amount: amount })
-                });
-                const data = await resp.json();
-                if (data.success) {
-                    const newBal = data.new_balance;
-                    localStorage.setItem('tradeBalance', String(newBal));
-                    balanceDisplay.innerText = newBal.toLocaleString() + ' ₽';
-                    showToast('✅ Пополнение на ' + amount + ' ₽ выполнено!');
-                    return true;
-                } else {
-                    showToast('❌ Ошибка: ' + (data.error || 'неизвестная'));
-                    return false;
+                // Обработка результата торговли
+                if (response.type === 'trade_result') {
+                    if (response.win) {
+                        showToast(`✅ Выигрыш! +${response.profit} ₽`);
+                    } else {
+                        showToast(`❌ Проигрыш. -${response.bet} ₽`);
+                    }
+                    if (response.new_balance !== undefined) {
+                        localStorage.setItem('tradeBalance', String(response.new_balance));
+                        balanceDisplay.innerText = response.new_balance.toLocaleString() + ' ₽';
+                    }
                 }
-            } catch (e) {
-                showToast('❌ Ошибка соединения с сервером');
-                return false;
-            }
-        }
 
-        async function performWithdraw(amount) {
-            try {
-                const resp = await fetch(API_BASE + 'trade/withdraw', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ tg_id: userId, amount: amount })
-                });
-                const data = await resp.json();
-                if (data.success) {
-                    const newBal = data.new_balance;
-                    localStorage.setItem('tradeBalance', String(newBal));
-                    balanceDisplay.innerText = newBal.toLocaleString() + ' ₽';
-                    showToast('✅ Вывод ' + amount + ' ₽ выполнен!');
-                    return true;
-                } else {
-                    showToast('❌ Ошибка: ' + (data.error || 'неизвестная'));
-                    return false;
+                // Обработка данных профиля (портфеля)
+                if (response.portfolio !== undefined) {
+                    updateProfileStats(response.portfolio);
                 }
+
+                // Обработка рефералов и истории – могут приходить как alert, но мы их не используем в этой вкладке
             } catch (e) {
-                showToast('❌ Ошибка соединения с сервером');
-                return false;
+                console.error('Ошибка обработки ответа:', e);
             }
-        }
+        });
 
         // ============================================================
         // 5. ЗАГРУЗКА БАЛАНСА И ПРОФИЛЯ
@@ -1130,17 +1122,29 @@
                 balanceDisplay.innerText = '—';
                 return;
             }
-            fetchBalance();
+            // Сначала показываем сохранённый баланс
+            const saved = localStorage.getItem('tradeBalance');
+            if (saved) {
+                balanceDisplay.innerText = parseInt(saved).toLocaleString() + ' ₽';
+            }
+            // Запрашиваем свежий баланс у бота
+            sendToBot('get_balance').then(res => {
+                if (res && res.balance !== undefined) {
+                    const newBal = res.balance;
+                    localStorage.setItem('tradeBalance', String(newBal));
+                    balanceDisplay.innerText = newBal.toLocaleString() + ' ₽';
+                }
+            });
         }
 
         function loadProfile() {
             if (!userId) return;
-            // Запрашиваем данные профиля через WebApp (tg.sendData) или через HTTP?
-            // Используем tg.sendData для совместимости с существующим ботом
             sendToBot('get_trading_portfolio').then(res => {
                 if (res && res.success) {
                     const data = res.portfolio || {};
                     updateProfileStats(data);
+                } else {
+                    // Если портфель не получен, покажем заглушку
                 }
             });
         }
@@ -1167,56 +1171,7 @@
         }
 
         // ============================================================
-        // 6. ОТПРАВКА ДАННЫХ В БОТА (tg.sendData) ДЛЯ ТРЕЙДИНГА И ДРУГИХ ДЕЙСТВИЙ
-        // ============================================================
-        function sendToBot(action, data = {}) {
-            return new Promise((resolve) => {
-                const payload = JSON.stringify({ action, ...data });
-                console.log('📤 Отправка:', payload);
-                tg.sendData(payload);
-                // Сохраняем колбэк для ответа
-                window._lastResolve = resolve;
-            });
-        }
-
-        // Обработчик ответов от бота (для действий, отправленных через tg.sendData)
-        tg.onEvent('web_app_data', function(data) {
-            try {
-                const response = JSON.parse(data);
-                console.log('📩 Ответ от бота:', response);
-                if (window._lastResolve) {
-                    window._lastResolve(response);
-                    window._lastResolve = null;
-                }
-                // Если пришёл обновлённый баланс в ответе, обновляем
-                if (response.new_balance !== undefined) {
-                    const newBal = response.new_balance;
-                    localStorage.setItem('tradeBalance', String(newBal));
-                    balanceDisplay.innerText = newBal.toLocaleString() + ' ₽';
-                } else if (response.balance !== undefined) {
-                    const newBal = response.balance;
-                    localStorage.setItem('tradeBalance', String(newBal));
-                    balanceDisplay.innerText = newBal.toLocaleString() + ' ₽';
-                }
-                if (response.type === 'trade_result') {
-                    if (response.win) {
-                        showToast(`✅ Выигрыш! +${response.profit} ₽`);
-                    } else {
-                        showToast(`❌ Проигрыш. -${response.bet} ₽`);
-                    }
-                    // После торговли обновляем баланс через HTTP
-                    setTimeout(fetchBalance, 1000);
-                }
-                if (response.type === 'profile_data') {
-                    updateProfileStats(response.data);
-                }
-            } catch (e) {
-                console.error('Ошибка обработки ответа:', e);
-            }
-        });
-
-        // ============================================================
-        // 7. ТОРГОВЛЯ (LONG / SHORT)
+        // 6. ТОРГОВЛЯ (LONG / SHORT)
         // ============================================================
         const btnLong = document.getElementById('btnLong');
         const btnShort = document.getElementById('btnShort');
@@ -1244,7 +1199,6 @@
             }).then(res => {
                 if (res && res.success) {
                     showToast(`✅ Ордер ${direction.toUpperCase()} открыт!`);
-                    // Баланс обновится через ответ от бота или через HTTP позже
                 } else {
                     showToast('❌ Ошибка: ' + (res?.error || 'неизвестная'));
                 }
@@ -1261,7 +1215,7 @@
         });
 
         // ============================================================
-        // 8. КАССА (ПОПОЛНЕНИЕ / ВЫВОД) – через HTTP API
+        // 7. КАССА (ПОПОЛНЕНИЕ / ВЫВОД) – через специальные действия trade_deposit / trade_withdraw
         // ============================================================
         let cashierMode = 'deposit';
 
@@ -1288,24 +1242,28 @@
             btnConfirmCashier.textContent = 'ВЫВЕСТИ';
         });
 
-        btnConfirmCashier.addEventListener('click', async function() {
+        btnConfirmCashier.addEventListener('click', function() {
             vibrate('heavy');
             const amount = parseInt(cashierAmount.value);
             if (isNaN(amount) || amount <= 0) {
                 showToast('❌ Введите корректную сумму');
                 return;
             }
-            let success = false;
-            if (cashierMode === 'deposit') {
-                success = await performDeposit(amount);
-            } else {
-                success = await performWithdraw(amount);
-            }
-            if (success) {
-                cashierModal.classList.remove('active');
-                // Дополнительно обновим профиль
-                loadProfile();
-            }
+            const action = cashierMode === 'deposit' ? 'trade_deposit' : 'trade_withdraw';
+            sendToBot(action, { amount: amount }).then(res => {
+                if (res && res.success) {
+                    showToast('✅ ' + (res.message || 'Операция выполнена'));
+                    if (res.new_balance !== undefined) {
+                        localStorage.setItem('tradeBalance', String(res.new_balance));
+                        balanceDisplay.innerText = res.new_balance.toLocaleString() + ' ₽';
+                    }
+                    cashierModal.classList.remove('active');
+                    // Обновим профиль
+                    loadProfile();
+                } else {
+                    showToast('❌ Ошибка: ' + (res?.error || res?.message || 'неизвестная'));
+                }
+            });
         });
 
         btnCloseCashier.addEventListener('click', () => {
@@ -1313,7 +1271,7 @@
         });
 
         // ============================================================
-        // 9. МЕНЮ ПРОФИЛЯ – переход на отдельные страницы
+        // 8. МЕНЮ ПРОФИЛЯ – переход на отдельные страницы
         // ============================================================
         const BASE_URL = window.location.origin + window.location.pathname.replace(/[^/]*$/, '');
 
@@ -1343,7 +1301,7 @@
         });
 
         // ============================================================
-        // 10. НАВИГАЦИЯ МЕЖДУ ВКЛАДКАМИ
+        // 9. НАВИГАЦИЯ МЕЖДУ ВКЛАДКАМИ
         // ============================================================
         const navItems = document.querySelectorAll('.bottom-nav .nav-item[data-target]');
         const viewSections = document.querySelectorAll('.view-section');
@@ -1371,7 +1329,7 @@
         });
 
         // ============================================================
-        // 11. ГРАФИК (LIGHTWEIGHT CHARTS) + СИМУЛЯЦИЯ ЦЕН
+        // 10. ГРАФИК (LIGHTWEIGHT CHARTS) + СИМУЛЯЦИЯ ЦЕН
         // ============================================================
         const chartContainer = document.getElementById('tvchart');
         const chart = LightweightCharts.createChart(chartContainer, {
@@ -1447,6 +1405,7 @@
 
         generateMockData();
 
+        // Периодическое обновление цены (симуляция)
         setInterval(() => {
             const last = chartData[chartData.length - 1];
             const newClose = last.close + (Math.random() - 0.5) * 60;
@@ -1461,6 +1420,7 @@
             updateOrderBook(newClose);
         }, 5000);
 
+        // Переключение пары (симуляция)
         document.querySelectorAll('#pairSelector .pill-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 vibrate('light');
@@ -1491,1545 +1451,29 @@
             updateOrderBook(last.close);
         }
 
+        // Ресайз
         window.addEventListener('resize', () => {
             chart.resize(chartContainer.clientWidth, chartContainer.clientHeight);
         });
         setTimeout(() => chart.resize(chartContainer.clientWidth, chartContainer.clientHeight), 100);
 
         // ============================================================
-        // 12. ИНИЦИАЛИЗАЦИЯ
+        // 11. ИНИЦИАЛИЗАЦИЯ
         // ============================================================
         if (userId) {
             loadBalance();
             loadProfile();
             // Периодическое обновление баланса (каждые 30 секунд)
-            setInterval(fetchBalance, 30000);
+            setInterval(() => {
+                if (!document.hidden) loadBalance();
+            }, 30000);
         } else {
             showToast('⚠️ Ошибка: не удалось определить пользователя', 3000);
         }
 
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden && userId) {
-                fetchBalance();
-            }
-        });
-
-        console.log('✅ R-TRADE PRO загружен');
-    </script>
-</body>
-</html><!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="theme-color" content="#04070e">
-    <title>R-TRADE PRO</title>
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,700;0,800;0,900;1,800&family=Nunito:wght@500;600;700;800;900&display=swap" rel="stylesheet">
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            user-select: none;
-            -webkit-tap-highlight-color: transparent;
-        }
-        :root {
-            --bg-dark: #04070e;
-            --bg-deep: #090f1a;
-            --container-bg: rgba(13, 22, 38, 0.7);
-            --panel-bg: rgba(22, 35, 56, 0.55);
-            --panel-bg-hover: rgba(30, 48, 77, 0.8);
-            --glass-border: rgba(255, 255, 255, 0.08);
-            --accent-blue: #2f88ff;
-            --accent-blue-glow: rgba(47, 136, 255, 0.4);
-            --accent-green: #00e676;
-            --accent-green-glow: rgba(0, 230, 118, 0.35);
-            --accent-red: #ff3b69;
-            --accent-red-glow: rgba(255, 59, 105, 0.35);
-            --accent-gold: #ffd700;
-            --accent-gold-gradient: linear-gradient(135deg, #ffe259 0%, #ffa751 100%);
-            --text-main: #f1f5f9;
-            --text-muted: #94a3b8;
-        }
-        html {
-            background-color: var(--bg-dark);
-            height: 100%;
-            -webkit-font-smoothing: antialiased;
-        }
-        body {
-            font-family: 'Nunito', system-ui, sans-serif;
-            min-height: 100vh;
-            color: var(--text-main);
-            overflow-x: hidden;
-            display: flex;
-            flex-direction: column;
-            background: var(--bg-dark);
-            background-image: 
-                radial-gradient(circle at 0% 0%, rgba(47, 136, 255, 0.12), transparent 45%),
-                radial-gradient(circle at 100% 50%, rgba(255, 59, 105, 0.08), transparent 50%),
-                radial-gradient(circle at 50% 100%, rgba(0, 230, 118, 0.06), transparent 40%);
-            background-attachment: fixed;
-            padding-bottom: 90px;
-        }
-        .bg-watermarks {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 0;
-            pointer-events: none;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            gap: 180px;
-        }
-        .bg-text {
-            font-family: 'Montserrat', sans-serif;
-            font-size: 110px;
-            font-weight: 900;
-            font-style: italic;
-            white-space: nowrap;
-            background: linear-gradient(180deg, rgba(255, 255, 255, 0.02) 0%, rgba(255, 255, 255, 0) 100%);
-            -webkit-background-clip: text;
-            color: transparent;
-            transform: rotate(-10deg);
-            animation: floatText 20s ease-in-out infinite alternate;
-        }
-        .bg-text span {
-            background: linear-gradient(180deg, rgba(47, 136, 255, 0.05) 0%, rgba(47, 136, 255, 0) 100%);
-            -webkit-background-clip: text;
-            color: transparent;
-        }
-        .bg-text:nth-child(2) {
-            margin-left: 100px;
-            animation-delay: -5s;
-        }
-        @keyframes floatText {
-            0% { transform: rotate(-10deg) translate(0,0); }
-            100% { transform: rotate(-10deg) translate(20px, -10px); }
-        }
-        .content {
-            position: relative;
-            z-index: 2;
-            display: flex;
-            flex-direction: column;
-            height: 100%;
-            max-width: 600px;
-            margin: 0 auto;
-            width: 100%;
-            padding: 12px;
-        }
-        .view-section {
-            display: none;
-            flex-direction: column;
-            height: 100%;
-            animation: fadeIn 0.3s ease-out;
-        }
-        .view-section.active {
-            display: flex;
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .glass-panel {
-            background: rgba(13, 22, 38, 0.6);
-            backdrop-filter: blur(24px);
-            -webkit-backdrop-filter: blur(24px);
-            border-radius: 20px;
-            border: 1px solid var(--glass-border);
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5), inset 0 1px 2px rgba(255,255,255,0.1);
-        }
-        /* ===== HEADER ===== */
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px 16px;
-            margin-bottom: 12px;
-        }
-        .brand {
-            font-family: 'Montserrat', sans-serif;
-            font-size: 24px;
-            font-weight: 900;
-            font-style: italic;
-            background: linear-gradient(135deg, #ffffff 20%, #a0c4ff 80%);
-            -webkit-background-clip: text;
-            color: transparent;
-            letter-spacing: 1px;
-            position: relative;
-            display: inline-block;
-            text-shadow: 0 0 30px rgba(47,136,255,0.3);
-        }
-        .brand::after {
-            content: '⚡';
-            font-size: 20px;
-            margin-left: 6px;
-            background: none;
-            color: var(--accent-gold);
-            text-shadow: 0 0 20px var(--accent-gold);
-        }
-        .brand span {
-            color: var(--accent-blue);
-            -webkit-text-fill-color: var(--accent-blue);
-            text-shadow: 0 0 20px var(--accent-blue-glow);
-        }
-        .balance-block {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            background: rgba(4,7,14,0.45);
-            padding: 4px 4px 4px 14px;
-            border-radius: 100px;
-            border: 1px solid rgba(255,255,255,0.04);
-            box-shadow: inset 0 2px 8px rgba(0,0,0,0.8);
-        }
-        .balance-info {
-            display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-        }
-        .balance-label {
-            font-family: 'Montserrat', sans-serif;
-            font-size: 8px;
-            font-weight: 900;
-            color: var(--text-muted);
-            letter-spacing: 1px;
-        }
-        .balance-value {
-            font-family: 'Montserrat', sans-serif;
-            font-size: 17px;
-            font-weight: 900;
-            color: var(--accent-green);
-            text-shadow: 0 0 20px var(--accent-green-glow);
-            cursor: pointer;
-            transition: 0.2s;
-        }
-        .balance-value:active {
-            transform: scale(0.93);
-        }
-        .action-btn {
-            border: none;
-            border-radius: 100px;
-            padding: 0 16px;
-            height: 36px;
-            font-family: 'Montserrat', sans-serif;
-            font-weight: 900;
-            color: #04070e;
-            cursor: pointer;
-            font-size: 11px;
-            letter-spacing: 0.5px;
-            position: relative;
-            overflow: hidden;
-            background: var(--accent-gold-gradient);
-            box-shadow: 0 4px 15px rgba(255,167,81,0.3), inset 0 1px 1px rgba(255,255,255,0.4);
-            transition: transform 0.1s;
-        }
-        .action-btn:active {
-            transform: scale(0.95);
-        }
-        .action-btn.deposit::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -150%;
-            width: 120%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent);
-            transform: skewX(-30deg);
-            animation: shine 4s infinite ease-in-out;
-        }
-        @keyframes shine {
-            0% { left: -150%; }
-            20% { left: 150%; }
-            100% { left: 150%; }
-        }
-        /* ===== TOOLBAR ===== */
-        .toolbar {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            margin-bottom: 12px;
-        }
-        .scroll-row {
-            display: flex;
-            gap: 8px;
-            overflow-x: auto;
-            padding-bottom: 4px;
-            -webkit-overflow-scrolling: touch;
-        }
-        .scroll-row::-webkit-scrollbar {
-            display: none;
-        }
-        .pill-btn {
-            background: var(--panel-bg);
-            border: 1px solid var(--glass-border);
-            color: var(--text-muted);
-            font-family: 'Nunito', sans-serif;
-            font-weight: 700;
-            font-size: 13px;
-            padding: 6px 14px;
-            border-radius: 12px;
-            white-space: nowrap;
-            cursor: pointer;
-            backdrop-filter: blur(10px);
-            transition: all 0.2s;
-        }
-        .pill-btn.active {
-            background: rgba(47,136,255,0.15);
-            color: #fff;
-            border-color: var(--accent-blue);
-            box-shadow: 0 0 15px rgba(47,136,255,0.2);
-        }
-        /* ===== CHART ===== */
-        .chart-wrapper {
-            padding: 2px;
-            margin-bottom: 12px;
-            flex-shrink: 0;
-            height: 320px;
-            position: relative;
-        }
-        #tvchart {
-            width: 100%;
-            height: 100%;
-            border-radius: 18px;
-            overflow: hidden;
-        }
-        .current-price-badge {
-            position: absolute;
-            top: 12px;
-            left: 16px;
-            z-index: 5;
-            font-family: 'Montserrat', sans-serif;
-            font-size: 22px;
-            font-weight: 900;
-            color: var(--accent-green);
-            text-shadow: 0 0 20px var(--accent-green-glow);
-            pointer-events: none;
-        }
-        /* ===== TRADING PANELS ===== */
-        .trading-section {
-            display: flex;
-            gap: 12px;
-            flex: 1;
-            min-height: 200px;
-        }
-        .orderbook {
-            flex: 1;
-            background: var(--panel-bg);
-            border-radius: 16px;
-            border: 1px solid var(--glass-border);
-            padding: 10px;
-            display: flex;
-            flex-direction: column;
-            font-family: 'Nunito', sans-serif;
-            backdrop-filter: blur(10px);
-        }
-        .ob-header {
-            display: flex;
-            justify-content: space-between;
-            font-size: 10px;
-            color: var(--text-muted);
-            margin-bottom: 8px;
-            font-weight: 700;
-            text-transform: uppercase;
-        }
-        .ob-list {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-            overflow-y: hidden;
-        }
-        .ob-row {
-            display: flex;
-            justify-content: space-between;
-            font-size: 12px;
-            font-weight: 600;
-            position: relative;
-            z-index: 1;
-        }
-        .ob-row.ask { color: var(--accent-red); }
-        .ob-row.bid { color: var(--accent-green); }
-        .ob-row .size { color: var(--text-main); }
-        .ob-bg {
-            position: absolute;
-            top: 0;
-            right: 0;
-            height: 100%;
-            opacity: 0.15;
-            z-index: -1;
-            border-radius: 2px;
-            transition: width 0.5s ease;
-        }
-        .ob-row.ask .ob-bg { background: var(--accent-red); }
-        .ob-row.bid .ob-bg { background: var(--accent-green); }
-        .ob-divider {
-            height: 1px;
-            background: rgba(255,255,255,0.05);
-            margin: 6px 0;
-        }
-        .order-form {
-            flex: 1.2;
-            background: var(--panel-bg);
-            border-radius: 16px;
-            border: 1px solid var(--glass-border);
-            padding: 12px;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            backdrop-filter: blur(10px);
-        }
-        .input-group {
-            margin-bottom: 10px;
-        }
-        .input-group label {
-            display: block;
-            font-size: 10px;
-            color: var(--text-muted);
-            margin-bottom: 4px;
-            font-weight: 700;
-            text-transform: uppercase;
-        }
-        .input-box {
-            display: flex;
-            align-items: center;
-            background: rgba(4,7,14,0.6);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 10px;
-            padding: 6px 10px;
-        }
-        .input-box input {
-            background: none;
-            border: none;
-            color: #fff;
-            font-family: 'Montserrat', sans-serif;
-            font-weight: 700;
-            font-size: 16px;
-            width: 100%;
-            outline: none;
-        }
-        .input-box span {
-            color: var(--text-muted);
-            font-size: 12px;
-            font-weight: 700;
-        }
-        .trade-btns {
-            display: flex;
-            gap: 8px;
-        }
-        .btn-trade {
-            flex: 1;
-            border: none;
-            border-radius: 12px;
-            padding: 12px 0;
-            font-family: 'Montserrat', sans-serif;
-            font-weight: 900;
-            font-size: 14px;
-            color: #fff;
-            cursor: pointer;
-            transition: transform 0.1s;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        .btn-trade.long {
-            background: linear-gradient(180deg, #00e676 0%, #00b35c 100%);
-            box-shadow: 0 4px 15px var(--accent-green-glow), inset 0 1px 1px rgba(255,255,255,0.4);
-        }
-        .btn-trade.short {
-            background: linear-gradient(180deg, #ff3b69 0%, #d82b53 100%);
-            box-shadow: 0 4px 15px var(--accent-red-glow), inset 0 1px 1px rgba(255,255,255,0.4);
-        }
-        .btn-trade:active {
-            transform: scale(0.94);
-        }
-        /* ===== PROFILE VIEW ===== */
-        .profile-header-card {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            padding: 20px;
-            margin-bottom: 16px;
-        }
-        .avatar-wrap {
-            position: relative;
-        }
-        .avatar {
-            width: 64px;
-            height: 64px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, var(--accent-blue), #9b51e0);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-family: 'Montserrat', sans-serif;
-            font-size: 28px;
-            font-weight: 900;
-            color: #fff;
-            border: 2px solid rgba(255,255,255,0.2);
-            box-shadow: 0 0 30px var(--accent-blue-glow);
-        }
-        .vip-badge {
-            position: absolute;
-            bottom: -4px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: var(--accent-gold-gradient);
-            color: #000;
-            font-size: 9px;
-            font-weight: 900;
-            padding: 2px 10px;
-            border-radius: 10px;
-            font-family: 'Montserrat', sans-serif;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.5);
-            border: 1px solid rgba(255,255,255,0.4);
-        }
-        .user-info {
-            flex: 1;
-        }
-        .user-name {
-            font-size: 20px;
-            font-weight: 800;
-            margin-bottom: 4px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .uid-tag {
-            font-size: 11px;
-            color: var(--text-muted);
-            background: rgba(0,0,0,0.3);
-            padding: 4px 8px;
-            border-radius: 6px;
-            font-family: 'Montserrat', sans-serif;
-            font-weight: 700;
-            border: 1px solid rgba(255,255,255,0.05);
-        }
-        .stats-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            margin-bottom: 16px;
-        }
-        .stat-card {
-            background: var(--panel-bg);
-            border-radius: 16px;
-            padding: 16px;
-            border: 1px solid var(--glass-border);
-            backdrop-filter: blur(10px);
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            position: relative;
-            overflow: hidden;
-        }
-        .stat-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 2px;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-        }
-        .stat-title {
-            font-size: 11px;
-            color: var(--text-muted);
-            font-weight: 700;
-            text-transform: uppercase;
-        }
-        .stat-value {
-            font-family: 'Montserrat', sans-serif;
-            font-size: 20px;
-            font-weight: 900;
-        }
-        .stat-value.green { color: var(--accent-green); text-shadow: 0 0 10px var(--accent-green-glow); }
-        .stat-value.blue { color: var(--accent-blue); text-shadow: 0 0 10px var(--accent-blue-glow); }
-        .stat-value.red { color: var(--accent-red); text-shadow: 0 0 10px var(--accent-red-glow); }
-        .menu-list {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-        .menu-item {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            background: var(--panel-bg);
-            border: 1px solid var(--glass-border);
-            padding: 16px;
-            border-radius: 16px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-        .menu-item:active {
-            transform: scale(0.98);
-            background: var(--panel-bg-hover);
-        }
-        .menu-item-left {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-        .menu-icon {
-            font-size: 20px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 32px;
-            height: 32px;
-            background: rgba(0,0,0,0.2);
-            border-radius: 8px;
-        }
-        .menu-text {
-            font-weight: 700;
-            font-size: 14px;
-        }
-        .menu-sub {
-            font-size: 10px;
-            color: var(--text-muted);
-            margin-top: 2px;
-        }
-        .menu-arrow {
-            color: var(--text-muted);
-            font-weight: 900;
-        }
-        /* ===== BOTTOM NAV ===== */
-        .bottom-nav {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: calc(100% - 24px);
-            max-width: 440px;
-            background: rgba(13,22,38,0.85);
-            backdrop-filter: blur(28px);
-            -webkit-backdrop-filter: blur(28px);
-            display: flex;
-            justify-content: space-around;
-            padding: 8px 10px;
-            border-radius: 100px;
-            border: 1px solid var(--glass-border);
-            z-index: 100;
-            box-shadow: 0 20px 50px rgba(0,0,0,0.7), inset 0 1px 1px rgba(255,255,255,0.1);
-        }
-        .nav-item {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 4px;
-            font-size: 11px;
-            font-family: 'Montserrat', sans-serif;
-            font-weight: 700;
-            color: var(--text-muted);
-            cursor: pointer;
-            padding: 8px 16px;
-            border-radius: 100px;
-            transition: all 0.3s;
-        }
-        .nav-item.active {
-            color: #fff;
-            background: rgba(255,255,255,0.08);
-            box-shadow: inset 0 1px 1px rgba(255,255,255,0.05);
-        }
-        .nav-item .icon {
-            font-size: 18px;
-            margin-bottom: 2px;
-        }
-        /* ===== MODAL ===== */
-        .modal-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.8);
-            backdrop-filter: blur(10px);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 200;
-            opacity: 0;
-            pointer-events: none;
-            transition: opacity 0.3s ease;
-        }
-        .modal-overlay.active {
-            opacity: 1;
-            pointer-events: all;
-        }
-        .modal-content {
-            background: rgba(13,22,38,0.9);
-            border: 1px solid var(--glass-border);
-            border-radius: 24px;
-            padding: 24px;
-            width: 90%;
-            max-width: 360px;
-            box-shadow: 0 20px 50px rgba(0,0,0,0.8), inset 0 1px 1px rgba(255,255,255,0.1);
-            transform: translateY(20px);
-            transition: transform 0.3s ease;
-            text-align: center;
-        }
-        .modal-overlay.active .modal-content {
-            transform: translateY(0);
-        }
-        .modal-title {
-            font-family: 'Montserrat', sans-serif;
-            font-size: 20px;
-            font-weight: 900;
-            margin-bottom: 16px;
-            color: #fff;
-        }
-        .modal-tabs {
-            display: flex;
-            background: rgba(0,0,0,0.4);
-            border-radius: 12px;
-            padding: 4px;
-            margin-bottom: 20px;
-        }
-        .modal-tab {
-            flex: 1;
-            padding: 10px;
-            font-weight: 700;
-            font-size: 13px;
-            color: var(--text-muted);
-            border-radius: 10px;
-            cursor: pointer;
-            transition: 0.2s;
-        }
-        .modal-tab.active {
-            background: var(--panel-bg);
-            color: #fff;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-        }
-        .modal-input {
-            width: 100%;
-            background: rgba(4,7,14,0.8);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 14px;
-            padding: 14px;
-            font-size: 20px;
-            font-family: 'Montserrat', sans-serif;
-            font-weight: 800;
-            color: #fff;
-            text-align: center;
-            margin-bottom: 20px;
-            outline: none;
-        }
-        .modal-input:focus {
-            border-color: var(--accent-blue);
-            box-shadow: 0 0 15px var(--accent-blue-glow);
-        }
-        .modal-btn {
-            width: 100%;
-            border: none;
-            border-radius: 14px;
-            padding: 14px;
-            font-family: 'Montserrat', sans-serif;
-            font-weight: 900;
-            font-size: 15px;
-            color: #04070e;
-            cursor: pointer;
-            background: var(--accent-gold-gradient);
-            box-shadow: 0 6px 20px rgba(255,167,81,0.3), inset 0 1px 1px rgba(255,255,255,0.4);
-            text-transform: uppercase;
-            transition: 0.1s;
-            margin-bottom: 10px;
-        }
-        .modal-btn:active {
-            transform: scale(0.96);
-        }
-        .modal-close {
-            background: none;
-            border: none;
-            color: var(--text-muted);
-            font-weight: 700;
-            font-size: 14px;
-            cursor: pointer;
-            padding: 10px;
-            width: 100%;
-        }
-        /* ===== RESPONSIVE ===== */
-        @media (max-width: 380px) {
-            .chart-wrapper { height: 260px; }
-            .btn-trade { font-size: 12px; padding: 10px 0; }
-            .ob-row { font-size: 10px; }
-            .stat-value { font-size: 17px; }
-            .brand { font-size: 20px; }
-        }
-        /* ===== LOADER ===== */
-        .loader {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 2px solid rgba(255,255,255,0.2);
-            border-top: 2px solid #fff;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-        }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        /* ===== TOAST ===== */
-        .toast {
-            position: fixed;
-            bottom: 100px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(13,22,38,0.9);
-            backdrop-filter: blur(16px);
-            border: 1px solid var(--glass-border);
-            border-radius: 16px;
-            padding: 12px 20px;
-            color: #fff;
-            font-weight: 700;
-            font-size: 14px;
-            z-index: 300;
-            opacity: 0;
-            transition: opacity 0.3s ease;
-            pointer-events: none;
-            text-align: center;
-            max-width: 80%;
-        }
-        .toast.visible {
-            opacity: 1;
-            pointer-events: all;
-        }
-    </style>
-</head>
-<body>
-    <!-- Фоновые водяные знаки -->
-    <div class="bg-watermarks">
-        <div class="bg-text">R-<span>TRADE</span></div>
-        <div class="bg-text">R-<span>TRADE</span></div>
-    </div>
-
-    <!-- Toast уведомления -->
-    <div class="toast" id="toast"></div>
-
-    <div class="content">
-        <!-- =========================================================
-             ВКЛАДКА 1: ТОРГОВЛЯ
-             ========================================================= -->
-        <div id="viewTrade" class="view-section active">
-            <!-- Шапка -->
-            <div class="header glass-panel">
-                <div class="brand">R-<span>TRADE</span></div>
-                <div class="balance-block">
-                    <div class="balance-info">
-                        <span class="balance-label">БАЛАНС</span>
-                        <span class="balance-value" id="balanceDisplay">0 ₽</span>
-                    </div>
-                    <button class="action-btn deposit" id="headerDepositBtn">КАССА</button>
-                </div>
-            </div>
-
-            <!-- Выбор пары и ТФ -->
-            <div class="toolbar">
-                <div class="scroll-row" id="pairSelector">
-                    <div class="pill-btn active" data-pair="BTC">BTC/USDT</div>
-                    <div class="pill-btn" data-pair="ETH">ETH/USDT</div>
-                    <div class="pill-btn" data-pair="SOL">SOL/USDT</div>
-                    <div class="pill-btn" data-pair="TON">TON/USDT</div>
-                </div>
-                <div class="scroll-row" id="tfSelector">
-                    <div class="pill-btn" data-tf="1m">1m</div>
-                    <div class="pill-btn" data-tf="5m">5m</div>
-                    <div class="pill-btn active" data-tf="15m">15m</div>
-                    <div class="pill-btn" data-tf="1h">1H</div>
-                    <div class="pill-btn" data-tf="4h">4H</div>
-                </div>
-            </div>
-
-            <!-- График -->
-            <div class="chart-wrapper glass-panel">
-                <div class="current-price-badge" id="chartPrice">—</div>
-                <div id="tvchart"></div>
-            </div>
-
-            <!-- Торговая панель -->
-            <div class="trading-section">
-                <!-- Стакан -->
-                <div class="orderbook">
-                    <div class="ob-header"><span>Цена</span><span>Кол-во</span></div>
-                    <div class="ob-list" id="obAsks">
-                        <div class="ob-row ask"><span id="ask1">—</span><span class="size" id="askSize1">—</span><div class="ob-bg" style="width:40%"></div></div>
-                        <div class="ob-row ask"><span id="ask2">—</span><span class="size" id="askSize2">—</span><div class="ob-bg" style="width:70%"></div></div>
-                        <div class="ob-row ask"><span id="ask3">—</span><span class="size" id="askSize3">—</span><div class="ob-bg" style="width:20%"></div></div>
-                    </div>
-                    <div class="ob-divider"></div>
-                    <div class="ob-list" id="obBids">
-                        <div class="ob-row bid"><span id="bid1">—</span><span class="size" id="bidSize1">—</span><div class="ob-bg" style="width:50%"></div></div>
-                        <div class="ob-row bid"><span id="bid2">—</span><span class="size" id="bidSize2">—</span><div class="ob-bg" style="width:90%"></div></div>
-                        <div class="ob-row bid"><span id="bid3">—</span><span class="size" id="bidSize3">—</span><div class="ob-bg" style="width:30%"></div></div>
-                    </div>
-                </div>
-
-                <!-- Форма заявки -->
-                <div class="order-form">
-                    <div>
-                        <div class="input-group">
-                            <label>Сумма сделки (₽)</label>
-                            <div class="input-box">
-                                <input type="number" id="orderAmount" value="1000" min="100" step="100">
-                                <span>₽</span>
-                            </div>
-                        </div>
-                        <div class="input-group">
-                            <label>Кредитное плечо</label>
-                            <div class="input-box">
-                                <input type="number" id="leverageInput" value="10" min="1" max="100" style="text-align:right; margin-right:5px;">
-                                <span>x</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="trade-btns">
-                        <button class="btn-trade long" id="btnLong">LONG</button>
-                        <button class="btn-trade short" id="btnShort">SHORT</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- =========================================================
-             ВКЛАДКА 2: ПРОФИЛЬ
-             ========================================================= -->
-        <div id="viewProfile" class="view-section">
-            <div class="profile-header-card glass-panel">
-                <div class="avatar-wrap">
-                    <div class="avatar" id="avatarLetter">R</div>
-                    <div class="vip-badge" id="vipBadge">TRADER</div>
-                </div>
-                <div class="user-info">
-                    <div class="user-name" id="profileName">Трейдер <span class="uid-tag" id="profileUid">UID: —</span></div>
-                    <div style="font-size:12px; color:var(--text-muted);" id="profileStatus">Активный инвестор</div>
-                </div>
-                <div class="brand" style="font-size:16px;">R-<span>PRO</span></div>
-            </div>
-
-            <div class="stats-grid" id="statsGrid">
-                <div class="stat-card">
-                    <span class="stat-title">PnL (всего)</span>
-                    <span class="stat-value" id="statPnL">0 ₽</span>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-title">Винрейт</span>
-                    <span class="stat-value" id="statWinrate">0%</span>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-title">Объем торгов</span>
-                    <span class="stat-value" id="statVolume">0 ₽</span>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-title">Сделок</span>
-                    <span class="stat-value" id="statTrades">0</span>
-                </div>
-            </div>
-
-            <div class="menu-list">
-                <div class="menu-item" id="menuWallet">
-                    <div class="menu-item-left">
-                        <div class="menu-icon">💼</div>
-                        <div>
-                            <div class="menu-text">Кошелек и Активы</div>
-                            <div class="menu-sub">Пополнение, вывод, история</div>
-                        </div>
-                    </div>
-                    <div class="menu-arrow">›</div>
-                </div>
-                <div class="menu-item" id="menuRewards">
-                    <div class="menu-item-left">
-                        <div class="menu-icon">🎁</div>
-                        <div>
-                            <div class="menu-text">Центр Наград</div>
-                            <div class="menu-sub">Задания, квесты, бонусы</div>
-                        </div>
-                    </div>
-                    <div class="menu-arrow">›</div>
-                </div>
-                <div class="menu-item" id="menuReferral">
-                    <div class="menu-item-left">
-                        <div class="menu-icon">👥</div>
-                        <div>
-                            <div class="menu-text">Партнерская программа</div>
-                            <div class="menu-sub">Приглашайте друзей и получайте %</div>
-                        </div>
-                    </div>
-                    <div class="menu-arrow">›</div>
-                </div>
-                <div class="menu-item" id="menuHistory">
-                    <div class="menu-item-left">
-                        <div class="menu-icon">📊</div>
-                        <div>
-                            <div class="menu-text">История сделок</div>
-                            <div class="menu-sub">Последние операции</div>
-                        </div>
-                    </div>
-                    <div class="menu-arrow">›</div>
-                </div>
-                <div class="menu-item" id="menuSettings">
-                    <div class="menu-item-left">
-                        <div class="menu-icon">⚙️</div>
-                        <div>
-                            <div class="menu-text">Настройки</div>
-                            <div class="menu-sub">API, безопасность</div>
-                        </div>
-                    </div>
-                    <div class="menu-arrow">›</div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Нижняя навигация -->
-    <div class="bottom-nav">
-        <div class="nav-item active" data-target="viewTrade">
-            <div class="icon">📈</div>
-            <span>Торговля</span>
-        </div>
-        <div class="nav-item" data-target="viewProfile">
-            <div class="icon">👤</div>
-            <span>Профиль</span>
-        </div>
-        <div class="nav-item" id="navCashier">
-            <div class="icon">💼</div>
-            <span>Касса</span>
-        </div>
-    </div>
-
-    <!-- Модальное окно Кассы -->
-    <div class="modal-overlay" id="cashierModal">
-        <div class="modal-content">
-            <div class="modal-title">КАССА R-TRADE</div>
-            <div class="modal-tabs">
-                <div class="modal-tab active" id="tabDeposit">Пополнить</div>
-                <div class="modal-tab" id="tabWithdraw">Вывести</div>
-            </div>
-            <input type="number" class="modal-input" id="cashierAmount" placeholder="Сумма в ₽" value="5000" min="1" step="100">
-            <button class="modal-btn" id="btnConfirmCashier">ПОПОЛНИТЬ</button>
-            <button class="modal-close" id="btnCloseCashier">Отмена</button>
-        </div>
-    </div>
-
-    <script>
-        // ============================================================
-        // 1. ИНИЦИАЛИЗАЦИЯ TELEGRAM WEB APP
-        // ============================================================
-        const tg = window.Telegram.WebApp;
-        tg.expand();
-        tg.enableClosingConfirmation();
-
-        let userId = null;
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.has('userId')) userId = urlParams.get('userId');
-        else if (tg.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
-
-        // ============================================================
-        // 2. DOM ЭЛЕМЕНТЫ
-        // ============================================================
-        const balanceDisplay = document.getElementById('balanceDisplay');
-        const headerDepositBtn = document.getElementById('headerDepositBtn');
-        const cashierModal = document.getElementById('cashierModal');
-        const tabDeposit = document.getElementById('tabDeposit');
-        const tabWithdraw = document.getElementById('tabWithdraw');
-        const cashierAmount = document.getElementById('cashierAmount');
-        const btnConfirmCashier = document.getElementById('btnConfirmCashier');
-        const btnCloseCashier = document.getElementById('btnCloseCashier');
-        const toast = document.getElementById('toast');
-
-        // Элементы профиля
-        const profileName = document.getElementById('profileName');
-        const profileUid = document.getElementById('profileUid');
-        const avatarLetter = document.getElementById('avatarLetter');
-        const statPnL = document.getElementById('statPnL');
-        const statWinrate = document.getElementById('statWinrate');
-        const statVolume = document.getElementById('statVolume');
-        const statTrades = document.getElementById('statTrades');
-        const menuWallet = document.getElementById('menuWallet');
-        const menuRewards = document.getElementById('menuRewards');
-        const menuReferral = document.getElementById('menuReferral');
-        const menuHistory = document.getElementById('menuHistory');
-        const menuSettings = document.getElementById('menuSettings');
-
-        // ============================================================
-        // 3. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-        // ============================================================
-        function showToast(text, duration = 2500) {
-            toast.textContent = text;
-            toast.classList.add('visible');
-            clearTimeout(toast._timer);
-            toast._timer = setTimeout(() => toast.classList.remove('visible'), duration);
-        }
-
-        function vibrate(type = 'medium') {
-            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred(type);
-        }
-
-        // ============================================================
-        // 4. HTTP API ДЛЯ РАБОТЫ С БАЛАНСОМ (ПОПОЛНЕНИЕ/ВЫВОД)
-        // ============================================================
-        // Базовый URL для API (замените на ваш реальный адрес сервера)
-        const API_BASE = window.location.origin + '/'; // предполагаем, что сервер на том же хосте
-
-        async function fetchBalance() {
-            if (!userId) return;
-            try {
-                const resp = await fetch(API_BASE + 'balance/' + userId);
-                if (!resp.ok) throw new Error('Network error');
-                const data = await resp.json();
-                if (data.balance !== undefined) {
-                    const newBal = data.balance;
-                    localStorage.setItem('tradeBalance', String(newBal));
-                    balanceDisplay.innerText = newBal.toLocaleString() + ' ₽';
-                }
-            } catch (e) {
-                console.error('Ошибка получения баланса:', e);
-                // Пробуем получить из localStorage
-                const saved = localStorage.getItem('tradeBalance');
-                if (saved) {
-                    balanceDisplay.innerText = parseInt(saved).toLocaleString() + ' ₽';
-                }
-            }
-        }
-
-        async function performDeposit(amount) {
-            try {
-                const resp = await fetch(API_BASE + 'trade/deposit', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ tg_id: userId, amount: amount })
-                });
-                const data = await resp.json();
-                if (data.success) {
-                    const newBal = data.new_balance;
-                    localStorage.setItem('tradeBalance', String(newBal));
-                    balanceDisplay.innerText = newBal.toLocaleString() + ' ₽';
-                    showToast('✅ Пополнение на ' + amount + ' ₽ выполнено!');
-                    return true;
-                } else {
-                    showToast('❌ Ошибка: ' + (data.error || 'неизвестная'));
-                    return false;
-                }
-            } catch (e) {
-                showToast('❌ Ошибка соединения с сервером');
-                return false;
-            }
-        }
-
-        async function performWithdraw(amount) {
-            try {
-                const resp = await fetch(API_BASE + 'trade/withdraw', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ tg_id: userId, amount: amount })
-                });
-                const data = await resp.json();
-                if (data.success) {
-                    const newBal = data.new_balance;
-                    localStorage.setItem('tradeBalance', String(newBal));
-                    balanceDisplay.innerText = newBal.toLocaleString() + ' ₽';
-                    showToast('✅ Вывод ' + amount + ' ₽ выполнен!');
-                    return true;
-                } else {
-                    showToast('❌ Ошибка: ' + (data.error || 'неизвестная'));
-                    return false;
-                }
-            } catch (e) {
-                showToast('❌ Ошибка соединения с сервером');
-                return false;
-            }
-        }
-
-        // ============================================================
-        // 5. ЗАГРУЗКА БАЛАНСА И ПРОФИЛЯ
-        // ============================================================
-        function loadBalance() {
-            if (!userId) {
-                balanceDisplay.innerText = '—';
-                return;
-            }
-            fetchBalance();
-        }
-
-        function loadProfile() {
-            if (!userId) return;
-            // Запрашиваем данные профиля через WebApp (tg.sendData) или через HTTP?
-            // Используем tg.sendData для совместимости с существующим ботом
-            sendToBot('get_trading_portfolio').then(res => {
-                if (res && res.success) {
-                    const data = res.portfolio || {};
-                    updateProfileStats(data);
-                }
-            });
-        }
-
-        function updateProfileStats(data) {
-            const totalBets = data.total_bets || 0;
-            const wins = data.wins || 0;
-            const losses = data.losses || 0;
-            const totalProfit = data.total_profit || 0;
-            const winrate = totalBets > 0 ? (wins / totalBets * 100) : 0;
-            const volume = data.total_bet || 0;
-
-            statPnL.textContent = (totalProfit >= 0 ? '+' : '') + totalProfit.toLocaleString() + ' ₽';
-            statPnL.className = 'stat-value ' + (totalProfit >= 0 ? 'green' : 'red');
-            statWinrate.textContent = winrate.toFixed(1) + '%';
-            statWinrate.className = 'stat-value blue';
-            statVolume.textContent = volume.toLocaleString() + ' ₽';
-            statTrades.textContent = totalBets;
-
-            if (data.nickname) {
-                profileName.innerHTML = data.nickname + ' <span class="uid-tag" id="profileUid">UID: ' + (userId || '—') + '</span>';
-                avatarLetter.textContent = data.nickname.charAt(0).toUpperCase();
-            }
-        }
-
-        // ============================================================
-        // 6. ОТПРАВКА ДАННЫХ В БОТА (tg.sendData) ДЛЯ ТРЕЙДИНГА И ДРУГИХ ДЕЙСТВИЙ
-        // ============================================================
-        function sendToBot(action, data = {}) {
-            return new Promise((resolve) => {
-                const payload = JSON.stringify({ action, ...data });
-                console.log('📤 Отправка:', payload);
-                tg.sendData(payload);
-                // Сохраняем колбэк для ответа
-                window._lastResolve = resolve;
-            });
-        }
-
-        // Обработчик ответов от бота (для действий, отправленных через tg.sendData)
-        tg.onEvent('web_app_data', function(data) {
-            try {
-                const response = JSON.parse(data);
-                console.log('📩 Ответ от бота:', response);
-                if (window._lastResolve) {
-                    window._lastResolve(response);
-                    window._lastResolve = null;
-                }
-                // Если пришёл обновлённый баланс в ответе, обновляем
-                if (response.new_balance !== undefined) {
-                    const newBal = response.new_balance;
-                    localStorage.setItem('tradeBalance', String(newBal));
-                    balanceDisplay.innerText = newBal.toLocaleString() + ' ₽';
-                } else if (response.balance !== undefined) {
-                    const newBal = response.balance;
-                    localStorage.setItem('tradeBalance', String(newBal));
-                    balanceDisplay.innerText = newBal.toLocaleString() + ' ₽';
-                }
-                if (response.type === 'trade_result') {
-                    if (response.win) {
-                        showToast(`✅ Выигрыш! +${response.profit} ₽`);
-                    } else {
-                        showToast(`❌ Проигрыш. -${response.bet} ₽`);
-                    }
-                    // После торговли обновляем баланс через HTTP
-                    setTimeout(fetchBalance, 1000);
-                }
-                if (response.type === 'profile_data') {
-                    updateProfileStats(response.data);
-                }
-            } catch (e) {
-                console.error('Ошибка обработки ответа:', e);
-            }
-        });
-
-        // ============================================================
-        // 7. ТОРГОВЛЯ (LONG / SHORT)
-        // ============================================================
-        const btnLong = document.getElementById('btnLong');
-        const btnShort = document.getElementById('btnShort');
-        const orderAmount = document.getElementById('orderAmount');
-        const leverageInput = document.getElementById('leverageInput');
-
-        function placeTrade(direction) {
-            if (!userId) {
-                showToast('❌ Ошибка: не найден userId');
-                return;
-            }
-            const amount = parseInt(orderAmount.value);
-            if (isNaN(amount) || amount < 100) {
-                showToast('❌ Минимальная сумма 100 ₽');
-                return;
-            }
-            const leverage = parseInt(leverageInput.value) || 1;
-            const activePair = document.querySelector('#pairSelector .pill-btn.active');
-            const asset = activePair ? activePair.getAttribute('data-pair') : 'BTC';
-            sendToBot('trade_bet', {
-                asset: asset,
-                direction: direction === 'long' ? 'up' : 'down',
-                amount: amount,
-                leverage: leverage
-            }).then(res => {
-                if (res && res.success) {
-                    showToast(`✅ Ордер ${direction.toUpperCase()} открыт!`);
-                    // Баланс обновится через ответ от бота или через HTTP позже
-                } else {
-                    showToast('❌ Ошибка: ' + (res?.error || 'неизвестная'));
-                }
-            });
-        }
-
-        btnLong.addEventListener('click', () => {
-            vibrate('heavy');
-            placeTrade('long');
-        });
-        btnShort.addEventListener('click', () => {
-            vibrate('heavy');
-            placeTrade('short');
-        });
-
-        // ============================================================
-        // 8. КАССА (ПОПОЛНЕНИЕ / ВЫВОД) – через HTTP API
-        // ============================================================
-        let cashierMode = 'deposit';
-
-        function openCashier() {
-            vibrate('medium');
-            cashierModal.classList.add('active');
-        }
-
-        headerDepositBtn.addEventListener('click', openCashier);
-        document.getElementById('navCashier').addEventListener('click', openCashier);
-
-        tabDeposit.addEventListener('click', function() {
-            vibrate('light');
-            cashierMode = 'deposit';
-            this.classList.add('active');
-            tabWithdraw.classList.remove('active');
-            btnConfirmCashier.textContent = 'ПОПОЛНИТЬ';
-        });
-        tabWithdraw.addEventListener('click', function() {
-            vibrate('light');
-            cashierMode = 'withdraw';
-            this.classList.add('active');
-            tabDeposit.classList.remove('active');
-            btnConfirmCashier.textContent = 'ВЫВЕСТИ';
-        });
-
-        btnConfirmCashier.addEventListener('click', async function() {
-            vibrate('heavy');
-            const amount = parseInt(cashierAmount.value);
-            if (isNaN(amount) || amount <= 0) {
-                showToast('❌ Введите корректную сумму');
-                return;
-            }
-            let success = false;
-            if (cashierMode === 'deposit') {
-                success = await performDeposit(amount);
-            } else {
-                success = await performWithdraw(amount);
-            }
-            if (success) {
-                cashierModal.classList.remove('active');
-                // Дополнительно обновим профиль
-                loadProfile();
-            }
-        });
-
-        btnCloseCashier.addEventListener('click', () => {
-            cashierModal.classList.remove('active');
-        });
-
-        // ============================================================
-        // 9. МЕНЮ ПРОФИЛЯ – переход на отдельные страницы
-        // ============================================================
-        const BASE_URL = window.location.origin + window.location.pathname.replace(/[^/]*$/, '');
-
-        menuWallet.addEventListener('click', () => {
-            vibrate('medium');
-            openCashier();
-        });
-
-        menuRewards.addEventListener('click', () => {
-            vibrate('medium');
-            window.location.href = BASE_URL + 'rewards.html?userId=' + userId;
-        });
-
-        menuReferral.addEventListener('click', () => {
-            vibrate('medium');
-            window.location.href = BASE_URL + 'referral.html?userId=' + userId;
-        });
-
-        menuHistory.addEventListener('click', () => {
-            vibrate('medium');
-            window.location.href = BASE_URL + 'history.html?userId=' + userId;
-        });
-
-        menuSettings.addEventListener('click', () => {
-            vibrate('medium');
-            window.location.href = BASE_URL + 'settings.html?userId=' + userId;
-        });
-
-        // ============================================================
-        // 10. НАВИГАЦИЯ МЕЖДУ ВКЛАДКАМИ
-        // ============================================================
-        const navItems = document.querySelectorAll('.bottom-nav .nav-item[data-target]');
-        const viewSections = document.querySelectorAll('.view-section');
-
-        navItems.forEach(item => {
-            item.addEventListener('click', function() {
-                vibrate('light');
-                const targetId = this.getAttribute('data-target');
-                if (!targetId) return;
-                document.querySelectorAll('.bottom-nav .nav-item').forEach(n => n.classList.remove('active'));
-                this.classList.add('active');
-                viewSections.forEach(view => {
-                    view.classList.remove('active');
-                    if (view.id === targetId) {
-                        view.classList.add('active');
-                    }
-                });
-                if (targetId === 'viewTrade' && chart) {
-                    setTimeout(() => chart.resize(document.getElementById('tvchart').clientWidth, document.getElementById('tvchart').clientHeight), 10);
-                }
-                if (targetId === 'viewProfile') {
-                    loadProfile();
-                }
-            });
-        });
-
-        // ============================================================
-        // 11. ГРАФИК (LIGHTWEIGHT CHARTS) + СИМУЛЯЦИЯ ЦЕН
-        // ============================================================
-        const chartContainer = document.getElementById('tvchart');
-        const chart = LightweightCharts.createChart(chartContainer, {
-            layout: { background: { type: 'solid', color: 'transparent' }, textColor: '#94a3b8' },
-            grid: { vertLines: { color: 'rgba(255,255,255,0.03)' }, horzLines: { color: 'rgba(255,255,255,0.03)' } },
-            crosshair: {
-                mode: LightweightCharts.CrosshairMode.Normal,
-                vertLine: { color: '#2f88ff', width: 1, style: 1 },
-                horzLine: { color: '#2f88ff', width: 1, style: 1 }
-            },
-            rightPriceScale: { borderVisible: false },
-            timeScale: { borderVisible: false, timeVisible: true },
-            handleScroll: { mouseWheel: true, pressedMouseMove: true },
-            handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
-        });
-
-        const candleSeries = chart.addCandlestickSeries({
-            upColor: '#00e676',
-            downColor: '#ff3b69',
-            borderVisible: false,
-            wickUpColor: '#00e676',
-            wickDownColor: '#ff3b69'
-        });
-
-        let currentPrice = 64230;
-        let chartData = [];
-
-        function generateMockData() {
-            const data = [];
-            let time = Math.floor(Date.now() / 1000) - 86400 * 30;
-            let price = 60000 + Math.random() * 5000;
-            for (let i = 0; i < 150; i++) {
-                const open = price;
-                const close = open + (Math.random() - 0.5) * 800;
-                const high = Math.max(open, close) + Math.random() * 400;
-                const low = Math.min(open, close) - Math.random() * 400;
-                data.push({ time, open, high, low, close });
-                price = close;
-                time += 86400;
-            }
-            chartData = data;
-            candleSeries.setData(data);
-            const last = data[data.length - 1];
-            updatePriceBadge(last.close, last.open);
-            updateOrderBook(last.close);
-        }
-
-        function updatePriceBadge(close, open) {
-            const badge = document.getElementById('chartPrice');
-            badge.innerText = close.toFixed(2);
-            badge.style.color = close >= open ? '#00e676' : '#ff3b69';
-            badge.style.textShadow = close >= open ? '0 0 20px rgba(0,230,118,0.35)' : '0 0 20px rgba(255,59,105,0.35)';
-            currentPrice = close;
-        }
-
-        function updateOrderBook(price) {
-            const ask1 = (price + 0.5 + Math.random() * 2).toFixed(2);
-            const ask2 = (price + 1.0 + Math.random() * 3).toFixed(2);
-            const ask3 = (price + 1.5 + Math.random() * 4).toFixed(2);
-            const bid1 = (price - 0.5 - Math.random() * 2).toFixed(2);
-            const bid2 = (price - 1.0 - Math.random() * 3).toFixed(2);
-            const bid3 = (price - 1.5 - Math.random() * 4).toFixed(2);
-            document.getElementById('ask1').textContent = ask1;
-            document.getElementById('ask2').textContent = ask2;
-            document.getElementById('ask3').textContent = ask3;
-            document.getElementById('bid1').textContent = bid1;
-            document.getElementById('bid2').textContent = bid2;
-            document.getElementById('bid3').textContent = bid3;
-            document.querySelectorAll('.ob-bg').forEach(el => {
-                el.style.width = (20 + Math.random() * 70) + '%';
-            });
-        }
-
-        generateMockData();
-
-        setInterval(() => {
-            const last = chartData[chartData.length - 1];
-            const newClose = last.close + (Math.random() - 0.5) * 60;
-            const newHigh = Math.max(last.high, newClose);
-            const newLow = Math.min(last.low, newClose);
-            const newTime = last.time + 60;
-            const newCandle = { time: newTime, open: last.close, high: newHigh, low: newLow, close: newClose };
-            chartData.push(newCandle);
-            if (chartData.length > 200) chartData.shift();
-            candleSeries.setData(chartData);
-            updatePriceBadge(newClose, last.close);
-            updateOrderBook(newClose);
-        }, 5000);
-
-        document.querySelectorAll('#pairSelector .pill-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                vibrate('light');
-                document.querySelectorAll('#pairSelector .pill-btn').forEach(b => b.classList.remove('active'));
-                this.classList.add('active');
-                const base = Math.random() * 40000 + 20000;
-                generateMockDataWithBase(base);
-            });
-        });
-
-        function generateMockDataWithBase(base) {
-            const data = [];
-            let time = Math.floor(Date.now() / 1000) - 86400 * 30;
-            let price = base + (Math.random() - 0.5) * 2000;
-            for (let i = 0; i < 150; i++) {
-                const open = price;
-                const close = open + (Math.random() - 0.5) * 400;
-                const high = Math.max(open, close) + Math.random() * 200;
-                const low = Math.min(open, close) - Math.random() * 200;
-                data.push({ time, open, high, low, close });
-                price = close;
-                time += 86400;
-            }
-            chartData = data;
-            candleSeries.setData(data);
-            const last = data[data.length - 1];
-            updatePriceBadge(last.close, last.open);
-            updateOrderBook(last.close);
-        }
-
-        window.addEventListener('resize', () => {
-            chart.resize(chartContainer.clientWidth, chartContainer.clientHeight);
-        });
-        setTimeout(() => chart.resize(chartContainer.clientWidth, chartContainer.clientHeight), 100);
-
-        // ============================================================
-        // 12. ИНИЦИАЛИЗАЦИЯ
-        // ============================================================
-        if (userId) {
-            loadBalance();
-            loadProfile();
-            // Периодическое обновление баланса (каждые 30 секунд)
-            setInterval(fetchBalance, 30000);
-        } else {
-            showToast('⚠️ Ошибка: не удалось определить пользователя', 3000);
-        }
-
-        document.addEventListener('visibilitychange', () => {
-            if (!document.hidden && userId) {
-                fetchBalance();
+                loadBalance();
             }
         });
 
