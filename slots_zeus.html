@@ -463,7 +463,6 @@
             box-shadow: inset 0 0 30px rgba(255,213,74,0.04);
         }
 
-        /* ===== ОБРАМЛЕНИЕ БАРАБАНА ===== */
         .reel-frame {
             position: absolute;
             top: -8px;
@@ -504,7 +503,6 @@
             background-size: 20px 20px;
         }
 
-        /* ===== CANVAS ===== */
         #reelsCanvas {
             width: 100%;
             height: 100%;
@@ -1724,7 +1722,7 @@
     </div>
 
     <!-- ==============================================================
-    JAVASCRIPT — ОПТИМИЗИРОВАННАЯ ВЕРСИЯ
+    JAVASCRIPT — ОПТИМИЗИРОВАННАЯ ВЕРСИЯ С ЛИНИЯМИ И ЛУЧАМИ
     ============================================================== -->
     <script>
         (function() {
@@ -1926,7 +1924,6 @@
                         luckFactor = Math.min(2.8, luckFactor + 0.05);
                     }
                 }
-                // console.log(`🎯 Luck: ${luckFactor.toFixed(3)}, losses: ${consecutiveLosses}, wins: ${consecutiveWins}`);
             }
 
             // =============================================================
@@ -1995,7 +1992,7 @@
             const payoutGrid = document.getElementById('payoutGrid');
 
             // =============================================================
-            // 6. ЗВУК (без изменений)
+            // 6. ЗВУК
             // =============================================================
             const SoundManager = { volume: 0.85, setVolume(v) { this.volume = Math.max(0, Math.min(1, v)); }, scale(vol) { return vol *
                         this.volume; } };
@@ -2141,7 +2138,7 @@
             }
 
             function initParticlesFull() {
-                const count = 20; // уменьшено с 30
+                const count = 20;
                 pW = particleCanvas.width = window.innerWidth;
                 pH = particleCanvas.height = window.innerHeight;
                 pCtx = particleCanvas.getContext('2d');
@@ -2164,7 +2161,7 @@
             }
 
             function initParticlesBalanced() {
-                const count = 10; // уменьшено с 15
+                const count = 10;
                 pW = particleCanvas.width = window.innerWidth;
                 pH = particleCanvas.height = window.innerHeight;
                 pCtx = particleCanvas.getContext('2d');
@@ -2187,19 +2184,15 @@
             }
 
             function drawParticles() {
-                // Если страница скрыта, не обновляем
                 if (document.hidden) {
                     particleAnimId = requestAnimationFrame(drawParticles);
                     return;
                 }
-
-                // Пропускаем каждый 2-й кадр для экономии
                 particleFrameSkip = (particleFrameSkip + 1) % 2;
                 if (particleFrameSkip !== 0) {
                     particleAnimId = requestAnimationFrame(drawParticles);
                     return;
                 }
-
                 if (!pCtx) return;
                 pCtx.clearRect(0, 0, pW, pH);
                 const time = Date.now() * 0.0004;
@@ -2219,7 +2212,7 @@
                         pCtx.fillStyle = `rgba(255,213,74,${alpha})`;
                     }
                     pCtx.shadowColor = p.type === 'magic' ? `rgba(92,225,255,${alpha * 0.5})` : `rgba(255,213,74,${alpha * 0.5})`;
-                    pCtx.shadowBlur = settings.graphics === 'balanced' ? 2 : 4; // уменьшено
+                    pCtx.shadowBlur = settings.graphics === 'balanced' ? 2 : 4;
                     pCtx.fill();
                     pCtx.shadowBlur = 0;
                 });
@@ -2257,7 +2250,7 @@
             window._particlesInit = true;
 
             // =============================================================
-            // 8. МОЛНИИ (упрощены)
+            // 8. МОЛНИИ (УПРОЩЕНЫ)
             // =============================================================
             let lCtx = null,
                 lW = 0,
@@ -2297,9 +2290,9 @@
                         lCtx.moveTo(seg.x1, seg.y1);
                         lCtx.lineTo(seg.x2, seg.y2);
                         lCtx.strokeStyle = `rgba(255,241,168,${alpha * 0.9})`;
-                        lCtx.lineWidth = settings.graphics === 'balanced' ? 1.5 * alpha : 2.5 * alpha; // уменьшено
+                        lCtx.lineWidth = settings.graphics === 'balanced' ? 1.5 * alpha : 2.5 * alpha;
                         lCtx.shadowColor = `rgba(255,213,74,${alpha})`;
-                        lCtx.shadowBlur = settings.graphics === 'balanced' ? 6 : 12; // уменьшено
+                        lCtx.shadowBlur = settings.graphics === 'balanced' ? 6 : 12;
                         lCtx.stroke();
                         lCtx.strokeStyle = `rgba(255,255,255,${alpha * 0.6})`;
                         lCtx.lineWidth = settings.graphics === 'balanced' ? 0.8 * alpha : 1.2 * alpha;
@@ -2320,7 +2313,7 @@
                 initLightningCanvas();
                 const startX = lW * (0.3 + Math.random() * 0.4);
                 const endX = startX + (Math.random() - 0.5) * 100;
-                const segments = createBolt(startX, 0, endX, lH * (0.4 + Math.random() * 0.3), 0, 3); // глубина 3 вместо 4
+                const segments = createBolt(startX, 0, endX, lH * (0.4 + Math.random() * 0.3), 0, 3);
                 lightningBolts.push({ segments, life: 1 });
                 renderLightning();
             }
@@ -2343,8 +2336,13 @@
             }
 
             // =============================================================
-            // 9. WIN LINES CANVAS (УПРОЩЁННЫЙ ЭФФЕКТ ПОДСВЕТКИ)
+            // 9. WIN LINES — НОВАЯ ВЕРСИЯ С ЛИНИЯМИ И ЛУЧАМИ
             // =============================================================
+            let winLinesActive = false;
+            let winLinesAnimId = null;
+            let winLinesStartTime = 0;
+            let winLinesData = [];
+
             function drawWinLines(winningIndices) {
                 const canvas = winLinesCanvas;
                 const rect = canvas.parentElement.getBoundingClientRect();
@@ -2366,45 +2364,133 @@
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 if (!winningIndices || winningIndices.length === 0) {
                     canvas.classList.remove('active');
+                    winLinesActive = false;
+                    if (winLinesAnimId) { cancelAnimationFrame(winLinesAnimId);
+                        winLinesAnimId = null; }
                     return;
                 }
 
-                // Подсвечиваем каждый выигрышный символ
-                const uniqueIndices = [...new Set(winningIndices)];
-                uniqueIndices.forEach(idx => {
-                    const p = getPos(idx);
-                    // Яркий круг с glow
-                    const grad = ctx.createRadialGradient(p.x, p.y, 2, p.x, p.y, Math.max(cellW, cellH) * 0.7);
-                    grad.addColorStop(0, 'rgba(255, 215, 0, 0.9)');
-                    grad.addColorStop(0.3, 'rgba(255, 215, 0, 0.4)');
-                    grad.addColorStop(1, 'rgba(255, 215, 0, 0)');
-                    ctx.fillStyle = grad;
-                    ctx.beginPath();
-                    ctx.arc(p.x, p.y, Math.max(cellW, cellH) * 0.7, 0, Math.PI * 2);
-                    ctx.fill();
-
-                    // Внешняя обводка
-                    ctx.shadowColor = 'rgba(255, 215, 0, 0.8)';
-                    ctx.shadowBlur = 20;
-                    ctx.strokeStyle = 'rgba(255, 215, 0, 0.9)';
-                    ctx.lineWidth = 3;
-                    ctx.beginPath();
-                    ctx.arc(p.x, p.y, Math.min(cellW, cellH) * 0.4, 0, Math.PI * 2);
-                    ctx.stroke();
-                    ctx.shadowBlur = 0;
-
-                    // Маленькая яркая точка в центре
-                    ctx.fillStyle = '#FFF8CC';
-                    ctx.shadowBlur = 15;
-                    ctx.shadowColor = '#FFD54A';
-                    ctx.beginPath();
-                    ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.shadowBlur = 0;
+                // Собираем линии (группы по 3+ совпадений)
+                const lineGroups = [];
+                LINES.forEach((line, li) => {
+                    const matched = line.filter(idx => winningIndices.includes(idx));
+                    if (matched.length >= 3) lineGroups.push({ line, matched, li });
                 });
 
+                if (lineGroups.length === 0) {
+                    canvas.classList.remove('active');
+                    winLinesActive = false;
+                    if (winLinesAnimId) { cancelAnimationFrame(winLinesAnimId);
+                        winLinesAnimId = null; }
+                    return;
+                }
+
+                // Сохраняем данные для анимации
+                winLinesData = lineGroups.map(g => ({
+                    pts: g.line.map(idx => getPos(idx)),
+                    matched: g.matched.map(idx => getPos(idx)),
+                    hue: 45 + g.li * 8
+                }));
+
                 canvas.classList.add('active');
-                setTimeout(() => { canvas.classList.remove('active'); }, 2500);
+                winLinesActive = true;
+                winLinesStartTime = performance.now();
+                if (winLinesAnimId) cancelAnimationFrame(winLinesAnimId);
+                animateWinLines();
+            }
+
+            function animateWinLines() {
+                if (!winLinesActive) {
+                    winLinesAnimId = null;
+                    return;
+                }
+
+                const canvas = winLinesCanvas;
+                const ctx = canvas.getContext('2d');
+                const now = performance.now();
+                const elapsed = (now - winLinesStartTime) / 1000;
+                const pulse = Math.sin(elapsed * 3) * 0.3 + 0.7;
+                const glowPulse = Math.sin(elapsed * 2.5) * 0.3 + 0.7;
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                // Для каждой группы рисуем линии и лучи
+                winLinesData.forEach((g, gi) => {
+                    const pts = g.pts;
+                    const matched = g.matched;
+                    const hue = g.hue;
+
+                    // 1. Основная линия с градиентом
+                    if (pts.length >= 2) {
+                        const grad = ctx.createLinearGradient(pts[0].x, pts[0].y, pts[pts.length - 1].x, pts[pts.length - 1]
+                            .y);
+                        grad.addColorStop(0, `hsla(${hue}, 100%, 70%, ${0.9 * pulse})`);
+                        grad.addColorStop(0.5, `hsla(${hue + 20}, 100%, 85%, ${1.0 * pulse})`);
+                        grad.addColorStop(1, `hsla(${hue}, 100%, 70%, ${0.9 * pulse})`);
+                        ctx.beginPath();
+                        ctx.moveTo(pts[0].x, pts[0].y);
+                        for (let i = 1; i < pts.length; i++) {
+                            ctx.lineTo(pts[i].x, pts[i].y);
+                        }
+                        ctx.strokeStyle = grad;
+                        ctx.lineWidth = 4 * pulse + 1;
+                        ctx.shadowColor = `hsla(${hue}, 100%, 60%, ${0.8 * glowPulse})`;
+                        ctx.shadowBlur = 25;
+                        ctx.stroke();
+
+                        // Вторая, более яркая линия поверх
+                        ctx.shadowBlur = 15;
+                        ctx.strokeStyle = `hsla(${hue + 15}, 100%, 95%, ${0.6 * pulse})`;
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.moveTo(pts[0].x, pts[0].y);
+                        for (let i = 1; i < pts.length; i++) {
+                            ctx.lineTo(pts[i].x, pts[i].y);
+                        }
+                        ctx.stroke();
+                        ctx.shadowBlur = 0;
+                    }
+
+                    // 2. Лучи (sparkles) на каждом выигрышном символе
+                    matched.forEach((p, i) => {
+                        const angle = i * 1.2 + elapsed * 0.5;
+                        const length = 16 + 8 * Math.sin(elapsed * 2 + i * 0.7);
+                        const count = 8;
+                        for (let j = 0; j < count; j++) {
+                            const a = angle + (j / count) * Math.PI * 2;
+                            const len = length * (0.6 + 0.4 * Math.sin(elapsed * 3 + j + i));
+                            const x1 = p.x + Math.cos(a) * 6;
+                            const y1 = p.y + Math.sin(a) * 6;
+                            const x2 = p.x + Math.cos(a) * len;
+                            const y2 = p.y + Math.sin(a) * len;
+                            ctx.beginPath();
+                            ctx.moveTo(x1, y1);
+                            ctx.lineTo(x2, y2);
+                            ctx.strokeStyle =
+                                `hsla(${hue + 20}, 100%, 80%, ${0.6 * glowPulse * (0.4 + 0.6 * (j / count))})`;
+                            ctx.lineWidth = 1.5 + 1.5 * Math.sin(elapsed * 2 + i + j);
+                            ctx.shadowColor = `hsla(${hue}, 100%, 70%, ${0.8 * glowPulse})`;
+                            ctx.shadowBlur = 12;
+                            ctx.stroke();
+                            ctx.shadowBlur = 0;
+                        }
+
+                        // Яркое ядро
+                        const grad = ctx.createRadialGradient(p.x, p.y, 1, p.x, p.y, 16);
+                        grad.addColorStop(0, `hsla(${hue + 10}, 100%, 95%, ${0.9 * glowPulse})`);
+                        grad.addColorStop(0.3, `hsla(${hue}, 100%, 70%, ${0.8 * glowPulse})`);
+                        grad.addColorStop(1, `hsla(${hue}, 100%, 50%, 0)`);
+                        ctx.fillStyle = grad;
+                        ctx.shadowBlur = 30;
+                        ctx.shadowColor = `hsla(${hue}, 100%, 60%, ${0.6 * glowPulse})`;
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, 16, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.shadowBlur = 0;
+                    });
+                });
+
+                winLinesAnimId = requestAnimationFrame(animateWinLines);
             }
 
             // =============================================================
@@ -2442,8 +2528,8 @@
                     const progress = Math.min(elapsed / duration, 1);
                     const eased = 1 - Math.pow(1 - progress, 3);
                     bigWinAmount.textContent = formatNumber(Math.floor(amount * eased)) + ' ₽';
-                    if (progress < 1) { bigWinAnimId = requestAnimationFrame(animateCounter); } else { setTimeout(hideBigWinCinematic,
-                            1200); }
+                    if (progress < 1) { bigWinAnimId = requestAnimationFrame(animateCounter); } else { setTimeout(
+                            hideBigWinCinematic, 1200); }
                 }
                 if (bigWinAnimId) cancelAnimationFrame(bigWinAnimId);
                 animateCounter();
@@ -2463,9 +2549,8 @@
             }
 
             // =============================================================
-            // 11. ОСНОВНАЯ ЛОГИКА С CANVAS (без изменений)
+            // 11. ОСНОВНАЯ ЛОГИКА С CANVAS (ИСПРАВЛЕНА ИНИЦИАЛИЗАЦИЯ)
             // =============================================================
-
             function buildReelStrips() {
                 const strips = [];
                 for (let col = 0; col < 5; col++) {
@@ -2516,6 +2601,9 @@
                 currentGrid = getGridFromOffsets(offsets, strips);
             }
 
+            // ИСПРАВЛЕННАЯ ОТРИСОВКА — предотвращаем лишние перерисовки
+            let drawPending = false;
+
             function drawReels(offsets, strips) {
                 const canvas = reelsCanvas;
                 const rect = canvas.parentElement.getBoundingClientRect();
@@ -2547,7 +2635,6 @@
                         const y = pad + row * cellH + (cellH - imgSize) / 2;
 
                         ctx.shadowBlur = 0;
-                        ctx.shadowColor = 'transparent';
                         ctx.strokeStyle = 'rgba(255,213,74,0.55)';
                         ctx.lineWidth = 2.5;
                         ctx.strokeRect(x - 2, y - 2, imgSize + 4, imgSize + 4);
@@ -2563,19 +2650,29 @@
                         if (img.complete && img.naturalWidth !== 0) {
                             ctx.drawImage(img, x, y, imgSize, imgSize);
                         } else {
-                            img.onload = function() {
-                                ctx.drawImage(img, x, y, imgSize, imgSize);
-                            };
-                            img.onerror = function() {
-                                ctx.fillStyle = 'rgba(255,255,255,0.06)';
-                                ctx.fillRect(x, y, imgSize, imgSize);
-                            };
+                            if (!img._listenerAdded) {
+                                img._listenerAdded = true;
+                                img.onload = function() {
+                                    if (!drawPending) {
+                                        drawPending = true;
+                                        requestAnimationFrame(() => {
+                                            drawPending = false;
+                                            drawReels(reelOffsets, reelStrips);
+                                        });
+                                    }
+                                };
+                                img.onerror = function() {
+                                    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+                                    ctx.fillRect(x, y, imgSize, imgSize);
+                                };
+                            }
+                            ctx.fillStyle = 'rgba(255,255,255,0.04)';
+                            ctx.fillRect(x, y, imgSize, imgSize);
                         }
                     }
                 }
 
                 ctx.shadowBlur = 0;
-                ctx.shadowColor = 'transparent';
                 ctx.strokeStyle = 'rgba(255,213,74,0.3)';
                 ctx.lineWidth = 2;
                 for (let c = 1; c < cols; c++) {
@@ -2614,13 +2711,6 @@
 
                 ctx.clearRect(0, 0, rect.width, rect.height);
 
-                // Убираем фильтр blur для экономии (он тоже нагружает)
-                // if (isMoving && settings.graphics !== 'balanced') {
-                //     ctx.filter = 'blur(2px)';
-                // } else {
-                //     ctx.filter = 'none';
-                // }
-
                 for (let col = 0; col < 5; col++) {
                     const strip = strips[col];
                     const len = strip.length;
@@ -2636,7 +2726,6 @@
                         const xPos = pad + col * cellW + (cellW - imgSize) / 2;
 
                         ctx.shadowBlur = 0;
-                        ctx.shadowColor = 'transparent';
                         ctx.strokeStyle = 'rgba(200,155,44,0.15)';
                         ctx.lineWidth = 1.5;
                         ctx.strokeRect(xPos - 2, yPos - 2, imgSize + 4, imgSize + 4);
@@ -2646,13 +2735,24 @@
                         if (img.complete && img.naturalWidth !== 0) {
                             ctx.drawImage(img, xPos, yPos, imgSize, imgSize);
                         } else {
-                            img.onload = function() {
-                                ctx.drawImage(img, xPos, yPos, imgSize, imgSize);
-                            };
-                            img.onerror = function() {
-                                ctx.fillStyle = 'rgba(255,255,255,0.04)';
-                                ctx.fillRect(xPos, yPos, imgSize, imgSize);
-                            };
+                            if (!img._listenerAdded) {
+                                img._listenerAdded = true;
+                                img.onload = function() {
+                                    if (!drawPending) {
+                                        drawPending = true;
+                                        requestAnimationFrame(() => {
+                                            drawPending = false;
+                                            drawReelsFloat(reelOffsets, reelStrips);
+                                        });
+                                    }
+                                };
+                                img.onerror = function() {
+                                    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+                                    ctx.fillRect(xPos, yPos, imgSize, imgSize);
+                                };
+                            }
+                            ctx.fillStyle = 'rgba(255,255,255,0.04)';
+                            ctx.fillRect(xPos, yPos, imgSize, imgSize);
                         }
                     }
                 }
@@ -2775,7 +2875,7 @@
             }
 
             // =============================================================
-            // 13. ОСНОВНОЙ СПИН (без изменений)
+            // 13. ОСНОВНОЙ СПИН
             // =============================================================
             function spinReels(bet, isFreeSpin = false, callback) {
                 if (isSpinning) return;
@@ -2792,6 +2892,9 @@
                 betInput.disabled = true;
                 betPresets.forEach(b => b.style.pointerEvents = 'none');
                 winLinesCanvas.classList.remove('active');
+                winLinesActive = false;
+                if (winLinesAnimId) { cancelAnimationFrame(winLinesAnimId);
+                    winLinesAnimId = null; }
                 appEl.classList.add('performance-mode');
 
                 const statusEl = statusBar.querySelector('span') || statusBar;
@@ -2854,6 +2957,7 @@
                         statusEl.textContent = `💰 ВЫИГРЫШ: ${formatNumber(winAmount)} ₽ (x${multiplier})`;
                         statusBar.classList.add('win');
 
+                        // Рисуем эффектные линии и лучи
                         drawWinLines([...winningIndices]);
 
                         if (cascadeCount === 1) playWin();
@@ -2873,7 +2977,7 @@
                         });
 
                         await new Promise(resolve => setTimeout(resolve, 450));
-                        winLinesCanvas.classList.remove('active');
+                        // Не скрываем линии сразу — они будут жить несколько секунд (анимация сама затухнет)
 
                         const cascadeResult = performCascade(grid, winningIndices);
                         grid = cascadeResult.newGrid;
@@ -3168,24 +3272,17 @@
 
             function parseNumber(str) { return parseInt(str.replace(/\s/g, '')) || 0; }
 
-            // Анимация баланса
             let balanceAnimId = null;
 
             function animateBalance(newValue, isWin = false) {
                 const oldValue = balance;
                 const diff = newValue - oldValue;
                 if (diff === 0) return;
-
                 const duration = isWin ? 800 : 500;
                 const startTime = performance.now();
-
-                // Если выигрыш, добавляем класс "added", если проигрыш – "decreased"
                 balanceDisplay.classList.remove('added', 'decreased');
-                if (isWin) {
-                    balanceDisplay.classList.add('added');
-                } else {
-                    balanceDisplay.classList.add('decreased');
-                }
+                if (isWin) balanceDisplay.classList.add('added');
+                else balanceDisplay.classList.add('decreased');
 
                 function update(currentTime) {
                     const elapsed = currentTime - startTime;
@@ -3215,7 +3312,6 @@
                 }
                 balance = newBalance;
                 localStorage.setItem('casinoBalance', String(balance));
-                // анимация вспышки на box
                 balanceBox.classList.remove('pop');
                 void balanceBox.offsetWidth;
                 balanceBox.classList.add('pop');
@@ -3336,29 +3432,34 @@
             }
 
             // =============================================================
-            // 18. INIT
+            // 18. INIT (ИСПРАВЛЕНА ИНИЦИАЛИЗАЦИЯ)
             // =============================================================
             function init() {
                 initAudio();
 
                 buildPayoutGrid();
 
-                reelsCanvas.style.opacity = '0';
-
+                // Инициализируем данные
                 reelStrips = buildReelStrips();
                 reelOffsets = [0, 0, 0, 0, 0];
                 currentGrid = getGridFromOffsets(reelOffsets, reelStrips);
 
+                // Рисуем первый раз
                 const render = () => {
                     drawReels(reelOffsets, reelStrips);
                     reelsCanvas.style.opacity = '1';
                 };
 
+                // Ждём, пока изображения загрузятся, но не перерисовываем бесконечно
                 requestAnimationFrame(() => {
                     requestAnimationFrame(render);
                 });
 
-                const resizeObserver = new ResizeObserver(() => { render(); });
+                const resizeObserver = new ResizeObserver(() => {
+                    if (!isSpinning) {
+                        drawReels(reelOffsets, reelStrips);
+                    }
+                });
                 resizeObserver.observe(reelsCanvas.parentElement);
 
                 updateBalance(balance, false);
