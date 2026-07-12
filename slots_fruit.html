@@ -131,7 +131,6 @@
             position: relative;
             z-index: 1;
         }
-        /* Overlay canvas for win lines */
         #winLinesCanvas {
             position: absolute;
             top: 6px;
@@ -266,6 +265,16 @@
             font-weight: 800;
             color: #fff;
             text-shadow: 0 0 10px rgba(180, 77, 255, 0.4);
+            transition: color 0.3s, transform 0.3s;
+            display: inline-block;
+        }
+        .balance-value.added {
+            color: #39ff7a;
+            text-shadow: 0 0 20px rgba(57,255,122,0.5);
+        }
+        .balance-value.decreased {
+            color: #ff3b6f;
+            text-shadow: 0 0 20px rgba(255,59,111,0.5);
         }
 
         .btn {
@@ -329,8 +338,6 @@
             height: 38px;
         }
         .btn-settings:active { background: rgba(180, 77, 255, 0.2); }
-
-        /* Info button removed from bottom, now at top */
 
         #autoControls {
             display: none;
@@ -631,7 +638,7 @@
 <body>
 
 <div id="app">
-    <!-- TOP BAR with Back and Info buttons -->
+    <!-- TOP BAR -->
     <div class="top-bar">
         <div class="left-group">
             <button class="top-btn back-btn" id="backBtn" aria-label="Назад">←</button>
@@ -897,7 +904,7 @@
     const backBtn = document.getElementById('backBtn');
 
     // =============================================================
-    // 5. ЗВУКИ (улучшенные)
+    // 5. ЗВУКИ (без изменений)
     // =============================================================
     let audioCtx = null, bgAudio = null;
     function initAudio() {
@@ -998,19 +1005,56 @@
     }
 
     // =============================================================
-    // 6. БАЛАНС
+    // 6. БАЛАНС С АНИМАЦИЕЙ
     // =============================================================
     let balance = parseInt(localStorage.getItem('casinoBalance')) || 0;
-    function updateBalance(amount, animate = false) {
-        balance = Math.floor(amount);
-        localStorage.setItem('casinoBalance', String(balance));
-        balanceDisplay.innerText = balance.toLocaleString() + ' ₽';
-        if (animate) {
-            balanceDisplay.style.transition = 'transform 0.2s';
-            balanceDisplay.style.transform = 'scale(1.15)';
-            setTimeout(() => balanceDisplay.style.transform = 'scale(1)', 200);
+    let balanceAnimId = null;
+
+    function animateBalance(newValue, isWin = false) {
+        const oldValue = balance;
+        const diff = newValue - oldValue;
+        if (diff === 0) return;
+
+        const duration = isWin ? 800 : 500;
+        const startTime = performance.now();
+
+        balanceDisplay.classList.remove('added', 'decreased');
+        if (isWin) {
+            balanceDisplay.classList.add('added');
+        } else {
+            balanceDisplay.classList.add('decreased');
         }
+
+        function update(currentTime) {
+            const elapsed = currentTime - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            const eased = isWin ? 1 - Math.pow(1 - progress, 3) : progress * progress * (3 - 2 * progress);
+            const currentValue = oldValue + diff * eased;
+            balanceDisplay.innerText = Math.floor(currentValue).toLocaleString() + ' ₽';
+            if (progress < 1) {
+                balanceAnimId = requestAnimationFrame(update);
+            } else {
+                balanceDisplay.innerText = newValue.toLocaleString() + ' ₽';
+                balanceDisplay.classList.remove('added', 'decreased');
+                balanceAnimId = null;
+            }
+        }
+        if (balanceAnimId) cancelAnimationFrame(balanceAnimId);
+        balanceAnimId = requestAnimationFrame(update);
     }
+
+    function updateBalance(amount, animate = false) {
+        const newBalance = Math.floor(amount);
+        if (animate) {
+            const isWin = amount > balance;
+            animateBalance(newBalance, isWin);
+        } else {
+            balanceDisplay.innerText = newBalance.toLocaleString() + ' ₽';
+        }
+        balance = newBalance;
+        localStorage.setItem('casinoBalance', String(balance));
+    }
+
     function getBet() {
         let val = parseInt(betInput.value.replace(/\s/g, ''));
         if (isNaN(val) || val < 10) val = 10;
@@ -1066,8 +1110,10 @@
     }
 
     // =============================================================
-    // 9. ОТРИСОВКА
+    // 9. ОТРИСОВКА (С КОНТРОЛЕМ ПЕРЕРИСОВОК)
     // =============================================================
+    let drawPending = false;
+
     function drawSymbol(ctx, img, x, y, w, h) {
         if (!img) return;
         const crop = 0.1;
@@ -1131,7 +1177,6 @@
                 drawSymbol(ctx, img, x, y, imgW, imgH);
             }
         }
-        // Clear win canvas
         winCtx.clearRect(0, 0, winCanvas.width, winCanvas.height);
     }
 
@@ -1179,7 +1224,7 @@
     }
 
     // =============================================================
-    // 10. WIN LINES (новое)
+    // 10. WIN LINES (без изменений)
     // =============================================================
     function drawWinLines(winLines) {
         const rect = canvas.parentElement.getBoundingClientRect();
@@ -1202,7 +1247,6 @@
             const pts = win.indices.map(i => positions[i]).filter(p => p);
 
             if (pts.length < 2) {
-                // Highlight single symbol
                 if (pts.length === 1) {
                     const p = pts[0];
                     winCtx.beginPath();
@@ -1219,7 +1263,6 @@
                 return;
             }
 
-            // Draw glow line
             winCtx.shadowColor = color;
             winCtx.shadowBlur = 25;
             winCtx.beginPath();
@@ -1233,7 +1276,6 @@
             winCtx.lineJoin = 'round';
             winCtx.stroke();
 
-            // Inner bright line
             winCtx.shadowBlur = 10;
             winCtx.beginPath();
             winCtx.moveTo(pts[0].x, pts[0].y);
@@ -1245,7 +1287,6 @@
             winCtx.stroke();
             winCtx.shadowBlur = 0;
 
-            // Glow dots at each point
             pts.forEach(p => {
                 const grad = winCtx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 20);
                 grad.addColorStop(0, color + 'cc');
@@ -1259,7 +1300,7 @@
     }
 
     // =============================================================
-    // 11. АНИМАЦИЯ
+    // 11. АНИМАЦИЯ (с контролем перерисовок)
     // =============================================================
     let spinStartTime = 0, spinDuration = 2000, spinStartOffsets = [], spinTargetOffsets = [];
 
@@ -1289,7 +1330,6 @@
         playSpinStart();
         winFlash.classList.remove('active');
 
-        // Clear win lines
         winCtx.clearRect(0, 0, winCanvas.width, winCanvas.height);
 
         for (let col=0; col<5; col++) {
@@ -1302,7 +1342,6 @@
             if (!isSpinning) { clearInterval(tickInterval); return; }
             playSpinTick();
             tickCount++;
-            // Reel stop sounds
             if (tickCount % 4 === 0) {
                 const col = Math.floor(tickCount / 4) % 5;
                 playReelStop(col);
@@ -1361,7 +1400,6 @@
                 if (reelOffsets[col] < 0) reelOffsets[col] += len;
             }
             drawReels(reelOffsets, reelStrips);
-            // play stop sound per reel
             for (let col=0; col<5; col++) {
                 setTimeout(() => playReelStop(col), col * 50);
             }
@@ -1376,7 +1414,7 @@
     }
 
     // =============================================================
-    // 12. ЛОГИКА ВЫИГРЫША (с возвратом линий)
+    // 12. ЛОГИКА ВЫИГРЫША (без изменений)
     // =============================================================
     function checkWins(grid) {
         let totalMult = 0;
@@ -1502,13 +1540,10 @@
                     } else {
                         playWin();
                     }
-                    // Draw win lines
                     drawWinLines(winLines);
-                    // Flash
                     winFlash.classList.remove('active');
                     void winFlash.offsetWidth;
                     winFlash.classList.add('active');
-                    // Particles
                     winLines.forEach(wl => {
                         wl.indices.forEach(idx => {
                             const pos = getCellPositions()[idx];
@@ -1552,7 +1587,6 @@
                         playBonus();
                         triggerBonus(fsReward, `✨ ${scatterCount} скаттеров!`, '🍒', 'ФРИСПИНЫ!',
                             `${fsReward} бесплатных вращений!`, 'x2 множитель на все выигрыши');
-                        // Clear win lines for bonus
                         setTimeout(() => {
                             winCtx.clearRect(0, 0, winCanvas.width, winCanvas.height);
                         }, 300);
@@ -1731,7 +1765,6 @@
         if (bonusPopup.classList.contains('show')) {
             setTimeout(() => bonusPopup.classList.remove('show'), 400);
         }
-        // Clear win lines
         setTimeout(() => {
             winCtx.clearRect(0, 0, winCanvas.width, winCanvas.height);
         }, 500);
@@ -1845,7 +1878,6 @@
         playBigWin();
         vibrate('heavy');
 
-        // Extra particles
         for (let i=0; i<30; i++) {
             setTimeout(() => {
                 const x = Math.random() * window.innerWidth;
@@ -1855,7 +1887,7 @@
         }
     }
 
-    // Bonus popup style injection
+    // Bonus popup
     const bonusPopupStyle = document.createElement('style');
     bonusPopupStyle.textContent = `
         .bonus-popup {
@@ -2027,7 +2059,7 @@
     }
 
     // =============================================================
-    // 19. ИНИЦИАЛИЗАЦИЯ
+    // 19. ИНИЦИАЛИЗАЦИЯ (с контролем загрузки изображений)
     // =============================================================
     function init() {
         initAudio();
@@ -2127,7 +2159,9 @@
         });
 
         const resizeObserver = new ResizeObserver(() => {
-            if (allImagesLoaded) drawReels(reelOffsets, reelStrips);
+            if (allImagesLoaded && !isSpinning) {
+                drawReels(reelOffsets, reelStrips);
+            }
         });
         resizeObserver.observe(canvas.parentElement);
 
@@ -2138,7 +2172,7 @@
             }
         });
 
-        console.log('🍒 FRUIT 777 (сбалансированный) загружен, баланс:', balance);
+        console.log('🍒 FRUIT 777 (с фиксом расползания и анимацией баланса) загружен, баланс:', balance);
     }
 
     init();
