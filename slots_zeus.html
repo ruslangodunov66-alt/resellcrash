@@ -270,6 +270,7 @@
             box-shadow: 0 0 80px rgba(255,213,74,0.1), 0 20px 60px rgba(0,0,0,0.7),
                         inset 0 0 60px rgba(0,0,0,0.5), inset 0 2px 0 rgba(255,241,168,0.15);
             background-clip: padding-box; max-width: 95vw; max-height: 55vh; transform: translateZ(0);
+            overflow: hidden;
         }
         .slot-frame::before {
             content: ''; position: absolute; inset: -3px; border-radius: 24px;
@@ -305,10 +306,10 @@
             background-size: 20px 20px;
         }
 
-        /* ===== CSS GRID ВМЕСТО CANVAS ===== */
+        /* ===== CSS GRID (финальное состояние) ===== */
         .slot-grid {
             display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: repeat(5, 1fr);
-            gap: 4px; width: 100%; height: 100%; position: relative; z-index: 1;
+            gap: 4px; width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 1;
         }
         .symbol-cell {
             background: rgba(0,0,0,0.3); border-radius: 8px;
@@ -339,7 +340,18 @@
             to { transform: scale(0) rotate(30deg); opacity: 0; filter: brightness(2); }
         }
 
-        /* ===== WIN LINES CANVAS (поверх сетки) ===== */
+        /* ===== CANVAS ДЛЯ АНИМАЦИИ ВРАЩЕНИЯ ===== */
+        #reelsCanvas {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            border-radius: 14px; background: transparent; z-index: 0;
+            box-shadow: inset 0 4px 30px rgba(0,0,0,0.8);
+            image-rendering: auto;
+            display: none;
+        }
+        #reelsCanvas.active {
+            display: block;
+            z-index: 1;
+        }
         .win-lines-canvas {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             pointer-events: none; z-index: 6; opacity: 0; transition: opacity 0.4s ease;
@@ -804,7 +816,6 @@
         body.balanced-mode .flash-overlay.active { opacity: 0.3; }
         body.balanced-mode .lightning-container { display: none; }
 
-        /* ===== RESPONSIVE ===== */
         @media (max-width: 480px) {
             .header { padding: 6px 8px; min-height: 50px; gap: 4px; }
             .btn-back { width: 36px; height: 36px; font-size: 16px; }
@@ -946,7 +957,7 @@
         <!-- ===== СТАТУС-БАР ===== -->
         <div class="status-bar" id="statusBar"><span>⚡ СДЕЛАЙТЕ СТАВКУ</span></div>
 
-        <!-- ===== СЛОТ — CSS GRID + CANVAS WIN LINES ===== -->
+        <!-- ===== СЛОТ — CSS GRID + CANVAS ===== -->
         <div class="slot-wrapper">
             <div class="meander-top"></div>
             <div class="meander-bottom"></div>
@@ -954,6 +965,7 @@
                 <div class="grid-bg-pattern"></div>
                 <div class="reel-frame left"><div class="column-ornament"></div></div>
                 <div class="reel-frame right"><div class="column-ornament"></div></div>
+                <canvas id="reelsCanvas"></canvas>
                 <div class="slot-grid" id="slotGrid"></div>
                 <canvas class="win-lines-canvas" id="winLinesCanvas"></canvas>
             </div>
@@ -1093,7 +1105,7 @@
     </div>
 
     <!-- ==============================================================
-    JAVASCRIPT — CSS GRID + КАСКАДЫ + ВИН ЛАЙНЫ + АНИМАЦИЯ БАЛАНСА
+    JAVASCRIPT — CANVAS АНИМАЦИЯ + CSS GRID ФИНАЛ
     ============================================================== -->
     <script>
         (function() {
@@ -1167,7 +1179,7 @@
             }
 
             // =============================================================
-            // 3. КОНФИГ — СИМВОЛЫ (из исходного кода)
+            // 3. КОНФИГ — СИМВОЛЫ
             // =============================================================
             const SYMBOLS = [
                 'img/IMG_0395.PNG', 'img/IMG_0344.PNG', 'img/IMG_0345.PNG',
@@ -1286,6 +1298,10 @@
             let isAutoStopping = false;
             let currentGrid = [];
             let cellElements = [];
+            let reelOffsets = [0,0,0,0,0];
+            let reelStrips = [];
+            const REEL_STRIP_LENGTH = 12;
+            let animationId = null;
 
             // =============================================================
             // 5. DOM REFS
@@ -1327,10 +1343,12 @@
             const fsPortalOverlay = document.getElementById('fsPortalOverlay');
             const appEl = document.getElementById('app');
             const slotGrid = document.getElementById('slotGrid');
+            const reelsCanvas = document.getElementById('reelsCanvas');
             const infoOverlay = document.getElementById('infoOverlay');
             const btnInfo = document.getElementById('btnInfo');
             const infoClose = document.getElementById('infoClose');
             const payoutGrid = document.getElementById('payoutGrid');
+            const ctx = reelsCanvas.getContext('2d');
 
             // =============================================================
             // 6. ЗВУК (из исходного кода, без изменений)
@@ -1605,7 +1623,7 @@
             }
 
             // =============================================================
-            // 9. WIN LINES — НА CANVAS (из исходного кода, но адаптировано под grid)
+            // 9. WIN LINES (canvas)
             // =============================================================
             let winLinesActive = false;
             let winLinesAnimId = null;
@@ -1799,7 +1817,116 @@
             }
 
             // =============================================================
-            // 11. ОСНОВНАЯ ЛОГИКА — CSS GRID + КАСКАДЫ
+            // 11. CANVAS АНИМАЦИЯ ВРАЩЕНИЯ (оригинальная логика)
+            // =============================================================
+            function buildReelStrips() {
+                const strips = [];
+                for (let col = 0; col < 5; col++) {
+                    const strip = [];
+                    for (let i = 0; i < REEL_STRIP_LENGTH; i++) {
+                        let sym;
+                        do {
+                            sym = getWeightedSymbol();
+                        } while (i > 0 && strip[i - 1] === sym && Math.random() < 0.4);
+                        strip.push(sym);
+                    }
+                    strips.push(strip);
+                }
+                return strips;
+            }
+
+            function drawReelsFloat(offsets, strips) {
+                const rect = reelsCanvas.parentElement.getBoundingClientRect();
+                const dpr = window.devicePixelRatio || 1;
+                reelsCanvas.width = rect.width * dpr;
+                reelsCanvas.height = rect.height * dpr;
+                reelsCanvas.style.width = rect.width + 'px';
+                reelsCanvas.style.height = rect.height + 'px';
+                ctx.scale(dpr, dpr);
+                const w = rect.width, h = rect.height, pad = 4;
+                const cellW = (w - pad*2) / 5, cellH = (h - pad*2) / 3;
+                ctx.clearRect(0, 0, w, h);
+
+                for (let row=0; row<3; row++) for (let col=0; col<5; col++) {
+                    const x = pad + col*cellW, y = pad + row*cellH;
+                    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+                    ctx.fillRect(x, y, cellW, cellH);
+                    ctx.strokeStyle = 'rgba(180,77,255,0.08)';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(x, y, cellW, cellH);
+                }
+
+                for (let col=0; col<5; col++) {
+                    const strip = strips[col], len = strip.length, off = offsets[col];
+                    const baseIdx = Math.floor(off) % len, frac = off - Math.floor(off);
+                    for (let row=-1; row<4; row++) {
+                        const idx = (baseIdx + row) % len;
+                        const symIdx = strip[idx];
+                        const img = new Image();
+                        img.src = SYMBOLS[symIdx];
+                        if (img.complete && img.naturalWidth !== 0) {
+                            const x = pad + col*cellW + 2;
+                            const y = pad + (row - frac) * cellH + 2;
+                            if (y + cellH - 4 < pad || y > pad + 3*cellH) continue;
+                            const imgW = cellW - 4, imgH = cellH - 4;
+                            ctx.drawImage(img, x, y, imgW, imgH);
+                        } else {
+                            img.onload = function() { drawReelsFloat(offsets, strips); };
+                            img.onerror = function() {};
+                        }
+                    }
+                }
+            }
+
+            function animateReels(targetOffsets, duration, callback) {
+                const startOffsets = [...reelOffsets];
+                const startTime = performance.now();
+                let animId = null;
+
+                function step(currentTime) {
+                    const elapsed = currentTime - startTime;
+                    const progress = Math.min(elapsed / duration, 1);
+                    const eased = 1 - Math.pow(1 - progress, 3);
+                    const currentOffsets = [];
+                    for (let col = 0; col < 5; col++) {
+                        const start = startOffsets[col];
+                        const target = targetOffsets[col];
+                        let offset = start + (target - start) * eased;
+                        if (progress > 0.85) {
+                            const bounce = Math.sin((progress - 0.85) / 0.15 * Math.PI) * 0.3;
+                            offset += bounce * (target - start) * 0.08;
+                        }
+                        currentOffsets.push(offset);
+                    }
+                    drawReelsFloat(currentOffsets, reelStrips);
+
+                    if (progress < 1) {
+                        animId = requestAnimationFrame(step);
+                    } else {
+                        for (let col = 0; col < 5; col++) {
+                            const target = targetOffsets[col];
+                            const len = reelStrips[col].length;
+                            reelOffsets[col] = ((Math.round(target) % len) + len) % len;
+                        }
+                        if (callback) callback();
+                    }
+                }
+                animId = requestAnimationFrame(step);
+                return animId;
+            }
+
+            function generateTargetOffsets() {
+                const targets = [];
+                for (let col = 0; col < 5; col++) {
+                    const extraSpins = 2 + Math.floor(Math.random() * 3);
+                    const randomOffset = Math.floor(Math.random() * REEL_STRIP_LENGTH);
+                    targets.push(reelOffsets[col] + extraSpins * REEL_STRIP_LENGTH + randomOffset);
+                }
+                return targets;
+            }
+
+            // =============================================================
+            // 12. ОСНОВНАЯ ЛОГИКА — CSS GRID + CANVAS АНИМАЦИЯ
             // =============================================================
             function initGrid() {
                 slotGrid.innerHTML = '';
@@ -1816,6 +1943,9 @@
                     slotGrid.appendChild(cell);
                     cellElements.push(cell);
                 }
+                // Скрываем canvas, показываем grid
+                reelsCanvas.classList.remove('active');
+                slotGrid.style.display = 'grid';
             }
 
             function updateGridFromArray(grid) {
@@ -1826,7 +1956,7 @@
                 currentGrid = grid;
             }
 
-            // анимация баланса (плавное изменение)
+            // анимация баланса
             let balanceAnimId = null;
 
             function animateBalance(newValue, isWin = false) {
@@ -1876,7 +2006,8 @@
             async function startSpin(bet, isFreeSpin = false) {
                 if (isSpinning) return;
                 if (balance < bet) {
-                    statusBar.innerText = '❌ Недостаточно средств!';
+                    const statusEl = statusBar.querySelector('span') || statusBar;
+                    statusEl.textContent = '❌ Недостаточно средств!';
                     statusBar.classList.add('lose');
                     setTimeout(() => statusBar.classList.remove('lose'), 1500);
                     return;
@@ -1896,41 +2027,46 @@
                 if (isBonusActive) statusBar.classList.add('bonus');
                 else statusBar.classList.remove('bonus');
 
-                // Анимация — убираем старые выигрыши и роняем символы вниз
-                cellElements.forEach((cell, i) => {
-                    cell.className = 'symbol-cell';
-                    const img = cell.querySelector('img');
-                    img.style.transition = 'transform 0.3s ease-in';
-                    img.style.transform = 'translateY(150%)';
-                    setTimeout(() => {
-                        img.style.transition = 'none';
-                        img.style.transform = 'translateY(150%)';
-                    }, 300);
+                // 1. Показываем canvas, скрываем grid
+                reelsCanvas.classList.add('active');
+                slotGrid.style.display = 'none';
+
+                // 2. Подготавливаем стрипы для анимации
+                reelStrips = buildReelStrips();
+                const targets = generateTargetOffsets();
+
+                // 3. Запускаем анимацию вращения
+                playThud();
+                playSpin();
+                btnSpin.classList.add('spinning-state');
+
+                let animId = animateReels(targets, 2000 + Math.random() * 600, async function() {
+                    btnSpin.classList.remove('spinning-state');
+                    playStop();
+
+                    // 4. После анимации — фиксируем результат
+                    const finalGrid = [];
+                    for (let col = 0; col < 5; col++) {
+                        const strip = reelStrips[col];
+                        const offset = reelOffsets[col];
+                        for (let row = 0; row < 5; row++) {
+                            finalGrid.push(strip[(offset + row) % strip.length]);
+                        }
+                    }
+                    currentGrid = finalGrid;
+
+                    // 5. Обновляем grid и показываем его, скрываем canvas
+                    updateGridFromArray(finalGrid);
+                    slotGrid.style.display = 'grid';
+                    reelsCanvas.classList.remove('active');
+
+                    // 6. Обработка результата (каскады)
+                    let totalWin = await evaluateCascade(finalGrid, bet);
+                    finishSpin(totalWin, bet, isFreeSpin);
                 });
 
-                await new Promise(r => setTimeout(r, 400));
-
-                // Генерируем новую сетку
-                const newGrid = Array.from({ length: 25 }, getWeightedSymbol);
-                currentGrid = newGrid;
-
-                // Падение новых символов
-                cellElements.forEach((cell, i) => {
-                    const img = cell.querySelector('img');
-                    img.src = newGrid[i];
-                    img.style.transition = 'none';
-                    img.style.transform = 'translateY(-150%)';
-                    setTimeout(() => {
-                        img.style.transition = 'transform 0.4s var(--ease-bounce)';
-                        img.style.transform = 'translateY(0)';
-                    }, (i % 5) * 60 + Math.floor(i / 5) * 20);
-                });
-
-                await new Promise(r => setTimeout(r, 700));
-
-                // Проверка каскадов
-                let totalWin = await evaluateCascade(newGrid, bet);
-                finishSpin(totalWin, bet, isFreeSpin);
+                // Сохраняем ID анимации для отмены при необходимости
+                window._spinAnimId = animId;
             }
 
             async function evaluateCascade(grid, bet) {
@@ -2105,7 +2241,7 @@
             }
 
             // =============================================================
-            // 12. БОНУС (без изменений)
+            // 13. БОНУС (без изменений)
             // =============================================================
             function triggerBonus(spins, triggerText, icon, title, sub, detail) {
                 if (isBonusActive && freeSpins > 0) {
@@ -2157,7 +2293,7 @@
             }
 
             // =============================================================
-            // 13. AUTO SPIN (без изменений)
+            // 14. AUTO SPIN (без изменений)
             // =============================================================
             function toggleAutoSpin() {
                 if (autoSpinActive) { stopAutoSpin('Остановлено пользователем'); return; }
@@ -2215,7 +2351,7 @@
             }
 
             // =============================================================
-            // 14. UI HELPERS
+            // 15. UI HELPERS
             // =============================================================
             function formatNumber(num) { return Math.floor(num).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' '); }
             function parseNumber(str) { return parseInt(str.replace(/\s/g, '')) || 0; }
@@ -2307,7 +2443,7 @@
             }
 
             // =============================================================
-            // 15. ИНФО-ПОПАП
+            // 16. ИНФО-ПОПАП
             // =============================================================
             function buildPayoutGrid() {
                 if (!payoutGrid) return;
@@ -2328,7 +2464,7 @@
             }
 
             // =============================================================
-            // 16. INIT
+            // 17. INIT
             // =============================================================
             function init() {
                 initAudio();
@@ -2460,11 +2596,11 @@
                 initParticlesFull();
                 initLightningCanvas();
 
-                console.log('⚡ ZEUS PREMIUM SLOTS (CSS Grid + каскады) загружен, баланс:', balance);
+                console.log('⚡ ZEUS PREMIUM SLOTS (Canvas анимация + CSS Grid) загружен, баланс:', balance);
             }
 
             // =============================================================
-            // 17. ЗАПУСК
+            // 18. ЗАПУСК
             // =============================================================
             init();
 
@@ -2477,7 +2613,9 @@
                 currentGrid,
                 luckFactor,
                 settings,
-                cellElements
+                cellElements,
+                reelOffsets,
+                reelStrips
             };
 
         })();
