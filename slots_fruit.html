@@ -75,7 +75,7 @@
             min-height: 0;
         }
 
-        /* ===== ОБНОВЛЕННЫЙ СЛОТ-ФРЕЙМ ===== */
+        /* ===== ОБНОВЛЕННЫЙ СЛОТ-ФРЕЙМ (увеличенная высота) ===== */
         .slot-frame {
             position: relative;
             background: rgba(0, 0, 0, 0.7);
@@ -89,7 +89,7 @@
             border: 2px solid rgba(180, 77, 255, 0.25);
             width: 100%;
             max-width: 500px;
-            aspect-ratio: 5 / 3;
+            aspect-ratio: 5 / 3.2; /* Увеличили высоту */
             display: flex;
             align-items: center;
             justify-content: center;
@@ -1107,7 +1107,7 @@
     let reelOffsets = [0,0,0,0,0];
     let reelStrips = [];
     let spinAnimId = null;
-    let winHighlightIndices = new Set(); // для подсветки выигрыша
+    let winHighlightIndices = new Set();
 
     // =============================================================
     // 8. ПОСТРОЕНИЕ ПОЛОС
@@ -1139,13 +1139,14 @@
     }
 
     // =============================================================
-    // 9. ОТРИСОВКА С ПОДСВЕТКОЙ
+    // 9. ОТРИСОВКА С ПОДСВЕТКОЙ (увеличенный размер символов)
     // =============================================================
     let drawPending = false;
 
     function drawSymbol(ctx, img, x, y, w, h, scale = 1, alpha = 1) {
         if (!img) return;
-        const crop = 0.1;
+        // Уменьшаем обрезку, чтобы символ занимал больше места
+        const crop = 0.05;
         const sx = img.width * crop;
         const sy = img.height * crop;
         const sw = img.width * (1 - 2*crop);
@@ -1162,17 +1163,18 @@
     function getCellPositions() {
         const w = canvas.clientWidth;
         const h = canvas.clientHeight;
-        const pad = 4;
+        // Уменьшаем отступы, чтобы символы были крупнее
+        const pad = 2;
         const cellW = (w - pad*2) / 5;
         const cellH = (h - pad*2) / 3;
         const positions = [];
         for (let row=0; row<3; row++) {
             for (let col=0; col<5; col++) {
                 positions.push({
-                    x: pad + col * cellW + 2,
-                    y: pad + row * cellH + 2,
-                    w: cellW - 4,
-                    h: cellH - 4,
+                    x: pad + col * cellW,
+                    y: pad + row * cellH,
+                    w: cellW,
+                    h: cellH,
                     col, row,
                     idx: row*5 + col
                 });
@@ -1188,7 +1190,7 @@
         canvas.width = w * dpr;
         canvas.height = h * dpr;
         ctx.scale(dpr, dpr);
-        const pad = 4;
+        const pad = 2;
         const cellW = (w - pad*2) / 5, cellH = (h - pad*2) / 3;
         ctx.clearRect(0, 0, w, h);
 
@@ -1226,7 +1228,7 @@
         canvas.width = w * dpr;
         canvas.height = h * dpr;
         ctx.scale(dpr, dpr);
-        const pad = 4;
+        const pad = 2;
         const cellW = (w - pad*2) / 5, cellH = (h - pad*2) / 3;
         ctx.clearRect(0, 0, w, h);
 
@@ -1254,13 +1256,10 @@
                 const symIdx = strip[idx];
                 const img = imageCache[symIdx];
                 if (!img) continue;
-                const x = pad + col*cellW + 2;
-                const y = pad + (row - frac) * cellH + 2;
-                if (y + cellH - 4 < pad || y > pad + 3*cellH) continue;
-                const imgW = cellW - 4, imgH = cellH - 4;
-                // Определяем, является ли этот символ выигрышным (если есть highlightIndices)
-                // Но в анимации мы не знаем индексы, поэтому не применяем highlight
-                ctx.globalAlpha = 1;
+                const x = pad + col*cellW;
+                const y = pad + (row - frac) * cellH;
+                if (y + cellH < pad || y > pad + 3*cellH) continue;
+                const imgW = cellW, imgH = cellH;
                 drawSymbol(ctx, img, x, y, imgW, imgH, 1, 1);
             }
         }
@@ -1340,9 +1339,8 @@
     }
 
     // =============================================================
-    // 11. АНИМАЦИЯ С УЛУЧШЕННОЙ ФИЗИКОЙ
+    // 11. АНИМАЦИЯ (улучшенная физика)
     // =============================================================
-    // Easing функции
     function easeOutBack(x) {
         const c1 = 1.70158;
         const c3 = c1 + 1;
@@ -1388,7 +1386,6 @@
 
         winCtx.clearRect(0, 0, winCanvas.width, winCanvas.height);
 
-        // Обновляем символы на барабанах
         for (let col=0; col<5; col++) {
             const strip = reelStrips[col];
             for (let i=0; i<strip.length; i++) strip[i] = weightedRandom();
@@ -1429,15 +1426,13 @@
         let progress = Math.min(elapsed / spinDuration, 1);
         let eased;
 
-        // Замах (Anticipation) на первых 5% времени
         if (progress < 0.05) {
             const p = progress / 0.05;
-            eased = easeInOutBack(p) * -0.05; // небольшой рывок вверх
+            eased = easeInOutBack(p) * -0.05;
         } else {
-            // Основное движение с отскоком на последних 10%
             const mainProgress = (progress - 0.05) / 0.95;
             if (mainProgress < 0.9) {
-                eased = mainProgress / 0.9; // линейно до 90%
+                eased = mainProgress / 0.9;
             } else {
                 const bounceProgress = (mainProgress - 0.9) / 0.1;
                 eased = 0.9 + 0.1 * easeOutBack(bounceProgress);
@@ -1448,10 +1443,8 @@
         for (let col=0; col<5; col++) {
             const start = spinStartOffsets[col];
             const target = spinTargetOffsets[col];
-            // Индивидуальная задержка остановки для каждого барабана (поочередная)
-            const delay = col * 0.15; // 0, 0.15, 0.30, 0.45, 0.60
+            const delay = col * 0.15;
             let localProgress = Math.max(0, Math.min(1, (progress - delay) / (1 - delay)));
-            // Для каждого барабана свой прогресс, чтобы они останавливались по очереди
             let localEased;
             if (localProgress < 0.05) {
                 const p = localProgress / 0.05;
@@ -1465,7 +1458,6 @@
                     localEased = 0.9 + 0.1 * easeOutBack(bounceProgress);
                 }
             }
-            // Если localProgress еще не начался, остаёмся на месте
             if (localProgress <= 0) {
                 currentOffsets.push(start);
             } else {
@@ -1480,7 +1472,6 @@
             spinAnimId = requestAnimationFrame(() => animateSpin(bet, isFreeSpin, tickInterval));
         } else {
             clearInterval(tickInterval);
-            // Фиксируем финальные позиции
             for (let col=0; col<5; col++) {
                 const len = reelStrips[col].length;
                 reelOffsets[col] = Math.round(spinTargetOffsets[col]) % len;
@@ -1501,7 +1492,7 @@
     }
 
     // =============================================================
-    // 12. ЛОГИКА ВЫИГРЫША (с подсветкой)
+    // 12. ЛОГИКА ВЫИГРЫША (без изменений)
     // =============================================================
     function checkWins(grid) {
         let totalMult = 0;
@@ -1629,7 +1620,6 @@
                     } else {
                         playWin();
                     }
-                    // Подсветка и анимация
                     winHighlightIndices = allWinIndices;
                     drawReels(reelOffsets, reelStrips, winHighlightIndices);
                     drawWinLines(winLines);
@@ -1711,7 +1701,6 @@
             updateProfileStats(bet, 0);
         }
 
-        // Сброс подсветки через некоторое время
         if (hasWin) {
             setTimeout(() => {
                 winHighlightIndices = new Set();
@@ -2271,7 +2260,7 @@
             }
         });
 
-        console.log('🍒 FRUIT 777 (улучшенный UI/UX) загружен, баланс:', balance);
+        console.log('🍒 FRUIT 777 (исправлены пропорции) загружен, баланс:', balance);
     }
 
     init();
