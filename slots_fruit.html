@@ -7,6 +7,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;0,900;1,800&family=Nunito:wght@700;800;900&display=swap" rel="stylesheet">
     <style>
+        /* Все стили без изменений, оставляем прежние */
         * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
         html, body {
             width: 100%;
@@ -34,7 +35,6 @@
             padding-bottom: 6px;
         }
 
-        /* TOP BAR */
         .top-bar {
             flex-shrink: 0;
             display: flex;
@@ -44,16 +44,8 @@
             z-index: 10;
             position: relative;
         }
-        .top-bar .left-group {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .top-bar .right-group {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
+        .top-bar .left-group { display: flex; align-items: center; gap: 8px; }
+        .top-bar .right-group { display: flex; align-items: center; gap: 8px; }
         .top-btn {
             background: rgba(10, 6, 18, 0.6);
             backdrop-filter: blur(8px);
@@ -350,11 +342,7 @@
             border-radius: 30px;
             margin-top: 2px;
         }
-        #autoControls label {
-            font-size: 12px;
-            font-weight: 800;
-            color: #a77bff;
-        }
+        #autoControls label { font-size: 12px; font-weight: 800; color: #a77bff; }
         #autoControls select {
             background: rgba(0,0,0,0.5);
             border: 1px solid rgba(180,77,255,0.2);
@@ -373,11 +361,7 @@
             font-size: 13px;
             border-radius: 30px;
         }
-        #autoTotalDisplay {
-            font-size: 13px;
-            font-weight: 800;
-            color: #ffd93d;
-        }
+        #autoTotalDisplay { font-size: 13px; font-weight: 800; color: #ffd93d; }
 
         .modal-overlay {
             position: fixed;
@@ -489,12 +473,7 @@
             display: block;
             margin: 0 auto;
         }
-        .paytable .cell.symbol-cell .label {
-            font-size: 10px;
-            color: rgba(255,255,255,0.4);
-            display: block;
-            margin-top: 2px;
-        }
+        .paytable .cell.symbol-cell .label { font-size: 10px; color: rgba(255,255,255,0.4); display: block; margin-top: 2px; }
         .paytable .row-special {
             grid-column: 1 / -1;
             text-align: center;
@@ -578,7 +557,6 @@
 
         @keyframes fadePopup { from { opacity: 0; } to { opacity: 1; } }
 
-        /* Win flash overlay */
         .win-flash {
             position: absolute;
             inset: 0;
@@ -638,7 +616,6 @@
 <body>
 
 <div id="app">
-    <!-- TOP BAR -->
     <div class="top-bar">
         <div class="left-group">
             <button class="top-btn back-btn" id="backBtn" aria-label="Назад">←</button>
@@ -696,7 +673,6 @@
         </div>
     </div>
 
-    <!-- Info Modal -->
     <div class="modal-overlay" id="infoModal">
         <div class="modal-panel">
             <button class="modal-close" id="infoClose">✕</button>
@@ -708,7 +684,6 @@
         </div>
     </div>
 
-    <!-- Settings Modal -->
     <div class="modal-overlay" id="settingsModal">
         <div class="modal-panel">
             <button class="modal-close" id="settingsClose">✕</button>
@@ -1110,9 +1085,10 @@
     }
 
     // =============================================================
-    // 9. ОТРИСОВКА (С КОНТРОЛЕМ ПЕРЕРИСОВОК)
+    // 9. ОТРИСОВКА — УЛУЧШЕННАЯ
     // =============================================================
     let drawPending = false;
+    let lastDrawCall = 0;
 
     function drawSymbol(ctx, img, x, y, w, h) {
         if (!img) return;
@@ -1144,7 +1120,11 @@
         return positions;
     }
 
+    // ОСНОВНАЯ ФУНКЦИЯ ОТРИСОВКИ — с защитой от лишних вызовов
     function drawReels(offsets, strips) {
+        if (drawPending) return;
+        drawPending = true;
+
         const rect = canvas.parentElement.getBoundingClientRect();
         const dpr = window.devicePixelRatio || 1;
         canvas.width = rect.width * dpr;
@@ -1178,9 +1158,14 @@
             }
         }
         winCtx.clearRect(0, 0, winCanvas.width, winCanvas.height);
+        drawPending = false;
+        lastDrawCall = performance.now();
     }
 
     function drawReelsFloat(offsets) {
+        if (drawPending) return;
+        drawPending = true;
+
         const rect = canvas.parentElement.getBoundingClientRect();
         const dpr = window.devicePixelRatio || 1;
         canvas.width = rect.width * dpr;
@@ -1221,6 +1206,8 @@
         }
         ctx.filter = 'none';
         winCtx.clearRect(0, 0, winCanvas.width, winCanvas.height);
+        drawPending = false;
+        lastDrawCall = performance.now();
     }
 
     // =============================================================
@@ -1300,7 +1287,7 @@
     }
 
     // =============================================================
-    // 11. АНИМАЦИЯ (с контролем перерисовок)
+    // 11. АНИМАЦИЯ
     // =============================================================
     let spinStartTime = 0, spinDuration = 2000, spinStartOffsets = [], spinTargetOffsets = [];
 
@@ -2059,7 +2046,7 @@
     }
 
     // =============================================================
-    // 19. ИНИЦИАЛИЗАЦИЯ (с контролем загрузки изображений)
+    // 19. ИНИЦИАЛИЗАЦИЯ (С УЛУЧШЕННЫМ КОНТРОЛЕМ)
     // =============================================================
     function init() {
         initAudio();
@@ -2072,6 +2059,7 @@
             setBetDisplay(100);
             applyUI();
             updateAudio();
+            // Отрисовка только после полной загрузки
             drawReels(reelOffsets, reelStrips);
             buildPaytable();
         });
@@ -2158,10 +2146,15 @@
             });
         });
 
+        // Улучшенный ResizeObserver – с защитой от бесконечных вызовов
+        let resizeTimer = null;
         const resizeObserver = new ResizeObserver(() => {
-            if (allImagesLoaded && !isSpinning) {
-                drawReels(reelOffsets, reelStrips);
-            }
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                if (allImagesLoaded && !isSpinning) {
+                    drawReels(reelOffsets, reelStrips);
+                }
+            }, 50);
         });
         resizeObserver.observe(canvas.parentElement);
 
@@ -2172,7 +2165,7 @@
             }
         });
 
-        console.log('🍒 FRUIT 777 (с фиксом расползания и анимацией баланса) загружен, баланс:', balance);
+        console.log('🍒 FRUIT 777 (исправленное расползание + анимация баланса) загружен, баланс:', balance);
     }
 
     init();
