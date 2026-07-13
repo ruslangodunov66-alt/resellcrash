@@ -75,7 +75,6 @@
             min-height: 0;
         }
 
-        /* ===== ОБНОВЛЕННЫЙ СЛОТ-ФРЕЙМ (увеличенная высота) ===== */
         .slot-frame {
             position: relative;
             background: rgba(0, 0, 0, 0.7);
@@ -89,7 +88,7 @@
             border: 2px solid rgba(180, 77, 255, 0.25);
             width: 100%;
             max-width: 500px;
-            aspect-ratio: 5 / 3.2; /* Увеличили высоту */
+            aspect-ratio: 5 / 3.2;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -104,7 +103,6 @@
             pointer-events: none;
             box-shadow: inset 0 0 30px rgba(180,77,255,0.05);
         }
-        /* Вертикальные разделители между катушками */
         .slot-frame::after {
             content: '';
             position: absolute;
@@ -313,7 +311,6 @@
         .btn:active { transform: scale(0.94); }
         .btn:disabled { opacity: 0.3; cursor: not-allowed; transform: none !important; }
 
-        /* ===== УЛУЧШЕННАЯ КНОПКА SPIN ===== */
         .btn-spin {
             background: radial-gradient(circle at 50% 20%, #B873FF, #6C2BD9);
             border: 2px solid #D5A6FF;
@@ -1139,22 +1136,46 @@
     }
 
     // =============================================================
-    // 9. ОТРИСОВКА С ПОДСВЕТКОЙ (увеличенный размер символов)
+    // 9. ОТРИСОВКА С ПОДСВЕТКОЙ — ИСПРАВЛЕННАЯ drawSymbol
     // =============================================================
     let drawPending = false;
 
+    // 🔥 НОВАЯ ФУНКЦИЯ — сохраняет пропорции картинок (object-fit: contain)
     function drawSymbol(ctx, img, x, y, w, h, scale = 1, alpha = 1) {
         if (!img) return;
-        // Уменьшаем обрезку, чтобы символ занимал больше места
+
+        // Небольшой кроп для удаления пустых краёв (если есть)
         const crop = 0.05;
         const sx = img.width * crop;
         const sy = img.height * crop;
-        const sw = img.width * (1 - 2*crop);
-        const sh = img.height * (1 - 2*crop);
-        const cw = w * scale;
-        const ch = h * scale;
+        const sw = img.width * (1 - 2 * crop);
+        const sh = img.height * (1 - 2 * crop);
+
+        // Вычисляем пропорции
+        const imgRatio = sw / sh;
+        const cellRatio = w / h;
+
+        let cw, ch;
+
+        // Аналог object-fit: contain
+        if (imgRatio > cellRatio) {
+            // Картинка шире пропорций ячейки
+            cw = w;
+            ch = w / imgRatio;
+        } else {
+            // Картинка выше пропорций ячейки
+            ch = h;
+            cw = h * imgRatio;
+        }
+
+        // Применяем дополнительный масштаб (для анимаций)
+        cw *= scale;
+        ch *= scale;
+
+        // Центрируем
         const dx = x + (w - cw) / 2;
         const dy = y + (h - ch) / 2;
+
         ctx.globalAlpha = alpha;
         ctx.drawImage(img, sx, sy, sw, sh, dx, dy, cw, ch);
         ctx.globalAlpha = 1;
@@ -1163,7 +1184,6 @@
     function getCellPositions() {
         const w = canvas.clientWidth;
         const h = canvas.clientHeight;
-        // Уменьшаем отступы, чтобы символы были крупнее
         const pad = 2;
         const cellW = (w - pad*2) / 5;
         const cellH = (h - pad*2) / 3;
@@ -1194,7 +1214,6 @@
         const cellW = (w - pad*2) / 5, cellH = (h - pad*2) / 3;
         ctx.clearRect(0, 0, w, h);
 
-        // Фон ячеек
         for (let row=0; row<3; row++) for (let col=0; col<5; col++) {
             const x = pad + col*cellW, y = pad + row*cellH;
             ctx.fillStyle = 'rgba(0,0,0,0.3)';
@@ -1204,7 +1223,6 @@
             ctx.strokeRect(x, y, cellW, cellH);
         }
 
-        // Рисуем символы
         const positions = getCellPositions();
         for (let pos of positions) {
             const idx = pos.idx;
@@ -1237,7 +1255,6 @@
             ctx.filter = 'blur(2px)';
         }
 
-        // Фон
         for (let row=0; row<3; row++) for (let col=0; col<5; col++) {
             const x = pad + col*cellW, y = pad + row*cellH;
             ctx.fillStyle = 'rgba(0,0,0,0.3)';
@@ -1247,7 +1264,6 @@
             ctx.strokeRect(x, y, cellW, cellH);
         }
 
-        // Символы с учётом смещения
         for (let col=0; col<5; col++) {
             const strip = reelStrips[col], len = strip.length, off = offsets[col];
             const baseIdx = Math.floor(off) % len, frac = off - Math.floor(off);
@@ -1259,8 +1275,7 @@
                 const x = pad + col*cellW;
                 const y = pad + (row - frac) * cellH;
                 if (y + cellH < pad || y > pad + 3*cellH) continue;
-                const imgW = cellW, imgH = cellH;
-                drawSymbol(ctx, img, x, y, imgW, imgH, 1, 1);
+                drawSymbol(ctx, img, x, y, cellW, cellH, 1, 1);
             }
         }
         ctx.filter = 'none';
@@ -1268,7 +1283,7 @@
     }
 
     // =============================================================
-    // 10. WIN LINES
+    // 10. WIN LINES (без изменений)
     // =============================================================
     function drawWinLines(winLines) {
         const dpr = window.devicePixelRatio || 1;
@@ -1339,7 +1354,7 @@
     }
 
     // =============================================================
-    // 11. АНИМАЦИЯ (улучшенная физика)
+    // 11. АНИМАЦИЯ (улучшенная физика) — без изменений
     // =============================================================
     function easeOutBack(x) {
         const c1 = 1.70158;
@@ -1592,7 +1607,7 @@
     }
 
     // =============================================================
-    // 13. ОБРАБОТКА РЕЗУЛЬТАТА (с подсветкой)
+    // 13. ОБРАБОТКА РЕЗУЛЬТАТА
     // =============================================================
     async function processResult(bet, isFreeSpin) {
         let grid = [...currentGrid];
