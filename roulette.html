@@ -177,7 +177,7 @@
             background: radial-gradient(circle at 50% 50%, #151d2a, #070b10);
             border-radius: var(--radius-lg);
             padding: 8px;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
             border: 2px solid var(--panel-bg);
             box-shadow: inset 0 10px 40px rgba(0, 0, 0, 0.9), 0 0 30px rgba(255, 183, 3, 0.04);
             display: flex;
@@ -222,6 +222,51 @@
             to {
                 transform: scale(1.02);
             }
+        }
+
+        /* КНОПКА SPIN — теперь сразу под статусом */
+        .spin-btn-wrap {
+            margin: 6px 0 8px;
+        }
+        .btn-spin {
+            width: 100%;
+            height: 50px;
+            border: none;
+            border-radius: var(--radius-md);
+            font-family: 'Montserrat', sans-serif;
+            font-weight: 900;
+            font-size: 18px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: #fff;
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            box-shadow: 0 6px 0 #b45309, 0 8px 30px rgba(245, 158, 11, 0.3);
+            cursor: pointer;
+            transition: all 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            position: relative;
+            overflow: hidden;
+        }
+        .btn-spin::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.15) 0%, transparent 60%);
+            pointer-events: none;
+        }
+        .btn-spin:active:not(:disabled) {
+            transform: translateY(4px);
+            box-shadow: 0 2px 0 #b45309, 0 8px 30px rgba(245, 158, 11, 0.2);
+        }
+        .btn-spin:disabled {
+            opacity: 0.4;
+            transform: translateY(4px);
+            box-shadow: 0 2px 0 #b45309;
+            cursor: not-allowed;
+        }
+        .btn-spin .spin-icon {
+            display: inline-block;
+            margin-right: 8px;
+            font-size: 22px;
         }
 
         .stats-grid {
@@ -612,50 +657,6 @@
             display: block;
         }
 
-        .spin-btn-wrap {
-            margin: 6px 0 8px;
-        }
-        .btn-spin {
-            width: 100%;
-            height: 50px;
-            border: none;
-            border-radius: var(--radius-md);
-            font-family: 'Montserrat', sans-serif;
-            font-weight: 900;
-            font-size: 18px;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            color: #fff;
-            background: linear-gradient(135deg, #f59e0b, #d97706);
-            box-shadow: 0 6px 0 #b45309, 0 8px 30px rgba(245, 158, 11, 0.3);
-            cursor: pointer;
-            transition: all 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            position: relative;
-            overflow: hidden;
-        }
-        .btn-spin::after {
-            content: '';
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(180deg, rgba(255, 255, 255, 0.15) 0%, transparent 60%);
-            pointer-events: none;
-        }
-        .btn-spin:active:not(:disabled) {
-            transform: translateY(4px);
-            box-shadow: 0 2px 0 #b45309, 0 8px 30px rgba(245, 158, 11, 0.2);
-        }
-        .btn-spin:disabled {
-            opacity: 0.4;
-            transform: translateY(4px);
-            box-shadow: 0 2px 0 #b45309;
-            cursor: not-allowed;
-        }
-        .btn-spin .spin-icon {
-            display: inline-block;
-            margin-right: 8px;
-            font-size: 22px;
-        }
-
         .footer {
             display: flex;
             gap: 10px;
@@ -928,6 +929,13 @@
             <div class="status-panel" id="statusPanel">🎯 Делайте ваши ставки!</div>
         </div>
 
+        <!-- КНОПКА SPIN ПЕРЕНЕСЕНА СЮДА (сразу под канвас) -->
+        <div class="spin-btn-wrap">
+            <button class="btn-spin" id="spinBtn" disabled>
+                <span class="spin-icon">🎰</span> КРУТИТЬ
+            </button>
+        </div>
+
         <div class="stats-grid">
             <div class="stat-box">
                 <span class="stat-label">🔥 Горячие:</span>
@@ -981,12 +989,6 @@
                 <div class="outside-cell" data-bet-type="doz2" data-bet-value="doz2">13‑24<span class="sub-label">x3</span><span class="chip-stack-badge" id="badge-doz2">0₽</span></div>
                 <div class="outside-cell" data-bet-type="doz3" data-bet-value="doz3">25‑36<span class="sub-label">x3</span><span class="chip-stack-badge" id="badge-doz3">0₽</span></div>
             </div>
-        </div>
-
-        <div class="spin-btn-wrap">
-            <button class="btn-spin" id="spinBtn" disabled>
-                <span class="spin-icon">🎰</span> КРУТИТЬ
-            </button>
         </div>
 
         <div class="footer">
@@ -1487,7 +1489,7 @@
             let ball = {
                 angle: 0,
                 radius: 136,
-                active: false,
+                active: true, // всегда активен, чтобы рисоваться
                 phase: 0
             };
             let spinStartTime = null;
@@ -1588,7 +1590,7 @@
 
             function finishSpin(winningNum) {
                 isSpinning = false;
-                ball.active = false;
+                // НЕ сбрасываем ball.active, чтобы шарик остался на месте
                 spinBtn.disabled = false;
 
                 if (spinAudio) {
@@ -1654,14 +1656,14 @@
             }
 
             // ============================================================
-            // 12. ОТРИСОВКА КОЛЕСА — ПОЛНОСТЬЮ ПЕРЕРАБОТАНА
+            // 12. ОТРИСОВКА КОЛЕСА — числа вынесены ближе к краю
             // ============================================================
             function drawWheel() {
                 const w = canvas.width / dpr;
                 const h = canvas.height / dpr;
                 ctx.clearRect(0, 0, w, h);
 
-                // --- Внешнее кольцо (бронза/золото) ---
+                // Внешнее кольцо
                 ctx.save();
                 ctx.shadowColor = "rgba(0,0,0,0.6)";
                 ctx.shadowBlur = 18;
@@ -1677,7 +1679,7 @@
                 ctx.fill();
                 ctx.restore();
 
-                // --- Деревянное кольцо ---
+                // Деревянное кольцо
                 ctx.beginPath();
                 ctx.arc(centerX, centerY, wheelRadius - 10, 0, Math.PI * 2);
                 const woodGrad = ctx.createRadialGradient(centerX, centerY, wheelRadius - 32, centerX, centerY, wheelRadius -
@@ -1688,14 +1690,14 @@
                 ctx.fillStyle = woodGrad;
                 ctx.fill();
 
-                // --- Золотой кант ---
+                // Золотой кант
                 ctx.beginPath();
                 ctx.arc(centerX, centerY, wheelRadius - 30, 0, Math.PI * 2);
                 ctx.strokeStyle = '#D4AF37';
                 ctx.lineWidth = 2.5;
                 ctx.stroke();
 
-                // --- СЕГМЕНТЫ КОЛЕСА ---
+                // СЕГМЕНТЫ КОЛЕСА
                 const segmentsCount = wheelNumbers.length;
                 const arcSize = (Math.PI * 2) / segmentsCount;
 
@@ -1703,7 +1705,7 @@
                 ctx.translate(centerX, centerY);
                 ctx.rotate(wheelAngle);
 
-                // Сначала рисуем все сегменты
+                // Рисуем сегменты
                 for (let i = 0; i < segmentsCount; i++) {
                     const angle = i * arcSize;
                     ctx.beginPath();
@@ -1723,14 +1725,14 @@
                     ctx.stroke();
                 }
 
-                // Затем рисуем все числа поверх сегментов
+                // Рисуем числа — ближе к краю (80% от радиуса сегмента)
                 for (let i = 0; i < segmentsCount; i++) {
                     const angle = i * arcSize;
                     const midAngle = angle + arcSize / 2;
                     const num = wheelNumbers[i];
 
-                    // Позиция текста: 65% радиуса
-                    const textRadius = (wheelRadius - 32) * 0.65;
+                    // Увеличиваем радиус для чисел
+                    const textRadius = (wheelRadius - 32) * 0.80;
                     const tx = textRadius * Math.cos(midAngle);
                     const ty = textRadius * Math.sin(midAngle);
 
@@ -1738,7 +1740,6 @@
                     ctx.translate(tx, ty);
                     ctx.rotate(midAngle + Math.PI / 2);
                     ctx.fillStyle = '#FFFFFF';
-                    ctx.font = 'bold 12px Montserrat, sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
                     ctx.shadowColor = 'rgba(0,0,0,0.8)';
@@ -1746,15 +1747,17 @@
                     ctx.shadowOffsetX = 1;
                     ctx.shadowOffsetY = 1;
 
-                    // Для двухзначных чисел чуть уменьшаем шрифт
+                    // Для двухзначных чисел чуть мельче
                     if (num >= 10) {
                         ctx.font = 'bold 10px Montserrat, sans-serif';
+                    } else {
+                        ctx.font = 'bold 12px Montserrat, sans-serif';
                     }
                     ctx.fillText(num, 0, 0);
                     ctx.restore();
                 }
 
-                // --- Центральная турель ---
+                // Центральная турель
                 const turretRadius = (wheelRadius - 32) * 0.30;
                 ctx.beginPath();
                 ctx.arc(0, 0, turretRadius, 0, Math.PI * 2);
@@ -1766,7 +1769,6 @@
                 ctx.fillStyle = goldGrad;
                 ctx.fill();
 
-                // Декоративные линии на турели
                 ctx.lineWidth = 5;
                 ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
                 ctx.lineCap = 'round';
@@ -1784,7 +1786,7 @@
 
                 ctx.restore();
 
-                // --- Шпильки (дефлекторы) на дорожке ---
+                // Шпильки
                 ctx.save();
                 ctx.translate(centerX, centerY);
                 const pinsCount = 8;
@@ -1806,7 +1808,7 @@
                 }
                 ctx.restore();
 
-                // --- Шарик ---
+                // Шарик — рисуем всегда, если active === true
                 if (ball.active) {
                     const bX = centerX + Math.cos(ball.angle) * ball.radius;
                     const bY = centerY + Math.sin(ball.angle) * ball.radius;
@@ -1863,7 +1865,6 @@
                             }
                             ball.angle += (Math.random() - 0.5) * 0.08 * (1 - p2);
                         } else {
-                            // Приземление: магнитим шарик к выпавшему сектору
                             const p3 = (progress - 0.9) / 0.1;
                             const targetIndex = wheelNumbers.indexOf(winningNumber);
                             if (targetIndex !== -1) {
@@ -1886,7 +1887,7 @@
                         }
 
                         if (progress >= 1) {
-                            ball.active = false;
+                            ball.active = true; // остаёмся активными
                             isSpinning = false;
                             playSynthesizedStop();
                             triggerHaptic('success');
@@ -1940,7 +1941,7 @@
             window.addEventListener('resize', resizeCanvas);
             setTimeout(resizeCanvas, 80);
 
-            console.log('🎡 VIP ROULETTE — wheel fully fixed, all numbers visible!');
+            console.log('🎡 VIP ROULETTE — fully fixed: ball stays visible, Spin button moved up, numbers closer to edge.');
         })();
     </script>
 </body>
