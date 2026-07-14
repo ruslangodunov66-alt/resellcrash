@@ -6,12 +6,11 @@
   <title>⚽ R-GAME Ultra · Профессиональный Футбольный Беттинг</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=Montserrat:ital,wght@0,800;1,800&display=swap" rel="stylesheet">
   <style>
+    /* Все стили остаются без изменений (они уже были) */
     * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
     html, body { width: 100%; min-height: 100vh; background: #05080e; color: #fff; font-family: 'Inter', sans-serif; overflow-x: hidden; }
     body {
-      background-image: 
-        radial-gradient(circle at 10% 0%, rgba(24, 130, 255, 0.15), transparent 50%), 
-        radial-gradient(circle at 90% 100%, rgba(139, 92, 246, 0.1), transparent 50%);
+      background-image: radial-gradient(circle at 10% 0%, rgba(24, 130, 255, 0.15), transparent 50%), radial-gradient(circle at 90% 100%, rgba(139, 92, 246, 0.1), transparent 50%);
       background-attachment: fixed;
       padding-bottom: 100px;
     }
@@ -317,7 +316,7 @@
     ];
 
     // =========================================================================
-    // 2. АУДИО-ДВИЖОК (без изменений, но добавим звук трибун)
+    // 2. АУДИО-ДВИЖОК (без изменений)
     // =========================================================================
     class AudioEngine {
       constructor() { this.ctx = null; this.ambientGain = null; this.ambientSource = null; }
@@ -405,15 +404,16 @@
     const Sound = new AudioEngine();
 
     // =========================================================================
-    // 3. ЯДРО СИМУЛЯТОРА (обновлённое с новыми лигами и депозитами)
+    // 3. ЯДРО СИМУЛЯТОРА (исправлен баланс – общий ключ casinoBalance)
     // =========================================================================
-    let balance = parseInt(localStorage.getItem('rg_balance')) || 10000;
+    // Единый ключ баланса для всего казино
+    let balance = parseInt(localStorage.getItem('casinoBalance')) || 10000;
     let matches = [];
     let activeSlip = [];
     let betHistory = JSON.parse(localStorage.getItem('rg_history')) || [];
 
     function saveState() {
-      localStorage.setItem('rg_balance', balance);
+      localStorage.setItem('casinoBalance', balance);
       localStorage.setItem('rg_history', JSON.stringify(betHistory));
       document.getElementById('balanceDisplay').innerText = balance.toLocaleString() + ' ₽';
     }
@@ -440,12 +440,10 @@
       let currentId = 101;
       TOURNAMENTS.forEach(tour => {
         let pool = [...tour.pool];
-        // Перемешиваем
         for (let i = pool.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
           [pool[i], pool[j]] = [pool[j], pool[i]];
         }
-        // Берём до 8 команд для каждой лиги
         const selected = pool.slice(0, Math.min(8, pool.length));
         for (let i = 0; i < selected.length; i++) {
           for (let j = i + 1; j < selected.length; j++) {
@@ -481,7 +479,6 @@
           }
         }
       });
-      // Перемешиваем общий список, чтобы лиги не были сгруппированы
       for (let i = matches.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [matches[i], matches[j]] = [matches[j], matches[i]];
@@ -848,7 +845,7 @@
     }
 
     // =========================================================================
-    // 5. ДВИЖОК 2D-АНИМАЦИИ (улучшена анимация подката, новые исходы)
+    // 5. ДВИЖОК 2D-АНИМАЦИИ (исправлены синтаксические ошибки)
     // =========================================================================
     let canvasCtx = null;
     let animFrameId = null;
@@ -857,7 +854,7 @@
     let players = [];
     let particles = [];
     let sceneTimer = 0;
-    let sceneState = 'intro'; // intro, action, result, cards
+    let sceneState = 'intro';
     let activeMomentConfig = null;
     let selectedMomentOutcomeIdx = -1;
     let targetMomentMatchId = null;
@@ -870,7 +867,7 @@
           { l: 'Забьет', o: 1.45 },
           { l: 'Сейв Кипера', o: 3.20 },
           { l: 'Штанга/Мимо', o: 5.40 },
-          { l: 'Гол в перекладину', o: 6.00 } // новый
+          { l: 'Гол в перекладину', o: 6.00 }
         ]
       },
       freekick: {
@@ -879,7 +876,7 @@
           { l: 'Прямой гол', o: 4.50 },
           { l: 'Стенка', o: 1.25 },
           { l: 'Выбьют на угловой', o: 2.10 },
-          { l: 'Стенка выбивает на угловой', o: 2.30 } // новый
+          { l: 'Стенка выбивает на угловой', o: 2.30 }
         ]
       },
       corner: {
@@ -888,7 +885,7 @@
           { l: 'Гол головой', o: 5.50 },
           { l: 'Вынос защитой', o: 1.18 },
           { l: 'Контратака', o: 3.40 },
-          { l: 'Гол после рикошета', o: 7.00 } // новый
+          { l: 'Гол после рикошета', o: 7.00 }
         ]
       },
       tackle: {
@@ -897,7 +894,7 @@
           { l: 'Фол + Карточка', o: 2.20 },
           { l: 'Чистый отбор', o: 1.60 },
           { l: 'Травма/Красная', o: 9.00 },
-          { l: 'Жёлтая + пенальти', o: 4.50 } // новый
+          { l: 'Жёлтая + пенальти', o: 4.50 }
         ]
       }
     };
@@ -944,7 +941,6 @@
       document.getElementById('momentModal').classList.remove('show');
       if (animFrameId) cancelAnimationFrame(animFrameId);
       Sound.setAmbientVolume(0.02, 0.4);
-      // Удаляем оставшиеся оверлеи
       const overlay = document.getElementById('physicsResultOverlay');
       if (overlay) overlay.remove();
     }
@@ -990,14 +986,7 @@
 
     function createDust(x, y, num = 8, color = 'rgba(255,255,255,0.4)') {
       for (let i = 0; i < num; i++) {
-        particles.push({
-          x, y,
-          vx: (Math.random() * 4 - 2),
-          vy: (Math.random() * -3 - 1),
-          alpha: 1,
-          size: Math.random() * 3 + 1,
-          color
-        });
+        particles.push({ x, y, vx: (Math.random() * 4 - 2), vy: (Math.random() * -3 - 1), alpha: 1, size: Math.random() * 3 + 1, color });
       }
     }
 
@@ -1024,260 +1013,126 @@
         setTimeout(() => {
           Sound.playKick();
           createDust(ball.x, ball.y);
-          // Определяем траекторию в зависимости от выбора(ball.x, ball.y);
-          // Определяем траекторию в
-          if (choiceIdx === 0) { // Забь зависимости от выбора
-          if (choiceIdx === 0) { // Забьетет
-            ball.vx = (
-            ball.vx = (Math.random() * 4 - Math.random() * 4 - 2); ball.vy = -12; ball.vz = 5;
-            keeper.targetX = canvasWidth * (Math.random() < 02); ball.vy = -12; ball.vz = 5;
+          if (choiceIdx === 0) { // Забьет
+            ball.vx = (Math.random() * 4 - 2); ball.vy = -12; ball.vz = 5;
             keeper.targetX = canvasWidth * (Math.random() < 0.5 ? 0.38 : 0.62);
             keeper.targetY = canvasHeight * 0.25;
-          } else if (choiceIdx === 1) { // С.5 ? 0.38 : 0.62);
-            keeper.targetY = canvasHeight * 0.25;
-          } else if (choiceIdx === 1) { // Сейейв
-            let targetSide = Math.random() < 0.5 ?в
-            let targetSide = Math.random() < 0.5 ? 0.43 0.43 : 0.57;
-            ball.vx = ( : 0.57;
-            balltargetSide - 0.5) * 15; ball.vy =.vx = (targetSide - 0.5) * 15; ball.vy = -11; ball.vz = 3;
-            keeper.targetX = canvasWidth * targetSide -11; ball.vz = 3;
+          } else if (choiceIdx === 1) { // Сейв
+            let targetSide = Math.random() < 0.5 ? 0.43 : 0.57;
+            ball.vx = (targetSide - 0.5) * 15; ball.vy = -11; ball.vz = 3;
             keeper.targetX = canvasWidth * targetSide;
             keeper.targetY = canvasHeight * 0.23;
-          } else if (choiceIdx === 2;
-            keeper.targetY = canvasHeight * 0.23;
-          } else if (choiceIdx === ) { // Штанга/мимо
+          } else if (choiceIdx === 2) { // Штанга/мимо
             ball.vx = (Math.random() < 0.5 ? -6 : 6); ball.vy = -12; ball.vz = 6;
             keeper.targetX = canvasWidth * (ball.vx > 0 ? 0.55 : 0.45);
-          } else if (choiceIdx === 3) { // Гол в перекладину (2) { // Штанга/мимо
-            ball.vx = (Math.random() < 0.5 ? -6 : 6); ball.vy = -12; ball.vz = 6;
-            keeper.targetX = canvasWidth * (ball.vx > 0 ? 0.55 : 0.45);
-          } else if (choiceIdx === 3) { // Гол в перекладину (новый)
-            ball.vx = (Math.random() < 0.5 ? -2 : 2); ball.vy = -14; ball.vz = 4;
-            keeper.targetX = canvasWidth * 0.новый)
+          } else if (choiceIdx === 3) { // Гол в перекладину
             ball.vx = (Math.random() < 0.5 ? -2 : 2); ball.vy = -14; ball.vz = 4;
             keeper.targetX = canvasWidth * 0.5;
           }
         }, 600);
       } else if (type === 'freekick') {
-        setTimeout(() =>5;
-          }
-        }, 600);
-      } else if (type === 'freekick') {
-          Sound.playKick();
-          {
         setTimeout(() => {
           Sound.playKick();
-          createDust( createDust(ball.x, ball.y);
+          createDust(ball.x, ball.y);
           players.filter(x => x.type === 'wall').forEach(p => p.anim = -20);
           if (choiceIdx === 0) { // Прямой гол
             ball.vx = 4.2; ball.vy = -9.5; ball.vz = 8; ball.spin = -0.15;
-          } else if (choiceball.x, ball.y);
-          players.filter(x => x.type === 'wall').forEach(p => p.anim = -20);
-          if (choiceIdx === 0) { // Прямой гол
-            ball.vx = 4.2; ball.vy = -9.5; ball.vz = 8; ball.spin = -0.15;
-          } else if (choiceIdxIdx === 1) { // С === 1) { // Стенка
-            ball.vx =тенка
-            ball.vx = 2.0 2.0; ball.vy; ball.vy = -6; ball.vz = 3;
+          } else if (choiceIdx === 1) { // Стенка
+            ball.vx = 2.0; ball.vy = -6; ball.vz = 3;
           } else if (choiceIdx === 2) { // На угловой
-            ball.vx = 5.5; = -6; ball.vz = 3;
-          } else if (choiceIdx === 2) { // На угловой
-            ball.vx = 5.5; ball ball.vy = -10; ball.vz = 4;
-          } else if (choiceIdx === 3) { // Стенка выбивает на угловой (новый)
-            ball.vx = 3.8; ball.vy = -7; ball.vz.vy = -10; ball.vz = 4;
-          } else if (choiceIdx === 3) { // Стенка выбивает на угловой (новый)
+            ball.vx = 5.5; ball.vy = -10; ball.vz = 4;
+          } else if (choiceIdx === 3) { // Стенка выбивает на угловой
             ball.vx = 3.8; ball.vy = -7; ball.vz = 5;
-          = 5;
           }
-        }, 500);
-      } }
         }, 500);
       } else if (type === 'corner') {
         setTimeout(() => {
-          else if (type === 'corner') {
-        setTimeout(() => {
           Sound.playKick();
           ball.vx = 8; ball.vy = -8; ball.vz = 12;
         }, 400);
       } else if (type === 'tackle') {
-        // Подкат – стартует сразу
         sceneState = 'action';
       }
     }
 
-    function Sound.playKick();
-          ball.vx = 8; ball.vy = -8; ball.vz = 12;
-        }, 400);
-      } else if (type === 'tackle') {
-        // Подкат – стартует сразу
-        sceneState = 'action';
-      }
-    }
-
-    function runCanvasPhysics runCanvasPhysicsLoop() {
-      updatePhysicsWorld();
-      drawCanvasWorldLoop() {
+    function runCanvasPhysicsLoop() {
       updatePhysicsWorld();
       drawCanvasWorld();
-     ();
       animFrameId = requestAnimationFrame(runCanvasPhysicsLoop);
     }
 
     function updatePhysicsWorld() {
       sceneTimer++;
-      const animFrameId = requestAnimationFrame(runCanvasPhysicsLoop);
-    }
-
-    function updatePhysicsWorld() {
-      sceneTimer++;
-      const m m = matches.find(x => x.id === targetMomentMatchId);
-      if (!m) return;
-      = matches.find(x => x.id === targetMomentMatchId);
+      const m = matches.find(x => x.id === targetMomentMatchId);
       if (!m) return;
       const type = m.expressMomentType;
 
-      // Обновление частиц
-      const type = m.expressMomentType;
-
-      // Обновление частиц
       particles.forEach(p => {
         p.x += p.vx; p.y += p.vy;
-        p.alpha particles.forEach(p => {
-        p.x += p.vx; p.y += p.vy -= 0.02;
-        if (p.alpha < 0) p.alpha = 0;
-     ;
         p.alpha -= 0.02;
         if (p.alpha < 0) p.alpha = 0;
       });
- });
       particles = particles.filter(p => p.alpha > 0);
 
-      if (sceneState      particles = particles.filter(p => p.alpha > 0);
-
-      if (sceneState === 'intro') === 'intro') {
-        players {
-        players.forEach(p =>.forEach(p => {
-          if (p {
-          if (p.type === 'keeper') p.x.type === 'keeper') p.x += Math.sin(sceneTimer*0.1)*0.5;
-        });
-        return;
-      }
-
-      if (sceneState === 'action' && !momentResultRes += Math.sin(sceneTimer*0.1)*0.5;
+      if (sceneState === 'intro') {
+        players.forEach(p => {
+          if (p.type === 'keeper') p.x += Math.sin(sceneTimer*0.1)*0.5;
         });
         return;
       }
 
       if (sceneState === 'action' && !momentResultResolved) {
-        // Логика для каждогоolved) {
-        // Логика для каждого типа
-        if (type типа
         if (type === 'penalty') {
-          let === 'penalty') {
           let batter = players.find(x => x.type === 'battering');
           let keeper = players.find(x => x.type === 'keeper');
           if (batter.anim === 1) {
-            batter.x += batter = players.find(x => x.type === 'battering');
-          let keeper = players.find(x => x.type === 'keeper');
-          if (batter.anim === 1) {
-            batter.x (ball.x - batter.x) * 0.15;
-            batter.y += (ball.y - 10 - batter.y) * 0.15 += (ball.x - batter.x) * 0.15;
+            batter.x += (ball.x - batter.x) * 0.15;
             batter.y += (ball.y - 10 - batter.y) * 0.15;
-;
           }
           if (ball.vy !== 0) {
-            ball.x += ball.vx; ball.y += ball.vy          }
-          if (ball.vy !== 0) {
             ball.x += ball.vx; ball.y += ball.vy;
-            ball.z;
-            ball.z += ball.vz; ball.vz -= 0. += ball.vz; ball25;
-            if (ball.z < 0) { ball.z = 0; ball.vz *= -0.vz -= 0.25;
-            if (ball.z < 0) { ball.z = 0; ball.vz *= -.4; }
-            keeper.x += (keeper.targetX - keeper.x) * 0.0.4; }
+            ball.z += ball.vz; ball.vz -= 0.25;
+            if (ball.z < 0) { ball.z = 0; ball.vz *= -0.4; }
             keeper.x += (keeper.targetX - keeper.x) * 0.12;
             keeper.y += (keeper.targetY - keeper.y) * 0.12;
-            if (ball.y <= canvasHeight * 0.12;
-            keeper.y += (keeper.targetY - keeper.y) * 0.12;
             if (ball.y <= canvasHeight * 0.24) {
-             24) {
-              let distToKeeper = Math.hypot(ball.x - keeper.x, ball.y - keeper.y let distToKeeper = Math.hypot(ball.x - keeper.x, ball.y - keeper.y);
-              if (distToKeeper < 25 && selectedMomentOutcomeIdx === );
-              if (distToKeeper < 25 && selectedMomentOut1) {
-                ball.vx = (Math.random() * 6 -comeIdx === 1) {
+              let distToKeeper = Math.hypot(ball.x - keeper.x, ball.y - keeper.y);
+              if (distToKeeper < 25 && selectedMomentOutcomeIdx === 1) {
                 ball.vx = (Math.random() * 6 - 3); ball.vy = 5; ball.vz = 2;
                 Sound.playKick();
-                resolveMomentMatchResult(false, 'Сейв Вратаря!', type 3); ball.vy = 5; ball.vz = 2;
-                Sound.playKick();
-                resolveMomentMatchResult(false, 'Сейв Вратаря!);
-              }', type else if (ball.x >= canvasWidth*0.38 && ball.x <= canvasWidth*0.62 && ball.z <= 40) {
-                if (selectedMomentOutcomeIdx ===);
+                resolveMomentMatchResult(false, 'Сейв Вратаря!', type);
               } else if (ball.x >= canvasWidth*0.38 && ball.x <= canvasWidth*0.62 && ball.z <= 40) {
-                if (selectedMomentOutcomeIdx 0 || selectedMomentOutcomeIdx === 3) {
+                if (selectedMomentOutcomeIdx === 0 || selectedMomentOutcomeIdx === 3) {
                   Sound.playGoalAnimation();
-                  resolve === 0 || selectedMomentOutcomeIdx === 3) {
-                  Sound.playGoalAnimation();
-                  resolveMomentMatchResultMomentMatchResult(true, selectedMomentOutcomeIdx === 3 ? 'ГОЛ(true, selectedMomentOutcomeIdx === 3 ? 'ГОЛ В ПЕРЕКЛАДИНУ!' : 'ГОЛ!!!', type);
-                } else if (selectedMoment В ПЕРЕКЛАДИНУ!' : 'ГОЛ!!!', type);
+                  resolveMomentMatchResult(true, selectedMomentOutcomeIdx === 3 ? 'ГОЛ В ПЕРЕКЛАДИНУ!' : 'ГОЛ!!!', type);
                 } else if (selectedMomentOutcomeIdx === 2) {
                   ball.vx = ball.x < canvasWidth*0.5 ? -4 : 4; ball.vy = 6;
-                  Sound.playPostRingOutcomeIdx === 2) {
-                  ball.vx = ball.x < canvasWidth*0.5 ? -4 : 4; ball.vy = 6;
                   Sound.playPostRing();
-                  resolveM();
                   resolveMomentMatchResult(false, 'ШТАНГА!', type);
-                }
-              } else {
-                resolveMomentMatchResult(false, 'Мимо ворот!',omentMatchResult(false, 'ШТАНГА!', type);
                 }
               } else {
                 resolveMomentMatchResult(false, 'Мимо ворот!', type);
               }
             }
           }
-        } else if (type === 'freekick') type);
-              }
-            }
-          }
         } else if (type === 'freekick') {
-          let keeper = players.find(x => x.type === 'keeper {
           let keeper = players.find(x => x.type === 'keeper');
           players.filter(x => x.type === 'wall').forEach(p => {
-           ');
-          players.filter(x => x if (p.anim < 0) p.anim += 1;
-          });
-          if (.type === 'wall').forEach(p => {
             if (p.anim < 0) p.anim += 1;
           });
           if (ball.vy !== 0) {
-            ball.x += ball.vx + ball.spin * 2; ball.y += ballball.vy !== 0) {
             ball.x += ball.vx + ball.spin * 2; ball.y += ball.vy;
-            ball.z += ball.vz; ball.vz -= 0.28.vy;
             ball.z += ball.vz; ball.vz -= 0.28;
-            if (ball.z < 0) { ball.z = 0; ball.vz *=;
-            if (ball.z < 0) { ball.z = 0; ball.vz *= -0.3 -0.3; }
-            ball.spin *= 0.95; }
+            if (ball.z < 0) { ball.z = 0; ball.vz *= -0.3; }
             ball.spin *= 0.95;
             players.filter(x => x.type === 'wall').forEach(w => {
-              if (Math.hypot(ball.x - w.x, ball.y - (w.y + w.anim)) < 15 &&;
-            players.filter(x => x.type === 'wall').forEach(w => {
-              if (Math.hypot(ball.x - w.x, ball.y - (w.y + w.anim)) < 15 && ball.z <  ball.z < 25) {
-                if (selectedMomentOutcomeIdx === 1 || selectedMomentOutcomeIdx === 3)25) {
+              if (Math.hypot(ball.x - w.x, ball.y - (w.y + w.anim)) < 15 && ball.z < 25) {
                 if (selectedMomentOutcomeIdx === 1 || selectedMomentOutcomeIdx === 3) {
-                  {
-                  ball.vx = -2; ball.vy =  ball.vx = -2; ball.vy = 4; ball.v4; ball.vz = 1;
-                  if (selectedMomentz = 1;
+                  ball.vx = -2; ball.vy = 4; ball.vz = 1;
                   if (selectedMomentOutcomeIdx === 3) {
-                    resolveMomentMatchResult(false, 'Стенка выбивает на угловой!OutcomeIdx === 3) {
                     resolveMomentMatchResult(false, 'Стенка выбивает на угловой!', type);
                   } else {
-                    resolveMomentMatchResult(false, 'Мяч поп', type);
-                  } else {
-                    resolveMomentMatchResult(false, 'Мяч попал в стенку!', typeал в стенку!', type);
-                  }
-                }
-              }
-            });
-            if (ball.y < canvasHeight * 0.45) {
-              keeper.x += (ball.x - keeper.x) *);
+                    resolveMomentMatchResult(false, 'Мяч попал в стенку!', type);
                   }
                 }
               }
@@ -1285,14 +1140,8 @@
             if (ball.y < canvasHeight * 0.45) {
               keeper.x += (ball.x - keeper.x) * 0.08;
             }
-            if (ball.y <= 0.08;
-            }
-            canvasHeight * 0.24 && !momentResultResolved) {
-              if (ball.x >= canvasWidth*0.38 if (ball.y <= canvasHeight * 0.24 && !momentResultResolved) {
-              if (ball.x >= canvasWidth*0.38 && ball.x <= && ball.x <= canvasWidth*0.62 && ball canvasWidth*0.62 && ball.z <= 40) {
-                if (selectedMomentOutcomeIdx === 0) {
-                  Sound.playGoalAnimation();
-                  resolveMomentMatchResult(true, 'Шедевральный Гол!.z <= 40) {
+            if (ball.y <= canvasHeight * 0.24 && !momentResultResolved) {
+              if (ball.x >= canvasWidth*0.38 && ball.x <= canvasWidth*0.62 && ball.z <= 40) {
                 if (selectedMomentOutcomeIdx === 0) {
                   Sound.playGoalAnimation();
                   resolveMomentMatchResult(true, 'Шедевральный Гол!', type);
@@ -1301,45 +1150,22 @@
                   resolveMomentMatchResult(false, 'Вратарь перевел на угловой!', type);
                 }
               } else {
-                resolveMomentMatch', type);
-                } else if (selectedMomentOutcomeIdx === 2) {
-                  ball.vx = 8; ball.vy = -2;
-                  resolveMomentMatchResult(false, 'Вратарь перевел на угловой!', type);
-                }
-              } else {
-                resolveMomentMatchResult(false, 'Выше вResult(false, 'Выше ворот!', type);
-              }
-            }
-          }
-        } else if (орот!', type);
+                resolveMomentMatchResult(false, 'Выше ворот!', type);
               }
             }
           }
         } else if (type === 'corner') {
-         type === 'corner') let att = players.find(x => x.type === 'attacker_head');
-          {
           let att = players.find(x => x.type === 'attacker_head');
-          let def = players let def = players.find(x => x.type === 'defender_box');
+          let def = players.find(x => x.type === 'defender_box');
           let keeper = players.find(x => x.type === 'keeper');
-          if (ball.vy !==.find(x => x.type === 'defender_box');
-          let keeper = players.find(x => x.type === 'keeper');
-          if ( 0)ball.vy !== 0) {
-            ball.x += {
+          if (ball.vy !== 0) {
             ball.x += ball.vx; ball.y += ball.vy;
-            ball.z += ball.vz; ball.vz -= 0.22 ball.vx; ball.y += ball.vy;
             ball.z += ball.vz; ball.vz -= 0.22;
-           ;
-            att.x += (canvasWidth*0.48 - att.x)*0.03; att.y += (canvasHeight*0.38 - att att.x += (canvasWidth*0.48 - att.x)*0.03; att.y += (canvasHeight*0.38.y)*0.03;
-            def.x += (canvasWidth* - att.y)*0.03;
-            def.x += (canvas0.46 - def.x)*0.03; def.y +=Width*0.46 - def.x)*0.03; def.y += (canvasHeight*0.36 - def.y)*0.03;
+            att.x += (canvasWidth*0.48 - att.x)*0.03; att.y += (canvasHeight*0.38 - att.y)*0.03;
+            def.x += (canvasWidth*0.46 - def.x)*0.03; def.y += (canvasHeight*0.36 - def.y)*0.03;
             if (ball.y <= canvasHeight * 0.45 && ball.vy < 0) {
-              if ( (canvasHeight*0.36 - def.y)*0.03;
-            if (ball.y <= canvasHeight * 0.45 && ball.vy < 0) {
-              if (selectedMomentOutcomeselectedMomentOutcomeIdx === 0) {
-                createDust(att.x, att.y, Idx === 0) {
-                createDust(att.x, att.y, 1212);
-                Sound.playKick();
-                ball.vx = (canvasWidth*0.5 - att.x)*0.2; ball.vy = -10; ball.vz);
+              if (selectedMomentOutcomeIdx === 0) {
+                createDust(att.x, att.y, 12);
                 Sound.playKick();
                 ball.vx = (canvasWidth*0.5 - att.x)*0.2; ball.vy = -10; ball.vz = 4;
                 selectedMomentOutcomeIdx = 99;
@@ -1350,395 +1176,194 @@
                 resolveMomentMatchResult(false, 'Защитник выбил мяч из штрафной!', type);
               } else if (selectedMomentOutcomeIdx === 2) {
                 createDust(def.x, def.y, 5);
-                ball.vx = 12; ball. = 4;
-                selectedMomentOutcomeIdx = 99;
-              } else if (selectedMomentOutcomeIdx === 1) {
-                createDust(def.x, def.y, 10);
-                Sound.playKick();
-                ball.vx = -8; ball.vy = 8; ball.vz = 6;
-                resolveMomentMatchResult(false, 'Защитник выбил мяч из штрафной!', type);
-              } else if (selectedMomentOutcomeIdx === 2) {
-                createDust(def.x, def.y, 5);
-                ball.vx = 12; ball.vy = vy = 9; ball.vz = 2;
-                resolveMoment9; ball.vz = 2MatchResult(false, 'Перехват и быстрая контратака;
+                ball.vx = 12; ball.vy = 9; ball.vz = 2;
                 resolveMomentMatchResult(false, 'Перехват и быстрая контратака!', type);
-              } else if (selectedMomentOutcomeIdx === 3) { // Гол после!', type);
-              } else if (selectedMomentOutcomeIdx === 3) { рикошета
+              } else if (selectedMomentOutcomeIdx === 3) {
                 createDust(def.x, def.y, 15);
                 Sound.playKick();
-                ball // Гол после рикошета
-                createDust(def.x, def.y, 15);
-                Sound.playKick();
-                ball.vx = (canvasWidth*0.5.vx = (canvasWidth*0.5 - def.x)*0.3; ball.vy = -12; ball - def.x)*0.3; ball.vy = -12; ball.vz = 3;
-                selectedMomentOut.vz = 3;
+                ball.vx = (canvasWidth*0.5 - def.x)*0.3; ball.vy = -12; ball.vz = 3;
                 selectedMomentOutcomeIdx = 99;
-              }
-            }
-          }
-          if (selectedMomentOutcomeIdx = 99;
               }
             }
           }
           if (selectedMomentOutcomeIdx === 99 && ball.y <= canvasHeight * 0.24) {
             Sound.playGoalAnimation();
-            resolveMomentMatchResult(truecomeIdx === 99 && ball.y <= canvasHeight * 0.24) {
-            Sound.playGoalAnimation();
-            resolveMomentMatchResult(true, 'Точный удар головой! ГОЛ, 'Точный удар головой! ГОЛ!',!', type);
-          type);
+            resolveMomentMatchResult(true, 'Точный удар головой! ГОЛ!', type);
           }
-        } else if (type === 'tackle') }
-        } else if (type === ' {
+        } else if (type === 'tackle') {
           let dribbler = players.find(x => x.type === 'dribbler');
           let tackler = players.find(x => x.type === 'tackler');
-          let ref = players.find(x => x.type === 'reftackle') {
-          let dribbler = players.find(x => x.type === 'dribbler');
-          let tackler = players.find(x => x.type === 'tackler');
-          let ref = players.find(x => xeree');
-          dribbler.x +=.type === 'referee');
-          dribbler.x += 1.5; ball.x = 1.5; ball.x = dribbler.x + 8;
-          tackler.x -= 3.5;
-          if (Math.hypot(dribbler.x - tackler.x, dribbler.y - tackler.y) dribbler.x + 8;
+          let ref = players.find(x => x.type === 'referee');
+          dribbler.x += 1.5; ball.x = dribbler.x + 8;
           tackler.x -= 3.5;
           if (Math.hypot(dribbler.x - tackler.x, dribbler.y - tackler.y) < 30) {
             createDust(dribbler.x, dribbler.y, 15);
-            if (selectedMoment < 30) {
-            createDust(dribbler.x, dribbler.y, 15);
-            if (selectedMomentOutcomeIdx ===OutcomeIdx === 0 || selectedMomentOutcomeIdx === 2 || selectedMomentOutcomeIdx === 3) 0 || selectedMomentOutcomeIdx === 2 || selectedMomentOutcomeIdx === 3) {
-              dribbler {
+            if (selectedMomentOutcomeIdx === 0 || selectedMomentOutcomeIdx === 2 || selectedMomentOutcomeIdx === 3) {
               dribbler.anim = -25;
-              tackler.anim = 15;
-              ball.vx =.anim = -25;
               tackler.anim = 15;
               ball.vx = 2; ball.vy = -2;
               sceneState = 'cards';
-              sceneTimer = 0 2; ball.vy = -2;
-              sceneState = 'cards';
-              sceneTimer;
+              sceneTimer = 0;
             } else {
               tackler.color = '#3ddc84';
               ball.vx = -5; ball.vy = 3;
-              resolveMomentMatchResult(false, 'Ч = 0;
-            } else {
-              tackler.color = '#3ddc84';
-              ball.vx = -5; ball.vy = 3;
-              resolveMomentMatchResultистейший отбор мяча в подкате!', type);
-           (false, 'Чистейший отбор мяча в подкате!', type);
+              resolveMomentMatchResult(false, 'Чистейший отбор мяча в подкате!', type);
             }
           }
         }
       }
 
-      // Под-сцена карточек рефери
-      }
-          }
-        }
-      }
-
-      // Под-сцена карточек рефери
       if (sceneState === 'cards' && !momentResultResolved) {
         let ref = players.find(x => x.type === 'referee');
-        let dribbler = players.find(x => x.type === if (sceneState === 'cards' && !momentResultResolved) {
-        let ref = players.find(x => x.type === 'referee');
         let dribbler = players.find(x => x.type === 'dribbler');
-        ref.x += (dribbler.x - ref.x 'dribbler');
-        ref.x += (dribbler.x - ref.x) * 0) * 0.05;
-        ref.y += (dribbler.05;
-        ref.y += (dribbler.y +.y + 40 - 40 - ref.y) * 0.05;
+        ref.x += (dribbler.x - ref.x) * 0.05;
+        ref.y += (dribbler.y + 40 - ref.y) * 0.05;
         if (sceneTimer > 40) {
-          Sound.playWh ref.y) * 0.05;
-        if (sceneTimer > 40) {
-          Sound.playistle(true);
+          Sound.playWhistle(true);
           const isRed = (selectedMomentOutcomeIdx === 2);
-          const isYellowPenalty = (selectedMWhistle(true);
-          const isRed = (selectedMomentOutcomeIdx === 2);
-          const isYellowPenalty = (selectedMomentOutcomeIdx === 3omentOutcomeIdx === 3);
-          let);
+          const isYellowPenalty = (selectedMomentOutcomeIdx === 3);
           let msg = isRed ? 'ГРУБЕЙШИЙ ФОЛ! КРАСНАЯ КАРТОЧКА!' :
-                    isYellowPenalty ? 'ФОЛ! ЖЕЛТАЯ КАРТОЧКА И ПЕНАЛЬТИ!' : 'ФОЛ! ЖЕ msg = isRed ? 'ГРУБЕЙШИЙ ФОЛ! КРАСНАЯ КАРТОЧКА!' :
                     isYellowPenalty ? 'ФОЛ! ЖЕЛТАЯ КАРТОЧКА И ПЕНАЛЬТИ!' : 'ФОЛ! ЖЕЛТАЯ КАРТОЧКА!';
-          ifЛТАЯ КАРТОЧКА!';
           if (isYellowPenalty) {
-            // Дополнительно добавляем гол с пенальти
-            const (isYellowPenalty) {
-            // Дополнительно добавляем гол с пенальти
-            const m2 = matches.find(x => x.id === targetMomentMatch m2 = matches.find(x => x.id === targetMomentMatchId);
-            if (mId);
+            const m2 = matches.find(x => x.id === targetMomentMatchId);
             if (m2) m2.homeScore++;
           }
           resolveMomentMatchResult(true, msg, type);
         }
-     2) m2.homeScore++;
-          }
-          resolveMomentMatchResult(true, msg, type);
-        }
       }
     }
 
-    function resolveMoment }
-    }
-
-    function resolveMomentMatchResult(isWin, textMatchResult(isStatus, type) {
+    function resolveMomentMatchResult(isWin, textStatus, type) {
       if (momentResultResolved) return;
-      momentResultResWin, textStatus, type) {
-      if (momentResultResolved) return;
-      momentResultolved = true;
+      momentResultResolved = true;
       sceneState = 'result';
-      ball.vx = 0; ball.vy = Resolved = true;
-      sceneState = 'result';
-      ball.vx = 0; ball0; ball.vz = 0;
-      const m = matches.find(x.vy = 0; ball.vz = 0;
+      ball.vx = 0; ball.vy = 0; ball.vz = 0;
       const m = matches.find(x => x.id === targetMomentMatchId);
-      const currentStake = => x.id === targetMomentMatchId);
       const currentStake = parseInt(document.getElementById('momentStakeInput').value) || 0;
       
       let resText = document.createElement('div');
       resText.id = 'physicsResultOverlay';
       resText.style.cssText = `
-        position: absolute; inset: parseInt(document.getElementById('momentStakeInput').value) || 0;
-      
-      let resText = document.createElement('div');
-      resText.id = 'physicsResultOverlay';
-      resText.style.cssText = `
         position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
-        background 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
-        background: rgba(0,0,0,0.85); font-family: 'Mont: rgba(0,0,0,0.85); font-family: 'Montserrat', sans-serif; text-align: center; z-index: 10;
-      `;
-      let winAmount = Math.floor(currentStake * activeMomentserrat', sans-serif; text-align: center; z-index: 10;
+        background: rgba(0,0,0,0.85); font-family: 'Montserrat', sans-serif; text-align: center; z-index: 10;
       `;
       let winAmount = Math.floor(currentStake * activeMomentConfig.opts[selectedMomentOutcomeIdx].o);
       if (isWin) {
         balance += winAmount;
         resText.innerHTML = `
-          <h2 style="color:#Config.opts[selectedMomentOutcomeIdx].o);
-      if (isWin) {
-        balance += winAmount;
-        resText.innerHTML = `
           <h2 style="color:#3DDC84; font-size:28px; font-weight:900; margin-bottom:10px;">✅ СТАВКА ВЫИГРАЛА</h2>
-          <p style="color:#fff; font-size:14px; margin-bottom:15px;">${textStatus}</p>
-          <h3 style="color:#FFD543DDC84; font-size:28px; font-weight:900; margin-bottom:10px;">✅ СТАВКА ВЫИГРАЛА</h2>
           <p style="color:#fff; font-size:14px; margin-bottom:15px;">${textStatus}</p>
           <h3 style="color:#FFD54A; font-size:22px;">+ ${winAmount.toLocaleString()} ₽</h3>
         `;
-        ifA; font-size:22px;">+ ${winAmount.toLocaleString()} ₽</h3>
-        `;
-        if (textStatus.includes('ГОЛ')) (textStatus.includes('ГОЛ')) {
+        if (textStatus.includes('ГОЛ')) {
           m.homeScore++;
         }
       } else {
-        resText.innerHTML = {
-          m.homeScore++;
-        }
-      } else `
-          <h2 style="color:#f03043; font-size: {
         resText.innerHTML = `
-          <h2 style="color:#f03043; font-size:2828px; font-weight:900; margin-bottom:10px;">❌ ПРОИГРpx; font-weight:900; margin-bottom:10px;">❌ ПРОИГРЫШ</h2>
+          <h2 style="color:#f03043; font-size:28px; font-weight:900; margin-bottom:10px;">❌ ПРОИГРЫШ</h2>
           <p style="color:#fff; font-size:14px; margin-bottom:15px;">${textStatus}</p>
-          <h3 style="colorЫШ</h2>
-          <p style="color:#fff; font-size:14px; margin-bottom:15px;">${textStatus}</p>
-          <h3 style="color:rgba(:rgba(255,255,255,0.4); font-size:18px;">-${currentStake} ₽</h3>
-        `;
-     255,255,255,0.4); font-size:18px;">-${currentStake} ₽</h3>
+          <h3 style="color:rgba(255,255,255,0.4); font-size:18px;">-${currentStake} ₽</h3>
         `;
       }
       canvasCtx.canvas.parentElement.appendChild(resText);
       
       betHistory.unshift({
-        id }
-      canvasCtx.canvas.parentElement.appendChild(resText);
-      
-      betHistory.unshift({
-        id: Date.now().: Date.now().toString().slice(-6),
-        typetoString().slice(-6),
+        id: Date.now().toString().slice(-6),
         type: '⚡ Момент',
-        description: `Блиц-пари: ${m.home.name}-${m.: '⚡ Момент',
         description: `Блиц-пари: ${m.home.name}-${m.away.name} [${activeMomentConfig.opts[selectedMomentOutcomeIdx].l}]`,
         odds: activeMomentConfig.opts[selectedMomentOutcomeIdx].o,
-        stake:away.name} [${activeMomentConfig.opts[selectedMomentOutcomeIdx].l}]`,
-        odds: activeMomentConfig.opts[selectedMomentOutcomeIdx].o,
-        stake: currentStake currentStake,
-        status: isWin ? 'win' : 'lose',
-        items,
+        stake: currentStake,
         status: isWin ? 'win' : 'lose',
         items: []
-     : []
       });
       m.expressMomentAvailable = false;
       saveState();
-      calculateOdds(m });
-      m.expressMomentAvailable = false;
-      saveState();
       calculateOdds(m);
-      render);
       renderMatches();
     }
 
-   Matches();
-    }
-
-    Sound.playGoalAnimation = function() Sound.playGoalAnimation = function() {
+    Sound.playGoalAnimation = function() {
       Sound.playPostRing();
-      setTimeout(() => Sound.play {
-      Sound.playPostRing();
-      setTimeoutWhistle(), 150);
-      for(let i=0; i<35; i(() => Sound.playWhistle(), 150);
+      setTimeout(() => Sound.playWhistle(), 150);
       for(let i=0; i<35; i++){
         particles.push({
           x: canvasWidth*0.5 + (Math.random()*60 - 30),
           y: canvasHeight*0.22,
-          v++){
-        particles.push({
-          x: canvasWidth*0.5 + (Math.random()*60 - 30),
-          y: canvasHeight*0.22,
           vx: Math.random()*6 - 3, vy: Math.random()*-4 - 2,
-          alpha: 1, size: Math.randomx: Math.random()*6 - 3, vy: Math.random()*-4 - 2,
           alpha: 1, size: Math.random()*4 + 2,
-          color: `hsl(${Math.random()*360}, 100%, ()*4 + 2,
           color: `hsl(${Math.random()*360}, 100%, 60%)`
-        });
-     60%)`
         });
       }
     };
 
     function drawCanvasWorld() {
       if (!canvasCtx) return;
-      // О }
-    };
-
-    function drawCanvasWorld() {
-      if (!canvasCtx) returnтрисовка поля (трава + разметка)
-      for (let i = 0; i < 10; i++) {
-        canvasCtx.fillStyle = i % 2 === 0 ? '#245c31;
       // Отрисовка поля (трава + разметка)
       for (let i = 0; i < 10; i++) {
         canvasCtx.fillStyle = i % 2 === 0 ? '#245c31' : '#1e5128';
-        canvasCtx.fillRect(0, (canvasHeight / 10) * i, canvasWidth, canvasHeight / 10' : '#1e5128';
         canvasCtx.fillRect(0, (canvasHeight / 10) * i, canvasWidth, canvasHeight / 10);
       }
       canvasCtx.strokeStyle = 'rgba(255,255,255,0.15)';
       canvasCtx.lineWidth = 3;
-     );
-      }
-      canvasCtx.strokeStyle = 'rgba(255,255,255,0.15)';
-      canvasCtx.lineWidth = 3;
       canvasCtx.strokeRect(canvasWidth*0.3, canvasHeight*0.22, canvasWidth*0.4, canvasHeight*0.3);
-      canvasCtx canvasCtx.strokeRect(canvasWidth*0.3, canvasHeight*0.22, canvasWidth*0.4, canvasHeight*0.3);
       canvasCtx.strokeRect(canvasWidth*0.4, canvasHeight*0.22, canvasWidth*0.2, canvasHeight*0.1);
       canvasCtx.fillStyle = 'rgba(0,0,0,0.3)';
       canvasCtx.fillRect(canvasWidth*0.38, canvasHeight*0.1, canvasWidth*0.24, canvasHeight*0.12);
-      canvasCtx.strokeStyle = 'rgba(255,255,255.strokeRect(canvasWidth*0.4, canvasHeight*0.22, canvasWidth*0.2, canvasHeight*0.1);
-      canvasCtx.fillStyle = 'rgba(0,0,0,0.3)';
-      canvasCtx.fillRect(canvasWidth*0.38, canvasHeight*0.1, canvasWidth*0.24, canvasHeight*0.12);
-      canvasCtx.strokeStyle = 'rgba(255,255,0.25)';
-      canvasCtx.lineWidth = 1,255,0.25)';
+      canvasCtx.strokeStyle = 'rgba(255,255,255,0.25)';
       canvasCtx.lineWidth = 1;
-      for (let;
       for (let x = canvasWidth*0.38; x <= canvasWidth*0.62; x += 6) {
-        canvasCtx.beginPath(); canvasCtx.moveTo(x, canvasHeight*0.1); canvasCtx x = canvasWidth*0.38; x <= canvasWidth*0.62; x += 6) {
-        canvasCtx.beginPath(); canvasCtx.moveTo(x, canvasHeight*0.1); canvasCtx.lineTo(x, canvasHeight*0.22); canvasCtx.stroke.lineTo(x, canvasHeight*0.22); canvasCtx.stroke();
-      }
-      for (let y = canvasHeight*0.1; y <= canvasHeight*0.22; y += 6) {
-        canvasCtx.beginPath(); canvasCtx.moveTo(canvasWidth*();
+        canvasCtx.beginPath(); canvasCtx.moveTo(x, canvasHeight*0.1); canvasCtx.lineTo(x, canvasHeight*0.22); canvasCtx.stroke();
       }
       for (let y = canvasHeight*0.1; y <= canvasHeight*0.22; y += 6) {
         canvasCtx.beginPath(); canvasCtx.moveTo(canvasWidth*0.38, y); canvasCtx.lineTo(canvasWidth*0.62, y); canvasCtx.stroke();
       }
       canvasCtx.strokeStyle = '#ffffff';
-      canvasCtx.lineWidth =0.38, y); canvasCtx.lineTo(canvasWidth*0.62, y); canvasCtx.stroke();
-      }
-      canvasCtx.strokeStyle = '#ffffff';
       canvasCtx.lineWidth = 5;
-      canvasCtx.line 5;
       canvasCtx.lineCap = 'square';
       canvasCtx.beginPath();
-      canvasCtx.moveTo(canvasWidth*0.38, canvasHeight*0.Cap = 'square';
-      canvasCtx.beginPath();
-      canvasCtx.moveTo(canvasWidth*0.38, canvasHeight22);
+      canvasCtx.moveTo(canvasWidth*0.38, canvasHeight*0.22);
       canvasCtx.lineTo(canvasWidth*0.38, canvasHeight*0.1);
-      canvasCtx.lineTo(canvasWidth*0.62, canvasHeight*0.*0.22);
-      canvasCtx.lineTo(canvasWidth*0.38, canvasHeight*0.1);
-      canvasCtx.lineTo(canvasWidth*0.62, canvasHeight1);
-      canvasCtx.lineTo(canvasWidth*0.62, canvasHeight*0.22);
-      canvasCtx.stroke();
-
-     *0.1);
+      canvasCtx.lineTo(canvasWidth*0.62, canvasHeight*0.1);
       canvasCtx.lineTo(canvasWidth*0.62, canvasHeight*0.22);
       canvasCtx.stroke();
 
       // Тени
-      canvasCtx.fillStyle = 'rgba(0, 0, // Тени
-      canvasCtx.fillStyle = 'rgba(0, 0, 0 0, 0.25)';
+      canvasCtx.fillStyle = 'rgba(0, 0, 0, 0.25)';
       canvasCtx.beginPath();
-      canvasCtx.arc(ball.x, ball.y, Math.max(2, ball.radius - ball.z*0.1), 0, 0.25)';
-      canvasCtx.beginPath();
-      canvasCtx.arc(ball.x, ball.y, Math.max(2, ball.radius - ball.z*0., Math.PI*2);
+      canvasCtx.arc(ball.x, ball.y, Math.max(2, ball.radius - ball.z*0.1), 0, Math.PI*2);
       canvasCtx.fill();
 
       // Игроки
-      players1), 0, Math.PI*2);
-      canvasCtx.fill();
-
-      // Игроки.forEach(p => {
-        let pY = p.y;
-        if (p.anim && p.type !== 'keeper' && p.type !== 'battering') pY += p.anim;
-        canvasCtx.fillStyle
       players.forEach(p => {
         let pY = p.y;
         if (p.anim && p.type !== 'keeper' && p.type !== 'battering') pY += p.anim;
         canvasCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-        canvasCtx.beginPath(); canvasCtx.arc(p = 'rgba(0, 0, 0, 0.3)';
-        canvasCtx.beginPath(); canvasCtx..x, p.y + 2,arc(p.x, p.y 10, 0, Math.PI*2); canvasCtx.fill();
+        canvasCtx.beginPath(); canvasCtx.arc(p.x, p.y + 2, 10, 0, Math.PI*2); canvasCtx.fill();
         canvasCtx.fillStyle = p.color;
-        canvasCtx.beginPath(); canvasCtx.arc(p.x, p + 2, 10, 0, Math.PI*2); canvasCtx.fill();
-        canvasCtx.fillStyle = p.color;
-        canvasCtx.beginPath(); canvasCtxY - 14, 7, 0, Math.PI*2);.arc(p.x, pY - 14, 7, 0, Math.PI*2); canvasCtx.fill();
-        canvasCtx.fill();
-        canvasCtx.fillRect(p.x - 5, pY - canvasCtx.fillRect(p.x - 5, pY - 8, 10, 12);
+        canvasCtx.beginPath(); canvasCtx.arc(p.x, pY - 14, 7, 0, Math.PI*2); canvasCtx.fill();
+        canvasCtx.fillRect(p.x - 5, pY - 8, 10, 12);
         canvasCtx.fillStyle = '#111';
         canvasCtx.fillRect(p.x - 4, pY + 4, 3, 6);
-        canvasCtx.fillRect(p.x + 1, pY +  8, 10, 12);
-        canvasCtx.fillStyle = '#111';
-        canvasCtx.fillRect(p.x - 4, pY + 4, 3, 6);
-        canvasCtx.fillRect(p.x + 1, pY + 4, 4, 3, 6);
-      });
-
-      // Мяч
-      let renderBallY = ball.y - ball.z;
-      canvasC3, 6);
+        canvasCtx.fillRect(p.x + 1, pY + 4, 3, 6);
       });
 
       // Мяч
       let renderBallY = ball.y - ball.z;
       canvasCtx.fillStyle = '#ffffff';
       canvasCtx.beginPath();
-      canvasCtx.arc(ball.x, renderBallY, ball.radius,tx.fillStyle = '#ffffff';
-      canvasCtx.beginPath();
-      canvasCtx.arc(ball.x, renderBallY, ball.radius, 0, Math.PI* 0, Math.PI*2);
+      canvasCtx.arc(ball.x, renderBallY, ball.radius, 0, Math.PI*2);
       canvasCtx.fill();
       canvasCtx.strokeStyle = '#000000';
-     2);
-      canvasCtx.fill();
-      canvasCtx.strokeStyle = '#000000';
-      canvasC canvasCtx.lineWidth = 1;
+      canvasCtx.lineWidth = 1;
       canvasCtx.beginPath();
-      canvasCtx.arc(ball.x, renderBalltx.lineWidth = 1;
-      canvasCtx.beginPath();
-      canvasCtx.arc(ball.x, renderBallY, ball.radius, sceneTimerY, ball.radius, sceneTimer*0.05*0.05, Math.PI + sceneTimer*0.05);
-      canvasCtx.stroke();
-
-      // Частицы
-      particles.forEach(p => {
-        canvasCtx.fill, Math.PI + sceneTimer*0.05);
+      canvasCtx.arc(ball.x, renderBallY, ball.radius, sceneTimer*0.05, Math.PI + sceneTimer*0.05);
       canvasCtx.stroke();
 
       // Частицы
       particles.forEach(p => {
         canvasCtx.fillStyle = p.color;
         canvasCtx.globalAlpha = p.alpha;
-        canvasCtx.beginPathStyle = p.color;
-        canvasCtx.globalAlpha = p.alpha;
         canvasCtx.beginPath();
-        canvasCtx.arc(p.x, p.y, p.size, 0, Math.P();
         canvasCtx.arc(p.x, p.y, p.size, 0, Math.PI*2);
         canvasCtx.fill();
       });
@@ -1748,41 +1373,18 @@
     // =========================================================================
     // 6. ЗАПУСК
     // =========================================================================
-    windowI*2);
-        canvasCtx.fill();
-      });
-      canvasCtx.globalAlpha = 1;
-    }
-
-    // =========================================================================
-    // 6. ЗАПУСК
-    // =========================================================================
-    window.addEventListener('.addEventListener('DOMContentLoaded', () => {
-      if (window.Telegram && window.Telegram.WebApp) {
-        const tgDOMContentLoaded', () => {
+    window.addEventListener('DOMContentLoaded', () => {
       if (window.Telegram && window.Telegram.WebApp) {
         const tg = window.Telegram.WebApp;
-        = window.Telegram.WebApp;
         tg.ready(); tg.expand();
-        if(t tg.ready(); tg.expand();
         if(tg.setHeaderColor) tg.setHeaderColor('#0c121e');
       }
-      document.getElementById('momentModal').addEventListener('g.setHeaderColor) tg.setHeaderColor('#0c121e');
-      }
       document.getElementById('momentModal').addEventListener('click', (e) => {
-       click', (e) => {
         if(e.target.id === 'momentModal') terminateMoment();
       });
       initMatchEngine();
       renderMatches();
       saveState();
-      // Удаляем оверлей при клике вне if(e.target.id === 'momentModal') terminateMoment();
-      });
-      initMatchEngine();
-      renderMatches();
-      saveState();
-      // Удаляем оверлей при клике вне
-      document.addEventListener
       document.addEventListener('click', (e) => {
         if (e.target.id === 'physicsResultOverlay') {
           e.target.remove();
@@ -1790,16 +1392,6 @@
         }
       });
     });
-  </script('click', (e) => {
-        if (e.target.id === 'physicsResultOverlay') {
-          e.target.remove();
-          terminateMoment();
-        }
-      });
-    });
   </script>
-</body>
-</html>
->
 </body>
 </html>
