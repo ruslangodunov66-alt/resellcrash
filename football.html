@@ -6,7 +6,6 @@
   <title>⚽ R-GAME Ultra · Профессиональный Футбольный Беттинг</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=Montserrat:ital,wght@0,800;1,800&display=swap" rel="stylesheet">
   <style>
-    /* Все стили остаются без изменений (они уже были) */
     * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
     html, body { width: 100%; min-height: 100vh; background: #05080e; color: #fff; font-family: 'Inter', sans-serif; overflow-x: hidden; }
     body {
@@ -316,7 +315,7 @@
     ];
 
     // =========================================================================
-    // 2. АУДИО-ДВИЖОК (без изменений)
+    // 2. АУДИО-ДВИЖОК
     // =========================================================================
     class AudioEngine {
       constructor() { this.ctx = null; this.ambientGain = null; this.ambientSource = null; }
@@ -400,13 +399,13 @@
         this.setAmbientVolume(0.15, 0.1);
         setTimeout(() => this.setAmbientVolume(0.02, 0.8), 300);
       }
+      playWhistleShort() { this.playWhistle(false); }
     }
     const Sound = new AudioEngine();
 
     // =========================================================================
-    // 3. ЯДРО СИМУЛЯТОРА (исправлен баланс – общий ключ casinoBalance)
+    // 3. ЯДРО СИМУЛЯТОРА
     // =========================================================================
-    // Единый ключ баланса для всего казино
     let balance = parseInt(localStorage.getItem('casinoBalance')) || 10000;
     let matches = [];
     let activeSlip = [];
@@ -466,7 +465,8 @@
               lastOddsSign: {},
               expressMomentAvailable: false,
               expressMomentType: null,
-              finished: false
+              finished: false,
+              extra: {}
             };
             if (isLive && initialMinute > 0) {
               for (let mnt = 0; mnt < initialMinute; mnt++) {
@@ -516,6 +516,13 @@
         });
       }
       m.odds = newOdds;
+      // Дополнительные рынки
+      m.extra = {
+        'Обе забьют (Да)': +(1.7 + Math.random() * 0.5).toFixed(2),
+        'Обе забьют (Нет)': +(1.8 + Math.random() * 0.5).toFixed(2),
+        'Угловые > 9.5': +(1.9).toFixed(2),
+        'Угловые < 9.5': +(1.9).toFixed(2)
+      };
     }
 
     function updateSimulation() {
@@ -590,7 +597,7 @@
     setInterval(updateSimulation, 2200);
 
     // =========================================================================
-    // 4. КУПОН, СТАВКИ, ИСТОРИЯ (без изменений)
+    // 4. КУПОН, СТАВКИ, ИСТОРИЯ
     // =========================================================================
     function switchTab(t) {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -613,6 +620,13 @@
       Sound.init();
       const m = matches.find(x => x.id === matchId);
       if (!m || m.status === 'FINISHED') return;
+
+      let oddsValue = m.odds[market];
+      if (oddsValue === undefined) {
+        oddsValue = m.extra[market];
+      }
+      if (oddsValue === undefined) return;
+
       const existingIndex = activeSlip.findIndex(x => x.matchId === matchId && x.market === market);
       if (existingIndex > -1) {
         activeSlip.splice(existingIndex, 1);
@@ -622,7 +636,7 @@
           matchId: m.id,
           teams: `${m.home.name} — ${m.away.name}`,
           market: market,
-          odds: m.odds[market]
+          odds: oddsValue
         });
       }
       updateSlipUi();
@@ -632,7 +646,11 @@
     function updateSlipUi() {
       activeSlip.forEach(item => {
         const m = matches.find(x => x.id === item.matchId);
-        if (m) item.odds = m.odds[item.market];
+        if (m) {
+          let newOdds = m.odds[item.market];
+          if (newOdds === undefined) newOdds = m.extra[item.market];
+          if (newOdds !== undefined) item.odds = newOdds;
+        }
       });
       document.getElementById('couponCountBadge').innerText = activeSlip.length;
       const fl = document.getElementById('floatBar');
@@ -845,7 +863,7 @@
     }
 
     // =========================================================================
-    // 5. ДВИЖОК 2D-АНИМАЦИИ (исправлены синтаксические ошибки)
+    // 5. ЭКСПРЕСС-МОМЕНТЫ (2D Canvas анимация)
     // =========================================================================
     let canvasCtx = null;
     let animFrameId = null;
@@ -854,7 +872,7 @@
     let players = [];
     let particles = [];
     let sceneTimer = 0;
-    let sceneState = 'intro';
+    let sceneState = 'intro'; // intro, action, result, cards
     let activeMomentConfig = null;
     let selectedMomentOutcomeIdx = -1;
     let targetMomentMatchId = null;
@@ -1013,19 +1031,19 @@
         setTimeout(() => {
           Sound.playKick();
           createDust(ball.x, ball.y);
-          if (choiceIdx === 0) { // Забьет
+          if (choiceIdx === 0) {
             ball.vx = (Math.random() * 4 - 2); ball.vy = -12; ball.vz = 5;
             keeper.targetX = canvasWidth * (Math.random() < 0.5 ? 0.38 : 0.62);
             keeper.targetY = canvasHeight * 0.25;
-          } else if (choiceIdx === 1) { // Сейв
+          } else if (choiceIdx === 1) {
             let targetSide = Math.random() < 0.5 ? 0.43 : 0.57;
             ball.vx = (targetSide - 0.5) * 15; ball.vy = -11; ball.vz = 3;
             keeper.targetX = canvasWidth * targetSide;
             keeper.targetY = canvasHeight * 0.23;
-          } else if (choiceIdx === 2) { // Штанга/мимо
+          } else if (choiceIdx === 2) {
             ball.vx = (Math.random() < 0.5 ? -6 : 6); ball.vy = -12; ball.vz = 6;
             keeper.targetX = canvasWidth * (ball.vx > 0 ? 0.55 : 0.45);
-          } else if (choiceIdx === 3) { // Гол в перекладину
+          } else if (choiceIdx === 3) {
             ball.vx = (Math.random() < 0.5 ? -2 : 2); ball.vy = -14; ball.vz = 4;
             keeper.targetX = canvasWidth * 0.5;
           }
@@ -1035,13 +1053,13 @@
           Sound.playKick();
           createDust(ball.x, ball.y);
           players.filter(x => x.type === 'wall').forEach(p => p.anim = -20);
-          if (choiceIdx === 0) { // Прямой гол
+          if (choiceIdx === 0) {
             ball.vx = 4.2; ball.vy = -9.5; ball.vz = 8; ball.spin = -0.15;
-          } else if (choiceIdx === 1) { // Стенка
+          } else if (choiceIdx === 1) {
             ball.vx = 2.0; ball.vy = -6; ball.vz = 3;
-          } else if (choiceIdx === 2) { // На угловой
+          } else if (choiceIdx === 2) {
             ball.vx = 5.5; ball.vy = -10; ball.vz = 4;
-          } else if (choiceIdx === 3) { // Стенка выбивает на угловой
+          } else if (choiceIdx === 3) {
             ball.vx = 3.8; ball.vy = -7; ball.vz = 5;
           }
         }, 500);
