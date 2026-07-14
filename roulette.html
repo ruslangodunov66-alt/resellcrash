@@ -1472,7 +1472,7 @@
             }
 
             // ============================================================
-            // 11. КАНВАС + ФИЗИКА КОЛЕСА (ПОЛНОСТЬЮ ПЕРЕРАБОТАНА)
+            // 11. КАНВАС + ФИЗИКА КОЛЕСА (ИСПРАВЛЕННАЯ)
             // ============================================================
             const canvas = document.getElementById('rouletteCanvas');
             const ctx = canvas.getContext('2d');
@@ -1567,7 +1567,7 @@
                 ball.radius = wheelRadius - 18;
                 ball.phase = 0;
                 wheelSpeed = 0.12;
-                ballOffset = 0; // сброс
+                ballOffset = 0;
 
                 onSpinComplete = () => {
                     finishSpin(finalNum);
@@ -1828,7 +1828,7 @@
             }
 
             // ============================================================
-            // 13. ФИЗИКА (анимация)
+            // 13. ФИЗИКА (анимация) — ИСПРАВЛЕННАЯ
             // ============================================================
             let lastTimestamp = 0;
 
@@ -1884,12 +1884,15 @@
                         }
 
                         if (progress >= 1) {
-                            // Фиксируем смещение шарика относительно колеса
-                            ballOffset = ball.angle - wheelAngle;
-                            // Нормализуем в диапазон [-PI, PI]
-                            while (ballOffset > Math.PI) ballOffset -= 2 * Math.PI;
-                            while (ballOffset < -Math.PI) ballOffset += 2 * Math.PI;
-
+                            // Жёсткая фиксация в выпавшем секторе
+                            const targetIndex = wheelNumbers.indexOf(winningNumber);
+                            if (targetIndex !== -1) {
+                                const cellArc = (Math.PI * 2) / 37;
+                                const slotRelative = targetIndex * cellArc + cellArc / 2;
+                                ballOffset = slotRelative;
+                                ball.angle = wheelAngle + slotRelative;
+                                ball.radius = wheelRadius - 34;
+                            }
                             ball.active = true;
                             isSpinning = false;
                             playSynthesizedStop();
@@ -1905,7 +1908,6 @@
                     // Не в процессе спина: колесо медленно вращается, шарик синхронизирован
                     wheelSpeed = 0.005;
                     wheelAngle += wheelSpeed;
-                    // Обновляем угол шарика, чтобы он вращался вместе с колесом
                     if (ball.active) {
                         ball.angle = wheelAngle + ballOffset;
                         // Нормализуем для избежания переполнения
@@ -1952,7 +1954,7 @@
             window.addEventListener('resize', resizeCanvas);
             setTimeout(resizeCanvas, 80);
 
-            console.log('🎡 VIP ROULETTE — ball physics fully fixed, stays in sector and rotates with wheel.');
+            console.log('🎡 VIP ROULETTE — ball physics fully fixed: stays exactly in the winning sector.');
         })();
     </script>
 </body>
