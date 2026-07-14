@@ -224,7 +224,6 @@
             }
         }
 
-        /* КНОПКА SPIN — теперь сразу под статусом */
         .spin-btn-wrap {
             margin: 6px 0 8px;
         }
@@ -929,7 +928,6 @@
             <div class="status-panel" id="statusPanel">🎯 Делайте ваши ставки!</div>
         </div>
 
-        <!-- КНОПКА SPIN ПЕРЕНЕСЕНА СЮДА (сразу под канвас) -->
         <div class="spin-btn-wrap">
             <button class="btn-spin" id="spinBtn" disabled>
                 <span class="spin-icon">🎰</span> КРУТИТЬ
@@ -1489,9 +1487,11 @@
             let ball = {
                 angle: 0,
                 radius: 136,
-                active: true, // всегда активен, чтобы рисоваться
+                active: true,
                 phase: 0
             };
+            let ballOffset = 0; // смещение шарика относительно колеса (в радианах)
+
             let spinStartTime = null;
             let spinDuration = 9000;
             let winningNumber = 0;
@@ -1567,6 +1567,7 @@
                 ball.radius = wheelRadius - 18;
                 ball.phase = 0;
                 wheelSpeed = 0.12;
+                ballOffset = 0; // сброс
 
                 onSpinComplete = () => {
                     finishSpin(finalNum);
@@ -1590,7 +1591,6 @@
 
             function finishSpin(winningNum) {
                 isSpinning = false;
-                // НЕ сбрасываем ball.active, чтобы шарик остался на месте
                 spinBtn.disabled = false;
 
                 if (spinAudio) {
@@ -1656,7 +1656,7 @@
             }
 
             // ============================================================
-            // 12. ОТРИСОВКА КОЛЕСА — числа вынесены ближе к краю
+            // 12. ОТРИСОВКА КОЛЕСА
             // ============================================================
             function drawWheel() {
                 const w = canvas.width / dpr;
@@ -1705,7 +1705,6 @@
                 ctx.translate(centerX, centerY);
                 ctx.rotate(wheelAngle);
 
-                // Рисуем сегменты
                 for (let i = 0; i < segmentsCount; i++) {
                     const angle = i * arcSize;
                     ctx.beginPath();
@@ -1725,13 +1724,12 @@
                     ctx.stroke();
                 }
 
-                // Рисуем числа — ближе к краю (80% от радиуса сегмента)
+                // Числа
                 for (let i = 0; i < segmentsCount; i++) {
                     const angle = i * arcSize;
                     const midAngle = angle + arcSize / 2;
                     const num = wheelNumbers[i];
 
-                    // Увеличиваем радиус для чисел
                     const textRadius = (wheelRadius - 32) * 0.80;
                     const tx = textRadius * Math.cos(midAngle);
                     const ty = textRadius * Math.sin(midAngle);
@@ -1747,7 +1745,6 @@
                     ctx.shadowOffsetX = 1;
                     ctx.shadowOffsetY = 1;
 
-                    // Для двухзначных чисел чуть мельче
                     if (num >= 10) {
                         ctx.font = 'bold 10px Montserrat, sans-serif';
                     } else {
@@ -1808,7 +1805,7 @@
                 }
                 ctx.restore();
 
-                // Шарик — рисуем всегда, если active === true
+                // Шарик
                 if (ball.active) {
                     const bX = centerX + Math.cos(ball.angle) * ball.radius;
                     const bY = centerY + Math.sin(ball.angle) * ball.radius;
@@ -1887,7 +1884,13 @@
                         }
 
                         if (progress >= 1) {
-                            ball.active = true; // остаёмся активными
+                            // Фиксируем смещение шарика относительно колеса
+                            ballOffset = ball.angle - wheelAngle;
+                            // Нормализуем в диапазон [-PI, PI]
+                            while (ballOffset > Math.PI) ballOffset -= 2 * Math.PI;
+                            while (ballOffset < -Math.PI) ballOffset += 2 * Math.PI;
+
+                            ball.active = true;
                             isSpinning = false;
                             playSynthesizedStop();
                             triggerHaptic('success');
@@ -1898,9 +1901,17 @@
                             }
                         }
                     }
-                } else if (!isSpinning) {
+                } else {
+                    // Не в процессе спина: колесо медленно вращается, шарик синхронизирован
                     wheelSpeed = 0.005;
                     wheelAngle += wheelSpeed;
+                    // Обновляем угол шарика, чтобы он вращался вместе с колесом
+                    if (ball.active) {
+                        ball.angle = wheelAngle + ballOffset;
+                        // Нормализуем для избежания переполнения
+                        while (ball.angle > 2 * Math.PI) ball.angle -= 2 * Math.PI;
+                        while (ball.angle < 0) ball.angle += 2 * Math.PI;
+                    }
                 }
 
                 drawWheel();
@@ -1941,7 +1952,7 @@
             window.addEventListener('resize', resizeCanvas);
             setTimeout(resizeCanvas, 80);
 
-            console.log('🎡 VIP ROULETTE — fully fixed: ball stays visible, Spin button moved up, numbers closer to edge.');
+            console.log('🎡 VIP ROULETTE — ball physics fully fixed, stays in sector and rotates with wheel.');
         })();
     </script>
 </body>
