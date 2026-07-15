@@ -1491,6 +1491,7 @@
                 phase: 0
             };
             let ballOffset = 0; // смещение шарика относительно колеса (в радианах)
+            let targetSlotAngle = 0; // целевой угол сектора (относительно колеса)
 
             let spinStartTime = null;
             let spinDuration = 9000;
@@ -1568,6 +1569,15 @@
                 ball.phase = 0;
                 wheelSpeed = 0.12;
                 ballOffset = 0;
+
+                // Вычисляем целевой угол сектора заранее
+                const targetIndex = wheelNumbers.indexOf(finalNum);
+                if (targetIndex !== -1) {
+                    const cellArc = (Math.PI * 2) / 37;
+                    targetSlotAngle = targetIndex * cellArc + cellArc / 2;
+                } else {
+                    targetSlotAngle = 0;
+                }
 
                 onSpinComplete = () => {
                     finishSpin(finalNum);
@@ -1847,12 +1857,14 @@
 
                     if (ball.active) {
                         if (progress < 0.7) {
+                            // Фаза 1: быстрый бег
                             ball.radius = wheelRadius - 18 - progress * 6;
                             ball.angle -= 0.18 - progress * 0.12;
                             if (Math.random() < 0.08) {
                                 playSynthesizedTick(1000 + Math.random() * 400, 0.012, 0.025);
                             }
                         } else if (progress < 0.9) {
+                            // Фаза 2: замедление и отскоки
                             const p2 = (progress - 0.7) / 0.2;
                             ball.radius = wheelRadius - 24 - p2 * 10;
                             ball.angle -= 0.06 * (1 - p2);
@@ -1862,37 +1874,32 @@
                             }
                             ball.angle += (Math.random() - 0.5) * 0.08 * (1 - p2);
                         } else {
+                            // Фаза 3: приземление — плавно подводим к целевому углу
                             const p3 = (progress - 0.9) / 0.1;
-                            const targetIndex = wheelNumbers.indexOf(winningNumber);
-                            if (targetIndex !== -1) {
-                                const cellArc = (Math.PI * 2) / 37;
-                                const slotRelative = targetIndex * cellArc + cellArc / 2;
-                                let ballRelative = ball.angle - wheelAngle;
-                                let diff = slotRelative - ballRelative;
-                                while (diff > Math.PI) diff -= Math.PI * 2;
-                                while (diff < -Math.PI) diff += Math.PI * 2;
-                                ballRelative += diff * (p3 * 0.3);
-                                if (p3 > 0.95) {
-                                    ballRelative = slotRelative;
-                                }
-                                ball.angle = wheelAngle + ballRelative;
-                                ball.radius = wheelRadius - 34 - p3 * 4;
+                            // Вычисляем текущий относительный угол шарика
+                            let ballRelative = ball.angle - wheelAngle;
+                            let diff = targetSlotAngle - ballRelative;
+                            // Нормализуем разницу
+                            while (diff > Math.PI) diff -= 2 * Math.PI;
+                            while (diff < -Math.PI) diff += 2 * Math.PI;
+                            // Плавно корректируем
+                            ballRelative += diff * (p3 * 0.3);
+                            // В самом конце фиксируем точно
+                            if (p3 > 0.95) {
+                                ballRelative = targetSlotAngle;
                             }
+                            ball.angle = wheelAngle + ballRelative;
+                            ball.radius = wheelRadius - 34 - p3 * 4;
                             if (Math.random() < 0.04) {
                                 playSynthesizedTick(400, 0.04, 0.04);
                             }
                         }
 
                         if (progress >= 1) {
-                            // Жёсткая фиксация в выпавшем секторе
-                            const targetIndex = wheelNumbers.indexOf(winningNumber);
-                            if (targetIndex !== -1) {
-                                const cellArc = (Math.PI * 2) / 37;
-                                const slotRelative = targetIndex * cellArc + cellArc / 2;
-                                ballOffset = slotRelative;
-                                ball.angle = wheelAngle + slotRelative;
-                                ball.radius = wheelRadius - 34;
-                            }
+                            // Жёсткая фиксация на целевом угле
+                            ballOffset = targetSlotAngle;
+                            ball.angle = wheelAngle + targetSlotAngle;
+                            ball.radius = wheelRadius - 34;
                             ball.active = true;
                             isSpinning = false;
                             playSynthesizedStop();
@@ -1910,7 +1917,6 @@
                     wheelAngle += wheelSpeed;
                     if (ball.active) {
                         ball.angle = wheelAngle + ballOffset;
-                        // Нормализуем для избежания переполнения
                         while (ball.angle > 2 * Math.PI) ball.angle -= 2 * Math.PI;
                         while (ball.angle < 0) ball.angle += 2 * Math.PI;
                     }
@@ -1954,7 +1960,7 @@
             window.addEventListener('resize', resizeCanvas);
             setTimeout(resizeCanvas, 80);
 
-            console.log('🎡 VIP ROULETTE — ball physics fully fixed: stays exactly in the winning sector.');
+            console.log('🎡 VIP ROULETTE — ball physics fully fixed, no sudden jumps.');
         })();
     </script>
 </body>
