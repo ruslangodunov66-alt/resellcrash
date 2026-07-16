@@ -590,8 +590,6 @@
                 </div>
                 <div class="action-buttons">
                     <button class="action-btn deposit" id="depositBtn">ПОПОЛНИТЬ</button>
-                    <button class="action-btn deposit" id="withdrawBtn" style="background: linear-gradient(135deg, #64748b, #334155); box-shadow: none; animation: none; font-size: 10px; padding: 0 12px;">ВЫВОД</button>
-                    <button class="action-btn deposit" id="refreshBtn" style="background: linear-gradient(135deg, #64748b, #334155); box-shadow: none; animation: none; font-size: 10px; padding: 0 12px;">🔄</button>
                 </div>
             </div>
         </div>
@@ -748,140 +746,24 @@
         const URL_POKER = "https://ruslangodunov66-alt.github.io/resellcrash/poker.html";
         const URL_FRUIT = "https://ruslangodunov66-alt.github.io/resellcrash/slots_fruit.html";
         const URL_HORSES = "https://ruslangodunov66-alt.github.io/resellcrash/horses.html";
-        const URL_FOOTBALL = "https://ruslangodunov66-alt.github.io/resellcrash/football.html"; 
+        const URL_FOOTBALL = "https://ruslangodunov66-alt.github.io/resellcrash/football.html";
+        const URL_WALLET = "https://ruslangodunov66-alt.github.io/resellcrash/wallet.html";
 
         const balanceSpan = document.getElementById('balanceDisplay');
         const depositBtn = document.getElementById('depositBtn');
-        const withdrawBtn = document.getElementById('withdrawBtn');
-        const refreshBtn = document.getElementById('refreshBtn');
 
-        let localBalance = 0;
-        let isBalanceLoading = false;
+        // ===== БАЛАНС ИЗ LOCALSTORAGE =====
+        let localBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+        balanceSpan.innerText = localBalance.toLocaleString() + ' ₽';
 
-        function updateBalanceDisplay(newBalance) {
-            localBalance = newBalance;
-            localStorage.setItem('casinoBalance', String(newBalance));
-            balanceSpan.innerText = newBalance.toLocaleString() + ' ₽';
-            isBalanceLoading = false;
-        }
-
-        // При загрузке показываем сохранённый баланс
-        let savedBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
-        balanceSpan.innerText = savedBalance.toLocaleString() + ' ₽';
-        localBalance = savedBalance;
-
-        // Запрос баланса ТОЛЬКО по кнопке "🔄" или клику на баланс
-        function requestBalance() {
-            if (!userId) {
-                alert('❌ Ошибка: userId не найден');
-                return;
-            }
-            if (isBalanceLoading) return;
-            isBalanceLoading = true;
-            console.log('📤 Запрос баланса...');
-            tg.sendData(JSON.stringify({ action: 'get_casino_balance' }));
-        }
-
-        // Клик на баланс → запрос
-        balanceSpan.addEventListener('click', () => {
-            requestBalance();
-            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
-        });
-
-        // Кнопка "🔄" → запрос
-        refreshBtn.addEventListener('click', () => {
-            requestBalance();
-            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
-        });
-
-        // ===== ОБРАБОТКА ОТВЕТОВ ОТ БОТА =====
-        tg.onEvent('web_app_data', function(data) {
-            try {
-                const response = JSON.parse(data);
-                console.log('📩 Ответ от бота:', response);
-
-                if (response.error) {
-                    alert('❌ ' + response.error);
-                    isBalanceLoading = false;
-                    return;
-                }
-
-                // Обновление баланса
-                if (response.balance !== undefined) {
-                    updateBalanceDisplay(response.balance);
-                    console.log('✅ Баланс обновлён:', response.balance);
-                    if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-                    return;
-                }
-
-                // Успешное пополнение
-                if (response.action === 'deposit_success') {
-                    updateBalanceDisplay(response.new_casino_balance);
-                    alert('✅ ' + response.message);
-                    if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-                    return;
-                }
-
-                // Успешный вывод
-                if (response.action === 'withdraw_success') {
-                    updateBalanceDisplay(response.new_casino_balance);
-                    alert('✅ ' + response.message);
-                    if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-                    return;
-                }
-
-                console.warn('⚠️ Неизвестный ответ:', response);
-            } catch (e) {
-                console.error('❌ Ошибка обработки ответа:', e);
-                alert('⚠️ Ошибка обработки ответа от бота. Попробуйте ещё раз.');
-                isBalanceLoading = false;
-            }
-        });
-
-        // ===== КНОПКА ПОПОЛНЕНИЯ =====
+        // ===== КНОПКА ПОПОЛНИТЬ → WALLET.HTML =====
         depositBtn.onclick = () => {
             if (!userId) {
                 alert('❌ Ошибка: userId не найден');
                 return;
             }
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
-            
-            const amount = prompt('💰 Введите сумму для пополнения казино (от 100 ₽):');
-            if (amount === null) return;
-            
-            const numAmount = parseInt(amount);
-            if (isNaN(numAmount) || numAmount < 100) {
-                alert('❌ Введите сумму от 100 ₽');
-                return;
-            }
-            
-            tg.sendData(JSON.stringify({
-                action: 'deposit_to_casino',
-                amount: numAmount
-            }));
-        };
-
-        // ===== КНОПКА ВЫВОДА =====
-        withdrawBtn.onclick = () => {
-            if (!userId) {
-                alert('❌ Ошибка: userId не найден');
-                return;
-            }
-            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
-            
-            const amount = prompt('💰 Введите сумму для вывода из казино (от 100 ₽):');
-            if (amount === null) return;
-            
-            const numAmount = parseInt(amount);
-            if (isNaN(numAmount) || numAmount < 100) {
-                alert('❌ Введите сумму от 100 ₽');
-                return;
-            }
-            
-            tg.sendData(JSON.stringify({
-                action: 'withdraw_from_casino',
-                amount: numAmount
-            }));
+            window.location.href = URL_WALLET + '?userId=' + userId;
         };
 
         function goToGame(game) {
@@ -948,10 +830,7 @@
             });
         });
 
-        // ⚠️ УБРАНО АВТОМАТИЧЕСКОЕ ОТПРАВКА ЗАПРОСА ПРИ ЗАГРУЗКЕ
-        // Баланс берётся только из localStorage
-
-        console.log('✅ Casino lobby loaded (balance from localStorage only)');
+        console.log('✅ Casino lobby loaded');
     </script>
 </body>
 </html>
