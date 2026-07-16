@@ -1078,7 +1078,7 @@
             }
 
             // ============================================================
-            // 11. КАНВАС + ФИЗИКА КОЛЕСА (ИСПРАВЛЕННАЯ)
+            // 11. КАНВАС + ФИЗИКА КОЛЕСА (ИСПРАВЛЕННАЯ — ЧЕРЕЗ OFFSET)
             // ============================================================
             const canvas = document.getElementById('rouletteCanvas');
             const ctx = canvas.getContext('2d');
@@ -1095,8 +1095,8 @@
                 radius: 136,
                 active: true,
             };
-            let ballOffset = 0; // относительный угол шарика (относительно колеса)
-            let targetSlotAngle = 0; // целевой относительный угол для выпавшего сектора
+            let ballOffset = 0; // относительный угол (относительно колеса)
+            let targetSlotAngle = 0;
 
             let spinStartTime = null;
             let spinDuration = 9000;
@@ -1169,10 +1169,15 @@
                 winningNumber = finalNum;
                 spinStartTime = performance.now();
                 ball.active = true;
+                // Устанавливаем начальный угол и вычисляем offset
                 ball.angle = Math.random() * Math.PI * 2;
                 ball.radius = wheelRadius - 18;
                 wheelSpeed = 0.12;
-                ballOffset = 0;
+                // Вычисляем начальный offset
+                ballOffset = ball.angle - wheelAngle;
+                // Нормализуем
+                while (ballOffset > Math.PI) ballOffset -= 2 * Math.PI;
+                while (ballOffset < -Math.PI) ballOffset += 2 * Math.PI;
 
                 // Вычисляем целевой угол сектора
                 const targetIndex = wheelNumbers.indexOf(finalNum);
@@ -1270,14 +1275,13 @@
             }
 
             // ============================================================
-            // 12. ОТРИСОВКА КОЛЕСА
+            // 12. ОТРИСОВКА КОЛЕСА (без изменений)
             // ============================================================
             function drawWheel() {
                 const w = canvas.width / dpr;
                 const h = canvas.height / dpr;
                 ctx.clearRect(0, 0, w, h);
 
-                // Внешнее кольцо
                 ctx.save();
                 ctx.shadowColor = "rgba(0,0,0,0.6)";
                 ctx.shadowBlur = 18;
@@ -1293,7 +1297,6 @@
                 ctx.fill();
                 ctx.restore();
 
-                // Деревянное кольцо
                 ctx.beginPath();
                 ctx.arc(centerX, centerY, wheelRadius - 10, 0, Math.PI * 2);
                 const woodGrad = ctx.createRadialGradient(centerX, centerY, wheelRadius - 32, centerX, centerY, wheelRadius - 10);
@@ -1303,14 +1306,12 @@
                 ctx.fillStyle = woodGrad;
                 ctx.fill();
 
-                // Золотой кант
                 ctx.beginPath();
                 ctx.arc(centerX, centerY, wheelRadius - 30, 0, Math.PI * 2);
                 ctx.strokeStyle = '#D4AF37';
                 ctx.lineWidth = 2.5;
                 ctx.stroke();
 
-                // СЕГМЕНТЫ КОЛЕСА
                 const segmentsCount = wheelNumbers.length;
                 const arcSize = (Math.PI * 2) / segmentsCount;
 
@@ -1337,7 +1338,6 @@
                     ctx.stroke();
                 }
 
-                // Числа
                 for (let i = 0; i < segmentsCount; i++) {
                     const angle = i * arcSize;
                     const midAngle = angle + arcSize / 2;
@@ -1367,7 +1367,6 @@
                     ctx.restore();
                 }
 
-                // Центральная турель
                 const turretRadius = (wheelRadius - 32) * 0.30;
                 ctx.beginPath();
                 ctx.arc(0, 0, turretRadius, 0, Math.PI * 2);
@@ -1396,7 +1395,6 @@
 
                 ctx.restore();
 
-                // Шпильки
                 ctx.save();
                 ctx.translate(centerX, centerY);
                 const pinsCount = 8;
@@ -1418,7 +1416,6 @@
                 }
                 ctx.restore();
 
-                // Шарик
                 if (ball.active) {
                     const bX = centerX + Math.cos(ball.angle) * ball.radius;
                     const bY = centerY + Math.sin(ball.angle) * ball.radius;
@@ -1441,7 +1438,7 @@
             }
 
             // ============================================================
-            // 13. ФИЗИКА (анимация) — ИСПРАВЛЕННАЯ
+            // 13. ФИЗИКА — ИСПРАВЛЕННАЯ (через ballOffset)
             // ============================================================
             let lastTimestamp = 0;
 
@@ -1459,7 +1456,7 @@
                     wheelSpeed = 0.12 * easeOut + 0.003;
                     wheelAngle += wheelSpeed;
 
-                    // ---- РАСЧЁТ РАДИУСА ----
+                    // Радиус шарика
                     let radius;
                     if (progress < 0.7) {
                         radius = wheelRadius - 18 - progress * 6;
@@ -1471,49 +1468,50 @@
                         radius = wheelRadius - 34 - p * 4;
                     }
 
+                    // ---- Управляем ballOffset, а не ball.angle ----
                     if (progress < 0.7) {
                         // Фаза 1: быстрое вращение
                         const p = progress / 0.7;
-                        // Скорость изменения угла (отрицательная, т.к. шарик движется против часовой)
                         let speed = 0.18 - p * 0.08;
-                        ball.angle -= speed;
-                        // Случайные колебания
+                        ballOffset -= speed;
                         if (Math.random() < 0.05) {
-                            ball.angle += (Math.random() - 0.5) * 0.02;
+                            ballOffset += (Math.random() - 0.5) * 0.02;
                         }
                     } else if (progress < 0.9) {
                         // Фаза 2: замедление, отскоки
                         const p = (progress - 0.7) / 0.2;
                         let speed = 0.06 * (1 - p);
-                        ball.angle -= speed;
+                        ballOffset -= speed;
                         if (Math.random() < 0.08) {
-                            ball.angle += (Math.random() - 0.5) * 0.04 * (1 - p);
+                            ballOffset += (Math.random() - 0.5) * 0.04 * (1 - p);
                         }
                     } else {
-                        // Фаза 3: приземление — плавная интерполяция к целевому абсолютному углу
-                        const p = (progress - 0.9) / 0.1; // 0..1
+                        // Фаза 3: плавная интерполяция ballOffset к targetSlotAngle
+                        const p = (progress - 0.9) / 0.1;
                         const eased = p * p * (3 - 2 * p);
-                        const targetAngle = wheelAngle + targetSlotAngle;
-                        let deltaAngle = targetAngle - ball.angle;
-                        // Нормализуем delta в [-PI, PI]
-                        while (deltaAngle > Math.PI) deltaAngle -= 2 * Math.PI;
-                        while (deltaAngle < -Math.PI) deltaAngle += 2 * Math.PI;
-                        ball.angle += deltaAngle * eased;
+                        let diff = targetSlotAngle - ballOffset;
+                        while (diff > Math.PI) diff -= 2 * Math.PI;
+                        while (diff < -Math.PI) diff += 2 * Math.PI;
+                        ballOffset += diff * eased;
                         if (Math.random() < 0.04) {
                             playSynthesizedTick(400, 0.04, 0.04);
                         }
                     }
 
-                    // Обновляем радиус
-                    ball.radius = radius;
+                    // Нормализуем ballOffset
+                    while (ballOffset > Math.PI) ballOffset -= 2 * Math.PI;
+                    while (ballOffset < -Math.PI) ballOffset += 2 * Math.PI;
 
-                    // Нормализуем ball.angle
+                    // Вычисляем абсолютный угол шарика
+                    ball.angle = wheelAngle + ballOffset;
                     while (ball.angle > 2 * Math.PI) ball.angle -= 2 * Math.PI;
                     while (ball.angle < 0) ball.angle += 2 * Math.PI;
 
+                    ball.radius = radius;
+
                     // Если спин завершён
                     if (progress >= 1) {
-                        // Жёсткая фиксация
+                        // Фиксируем offset на целевом угле
                         ballOffset = targetSlotAngle;
                         ball.angle = wheelAngle + targetSlotAngle;
                         ball.radius = wheelRadius - 34;
@@ -1528,7 +1526,7 @@
                         }
                     }
                 } else {
-                    // Не в процессе спина: колесо медленно вращается, шарик синхронизирован
+                    // Не в процессе спина: медленное вращение, синхронизация
                     wheelSpeed = 0.005;
                     wheelAngle += wheelSpeed;
                     if (ball.active) {
@@ -1576,7 +1574,7 @@
             window.addEventListener('resize', resizeCanvas);
             setTimeout(resizeCanvas, 80);
 
-            console.log('🎡 VIP ROULETTE — ball physics fully fixed, no sudden jumps.');
+            console.log('🎡 VIP ROULETTE — ball physics using offset, no sudden jumps.');
         })();
     </script>
 </body>
