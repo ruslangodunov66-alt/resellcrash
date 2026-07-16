@@ -36,7 +36,7 @@
             padding: 16px 16px 40px;
             color: var(--text-main);
             overflow-x: hidden;
-            overflow-y: scroll; /* разрешаем прокрутку всегда */
+            overflow-y: scroll;
             position: relative;
             background: var(--bg-dark);
             background-image: 
@@ -44,7 +44,6 @@
                 radial-gradient(circle at 90% 100%, rgba(255, 152, 0, 0.06), transparent 50%);
         }
 
-        /* Вотермарки проекта */
         .bg-watermarks {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -91,7 +90,6 @@
             to { opacity: 1; transform: translateY(0); }
         }
 
-        /* Шапка страницы */
         .header {
             display: flex;
             align-items: center;
@@ -132,7 +130,6 @@
             color: var(--accent-orange);
         }
 
-        /* Главный блок баланса */
         .balance-card {
             background: rgba(17, 24, 34, 0.75);
             backdrop-filter: blur(20px);
@@ -171,7 +168,6 @@
             text-decoration: underline;
         }
 
-        /* Разделы операций */
         .wallet-sections {
             display: flex;
             flex-direction: column;
@@ -242,7 +238,6 @@
             color: var(--text-muted);
         }
 
-        /* Быстрый выбор суммы */
         .preset-chips {
             display: flex;
             gap: 8px;
@@ -270,7 +265,6 @@
         .deposit-card .chip:hover { background: rgba(255, 152, 0, 0.15); border-color: var(--accent-orange); }
         .withdraw-card .chip:hover { background: rgba(24, 130, 255, 0.15); border-color: var(--accent-blue); }
 
-        /* Кнопки действий */
         .action-submit {
             width: 100%;
             border: none;
@@ -299,7 +293,6 @@
             background: linear-gradient(135deg, var(--accent-blue), #105cc2);
         }
 
-        /* МОДАЛЬНОЕ ОКНО ПРЕДУПРЕЖДЕНИЯ (ПЕРВЫЙ ЗАХОД) */
         .modal-overlay {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -333,7 +326,7 @@
             transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
             text-align: center;
             max-height: 90vh;
-            overflow-y: auto; /* позволяет прокручивать содержимое модалки */
+            overflow-y: auto;
         }
 
         .modal-overlay.active .modal-container {
@@ -347,7 +340,7 @@
             margin-bottom: 12px;
             border: 1px solid rgba(255, 255, 255, 0.05);
             background: #000;
-            max-height: 35vh;  /* уменьшаем высоту фото, чтобы текст помещался */
+            max-height: 35vh;
             height: auto;
             aspect-ratio: 16 / 9;
         }
@@ -424,7 +417,7 @@
         @media (max-width: 480px) {
             .balance-amount { font-size: 30px; }
             .page-title { font-size: 18px; }
-            .modal-img-wrapper { max-height: 25vh; } /* на маленьких экранах ещё меньше */
+            .modal-img-wrapper { max-height: 25vh; }
         }
     </style>
 </head>
@@ -520,14 +513,14 @@
         let localBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
         balanceDisplay.innerText = localBalance.toLocaleString() + ' ₽';
 
-        // Запрос баланса у сервера бота
+        // Запрос баланса у сервера бота (только по кнопке "Синхронизировать")
         function syncWithBot() {
             if (!userId) {
                 alert('❌ Ошибка: userId не найден');
                 return;
             }
             console.log('📤 Запрос актуального баланса из базы данных...');
-            tg.sendData(JSON.stringify({ action: 'get_balance' }));
+            tg.sendData(JSON.stringify({ action: 'get_casino_balance' }));
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
         }
 
@@ -537,14 +530,46 @@
         tg.onEvent('web_app_data', function(data) {
             try {
                 const response = JSON.parse(data);
-                if (response.balance !== undefined) {
+                console.log('📩 Ответ от бота:', response);
+                
+                // Обработка ответа на запрос баланса
+                if (response.balance !== undefined && response.balance !== null) {
                     const newBalance = response.balance;
                     localStorage.setItem('casinoBalance', String(newBalance));
                     balanceDisplay.innerText = newBalance.toLocaleString() + ' ₽';
                     if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+                    return;
                 }
+
+                // Обработка пополнения
+                if (response.action === 'deposit_success') {
+                    const newBalance = response.new_casino_balance;
+                    localStorage.setItem('casinoBalance', String(newBalance));
+                    balanceDisplay.innerText = newBalance.toLocaleString() + ' ₽';
+                    alert('✅ ' + response.message);
+                    if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+                    return;
+                }
+
+                // Обработка вывода
+                if (response.action === 'withdraw_success') {
+                    const newBalance = response.new_casino_balance;
+                    localStorage.setItem('casinoBalance', String(newBalance));
+                    balanceDisplay.innerText = newBalance.toLocaleString() + ' ₽';
+                    alert('✅ ' + response.message);
+                    if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+                    return;
+                }
+
+                // Обработка ошибок
+                if (response.error) {
+                    alert('❌ ' + response.error);
+                    return;
+                }
+
             } catch (e) {
-                console.error('Ошибка разбора данных:', e);
+                console.error('❌ Ошибка разбора данных:', e);
+                alert('⚠️ Ошибка обработки ответа от бота. Попробуйте ещё раз.');
             }
         });
 
@@ -558,13 +583,13 @@
             }
         }
 
-        // Кнопка Назад
+        // Кнопка Назад (возврат в казино)
         document.getElementById('backBtn').onclick = () => {
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
             window.location.href = 'casino.html?userId=' + (userId || '');
         };
 
-        // Логика Пополнения баланса
+        // ===== Логика Пополнения баланса =====
         document.getElementById('submitDepositBtn').onclick = () => {
             const input = document.getElementById('depositInput');
             const amt = parseInt(input.value);
@@ -578,19 +603,14 @@
                 return;
             }
 
-            // Обновляем локально и посылаем сигнал в бот структуры
-            let currentBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
-            currentBalance += amt;
-            localStorage.setItem('casinoBalance', String(currentBalance));
-            balanceDisplay.innerText = currentBalance.toLocaleString() + ' ₽';
-
-            tg.sendData(JSON.stringify({ action: 'deposit', amount: amt }));
+            console.log('📤 Запрос на пополнение:', amt);
+            tg.sendData(JSON.stringify({ action: 'deposit_to_casino', amount: amt }));
             input.value = '';
             
-            if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
         };
 
-        // Логика Вывода баланса
+        // ===== Логика Вывода баланса =====
         document.getElementById('submitWithdrawBtn').onclick = () => {
             const input = document.getElementById('withdrawInput');
             const amt = parseInt(input.value);
@@ -609,18 +629,14 @@
                 return;
             }
 
-            // Вычитаем локально и отправляем команду транзакции основному боту
-            currentBalance -= amt;
-            localStorage.setItem('casinoBalance', String(currentBalance));
-            balanceDisplay.innerText = currentBalance.toLocaleString() + ' ₽';
-
-            tg.sendData(JSON.stringify({ action: 'withdraw', amount: amt }));
+            console.log('📤 Запрос на вывод:', amt);
+            tg.sendData(JSON.stringify({ action: 'withdraw_from_casino', amount: amt }));
             input.value = '';
 
-            if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
         };
 
-        // === ЛОГИКА МОДАЛЬНОГО ОКНА ПРЕДУПРЕЖДЕНИЯ ===
+        // ===== ЛОГИКА МОДАЛЬНОГО ОКНА ПРЕДУПРЕЖДЕНИЯ =====
         const modal = document.getElementById('warningModal');
         const hideWarningFlag = localStorage.getItem('hideWalletWarning');
 
@@ -643,6 +659,8 @@
             modal.classList.remove('active');
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
         };
+
+        console.log('✅ Кошелёк загружен (баланс из localStorage)');
     </script>
 </body>
 </html>
