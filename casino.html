@@ -755,26 +755,40 @@
         const withdrawBtn = document.getElementById('withdrawBtn');
         const refreshBtn = document.getElementById('refreshBtn');
 
-        // ===== БАЛАНС ХРАНИТСЯ ТОЛЬКО В LOCALSTORAGE =====
-        let localBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
-        balanceSpan.innerText = localBalance.toLocaleString() + ' ₽';
+        let localBalance = 0;
+        let isBalanceLoading = false;
 
         function updateBalanceDisplay(newBalance) {
             localBalance = newBalance;
             localStorage.setItem('casinoBalance', String(newBalance));
             balanceSpan.innerText = newBalance.toLocaleString() + ' ₽';
+            isBalanceLoading = false;
         }
 
-        // ===== КНОПКА ОБНОВЛЕНИЯ =====
+        // При загрузке показываем сохранённый баланс
+        let savedBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+        balanceSpan.innerText = savedBalance.toLocaleString() + ' ₽';
+        localBalance = savedBalance;
+
+        // Запрос баланса ТОЛЬКО по кнопке "🔄" или клику на баланс
         function requestBalance() {
             if (!userId) {
                 alert('❌ Ошибка: userId не найден');
                 return;
             }
+            if (isBalanceLoading) return;
+            isBalanceLoading = true;
             console.log('📤 Запрос баланса...');
             tg.sendData(JSON.stringify({ action: 'get_casino_balance' }));
         }
 
+        // Клик на баланс → запрос
+        balanceSpan.addEventListener('click', () => {
+            requestBalance();
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+        });
+
+        // Кнопка "🔄" → запрос
         refreshBtn.addEventListener('click', () => {
             requestBalance();
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
@@ -788,9 +802,11 @@
 
                 if (response.error) {
                     alert('❌ ' + response.error);
+                    isBalanceLoading = false;
                     return;
                 }
 
+                // Обновление баланса
                 if (response.balance !== undefined) {
                     updateBalanceDisplay(response.balance);
                     console.log('✅ Баланс обновлён:', response.balance);
@@ -798,6 +814,7 @@
                     return;
                 }
 
+                // Успешное пополнение
                 if (response.action === 'deposit_success') {
                     updateBalanceDisplay(response.new_casino_balance);
                     alert('✅ ' + response.message);
@@ -805,6 +822,7 @@
                     return;
                 }
 
+                // Успешный вывод
                 if (response.action === 'withdraw_success') {
                     updateBalanceDisplay(response.new_casino_balance);
                     alert('✅ ' + response.message);
@@ -816,6 +834,7 @@
             } catch (e) {
                 console.error('❌ Ошибка обработки ответа:', e);
                 alert('⚠️ Ошибка обработки ответа от бота. Попробуйте ещё раз.');
+                isBalanceLoading = false;
             }
         });
 
@@ -928,6 +947,9 @@
                 } 
             });
         });
+
+        // ⚠️ УБРАНО АВТОМАТИЧЕСКОЕ ОТПРАВКА ЗАПРОСА ПРИ ЗАГРУЗКЕ
+        // Баланс берётся только из localStorage
 
         console.log('✅ Casino lobby loaded (balance from localStorage only)');
     </script>
