@@ -1078,7 +1078,7 @@
             }
 
             // ============================================================
-            // 11. КАНВАС + ФИЗИКА КОЛЕСА (ПОЛНОСТЬЮ ПЕРЕРАБОТАНА)
+            // 11. КАНВАС + ФИЗИКА КОЛЕСА (ИСПРАВЛЕННАЯ)
             // ============================================================
             const canvas = document.getElementById('rouletteCanvas');
             const ctx = canvas.getContext('2d');
@@ -1471,48 +1471,42 @@
                         radius = wheelRadius - 34 - p * 4;
                     }
 
-                    // ---- РАСЧЁТ ОТНОСИТЕЛЬНОГО УГЛА (offset) ----
-                    let offset = ball.angle - wheelAngle;
-                    // Нормализуем в [-PI, PI]
-                    while (offset > Math.PI) offset -= 2 * Math.PI;
-                    while (offset < -Math.PI) offset += 2 * Math.PI;
-
                     if (progress < 0.7) {
                         // Фаза 1: быстрое вращение
                         const p = progress / 0.7;
-                        // Скорость изменения offset (отрицательная, т.к. шарик движется против часовой)
+                        // Скорость изменения угла (отрицательная, т.к. шарик движется против часовой)
                         let speed = 0.18 - p * 0.08;
-                        offset -= speed;
+                        ball.angle -= speed;
                         // Случайные колебания
                         if (Math.random() < 0.05) {
-                            offset += (Math.random() - 0.5) * 0.02;
+                            ball.angle += (Math.random() - 0.5) * 0.02;
                         }
                     } else if (progress < 0.9) {
                         // Фаза 2: замедление, отскоки
                         const p = (progress - 0.7) / 0.2;
                         let speed = 0.06 * (1 - p);
-                        offset -= speed;
+                        ball.angle -= speed;
                         if (Math.random() < 0.08) {
-                            offset += (Math.random() - 0.5) * 0.04 * (1 - p);
+                            ball.angle += (Math.random() - 0.5) * 0.04 * (1 - p);
                         }
                     } else {
-                        // Фаза 3: приземление — плавная интерполяция к targetSlotAngle
+                        // Фаза 3: приземление — плавная интерполяция к целевому абсолютному углу
                         const p = (progress - 0.9) / 0.1; // 0..1
-                        // smoothstep для плавности
                         const eased = p * p * (3 - 2 * p);
-                        let diff = targetSlotAngle - offset;
-                        while (diff > Math.PI) diff -= 2 * Math.PI;
-                        while (diff < -Math.PI) diff += 2 * Math.PI;
-                        offset += diff * eased;
-                        // В самом конце точно фиксируем
-                        if (p >= 1) {
-                            offset = targetSlotAngle;
+                        const targetAngle = wheelAngle + targetSlotAngle;
+                        let deltaAngle = targetAngle - ball.angle;
+                        // Нормализуем delta в [-PI, PI]
+                        while (deltaAngle > Math.PI) deltaAngle -= 2 * Math.PI;
+                        while (deltaAngle < -Math.PI) deltaAngle += 2 * Math.PI;
+                        ball.angle += deltaAngle * eased;
+                        if (Math.random() < 0.04) {
+                            playSynthesizedTick(400, 0.04, 0.04);
                         }
                     }
 
-                    // Применяем
-                    ball.angle = wheelAngle + offset;
+                    // Обновляем радиус
                     ball.radius = radius;
+
                     // Нормализуем ball.angle
                     while (ball.angle > 2 * Math.PI) ball.angle -= 2 * Math.PI;
                     while (ball.angle < 0) ball.angle += 2 * Math.PI;
@@ -1582,7 +1576,7 @@
             window.addEventListener('resize', resizeCanvas);
             setTimeout(resizeCanvas, 80);
 
-            console.log('🎡 VIP ROULETTE — ball physics fully deterministic, no jumps.');
+            console.log('🎡 VIP ROULETTE — ball physics fully fixed, no sudden jumps.');
         })();
     </script>
 </body>
