@@ -8,7 +8,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,700;0,800;0,900;1,800&family=Nunito:wght@500;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        /* (все стили без изменений, оставляем как было в предыдущей версии) */
         :root {
             --bg-dark: #04070e;
             --bg-deep: #090f1a;
@@ -756,38 +755,25 @@
         const withdrawBtn = document.getElementById('withdrawBtn');
         const refreshBtn = document.getElementById('refreshBtn');
 
-        let localBalance = 0;
-        let isBalanceLoading = false;
+        // ===== БАЛАНС ХРАНИТСЯ ТОЛЬКО В LOCALSTORAGE =====
+        let localBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+        balanceSpan.innerText = localBalance.toLocaleString() + ' ₽';
 
         function updateBalanceDisplay(newBalance) {
             localBalance = newBalance;
             localStorage.setItem('casinoBalance', String(newBalance));
             balanceSpan.innerText = newBalance.toLocaleString() + ' ₽';
-            isBalanceLoading = false;
         }
 
-        // При загрузке показываем сохранённый баланс, но сразу запрашиваем актуальный
-        let savedBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
-        balanceSpan.innerText = savedBalance.toLocaleString() + ' ₽';
-        localBalance = savedBalance;
-
-        // Запрашиваем актуальный баланс при первом открытии
+        // ===== КНОПКА ОБНОВЛЕНИЯ =====
         function requestBalance() {
             if (!userId) {
                 alert('❌ Ошибка: userId не найден');
                 return;
             }
-            if (isBalanceLoading) return;
-            isBalanceLoading = true;
             console.log('📤 Запрос баланса...');
             tg.sendData(JSON.stringify({ action: 'get_casino_balance' }));
         }
-
-        // Ждём, пока пользователь нажмёт на баланс или кнопку обновления
-        balanceSpan.addEventListener('click', () => {
-            requestBalance();
-            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
-        });
 
         refreshBtn.addEventListener('click', () => {
             requestBalance();
@@ -802,11 +788,9 @@
 
                 if (response.error) {
                     alert('❌ ' + response.error);
-                    isBalanceLoading = false;
                     return;
                 }
 
-                // Обновление баланса
                 if (response.balance !== undefined) {
                     updateBalanceDisplay(response.balance);
                     console.log('✅ Баланс обновлён:', response.balance);
@@ -814,7 +798,6 @@
                     return;
                 }
 
-                // Успешное пополнение
                 if (response.action === 'deposit_success') {
                     updateBalanceDisplay(response.new_casino_balance);
                     alert('✅ ' + response.message);
@@ -822,7 +805,6 @@
                     return;
                 }
 
-                // Успешный вывод
                 if (response.action === 'withdraw_success') {
                     updateBalanceDisplay(response.new_casino_balance);
                     alert('✅ ' + response.message);
@@ -830,12 +812,10 @@
                     return;
                 }
 
-                // Если ничего не подошло
                 console.warn('⚠️ Неизвестный ответ:', response);
             } catch (e) {
                 console.error('❌ Ошибка обработки ответа:', e);
                 alert('⚠️ Ошибка обработки ответа от бота. Попробуйте ещё раз.');
-                isBalanceLoading = false;
             }
         });
 
@@ -949,12 +929,7 @@
             });
         });
 
-        // Запрашиваем баланс при загрузке, но только один раз, через таймаут
-        if (userId) {
-            setTimeout(requestBalance, 800);
-        }
-
-        console.log('✅ Casino lobby loaded with secure balance system');
+        console.log('✅ Casino lobby loaded (balance from localStorage only)');
     </script>
 </body>
 </html>
