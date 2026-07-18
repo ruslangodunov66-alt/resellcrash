@@ -338,10 +338,8 @@
         </div>
 
         <div class="balance-card">
-            <div class="balance-label">Текущий счет (казино)</div>
+            <div class="balance-label">Текущий счет</div>
             <div class="balance-amount" id="walletBalanceDisplay">0 ₽</div>
-            <div class="balance-label" style="margin-top: 8px; font-size: 14px;">Основной баланс</div>
-            <div class="balance-amount" id="mainBalanceDisplay" style="font-size: 24px; color: #ffd700;">0 ₽</div>
             <div class="balance-sync-hint" id="syncBalanceBtn">Синхронизировать с ботом</div>
         </div>
 
@@ -387,9 +385,9 @@
             <div class="modal-text">
                 <p>⚠️ <b>Важно:</b></p>
                 <p>• Локальный баланс может сбрасываться при очистке кэша или входе с нового устройства.</p>
-                <p>• Все операции выполняются локально, без обращения к серверу.</p>
-                <p>💡 <b>Рекомендация:</b> Регулярно выводите средства на основной баланс, чтобы избежать их потери при технических сбоях.</p>
-                <p>🔄 Запросить актуальный баланс можно кнопкой "Синхронизировать с ботом" (если доступно).</p>
+                <p>• Все средства хранятся на сервере и доступны через основного бота.</p>
+                <p>💡 <b>Рекомендация:</b> Регулярно выводите средства на баланс основного бота, чтобы избежать их потери при технических сбоях.</p>
+                <p>🔄 Запросить актуальный баланс можно кнопкой "Синхронизировать с ботом".</p>
             </div>
             <div class="modal-buttons">
                 <button class="modal-btn primary" id="modalAcceptBtn">Понял, больше не показывать</button>
@@ -403,44 +401,16 @@
         tg.expand();
         tg.enableClosingConfirmation();
 
-        // Получение userId (для возможной синхронизации)
         let userId = null;
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.has('userId')) userId = urlParams.get('userId');
         else if (tg.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
 
-        // Элементы интерфейса
-        const casinoBalanceDisplay = document.getElementById('walletBalanceDisplay');
-        const mainBalanceDisplay = document.getElementById('mainBalanceDisplay');
+        const balanceDisplay = document.getElementById('walletBalanceDisplay');
 
-        // Ключи localStorage
-        const CASINO_KEY = 'casinoBalance';
-        const MAIN_KEY = 'mainBalance';
+        let localBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+        balanceDisplay.innerText = localBalance.toLocaleString() + ' ₽';
 
-        // Функция для получения балансов из localStorage (с значением по умолчанию)
-        function getBalances() {
-            let casino = parseInt(localStorage.getItem(CASINO_KEY)) || 0;
-            let main = parseInt(localStorage.getItem(MAIN_KEY)) || 0;
-            return { casino, main };
-        }
-
-        // Функция сохранения балансов
-        function saveBalances(casino, main) {
-            localStorage.setItem(CASINO_KEY, String(casino));
-            localStorage.setItem(MAIN_KEY, String(main));
-        }
-
-        // Обновление UI
-        function updateUI() {
-            const { casino, main } = getBalances();
-            casinoBalanceDisplay.innerText = casino.toLocaleString() + ' ₽';
-            mainBalanceDisplay.innerText = main.toLocaleString() + ' ₽';
-        }
-
-        // Инициализация
-        updateUI();
-
-        // === СИНХРОНИЗАЦИЯ С БОТОМ (опционально, если работает) ===
         function syncWithBot() {
             if (!userId) {
                 alert('❌ Ошибка: userId не найден');
@@ -452,28 +422,48 @@
         }
         document.getElementById('syncBalanceBtn').onclick = syncWithBot;
 
-        // Обработчик ответов от бота (если приходит)
         tg.onEvent('web_app_data', function(data) {
             try {
                 const response = JSON.parse(data);
                 console.log('📩 Ответ от бота:', response);
+                
                 if (response.balance !== undefined && response.balance !== null) {
-                    // Обновляем только casinoBalance, mainBalance не трогаем
-                    const newCasino = response.balance;
-                    const { main } = getBalances();
-                    saveBalances(newCasino, main);
-                    updateUI();
+                    const newBalance = response.balance;
+                    localStorage.setItem('casinoBalance', String(newBalance));
+                    balanceDisplay.innerText = newBalance.toLocaleString() + ' ₽';
                     if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+                    return;
                 }
+
+                if (response.action === 'deposit_success') {
+                    const newBalance = response.new_casino_balance;
+                    localStorage.setItem('casinoBalance', String(newBalance));
+                    balanceDisplay.innerText = newBalance.toLocaleString() + ' ₽';
+                    alert('✅ ' + response.message);
+                    if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+                    return;
+                }
+
+                if (response.action === 'withdraw_success') {
+                    const newBalance = response.new_casino_balance;
+                    localStorage.setItem('casinoBalance', String(newBalance));
+                    balanceDisplay.innerText = newBalance.toLocaleString() + ' ₽';
+                    alert('✅ ' + response.message);
+                    if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+                    return;
+                }
+
                 if (response.error) {
                     alert('❌ ' + response.error);
+                    return;
                 }
+
             } catch (e) {
-                console.error('Ошибка обработки ответа:', e);
+                console.error('❌ Ошибка разбора данных:', e);
+                alert('⚠️ Ошибка обработки ответа от бота. Попробуйте ещё раз.');
             }
         });
 
-        // === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
         function setAmount(type, value) {
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
             if (type === 'deposit') {
@@ -483,79 +473,54 @@
             }
         }
 
-        // === КНОПКА НАЗАД ===
         document.getElementById('backBtn').onclick = () => {
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
             window.location.href = 'casino.html?userId=' + (userId || '');
         };
 
-        // === ПОПОЛНЕНИЕ (ЛОКАЛЬНОЕ) ===
         document.getElementById('submitDepositBtn').onclick = () => {
             const input = document.getElementById('depositInput');
-            const amount = parseInt(input.value);
+            const amt = parseInt(input.value);
 
             if (!userId) {
                 alert('❌ Ошибка: сессия не идентифицирована');
                 return;
             }
-            if (isNaN(amount) || amount <= 0) {
+            if (isNaN(amt) || amt <= 0) {
                 alert('💰 Пожалуйста, укажите корректную сумму пополнения');
                 return;
             }
 
-            const { casino, main } = getBalances();
-
-            // Проверяем, хватает ли средств на основном балансе
-            if (main < amount) {
-                alert(`❌ Недостаточно средств на основном балансе!\nДоступно: ${main} ₽`);
-                return;
-            }
-
-            // Выполняем операцию
-            const newMain = main - amount;
-            const newCasino = casino + amount;
-            saveBalances(newCasino, newMain);
-            updateUI();
+            console.log('📤 Запрос на пополнение:', amt);
+            tg.sendData(JSON.stringify({ action: 'deposit_to_casino', amount: amt }));
             input.value = '';
-
-            if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-            alert(`✅ Пополнение на ${amount} ₽ выполнено!\nОсновной баланс: ${newMain} ₽\nБаланс казино: ${newCasino} ₽`);
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
         };
 
-        // === ВЫВОД (ЛОКАЛЬНЫЙ) ===
         document.getElementById('submitWithdrawBtn').onclick = () => {
             const input = document.getElementById('withdrawInput');
-            const amount = parseInt(input.value);
+            const amt = parseInt(input.value);
+            let currentBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
 
             if (!userId) {
                 alert('❌ Ошибка: сессия не идентифицирована');
                 return;
             }
-            if (isNaN(amount) || amount <= 0) {
+            if (isNaN(amt) || amt <= 0) {
                 alert('💵 Пожалуйста, укажите корректную сумму для вывода');
                 return;
             }
-
-            const { casino, main } = getBalances();
-
-            // Проверяем, хватает ли средств в казино
-            if (casino < amount) {
-                alert(`❌ Недостаточно средств на балансе казино!\nДоступно: ${casino} ₽`);
+            if (amt > currentBalance) {
+                alert('❌ Недостаточно средств на игровом балансе');
                 return;
             }
 
-            // Выполняем операцию
-            const newCasino = casino - amount;
-            const newMain = main + amount;
-            saveBalances(newCasino, newMain);
-            updateUI();
+            console.log('📤 Запрос на вывод:', amt);
+            tg.sendData(JSON.stringify({ action: 'withdraw_from_casino', amount: amt }));
             input.value = '';
-
-            if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-            alert(`✅ Вывод ${amount} ₽ выполнен!\nОсновной баланс: ${newMain} ₽\nБаланс казино: ${newCasino} ₽`);
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
         };
 
-        // === МОДАЛЬНОЕ ОКНО ===
         const modal = document.getElementById('warningModal');
         const hideWarningFlag = localStorage.getItem('hideWalletWarning');
 
@@ -576,7 +541,7 @@
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
         };
 
-        console.log('✅ Кошелёк загружен (локальный режим)');
+        console.log('✅ Кошелёк загружен (баланс из localStorage)');
     </script>
 </body>
 </html>
