@@ -7,7 +7,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;1,800&family=Nunito:wght@600;700;800&display=swap" rel="stylesheet">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        /* все стили без изменений (оставьте как было) */
         :root {
             --bg-dark: #070b12;
             --container-bg: #111822;
@@ -270,7 +269,6 @@
             border: 1px solid rgba(255, 255, 255, 0.05);
             background: #000;
             max-height: 35vh;
-            height: auto;
             aspect-ratio: 16 / 9;
         }
         .modal-img-wrapper img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -381,7 +379,7 @@
     <div class="modal-overlay" id="confirmModal">
         <div class="modal-container">
             <div class="modal-title">💰 Подтверждение пополнения</div>
-            <div class="modal-text" id="confirmText">
+            <div class="modal-text">
                 Вы действительно хотите пополнить баланс казино на <b id="confirmAmount">0</b> ₽?
                 <br><br>
                 Средства будут списаны с вашего основного баланса.
@@ -393,7 +391,7 @@
         </div>
     </div>
 
-    <!-- СТАРОЕ МОДАЛЬНОЕ ОКНО ПРЕДУПРЕЖДЕНИЯ -->
+    <!-- МОДАЛЬНОЕ ОКНО ПРЕДУПРЕЖДЕНИЯ -->
     <div class="modal-overlay" id="warningModal">
         <div class="modal-container">
             <div class="modal-img-wrapper">
@@ -439,10 +437,8 @@
         // Элементы модалки подтверждения
         const confirmModal = document.getElementById('confirmModal');
         const confirmAmount = document.getElementById('confirmAmount');
-        const confirmText = document.getElementById('confirmText');
         let pendingAmount = 0;
 
-        // Функции показа/скрытия модалки
         function showConfirmModal(amount) {
             pendingAmount = amount;
             confirmAmount.innerText = amount.toLocaleString();
@@ -454,22 +450,18 @@
             pendingAmount = 0;
         }
 
-        // Обработчики кнопок модалки
+        // Кнопки модалки
         document.getElementById('confirmOk').onclick = () => {
             if (pendingAmount <= 0) return;
-            // Отправляем подтверждение боту
             tg.sendData(JSON.stringify({ action: 'deposit_confirm' }));
             hideConfirmModal();
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
         };
 
         document.getElementById('confirmCancel').onclick = () => {
-            // Отменяем заявку (можно отправить боту отмену, но для простоты просто удаляем локально)
-            // Бот сам удалит заявку при повторном запросе или через таймаут
+            tg.sendData(JSON.stringify({ action: 'deposit_cancel' }));
             hideConfirmModal();
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
-            // Можно отправить отмену в бот:
-            // tg.sendData(JSON.stringify({ action: 'deposit_cancel' }));
         };
 
         // Установка суммы по чипсам
@@ -533,41 +525,55 @@
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
         };
 
-        // === ОБРАБОТЧИК ОТВЕТОВ ОТ БОТА ===
+        // === ОБРАБОТЧИК ОТВЕТОВ ОТ БОТА (ИСПРАВЛЕННЫЙ) ===
         tg.onEvent('web_app_data', function(data) {
             try {
                 const response = JSON.parse(data);
                 console.log('📩 Ответ от бота:', response);
 
-                // === Успешная проверка → показываем модалку подтверждения ===
+                // 1. ЕСЛИ ОШИБКА – НЕ ОБНОВЛЯЕМ БАЛАНС, ПОКАЗЫВАЕМ ALERT
+                if (response.error) {
+                    alert('❌ ' + response.error);
+                    return;  // ❗️ ВАЖНО: выход, чтобы не менять localStorage
+                }
+
+                // 2. ПРОВЕРКА ПРОЙДЕНА → ПОКАЗЫВАЕМ МОДАЛКУ ПОДТВЕРЖДЕНИЯ
                 if (response.status === 'ok' && response.amount) {
                     showConfirmModal(response.amount);
                     return;
                 }
 
-                // === Пополнение успешно ===
+                // 3. ПОПОЛНЕНИЕ УСПЕШНО
                 if (response.action === 'deposit_success') {
-                    const newBalance = response.new_casino_balance;
-                    updateBalance(newBalance);
+                    let current = parseInt(localStorage.getItem('casinoBalance')) || 0;
+                    let newLocal = current + response.amount;
+                    localStorage.setItem('casinoBalance', String(newLocal));
+                    document.getElementById('walletBalanceDisplay').innerText = newLocal.toLocaleString() + ' ₽';
                     alert('✅ ' + response.message);
                     if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
                     return;
                 }
 
-                // === Вывод успешен ===
+                // 4. ВЫВОД УСПЕШЕН
                 if (response.action === 'withdraw_success') {
-                    const newBalance = response.new_casino_balance;
-                    updateBalance(newBalance);
+                    let current = parseInt(localStorage.getItem('casinoBalance')) || 0;
+                    let newLocal = current - response.amount;
+                    if (newLocal < 0) newLocal = 0; // защита от отрицательного
+                    localStorage.setItem('casinoBalance', String(newLocal));
+                    document.getElementById('walletBalanceDisplay').innerText = newLocal.toLocaleString() + ' ₽';
                     alert('✅ ' + response.message);
                     if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
                     return;
                 }
 
-                // === Ошибка ===
-                if (response.error) {
-                    alert('❌ ' + response.error);
+                // 5. ОТМЕНА ПОПОЛНЕНИЯ (опционально)
+                if (response.status === 'cancelled') {
+                    alert('ℹ️ ' + response.message);
                     return;
                 }
+
+                // 6. НЕИЗВЕСТНЫЙ ОТВЕТ – просто лог
+                console.warn('⚠️ Неизвестный ответ:', response);
 
             } catch (e) {
                 console.error('❌ Ошибка разбора данных:', e);
