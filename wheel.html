@@ -162,7 +162,7 @@
     .balance-item .case-icon {
       width: 28px;
       height: 28px;
-      background: url('case.png') center/contain no-repeat;
+      background: url('case/case.PNG') center/contain no-repeat;
       filter: drop-shadow(0 0 8px rgba(255, 215, 0, 0.3));
       margin-left: 4px;
     }
@@ -200,6 +200,12 @@
       align-items: center;
       justify-content: center;
       animation: caseFloat 4s ease-in-out infinite;
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+
+    .case-image-wrap:hover {
+      transform: scale(1.02);
     }
 
     .case-image-wrap img {
@@ -208,6 +214,7 @@
       object-fit: contain;
       filter: drop-shadow(0 0 30px rgba(78, 163, 255, 0.25));
       transition: filter 0.3s;
+      pointer-events: none;
     }
 
     .case-image-wrap::after {
@@ -518,6 +525,10 @@
       100% { filter: brightness(0); transform: scale(0.8); opacity: 0; }
     }
 
+    .case-image-wrap.clickable {
+      cursor: pointer;
+    }
+
     /* ────────── РУЛЕТКА ────────── */
     .slot-container {
       width: 100%;
@@ -744,7 +755,7 @@
   <!-- ─── CASE CARD ─── -->
   <div class="case-card glass">
     <div class="case-image-wrap">
-      <img src="case.png" alt="Case" id="caseImage">
+      <img src="case/case.PNG" alt="Case" id="caseImage">
     </div>
     <div class="case-title">Premium Case</div>
     <div class="case-price">
@@ -768,10 +779,7 @@
   <!-- ─── OVERLAY ─── -->
   <div class="overlay" id="overlay">
     <div class="overlay-content">
-      <!-- Контейнер для анимаций кейса и рулетки -->
-      <div id="animationContainer" style="width:100%; display:flex; flex-direction:column; align-items:center;">
-        <!-- Сюда будет вставляться динамический контент -->
-      </div>
+      <div id="animationContainer" style="width:100%; display:flex; flex-direction:column; align-items:center;"></div>
       <button class="btn-close-overlay" id="closeOverlayBtn">✕ Закрыть</button>
     </div>
   </div>
@@ -855,7 +863,6 @@
         balanceDisplay.textContent = balance.toLocaleString();
         caseCountDisplay.textContent = caseCount;
         renderHistory();
-        // Сохраняем в localStorage
         localStorage.setItem('case_balance', balance);
         localStorage.setItem('case_count', caseCount);
         localStorage.setItem('case_history', JSON.stringify(history));
@@ -901,7 +908,6 @@
       // ─────────────────────────────────────────────
 
       function sendWinToBot(winItem) {
-        // Если выигрыш – деньги, отправляем сумму на сервер
         if (winItem.value && winItem.value > 0) {
           const tg = window.Telegram?.WebApp;
           if (tg) {
@@ -910,23 +916,19 @@
               amount: winItem.value
             }));
           } else {
-            // Если нет Telegram, просто добавляем локально (для отладки)
             balance += winItem.value;
             updateUI();
           }
         } else {
-          // Для предметов (скин, машина) – пока просто показываем, в будущем можно добавить выдачу в инвентарь
           console.log('Выигран предмет:', winItem.name);
         }
       }
 
-      // Обработчик ответа от бота (для case_win)
       if (window.Telegram?.WebApp) {
         window.Telegram.WebApp.onEvent('web_app_data', function(data) {
           try {
             const response = JSON.parse(data);
             if (response.action === 'case_win_success') {
-              // Обновляем баланс из ответа
               if (response.new_balance !== undefined) {
                 balance = response.new_balance;
                 updateUI();
@@ -959,20 +961,16 @@
           return;
         }
 
-        // Списываем стоимость
         balance -= 1000;
         caseCount -= 1;
         updateUI();
 
-        // Определяем выигрыш
         currentWin = rollItem();
-
-        // Запускаем анимацию открытия
         startCaseOpening(currentWin);
       });
 
       // ─────────────────────────────────────────────
-      // 6. АНИМАЦИЯ ОТКРЫТИЯ (этапы)
+      // 6. АНИМАЦИЯ ОТКРЫТИЯ (с кликом по кейсу)
       // ─────────────────────────────────────────────
 
       function startCaseOpening(winItem) {
@@ -985,35 +983,29 @@
         stage1.className = 'case-animation-stage';
         stage1.innerHTML = `
           <div class="case-image-wrap case-falling" id="caseAnim">
-            <img src="case.png" alt="Case">
+            <img src="case/case.PNG" alt="Case">
           </div>
           <div style="margin-top: 12px; color: #8F9CB3; font-size: 14px;">Открытие...</div>
         `;
         animContainer.appendChild(stage1);
 
-        // Ждём окончания анимации падения
         const caseElem = document.getElementById('caseAnim');
-        caseElem.addEventListener('animationend', () => {
-          // Этап 2: Кейс подпрыгивает
+
+        // После падения → подпрыгивание
+        caseElem.addEventListener('animationend', function onFallEnd() {
+          caseElem.removeEventListener('animationend', onFallEnd);
           caseElem.className = 'case-image-wrap case-bounce';
           setTimeout(() => {
-            // Этап 3: Свечение
-            caseElem.className = 'case-image-wrap case-glow';
-            // Показываем надпись "Нажмите чтобы открыть"
-            const clickHint = document.createElement('div');
-            clickHint.style.cssText = 'margin-top:20px; color:#FFD34E; font-size:18px; font-weight:700; cursor:pointer; padding:12px 24px; border:2px solid rgba(255,211,78,0.3); border-radius:40px; background:rgba(255,211,78,0.05); transition:0.2s;';
-            clickHint.textContent = '🔓 НАЖМИТЕ, ЧТОБЫ ОТКРЫТЬ';
-            clickHint.id = 'openHint';
-            animContainer.appendChild(clickHint);
-            clickHint.addEventListener('click', () => {
-              // Этап 4: Вспышка, открытие
+            // После подпрыгивания → свечение и кликабельность
+            caseElem.className = 'case-image-wrap case-glow clickable';
+            // Добавляем обработчик клика на кейс
+            caseElem.addEventListener('click', function onClickCase() {
+              caseElem.removeEventListener('click', onClickCase);
+              // Запускаем открытие
               caseElem.className = 'case-image-wrap case-open-flash';
-              // Shake камеры (имитация)
               document.body.style.animation = 'shake 0.3s';
               setTimeout(() => { document.body.style.animation = ''; }, 300);
-
               setTimeout(() => {
-                // Убираем кейс, запускаем рулетку
                 animContainer.innerHTML = '';
                 startSlotMachine(winItem);
               }, 400);
@@ -1054,13 +1046,11 @@
           }
           trackItems.push({ ...chosen });
         }
-        // Вставляем winItem в центр
         const insertPos = Math.floor(trackItems.length * 0.5) + getRandomInt(-3, 3);
         trackItems.splice(insertPos, 0, winItem);
         trackItems.splice(insertPos+1, 0, winItem);
         trackItems.splice(insertPos+2, 0, winItem);
 
-        // Рендерим
         slotTrack.innerHTML = '';
         trackItems.forEach(item => {
           const div = document.createElement('div');
@@ -1082,7 +1072,6 @@
           slotTrack.appendChild(div);
         });
 
-        // Анимация прокрутки
         const containerWidth = document.getElementById('slotContainer').offsetWidth;
         const itemWidth = 150;
         const centerOffset = containerWidth / 2 - itemWidth / 2;
@@ -1090,7 +1079,6 @@
         const winIndex = trackItems.findIndex(item => item.id === winItem.id);
         let targetOffset = (winIndex * itemWidth) - centerOffset;
         targetOffset = Math.max(0, Math.min(totalWidth - containerWidth, targetOffset));
-        // Добавляем случайность
         targetOffset += getRandomInt(-10, 10);
 
         let currentOffset = totalWidth - containerWidth;
@@ -1107,7 +1095,6 @@
             requestAnimationFrame(animateStep);
           } else {
             slotTrack.style.transform = `translateX(-${targetOffset}px)`;
-            // Показываем результат
             showResult(winItem);
           }
         }
@@ -1139,19 +1126,15 @@
         rarity.style.color = winItem.rarityColor;
         container.appendChild(rarity);
 
-        // Кнопка "Забрать"
         const claimBtn = document.createElement('button');
         claimBtn.className = 'btn-claim';
         claimBtn.textContent = 'ЗАБРАТЬ';
         claimBtn.addEventListener('click', () => {
-          // Отправляем выигрыш в бот
           if (winItem.value && winItem.value > 0) {
             sendWinToBot(winItem);
-            // Локально добавляем, если бот не ответит
             balance += winItem.value;
             updateUI();
           }
-          // Добавляем в историю
           history.unshift({
             name: winItem.name,
             rarity: winItem.rarity,
@@ -1163,13 +1146,10 @@
           localStorage.setItem('case_history', JSON.stringify(history));
           renderHistory();
 
-          // Закрываем оверлей
           overlay.classList.remove('active');
           isOpening = false;
           animContainer.innerHTML = '';
-          // Сбрасываем результат
           resultDisplay.innerHTML = '';
-          // Эффекты
           spawnCelebration(winItem.rarity);
           if (window.Telegram?.WebApp?.HapticFeedback) {
             window.Telegram.WebApp.HapticFeedback.notificationOccurred('success');
@@ -1179,7 +1159,6 @@
         container.appendChild(claimBtn);
         resultDisplay.appendChild(container);
 
-        // Эффекты
         spawnCelebration(winItem.rarity);
         if (window.Telegram?.WebApp?.HapticFeedback) {
           window.Telegram.WebApp.HapticFeedback.impactOccurred('heavy');
