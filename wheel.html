@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>КОЛЕСО ПРИЗОВ | R-GAME</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0a0f1a;
+            color: #fff;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            overflow-x: hidden;
+            background-image: radial-gradient(circle at 20% 30%, rgba(47, 136, 255, 0.15), transparent 50%),
+                              radial-gradient(circle at 80% 70%, rgba(255, 152, 0, 0.1), transparent 50%);
+        }
+        h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #ffd700, #ff8c00);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 30px rgba(255, 215, 0, 0.2);
+        }
+        .balance-box {
+            background: rgba(255,255,255,0.06);
+            padding: 8px 20px;
+            border-radius: 20px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255,255,255,0.08);
+            font-size: 18px;
+        }
+        .balance-box span {
+            color: #00e676;
+            font-weight: bold;
+        }
+        .wheel-wrapper {
+            position: relative;
+            width: 320px;
+            height: 320px;
+            margin: 20px auto;
+        }
+        #wheelCanvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            border-radius: 50%;
+            box-shadow: 0 0 40px rgba(255, 215, 0, 0.2), 0 0 80px rgba(255, 215, 0, 0.1);
+            transition: box-shadow 0.3s;
+            background: #1a1f2e;
+        }
+        .pointer {
+            position: absolute;
+            top: -14px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 0;
+            border-left: 18px solid transparent;
+            border-right: 18px solid transparent;
+            border-top: 30px solid #ffd700;
+            z-index: 10;
+            filter: drop-shadow(0 0 10px #ffd700);
+        }
+        .spin-btn {
+            background: linear-gradient(135deg, #ff9800, #e67e00);
+            border: none;
+            color: #fff;
+            padding: 14px 50px;
+            font-size: 20px;
+            border-radius: 50px;
+            cursor: pointer;
+            font-weight: bold;
+            margin: 20px 0 10px;
+            transition: all 0.2s;
+            box-shadow: 0 8px 25px rgba(255, 152, 0, 0.3);
+            touch-action: manipulation;
+        }
+        .spin-btn:active {
+            transform: scale(0.93);
+            box-shadow: 0 4px 15px rgba(255, 152, 0, 0.2);
+        }
+        .spin-btn:disabled {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+        #result {
+            font-size: 24px;
+            min-height: 50px;
+            margin: 10px 0;
+            text-align: center;
+            font-weight: bold;
+            color: #ffd700;
+        }
+        .back-btn {
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: #aaa;
+            padding: 10px 30px;
+            border-radius: 30px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-top: 10px;
+            transition: 0.2s;
+        }
+        .back-btn:active { transform: scale(0.95); background: rgba(255,255,255,0.1); }
+        .history-btn {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.06);
+            color: #888;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 12px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        @media (max-width: 480px) {
+            .wheel-wrapper { width: 280px; height: 280px; }
+            h1 { font-size: 22px; }
+            .spin-btn { padding: 12px 30px; font-size: 18px; }
+        }
+    </style>
+</head>
+<body>
+    <h1>🎡 Колесо призов</h1>
+    <div class="balance-box">💰 Баланс: <span id="balanceDisplay">0</span> ₽</div>
+
+    <div class="wheel-wrapper">
+        <div class="pointer"></div>
+        <canvas id="wheelCanvas" width="400" height="400"></canvas>
+    </div>
+
+    <button class="spin-btn" id="spinBtn">Вращать (1 000 ₽)</button>
+    <div id="result"></div>
+    <button class="back-btn" id="backBtn">← Назад в казино</button>
+    <button class="history-btn" id="historyBtn">📜 История</button>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.enableClosingConfirmation();
+
+        const userId = tg.initDataUnsafe?.user?.id || new URLSearchParams(window.location.search).get('userId');
+        const API_BASE = 'https://ваш-домен.bothost.tech'; // замените на реальный домен
+
+        const canvas = document.getElementById('wheelCanvas');
+        const ctx = canvas.getContext('2d');
+        const spinBtn = document.getElementById('spinBtn');
+        const resultDiv = document.getElementById('result');
+        const balanceSpan = document.getElementById('balanceDisplay');
+
+        let currentBalance = 0;
+        let isSpinning = false;
+
+        // ===== Призы (порядок соответствует индексам для анимации) =====
+        const PRIZES = [
+            { label: '50 000 ₽', color: '#FFD700' },
+            { label: '10 000 ₽', color: '#C0C0C0' },
+            { label: '1 000 ₽', color: '#CD7F32' },
+            { label: 'Бесплатно', color: '#2ECC71' },
+            { label: '×2 Бонус', color: '#9B59B6' },
+            { label: '5 000 ₽', color: '#3498DB' },
+            { label: '🚗 BRABUS', color: '#E74C3C' },
+            { label: 'Ничего', color: '#7F8C8D' },
+            { label: 'Ещё раз', color: '#F39C12' }
+        ];
+
+        const PI = Math.PI;
+        const TAU = 2 * PI;
+        const segmentAngle = TAU / PRIZES.length;
+
+        // ===== Рисование колеса =====
+        function drawWheel(rotation = 0) {
+            const radius = 190;
+            const centerX = 200;
+            const centerY = 200;
+            ctx.clearRect(0, 0, 400, 400);
+
+            for (let i = 0; i < PRIZES.length; i++) {
+                const start = i * segmentAngle + rotation;
+                const end = start + segmentAngle;
+                ctx.beginPath();
+                ctx.moveTo(centerX, centerY);
+                ctx.arc(centerX, centerY, radius, start, end);
+                ctx.closePath();
+                ctx.fillStyle = PRIZES[i].color;
+                ctx.fill();
+                ctx.strokeStyle = '#0a0f1a';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // Текст
+                ctx.save();
+                ctx.translate(centerX, centerY);
+                ctx.rotate(start + segmentAngle / 2);
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 13px "Segoe UI", sans-serif';
+                ctx.shadowColor = 'rgba(0,0,0,0.8)';
+                ctx.shadowBlur = 6;
+                ctx.fillText(PRIZES[i].label, radius * 0.65, 0);
+                ctx.restore();
+            }
+
+            // Центральный круг
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, 24, 0, TAU);
+            ctx.fillStyle = '#1a1f2e';
+            ctx.fill();
+            ctx.strokeStyle = '#ffd700';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+        }
+
+        drawWheel(0);
+
+        // ===== Загрузка баланса =====
+        async function fetchBalance() {
+            if (!userId) return;
+            try {
+                const resp = await fetch(`${API_BASE}/api/balance?userId=${userId}&initData=${encodeURIComponent(tg.initData || '')}`);
+                const data = await resp.json();
+                if (data.balance !== undefined) {
+                    currentBalance = data.balance;
+                    balanceSpan.innerText = currentBalance.toLocaleString();
+                }
+            } catch (e) {
+                console.error('Ошибка загрузки баланса:', e);
+            }
+        }
+        fetchBalance();
+
+        // ===== Вращение =====
+        spinBtn.addEventListener('click', async () => {
+            if (isSpinning) return;
+            if (!userId) {
+                alert('Ошибка: пользователь не идентифицирован');
+                return;
+            }
+            const amount = 1000; // фиксированная ставка
+            if (currentBalance < amount) {
+                alert(`❌ Недостаточно средств! Доступно: ${currentBalance}₽`);
+                return;
+            }
+
+            isSpinning = true;
+            spinBtn.disabled = true;
+            resultDiv.textContent = '⏳ Вращение...';
+
+            // Отправляем запрос боту
+            try {
+                const resp = await fetch(`${API_BASE}/api/spin`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, amount, initData: tg.initData || '' })
+                });
+                const data = await resp.json();
+                if (data.error) {
+                    alert('❌ ' + data.error);
+                    isSpinning = false;
+                    spinBtn.disabled = false;
+                    return;
+                }
+                if (data.success) {
+                    // Определяем индекс выпавшего приза
+                    const prizeIndex = PRIZES.findIndex(p => p.label === data.prize);
+                    if (prizeIndex === -1) {
+                        // fallback
+                        resultDiv.textContent = `🎉 ${data.prize}`;
+                        return;
+                    }
+                    // Запускаем анимацию
+                    animateWheel(prizeIndex, data);
+                }
+            } catch (e) {
+                alert('❌ Ошибка соединения с сервером');
+                console.error(e);
+                isSpinning = false;
+                spinBtn.disabled = false;
+            }
+        });
+
+        function animateWheel(targetIndex, resultData) {
+            const targetAngle = targetIndex * segmentAngle;
+            // Случайное число оборотов (5-8) плюс доворот до нужного сектора
+            const extraSpins = 5 + Math.random() * 3;
+            const totalRotation = extraSpins * TAU + (TAU - targetAngle) + (TAU / 2); // подгоняем под указатель сверху
+
+            const startTime = performance.now();
+            const duration = 4000 + Math.random() * 1500; // 4-5.5 сек
+            const startRotation = 0;
+
+            function animate(time) {
+                const elapsed = time - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                // easeOutCubic
+                const eased = 1 - Math.pow(1 - progress, 3);
+                const currentRotation = startRotation + totalRotation * eased;
+                drawWheel(currentRotation);
+
+                if (progress < 1) {
+                    requestAnimationFrame(animate);
+                } else {
+                    // Финиш
+                    drawWheel(totalRotation);
+                    // Показать результат
+                    resultDiv.textContent = `🎉 ${resultData.prize}`;
+                    if (resultData.prize_type === 'car') {
+                        resultDiv.textContent += ' 🚗 ПОЗДРАВЛЯЕМ! ВЫ ВЫИГРАЛИ BRABUS MANSORY!';
+                    }
+                    // Обновить баланс
+                    if (resultData.new_balance !== undefined) {
+                        currentBalance = resultData.new_balance;
+                        balanceSpan.innerText = currentBalance.toLocaleString();
+                    }
+                    isSpinning = false;
+                    spinBtn.disabled = false;
+                }
+            }
+            requestAnimationFrame(animate);
+        }
+
+        // ===== Назад =====
+        document.getElementById('backBtn').addEventListener('click', () => {
+            window.location.href = 'casino.html?userId=' + (userId || '');
+        });
+
+        // ===== История (заглушка) =====
+        document.getElementById('historyBtn').addEventListener('click', () => {
+            alert('История вращений появится позже');
+        });
+
+        console.log('✅ Колесо призов загружено');
+    </script>
+</body>
+</html>
