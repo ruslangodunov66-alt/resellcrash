@@ -383,49 +383,31 @@
     tg.ready();
     if (tg.HapticFeedback) tg.enableClosingConfirmation();
 
+    // ========== ЧТЕНИЕ БАЛАНСА ИЗ URL ==========
     const urlParams = new URLSearchParams(window.location.search);
     const userId = urlParams.get('userId') || '';
-
-    // ========== НОВЫЕ ФУНКЦИИ ДЛЯ HTTP-СИНХРОНИЗАЦИИ ==========
-    // Отправка результата игры на сервер
-    async function sendGameResult(result, bet, win) {
-        try {
-            const response = await fetch('/game_result', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    userId: userId,
-                    game: 'crash',
-                    result: result,
-                    bet: bet,
-                    win: win
-                })
-            });
-            if (!response.ok) {
-                console.error('Ошибка отправки результата:', response.status);
-            }
-        } catch (e) {
-            console.error('Ошибка сети:', e);
-        }
+    let casinoBalance = parseInt(urlParams.get('balance')) || 0;
+    if (casinoBalance > 0) {
+        localStorage.setItem('casinoBalance', String(casinoBalance));
+    } else {
+        casinoBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+        if (casinoBalance < 10) casinoBalance = 10000;
     }
 
-    // Запрос баланса с сервера
-    async function requestBalance() {
-        try {
-            const response = await fetch(`/balance/${userId}`);
-            const data = await response.json();
-            if (data.balance !== undefined) {
-                casinoBalance = data.balance;
-                localStorage.setItem('casinoBalance', String(casinoBalance));
-                balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
-            }
-        } catch (e) {
-            console.error('Ошибка получения баланса:', e);
-        }
+    // ========== НОВАЯ ФУНКЦИЯ ОТПРАВКИ РЕЗУЛЬТАТА ЧЕРЕЗ sendData ==========
+    function sendGameResult(result, bet, win) {
+        tg.sendData(JSON.stringify({
+            action: 'game_result',
+            game: 'crash',
+            result: result,   // 'win' или 'lose'
+            bet: bet,
+            win: win
+        }));
+        // Закрываем WebApp, чтобы бот прислал результат в чат
+        setTimeout(() => tg.close(), 400);
     }
-    // =========================================================
 
-    // DOM
+    // ===== DOM =====
     const balanceSpan = document.getElementById('balanceDisplay');
     const multiplierDisplay = document.getElementById('multiplierDisplay');
     const statusMsg = document.getElementById('statusMsg');
@@ -505,9 +487,6 @@
     }
 
     // === БАЛАНС ===
-    let casinoBalance = parseInt(localStorage.getItem('casinoBalance'));
-    if (isNaN(casinoBalance) || casinoBalance < 10) casinoBalance = 10000;
-    
     function updateBalance(amount) {
         casinoBalance += amount;
         localStorage.setItem('casinoBalance', String(casinoBalance));
@@ -538,7 +517,7 @@
     }
     renderHistory();
 
-    // === БОТЫ (ЧАСТИЧНОЕ ОБНОВЛЕНИЕ) ===
+    // === БОТЫ ===
     const prefixes = ['Alex', 'Crypto', 'Lucky', 'Pro', 'Max', 'Ivan', 'Shadow', 'Luna', 'Star', 'Sniper', 'Rich', 'Whale', 'Noob', 'Trader', 'Kira', 'Viper', 'Phoenix', 'Rocket', 'Nebula', 'Cosmos', 'Omega', 'Zen', 'Vortex', 'Fury', 'Blaze', 'Storm', 'Ghost', 'Titan', 'Apex', 'Nova', 'Eclipse', 'Falcon', 'Hawk', 'Wolf', 'Panther', 'Dragon', 'Knight', 'Wizard', 'Ranger', 'Guardian'];
     const suffixes = ['_99', '_King', '_Lord', '_Pro', '_X', '_Z', '_7', '_42', '_1337', '_Hero', '_God', '_Star', '_Fire', '_Ice', '_Thunder'];
 
@@ -671,7 +650,7 @@
     }
 
     // === СОСТОЯНИЕ ИГРЫ ===
-    let gameState = 'WAITING'; // WAITING, FLYING, CRASHED
+    let gameState = 'WAITING';
     let countdown = 10.0;
     let currentMulti = 1.0;
     let crashPoint = 1.0;
@@ -682,43 +661,37 @@
     let userAutoCashout = 2.0;
     let autoEnabled = true;
 
-    // Параметры покачивания ракеты
     let rocketTilt = 0;
     let rocketBob = 0;
     let rocketShakeX = 0;
     let rocketShakeY = 0;
 
-    // === УПРАВЛЕНИЕ КНОПКОЙ И ПОЛЯМИ ===
+    // === УПРАВЛЕНИЕ КНОПКОЙ ===
     function updateControls() {
-        // Поля ввода доступны, если нет ожидающей или активной ставки
         const inputsDisabled = userBetQueued || userBetActive;
         betInput.disabled = inputsDisabled;
         autoInput.disabled = inputsDisabled;
         autoEnableCheck.disabled = inputsDisabled;
 
         if (userBetActive) {
-            // Активная ставка – только кнопка "ЗАБРАТЬ" (только в FLYING)
             actionBtn.className = 'action-btn btn-cashout';
             const win = Math.floor(userBetAmount * currentMulti);
             actionMain.textContent = win.toLocaleString() + ' ₽';
             actionSubtext.innerHTML = 'ЗАБРАТЬ';
-            actionBtn.disabled = (gameState !== 'FLYING'); // только во время полёта можно забрать
+            actionBtn.disabled = (gameState !== 'FLYING');
         } else if (userBetQueued) {
-            // Ожидающая ставка – кнопка "ОТМЕНИТЬ" только в WAITING
             if (gameState === 'WAITING') {
                 actionBtn.className = 'action-btn btn-cancel';
                 actionMain.textContent = 'ОТМЕНИТЬ';
                 actionSubtext.textContent = `Ставка ${userBetAmount}₽`;
                 actionBtn.disabled = false;
             } else {
-                // Во время полёта отмена недоступна
                 actionBtn.className = 'action-btn btn-bet';
                 actionMain.textContent = 'ОЖИДАЙТЕ';
                 actionSubtext.textContent = 'Ставка на след. раунд';
                 actionBtn.disabled = true;
             }
         } else {
-            // Нет ставок – кнопка "СДЕЛАТЬ СТАВКУ" всегда активна (и в WAITING, и в FLYING)
             actionBtn.className = 'action-btn btn-bet';
             actionMain.textContent = 'СДЕЛАТЬ СТАВКУ';
             if (gameState === 'WAITING') {
@@ -738,7 +711,6 @@
             return;
         }
         if (userBetQueued && gameState === 'WAITING') {
-            // Отмена
             userBetQueued = false;
             updateBalance(userBetAmount);
             updateControls();
@@ -746,7 +718,6 @@
             return;
         }
         if (!userBetQueued && !userBetActive) {
-            // Ставка
             let amt = getBetValue();
             if (isNaN(amt) || amt < 10) return;
             if (amt > casinoBalance) return;
@@ -767,7 +738,7 @@
         let winAmount = Math.floor(userBetAmount * currentMulti);
         updateBalance(winAmount);
         updateProfileStats('win', userBetAmount, winAmount);
-        // ===== ОТПРАВКА РЕЗУЛЬТАТА НА СЕРВЕР =====
+        // ===== ОТПРАВКА РЕЗУЛЬТАТА =====
         sendGameResult('win', userBetAmount, winAmount);
         if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
         updateControls();
@@ -793,12 +764,10 @@
         multiplierDisplay.style.color = 'var(--text-main)';
         statusMsg.innerText = 'Прием ставок';
         statusMsg.style.color = 'var(--text-muted)';
-        // Сбрасываем наклон ракеты
         rocketTilt = 0;
         rocketBob = 0;
         rocketShakeX = 0;
         rocketShakeY = 0;
-        // Частичное обновление ботов
         updateBotsPartially();
         renderBetsTable();
         updateControls();
@@ -830,7 +799,7 @@
         if (userBetActive) {
             userBetActive = false;
             updateProfileStats('lose', userBetAmount, 0);
-            // ===== ОТПРАВКА РЕЗУЛЬТАТА НА СЕРВЕР =====
+            // ===== ОТПРАВКА РЕЗУЛЬТАТА =====
             sendGameResult('lose', userBetAmount, 0);
             if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
         }
@@ -873,14 +842,13 @@
             else if (currentMulti < 10) multiplierDisplay.style.color = 'var(--accent-orange)';
             else multiplierDisplay.style.color = 'var(--accent-green)';
             if (tableNeedsUpdate) renderBetsTable();
-            updateControls(); // обновляем кнопку (сумма выигрыша)
+            updateControls();
             if (currentMulti >= crashPoint) {
                 currentMulti = crashPoint;
                 multiplierDisplay.innerText = currentMulti.toFixed(2) + 'x';
                 handleCrash();
             }
 
-            // Обновляем покачивание ракеты
             rocketTilt = Math.sin(now / 300) * 0.08 + (Math.random() - 0.5) * 0.02;
             rocketBob = Math.sin(now / 400) * 8 + (Math.random() - 0.5) * 3;
             rocketShakeX = (Math.random() - 0.5) * 2;
@@ -890,7 +858,7 @@
         requestAnimationFrame(gameLoop);
     }
 
-    // ===== ГРАФИКА (НОВАЯ РАКЕТА) =====
+    // ===== ГРАФИКА =====
     let stars = Array.from({length: 120}, () => ({
         x: Math.random() * 800, y: Math.random() * 400,
         s: Math.random() * 2 + 0.5, spd: Math.random() * 2 + 0.5
@@ -926,7 +894,6 @@
         }
     }
 
-    // СУПЕР-ДЕТАЛИЗИРОВАННАЯ РАКЕТА
     function drawRocket(ctx, x, y, tilt, scale) {
         const s = scale || 1.3;
         const w = 80 * s;
@@ -936,7 +903,6 @@
         ctx.translate(x, y);
         ctx.rotate(tilt || 0);
 
-        // --- СОПЛА (EXHAUST NOZZLES) ---
         ctx.shadowBlur = 15;
         ctx.shadowColor = '#1882ff';
         ctx.fillStyle = '#0a0f18';
@@ -955,7 +921,6 @@
         ctx.lineTo(w/5, h/2 + 15*s);
         ctx.fill();
 
-        // --- КРЫЛЬЯ (Аэродинамические стреловидные) ---
         ctx.shadowBlur = 20;
         ctx.shadowColor = 'rgba(24, 130, 255, 0.5)';
         const finGrad = ctx.createLinearGradient(-w, 0, w, 0);
@@ -980,7 +945,6 @@
         ctx.closePath();
         ctx.fill();
 
-        // Светящиеся края крыльев
         ctx.strokeStyle = '#38bdf8';
         ctx.lineWidth = 1.5 * s;
         ctx.beginPath();
@@ -992,26 +956,24 @@
         ctx.lineTo(w/2.5, h/2.1);
         ctx.stroke();
 
-        // --- ГЛАВНЫЙ КОРПУС (Темный металлический фюзеляж) ---
         ctx.shadowBlur = 25;
         ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
         const hullGrad = ctx.createLinearGradient(-w/2, 0, w/2, 0);
         hullGrad.addColorStop(0, '#0f172a');
         hullGrad.addColorStop(0.2, '#1e293b');
-        hullGrad.addColorStop(0.5, '#64748b'); // Блик в центре
+        hullGrad.addColorStop(0.5, '#64748b');
         hullGrad.addColorStop(0.8, '#1e293b');
         hullGrad.addColorStop(1, '#0f172a');
         ctx.fillStyle = hullGrad;
 
         ctx.beginPath();
-        ctx.moveTo(0, -h/2); // Нос
-        ctx.bezierCurveTo(w/2.2, -h/4, w/2, h/4, w/3.2, h/2); // Правая сторона
-        ctx.lineTo(-w/3.2, h/2); // Низ
-        ctx.bezierCurveTo(-w/2, h/4, -w/2.2, -h/4, 0, -h/2); // Левая сторона
+        ctx.moveTo(0, -h/2);
+        ctx.bezierCurveTo(w/2.2, -h/4, w/2, h/4, w/3.2, h/2);
+        ctx.lineTo(-w/3.2, h/2);
+        ctx.bezierCurveTo(-w/2, h/4, -w/2.2, -h/4, 0, -h/2);
         ctx.closePath();
         ctx.fill();
 
-        // --- НЕОНОВЫЕ ЛИНИИ НА КОРПУСЕ ---
         ctx.shadowBlur = 15;
         ctx.shadowColor = '#1882ff';
         ctx.strokeStyle = '#1882ff';
@@ -1025,7 +987,6 @@
         ctx.quadraticCurveTo(w/3.5, h/4, w/4.5, h/2.2);
         ctx.stroke();
 
-        // --- КАБИНА / CORE WINDOW (Футуристическое окно) ---
         ctx.shadowBlur = 20;
         ctx.shadowColor = '#0ea5e9';
         ctx.fillStyle = '#020617';
@@ -1046,7 +1007,6 @@
         ctx.fillStyle = glassGrad;
         ctx.fill();
 
-        // Блик на стекле
         ctx.shadowBlur = 0;
         ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
         ctx.beginPath();
@@ -1056,7 +1016,6 @@
         ctx.closePath();
         ctx.fill();
 
-        // --- НОСОВОЙ ОБТЕКАТЕЛЬ ---
         ctx.fillStyle = '#0f172a';
         ctx.beginPath();
         ctx.moveTo(0, -h/2);
@@ -1072,7 +1031,6 @@
         ctx.arc(0, -h/2 + 2*s, 2*s, 0, Math.PI*2);
         ctx.fill();
 
-        // --- НАДПИСЬ "R-GAME" ---
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         ctx.font = `italic 900 ${20*s}px 'Montserrat', sans-serif`;
@@ -1084,13 +1042,11 @@
         const startX = -(rWidth + gameWidth) / 2;
         const textY = h/4.5;
 
-        // "R-" (Белый)
         ctx.shadowBlur = 12;
         ctx.shadowColor = 'rgba(255,255,255,0.8)';
         ctx.fillStyle = '#ffffff';
         ctx.fillText(rText, startX, textY);
 
-        // "GAME" (Синий)
         ctx.shadowBlur = 15;
         ctx.shadowColor = '#1882ff';
         ctx.fillStyle = '#1882ff';
@@ -1130,7 +1086,6 @@
         });
         ctx.globalAlpha = 1.0;
 
-        // График
         if (gameState === 'FLYING') {
             let progress = (currentMulti - 1) / 10;
             ctx.strokeStyle = 'var(--accent-blue)';
@@ -1148,7 +1103,6 @@
             ctx.shadowBlur = 0;
         }
 
-        // Частицы (взрыв)
         for(let i=particles.length-1; i>=0; i--) {
             let p = particles[i];
             p.x += p.vx * dt * 1.5;
@@ -1169,7 +1123,6 @@
         ctx.globalAlpha = 1.0;
         ctx.shadowBlur = 0;
 
-        // === ОТРИСОВКА РАКЕТЫ (всегда, даже при CRASHED, но без наклона) ===
         if (gameState !== 'CRASHED') {
             const cx = canvas.width/2;
             const cy = rocketY;
@@ -1179,7 +1132,6 @@
             const shakeX = rocketShakeX || 0;
             const shakeY = rocketShakeY || 0;
 
-            // Огонь (только в FLYING)
             if (gameState === 'FLYING') {
                 ctx.save();
                 ctx.translate(cx + shakeX, cy + bobY + shakeY);
@@ -1188,7 +1140,7 @@
                 ctx.shadowBlur = 50;
                 ctx.shadowColor = '#0ea5e9';
                 const flameLen = 70 + Math.random() * 50 + currentMulti * 18;
-                const baseY = (150 / 2 + 15) * 1.3; // Совпадает с высотой сопла
+                const baseY = (150 / 2 + 15) * 1.3;
                 
                 const gradFire = ctx.createRadialGradient(0, baseY, 10, 0, baseY + flameLen, flameLen);
                 gradFire.addColorStop(0, '#ffffff');
@@ -1213,7 +1165,6 @@
                 ctx.quadraticCurveTo(15, baseY + innerLen * 0.5, 10, baseY);
                 ctx.fill();
 
-                // Искры от двигателя
                 if (Math.random() < 0.5) {
                     for (let i=0; i<6; i++) {
                         let angle = -Math.PI/2 + (Math.random()-0.5)*1.2;
@@ -1233,11 +1184,9 @@
                 ctx.restore();
             }
 
-            // Рисуем ракету с покачиванием
             drawRocket(ctx, cx + shakeX, cy + bobY + shakeY, tilt, 1.3);
         }
 
-        // Взрывная вспышка
         if (explosionAlpha > 0) {
             ctx.fillStyle = `rgba(240, 48, 67, ${explosionAlpha * 0.4})`;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -1306,10 +1255,7 @@
     document.addEventListener('click', tryAutoPlay);
     document.addEventListener('touchstart', tryAutoPlay);
 
-    // ===== ЗАПРОС БАЛАНСА ПРИ ЗАГРУЗКЕ =====
-    requestBalance();
-
-    // Запуск
+    // ===== ИНИЦИАЛИЗАЦИЯ =====
     setWaitingPhase();
     requestAnimationFrame(gameLoop);
 })();
