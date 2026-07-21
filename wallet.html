@@ -412,7 +412,7 @@
     </div>
 
     <script>
-        // ===== НОВАЯ ЛОГИКА (БЕЗ МОДАЛКИ) =====
+        // ===== ИСПРАВЛЕННАЯ ЛОГИКА (HTTP-ЗАПРОСЫ) =====
         const tg = window.Telegram.WebApp;
         tg.expand();
         tg.enableClosingConfirmation();
@@ -446,8 +446,8 @@
             window.location.href = 'casino.html?userId=' + (userId || '');
         };
 
-        // === ПОПОЛНЕНИЕ (МГНОВЕННОЕ) ===
-        document.getElementById('submitDepositBtn').onclick = () => {
+        // === ПОПОЛНЕНИЕ (HTTP-запрос) ===
+        document.getElementById('submitDepositBtn').onclick = async () => {
             const input = document.getElementById('depositInput');
             const amt = parseInt(input.value);
             if (!userId) {
@@ -459,14 +459,27 @@
                 return;
             }
 
-            // Отправляем запрос на пополнение – бот проверит баланс и сразу спишет
-            tg.sendData(JSON.stringify({ action: 'deposit_to_casino', amount: amt }));
-            input.value = '';
-            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
+            try {
+                const response = await fetch('/deposit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId: userId, amount: amt })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    const newBalance = data.new_casino_balance; // поле new_casino_balance из бота
+                    updateBalance(newBalance);
+                    alert('✅ ' + data.message);
+                } else {
+                    alert('❌ Ошибка: ' + data.error);
+                }
+            } catch (e) {
+                alert('❌ Ошибка соединения: ' + e.message);
+            }
         };
 
         // === ВЫВОД ===
-        document.getElementById('submitWithdrawBtn').onclick = () => {
+        document.getElementById('submitWithdrawBtn').onclick = async () => {
             const input = document.getElementById('withdrawInput');
             const amt = parseInt(input.value);
             if (!userId) {
@@ -482,57 +495,31 @@
                 return;
             }
 
-            tg.sendData(JSON.stringify({ action: 'withdraw_from_casino', amount: amt }));
-            input.value = '';
-            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
+            try {
+                const response = await fetch('/withdraw', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId: userId, amount: amt })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    const newBalance = data.new_casino_balance;
+                    updateBalance(newBalance);
+                    alert('✅ ' + data.message);
+                } else {
+                    alert('❌ Ошибка: ' + data.error);
+                }
+            } catch (e) {
+                alert('❌ Ошибка соединения: ' + e.message);
+            }
         };
 
-        // === ОБРАБОТЧИК ОТВЕТОВ ОТ БОТА ===
-        tg.onEvent('web_app_data', function(data) {
-            try {
-                const response = JSON.parse(data);
-                console.log('📩 Ответ от бота:', response);
+        // Для совместимости со старыми модалками (скрыты)
+        document.getElementById('confirmCancel').onclick = () => document.getElementById('confirmModal').classList.remove('active');
+        document.getElementById('modalAcceptBtn').onclick = () => document.getElementById('warningModal').classList.remove('active');
+        document.getElementById('modalLaterBtn').onclick = () => document.getElementById('warningModal').classList.remove('active');
 
-                // Ошибка – не меняем баланс
-                if (response.error) {
-                    alert('❌ ' + response.error);
-                    return;
-                }
-
-                // Пополнение успешно
-                if (response.action === 'deposit_success') {
-                    let newBalance = localBalance + response.amount;
-                    updateBalance(newBalance);
-                    alert('✅ ' + response.message);
-                    if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-                    return;
-                }
-
-                // Вывод успешен
-                if (response.action === 'withdraw_success') {
-                    let newBalance = localBalance - response.amount;
-                    if (newBalance < 0) newBalance = 0;
-                    updateBalance(newBalance);
-                    alert('✅ ' + response.message);
-                    if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-                    return;
-                }
-
-                // Если пришёл status:ok (от старой логики) – игнорируем, но логируем
-                if (response.status === 'ok') {
-                    console.warn('⚠️ Старая логика: получен status:ok, но модалка отключена. Пополнение не выполнено.');
-                    alert('⚠️ Вы используете старую версию кошелька. Обновите страницу (Ctrl+Shift+R) и попробуйте снова.');
-                    return;
-                }
-
-                console.warn('⚠️ Неизвестный ответ:', response);
-            } catch (e) {
-                console.error('❌ Ошибка разбора данных:', e);
-                alert('⚠️ Ошибка обработки ответа от бота.');
-            }
-        });
-
-        console.log('✅ Кошелёк загружен (мгновенное пополнение)');
+        console.log('✅ Кошелёк загружен (HTTP-запросы)');
     </script>
 </body>
 </html>
