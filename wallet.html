@@ -412,7 +412,6 @@
     </div>
 
     <script>
-        // ===== ИСПРАВЛЕННАЯ ЛОГИКА (HTTP-ЗАПРОСЫ) =====
         const tg = window.Telegram.WebApp;
         tg.expand();
         tg.enableClosingConfirmation();
@@ -446,8 +445,8 @@
             window.location.href = 'casino.html?userId=' + (userId || '');
         };
 
-        // === ПОПОЛНЕНИЕ (HTTP-запрос) ===
-        document.getElementById('submitDepositBtn').onclick = async () => {
+        // ===== ПОПОЛНЕНИЕ (через tg.sendData) =====
+        document.getElementById('submitDepositBtn').onclick = () => {
             const input = document.getElementById('depositInput');
             const amt = parseInt(input.value);
             if (!userId) {
@@ -459,27 +458,17 @@
                 return;
             }
 
-            try {
-                const response = await fetch('/deposit', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId: userId, amount: amt })
-                });
-                const data = await response.json();
-                if (data.success) {
-                    const newBalance = data.new_casino_balance;
-                    updateBalance(newBalance);
-                    alert('✅ ' + data.message);
-                } else {
-                    alert('❌ Ошибка: ' + data.error);
-                }
-            } catch (e) {
-                alert('❌ Ошибка соединения: ' + e.message);
-            }
+            // Отправляем через Telegram WebApp – бот обработает и пришлёт ответ в чат
+            tg.sendData(JSON.stringify({
+                action: 'deposit_to_casino',
+                amount: amt
+            }));
+            // Закрываем WebApp
+            tg.close();
         };
 
-        // === ВЫВОД ===
-        document.getElementById('submitWithdrawBtn').onclick = async () => {
+        // ===== ВЫВОД (через tg.sendData) =====
+        document.getElementById('submitWithdrawBtn').onclick = () => {
             const input = document.getElementById('withdrawInput');
             const amt = parseInt(input.value);
             if (!userId) {
@@ -495,26 +484,14 @@
                 return;
             }
 
-            try {
-                const response = await fetch('/withdraw', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId: userId, amount: amt })
-                });
-                const data = await response.json();
-                if (data.success) {
-                    const newBalance = data.new_casino_balance;
-                    updateBalance(newBalance);
-                    alert('✅ ' + data.message);
-                } else {
-                    alert('❌ Ошибка: ' + data.error);
-                }
-            } catch (e) {
-                alert('❌ Ошибка соединения: ' + e.message);
-            }
+            tg.sendData(JSON.stringify({
+                action: 'withdraw_from_casino',
+                amount: amt
+            }));
+            tg.close();
         };
 
-        console.log('✅ Кошелёк загружен (HTTP-запросы)');
+        console.log('✅ Кошелёк загружен (sendData)');
     </script>
 </body>
 </html>
