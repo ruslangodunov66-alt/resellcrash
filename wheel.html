@@ -343,7 +343,7 @@
             width: 250px;
             height: 250px;
             margin: 0 auto 12px;
-            cursor: pointer;
+            cursor: default; /* Не кликабельно, убрали ускорение */
         }
         .case-animation-stage .case-image-wrap img {
             width: 100%; height: 100%; object-fit: contain;
@@ -373,17 +373,7 @@
             50% { filter: brightness(3); transform: scale(1.2); }
             100% { filter: brightness(0); transform: scale(0.8); opacity: 0; }
         }
-        .case-fast-shake {
-            animation: fastShake 0.15s linear infinite !important;
-            filter: drop-shadow(0 0 50px rgba(255, 50, 50, 0.9)) !important;
-        }
-        @keyframes fastShake {
-            0% { transform: translate(3px, 2px) rotate(0deg); }
-            25% { transform: translate(-4px, -3px) rotate(-4deg); }
-            50% { transform: translate(0px, 3px) rotate(4deg); }
-            75% { transform: translate(4px, -2px) rotate(-2deg); }
-            100% { transform: translate(-2px, 3px) rotate(3deg); }
-        }
+        .case-fast-shake { /* больше не используется */ }
 
         .slot-container {
             width: 100%; overflow: hidden;
@@ -592,7 +582,7 @@
     'use strict';
 
     // ============================================================
-    // 1. ДАННЫЕ КЕЙСА
+    // 1. ДАННЫЕ КЕЙСА (с новыми вероятностями)
     // ============================================================
     const CASE_ITEMS = [
         { id: 'skin_henri', name: 'Анри Жерар', rarity: 'мифическая', rarityColor: '#e74c3c', image: 'case/photo_2026-07-20_19-21-45.jpg', value: 0 },
@@ -602,12 +592,13 @@
         { id: 'money_common', name: 'Деньги (обычные)', rarity: 'обычная', rarityColor: '#95a5a6', image: 'case/photo_2026-07-20_19-22-17.jpg', value: 0 }
     ];
 
+    // Новые вероятности: мифические 0.5% каждый (суммарно 1%), легендарные 4%, редкие 15%, обычные 80%
     const itemProbabilities = {
-        'skin_henri': 0.01,
-        'brabus': 0.01,
-        'money_legend': 0.08,
-        'money_rare': 0.25,
-        'money_common': 0.65
+        'skin_henri': 0.005,
+        'brabus': 0.005,
+        'money_legend': 0.04,
+        'money_rare': 0.15,
+        'money_common': 0.80
     };
 
     // ============================================================
@@ -717,52 +708,61 @@
     }
 
     // ============================================================
-    // 5. ЗВУК ДЛЯ ВРАЩЕНИЯ (Web Audio API)
+    // 5. УЛУЧШЕННЫЙ ЗВУК (синусоидальные тоны)
     // ============================================================
     let audioCtx = null;
-    let spinInterval = null;
 
     function initAudio() {
         if (!audioCtx && window.AudioContext) {
             audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            // Автоматическое возобновление при первом касании
             document.addEventListener('touchstart', () => audioCtx?.resume(), { once: true });
             document.addEventListener('click', () => audioCtx?.resume(), { once: true });
         }
     }
 
-    function playSpinSound() {
+    function playTone(freq, duration, volume = 0.08, type = 'sine') {
         if (!audioCtx) return;
         try {
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
-            osc.type = 'square';
-            osc.frequency.value = 800 + Math.random() * 400;
-            gain.gain.setValueAtTime(0.03, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.04);
+            osc.type = type;
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
             osc.connect(gain);
             gain.connect(audioCtx.destination);
             osc.start();
-            osc.stop(audioCtx.currentTime + 0.04);
+            osc.stop(audioCtx.currentTime + duration);
         } catch(e) {}
     }
 
-    function startSpinSound() {
+    // Звуки для разных событий
+    function soundSpinStart() {
         initAudio();
-        if (spinInterval) return;
-        // Воспроизводим короткие звуки каждые 50 мс
-        spinInterval = setInterval(playSpinSound, 50);
+        playTone(500, 0.1, 0.06, 'sine');
     }
-
-    function stopSpinSound() {
-        if (spinInterval) {
-            clearInterval(spinInterval);
-            spinInterval = null;
-        }
+    function soundSpinStop() {
+        initAudio();
+        playTone(880, 0.15, 0.08, 'sine');
+    }
+    function soundBuy() {
+        initAudio();
+        playTone(660, 0.15, 0.08, 'sine');
+        setTimeout(() => playTone(880, 0.1, 0.06, 'sine'), 120);
+    }
+    function soundWin() {
+        initAudio();
+        playTone(523, 0.12, 0.08, 'sine');
+        setTimeout(() => playTone(659, 0.12, 0.08, 'sine'), 130);
+        setTimeout(() => playTone(784, 0.2, 0.08, 'sine'), 260);
+    }
+    function soundLose() {
+        initAudio();
+        playTone(300, 0.3, 0.06, 'sawtooth');
     }
 
     // ============================================================
-    // 6. ОТКРЫТИЕ КЕЙСА (клик по изображению)
+    // 6. ОТКРЫТИЕ КЕЙСА (без ускорения)
     // ============================================================
     const caseOpenTrigger = document.getElementById('caseOpenTrigger');
     const overlay = document.getElementById('overlay');
@@ -796,39 +796,19 @@
             alert('❌ Недостаточно средств!');
             return;
         }
-        // Блокируем кнопку на время операции
         buyBtn.disabled = true;
         try {
-            // 1. Отправляем запрос на списание (проигрыш)
             const result = await sendGameResult('lose', CASE_PRICE, 0);
-            // 2. Обновляем локальное состояние
             if (result && result.new_balance !== undefined) {
                 balance = result.new_balance;
             } else {
-                // Если сервер не ответил, списываем локально
                 balance -= CASE_PRICE;
             }
             caseCount += 1;
             updateUI();
-            // Вибрация и звук
+            soundBuy();
             if (window.Telegram?.WebApp?.HapticFeedback) {
                 window.Telegram.WebApp.HapticFeedback.impactOccurred('medium');
-            }
-            // Простой звук покупки
-            initAudio();
-            if (audioCtx) {
-                try {
-                    const osc = audioCtx.createOscillator();
-                    const gain = audioCtx.createGain();
-                    osc.type = 'sine';
-                    osc.frequency.value = 600;
-                    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-                    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
-                    osc.connect(gain);
-                    gain.connect(audioCtx.destination);
-                    osc.start();
-                    osc.stop(audioCtx.currentTime + 0.15);
-                } catch(e) {}
             }
         } catch (e) {
             console.error('Ошибка покупки:', e);
@@ -839,7 +819,7 @@
     });
 
     // ============================================================
-    // 8. АНИМАЦИЯ ОТКРЫТИЯ (с звуком при вращении)
+    // 8. АНИМАЦИЯ ОТКРЫТИЯ (убрано ускорение)
     // ============================================================
     function startCaseOpening(winItem) {
         isOpening = true;
@@ -852,14 +832,13 @@
             <div class="case-image-wrap case-falling" id="caseAnim">
                 <img src="case/case.PNG" alt="Case">
             </div>
-            <div style="margin-top:12px; color:var(--text-muted); font-size:14px;">Открытие... (жми для ускорения)</div>
+            <div style="margin-top:12px; color:var(--text-muted); font-size:14px;">Открытие...</div>
         `;
         animContainer.appendChild(stage1);
 
         const caseElem = document.getElementById('caseAnim');
         let autoOpenTimeout;
         let isOpened = false;
-        let isFastClick = false;
 
         function openCaseNow() {
             if (isOpened) return;
@@ -869,23 +848,16 @@
             setTimeout(() => { document.body.style.animation = ''; }, 300);
             setTimeout(() => {
                 animContainer.innerHTML = '';
-                startSlotMachine(currentWin, isFastClick);
+                startSlotMachine(winItem);
             }, 400);
         }
 
-        caseElem.addEventListener('click', () => {
-            if (isOpened) return;
-            isFastClick = true;
-            clearTimeout(autoOpenTimeout);
-            caseElem.className = 'case-image-wrap case-fast-shake';
-            setTimeout(openCaseNow, 400);
-        });
-
+        // Стандартный ход анимации без возможности ускорения
         caseElem.addEventListener('animationend', function onFallEnd(e) {
-            if (e.animationName !== 'caseFall' || isOpened || isFastClick) return;
+            if (e.animationName !== 'caseFall' || isOpened) return;
             caseElem.className = 'case-image-wrap case-bounce';
             setTimeout(() => {
-                if (isOpened || isFastClick) return;
+                if (isOpened) return;
                 caseElem.className = 'case-image-wrap case-glow';
                 autoOpenTimeout = setTimeout(openCaseNow, 1200);
             }, 600);
@@ -893,9 +865,9 @@
     }
 
     // ============================================================
-    // 9. РУЛЕТКА С ЗВУКОМ
+    // 9. РУЛЕТКА С ПРИЯТНЫМ ЗВУКОМ
     // ============================================================
-    function startSlotMachine(winItem, isFast) {
+    function startSlotMachine(winItem) {
         const container = document.createElement('div');
         container.style.width = '100%';
         container.innerHTML = `
@@ -950,16 +922,17 @@
             const centerOffset = (containerWidth / 2) - (itemWidth / 2);
             const randomOffset = getRandomInt(-40, 40);
             let targetOffset = (insertPos * itemWidth) - centerOffset + randomOffset;
-            const duration = isFast ? 1.5 : 5.5;
+            const duration = 5.5; // всегда стандартная длительность
 
-            // ЗАПУСКАЕМ ЗВУК ВРАЩЕНИЯ
-            startSpinSound();
+            // Звук старта вращения
+            soundSpinStart();
 
             slotTrack.style.transition = `transform ${duration}s cubic-bezier(0.15, 0.85, 0.1, 1)`;
             slotTrack.style.transform = `translateX(-${targetOffset}px)`;
 
             setTimeout(() => {
-                stopSpinSound();
+                // Звук остановки
+                soundSpinStop();
                 showResult(winItem);
             }, (duration * 1000) + 200);
         });
@@ -1002,6 +975,9 @@
                     balance += winItem.value;
                     updateUI();
                 }
+                soundWin();
+            } else {
+                soundLose();
             }
 
             history.unshift({
@@ -1200,7 +1176,6 @@
         particleRunning = false;
         canvas.style.display = 'none';
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        stopSpinSound();
     });
 
     // ============================================================
@@ -1226,7 +1201,7 @@
         window.Telegram.WebApp.enableClosingConfirmation();
     }
 
-    console.log('✅ R-GAME Case Opening (with purchase and sound) loaded');
+    console.log('✅ R-GAME Case Opening (with improved sound, no fast-click, rebalanced) loaded');
 })();
 </script>
 
