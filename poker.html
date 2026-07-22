@@ -7,6 +7,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;0,900;1,800&family=Nunito:wght@700;800;900&display=swap" rel="stylesheet">
     <style>
+        /* ВСЕ ТВОИ СТИЛИ (БЕЗ ИЗМЕНЕНИЙ) */
         :root {
             --bg-dark: #070b12;
             --container-bg: #111822;
@@ -282,6 +283,11 @@
 </div>
 
 <script>
+    // ===== НАСТРОЙКИ API =====
+    // Если бот и HTML на одном домене – оставить пустую строку.
+    // Если бот отдельно – указать полный HTTPS-адрес.
+    const API_BASE = 'https://resellgame.bothost.tech';
+
     const tg = window.Telegram.WebApp;
     tg.expand(); tg.ready();
     if (tg.HapticFeedback) tg.enableClosingConfirmation();
@@ -315,6 +321,33 @@
         localStorage.setItem('profile_losses', String(losses));
         localStorage.setItem('profile_total_bet', String(total_bet));
         localStorage.setItem('profile_total_win', String(total_win));
+    }
+
+    // ===== ОТПРАВКА РЕЗУЛЬТАТА НА СЕРВЕР =====
+    async function sendGameResult(result, bet, win) {
+        try {
+            const response = await fetch(API_BASE + '/game_result', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId: userId,
+                    game: 'poker',
+                    result: result,
+                    bet: bet,
+                    win: win
+                })
+            });
+            const data = await response.json();
+            if (data.new_balance !== undefined) {
+                updateBalance(data.new_balance);
+            }
+            return data;
+        } catch (error) {
+            console.error('Ошибка отправки результата:', error);
+            // Если ошибка, можно показать уведомление
+            alert('⚠️ Ошибка соединения с сервером. Результат не сохранён.');
+            return null;
+        }
     }
 
     // --- ЗВУК И ВИБРАЦИЯ ---
@@ -419,7 +452,7 @@
 
     async function flipCards(indices) {
         for (let i of indices) {
-            cardWrappers[i].classList.remove('flipped'); // Закрываем
+            cardWrappers[i].classList.remove('flipped');
         }
         if(indices.length > 0) await new Promise(r => setTimeout(r, 200));
 
@@ -439,7 +472,6 @@
         
         let isStraight = false;
         if (vals[4] - vals[0] === 4 && new Set(vals).size === 5) isStraight = true;
-        // Особый случай стрита: A, 2, 3, 4, 5
         if (vals.join(',') === '2,3,4,5,14') isStraight = true;
 
         const counts = {};
@@ -455,7 +487,6 @@
         if (freqs[0] === 3) return {name: "Three of a Kind", m: 3};
         if (freqs[0] === 2 && freqs[1] === 2) return {name: "Two Pair", m: 2};
         
-        // Jacks or better
         if (freqs[0] === 2) {
             const pairVal = parseInt(Object.keys(counts).find(k => counts[k] === 2));
             if (pairVal >= 11) return {name: "Jacks or Better", m: 1};
@@ -480,7 +511,7 @@
 
             currentBet = amt;
             betInput.value = currentBet;
-            updateBalance(casinoBalance - currentBet);
+            updateBalance(casinoBalance - currentBet); // локальное списание
 
             actionBtn.disabled = true;
             betInput.disabled = true;
@@ -489,9 +520,8 @@
             winMsg.style.display = 'none';
             resetPaytable();
             
-            // Сброс UI
             cardWrappers.forEach(cw => { cw.classList.remove('flipped', 'held'); });
-            await new Promise(r => setTimeout(r, 300)); // Ждем закрытия
+            await new Promise(r => setTimeout(r, 300));
 
             deck = createDeck();
             hand = [];
@@ -521,31 +551,38 @@
 
             // Итоги
             const res = evaluateHand(hand);
-            gameState = 'WAITING';
-            actionBtn.innerText = 'РАЗДАТЬ';
-            actionBtn.classList.remove('draw-mode');
-            betInput.disabled = false;
-            actionBtn.disabled = false;
-            
-            // Снимаем бейджи HOLD
-            cardWrappers.forEach(cw => cw.classList.remove('held'));
+            let winAmt = 0;
+            let resultType = 'lose';
 
             if (res) {
-                const winAmt = currentBet * res.m;
-                updateBalance(casinoBalance + winAmt);
-                updateProfileStats('win', currentBet, winAmt);
-                
+                winAmt = currentBet * res.m;
+                resultType = 'win';
                 document.querySelector(`.paytable-item[data-hand="${res.name}"]`).classList.add('active');
-                
                 statusMsg.style.display = 'none';
                 winMsg.style.display = 'block';
                 winMsg.innerText = `${res.name.toUpperCase()} +${winAmt} ₽`;
                 sfx.win(); vibe('success');
             } else {
-                updateProfileStats('lose', currentBet, 0);
                 statusMsg.innerText = 'ПРОИГРЫШ';
                 sfx.lose(); vibe('error');
             }
+
+            // Отправляем результат на сервер и синхронизируем баланс
+            const resultData = await sendGameResult(resultType, currentBet, winAmt);
+            // Если ответ не пришёл – баланс уже был обновлён локально при списании,
+            // но мы не получили новый баланс от сервера, поэтому оставляем локальный.
+            // Однако лучше перезапросить баланс, но для простоты мы уже обновили локально.
+
+            // Обновляем статистику (локально)
+            updateProfileStats(resultType, currentBet, winAmt);
+
+            // Сбрасываем состояние игры
+            gameState = 'WAITING';
+            actionBtn.innerText = 'РАЗДАТЬ';
+            actionBtn.classList.remove('draw-mode');
+            betInput.disabled = false;
+            actionBtn.disabled = false;
+            cardWrappers.forEach(cw => cw.classList.remove('held'));
         }
     }
 
