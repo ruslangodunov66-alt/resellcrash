@@ -376,7 +376,7 @@
         </div>
     </div>
 
-    <!-- МОДАЛЬНЫЕ ОКНА (ОСТАВЛЕНЫ В HTML, НО СКРЫТЫ ЧЕРЕЗ CSS) -->
+    <!-- МОДАЛЬНЫЕ ОКНА (без изменений) -->
     <div class="modal-overlay" id="confirmModal">
         <div class="modal-container">
             <div class="modal-title">💰 Подтверждение пополнения</div>
@@ -412,6 +412,11 @@
     </div>
 
     <script>
+        // ========================================
+        // 🔧 НАСТРОЙКА – УКАЖИТЕ ВАШ URL БЭКЕНДА
+        // ========================================
+        const API_BASE = 'https://ваш-сервер.ru';  // <-- СМЕНИТЕ НА РЕАЛЬНЫЙ АДРЕС
+
         const tg = window.Telegram.WebApp;
         tg.expand();
         tg.enableClosingConfirmation();
@@ -422,14 +427,33 @@
         else if (tg.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
 
         const balanceDisplay = document.getElementById('walletBalanceDisplay');
-        let localBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
-        balanceDisplay.innerText = localBalance.toLocaleString() + ' ₽';
 
-        function updateBalance(newBalance) {
-            localBalance = newBalance;
-            localStorage.setItem('casinoBalance', String(newBalance));
-            balanceDisplay.innerText = newBalance.toLocaleString() + ' ₽';
+        // Загружаем баланс из localStorage или запрашиваем с сервера
+        async function loadBalance() {
+            if (userId) {
+                try {
+                    const resp = await fetch(`${API_BASE}/profile/${userId}`);
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        if (data.casino_balance !== undefined) {
+                            localStorage.setItem('casinoBalance', String(data.casino_balance));
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Не удалось загрузить баланс с сервера', e);
+                }
+            }
+            const localBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+            balanceDisplay.innerText = localBalance.toLocaleString() + ' ₽';
+            return localBalance;
         }
+
+        let currentLocalBalance = 0;
+
+        async function updateLocalBalance() {
+            currentLocalBalance = await loadBalance();
+        }
+        updateLocalBalance();
 
         function setAmount(type, value) {
             if (type === 'deposit') {
@@ -445,8 +469,8 @@
             window.location.href = 'casino.html?userId=' + (userId || '');
         };
 
-        // ===== ПОПОЛНЕНИЕ (через fetch /deposit) =====
-        document.getElementById('submitDepositBtn').onclick = () => {
+        // ===== ПОПОЛНЕНИЕ =====
+        document.getElementById('submitDepositBtn').onclick = async () => {
             const input = document.getElementById('depositInput');
             const amt = parseInt(input.value);
             if (!userId) {
@@ -458,43 +482,37 @@
                 return;
             }
 
-            // Проверка, что баланс достаточен (можно проверить на сервере, но дублируем локально)
-            if (localBalance < amt) {
-                alert(`❌ Недостаточно средств на основном балансе! Доступно: ${localBalance}₽`);
+            // Проверяем баланс через сервер (или локально)
+            const balance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+            if (balance < amt) {
+                alert(`❌ Недостаточно средств на основном балансе! Доступно: ${balance}₽`);
                 return;
             }
 
-            // Отправляем запрос на сервер
-            fetch('/deposit', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: userId, amount: amt })
-            })
-            .then(res => res.json())
-            .then(data => {
+            try {
+                const resp = await fetch(`${API_BASE}/deposit`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId: userId, amount: amt })
+                });
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const data = await resp.json();
                 if (data.success) {
-                    // Обновляем локальный баланс (основной баланс уменьшился)
-                    // Сервер возвращает new_main_balance и new_casino_balance
-                    // Мы можем сохранить оба, но для этого экрана нам важен именно баланс казино
-                    // Сохраняем casino_balance в localStorage для отображения в казино
                     if (data.new_casino_balance !== undefined) {
                         localStorage.setItem('casinoBalance', String(data.new_casino_balance));
                     }
-                    // Также обновляем отображение основного баланса, если нужно – но у нас его нет на этой странице.
-                    // После успеха перенаправляем в казино
                     window.location.href = `casino.html?userId=${userId}`;
                 } else {
                     alert('❌ ' + (data.error || 'Ошибка пополнения'));
                 }
-            })
-            .catch(err => {
-                alert('❌ Ошибка соединения с сервером: ' + err);
+            } catch (err) {
+                alert('❌ Ошибка соединения с сервером: ' + err.message);
                 console.error(err);
-            });
+            }
         };
 
-        // ===== ВЫВОД (через fetch /withdraw) =====
-        document.getElementById('submitWithdrawBtn').onclick = () => {
+        // ===== ВЫВОД =====
+        document.getElementById('submitWithdrawBtn').onclick = async () => {
             const input = document.getElementById('withdrawInput');
             const amt = parseInt(input.value);
             if (!userId) {
@@ -505,22 +523,21 @@
                 alert('💵 Введите корректную сумму');
                 return;
             }
-            // Проверка локального баланса казино (он у нас в localStorage)
             const casinoBal = parseInt(localStorage.getItem('casinoBalance')) || 0;
             if (amt > casinoBal) {
                 alert(`❌ Недостаточно средств в казино! Доступно: ${casinoBal}₽`);
                 return;
             }
 
-            fetch('/withdraw', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: userId, amount: amt })
-            })
-            .then(res => res.json())
-            .then(data => {
+            try {
+                const resp = await fetch(`${API_BASE}/withdraw`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId: userId, amount: amt })
+                });
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const data = await resp.json();
                 if (data.success) {
-                    // Обновляем баланс казино
                     if (data.new_casino_balance !== undefined) {
                         localStorage.setItem('casinoBalance', String(data.new_casino_balance));
                     }
@@ -528,14 +545,13 @@
                 } else {
                     alert('❌ ' + (data.error || 'Ошибка вывода'));
                 }
-            })
-            .catch(err => {
-                alert('❌ Ошибка соединения с сервером: ' + err);
+            } catch (err) {
+                alert('❌ Ошибка соединения с сервером: ' + err.message);
                 console.error(err);
-            });
+            }
         };
 
-        console.log('✅ Кошелёк переведён на HTTP (fetch)');
+        console.log('✅ Кошелёк переведён на HTTP (fetch) с API_BASE');
     </script>
 </body>
 </html>

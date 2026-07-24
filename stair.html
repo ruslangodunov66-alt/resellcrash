@@ -291,6 +291,12 @@
 </div>
 
 <script>
+    // ========================================
+    // 🔧 НАСТРОЙКА – УКАЖИТЕ ВАШ URL БЭКЕНДА
+    // ========================================
+    const API_BASE = 'https://ваш-сервер.ru';  // <-- СМЕНИТЕ НА РЕАЛЬНЫЙ АДРЕС
+
+    // ===== TELEGRAM WEBAPP =====
     const tg = window.Telegram.WebApp;
     tg.expand(); tg.ready();
     if (tg.HapticFeedback) tg.enableClosingConfirmation();
@@ -306,18 +312,13 @@
 
     async function loadBalance() {
         if (!userId) {
-            // Если userId нет, пробуем localStorage
             const cached = localStorage.getItem('casinoBalance');
-            if (cached !== null) {
-                casinoBalance = parseInt(cached) || 0;
-            } else {
-                casinoBalance = 0;
-            }
+            casinoBalance = cached ? parseInt(cached) : 0;
             balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
             return;
         }
         try {
-            const resp = await fetch(`/profile/${userId}`);
+            const resp = await fetch(`${API_BASE}/profile/${userId}`);
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
             if (data.casino_balance !== undefined) {
@@ -325,35 +326,20 @@
                 localStorage.setItem('casinoBalance', String(casinoBalance));
                 balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
             } else {
-                // если поле отсутствует – берём из localStorage
+                // если поля нет – берём из localStorage
                 const cached = localStorage.getItem('casinoBalance');
-                if (cached !== null) {
-                    casinoBalance = parseInt(cached) || 0;
-                    balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
-                }
+                casinoBalance = cached ? parseInt(cached) : 0;
+                balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
             }
         } catch (e) {
             console.warn('Не удалось загрузить баланс с сервера', e);
-            // fallback на localStorage (или параметр URL)
             const cached = localStorage.getItem('casinoBalance');
-            if (cached !== null) {
-                casinoBalance = parseInt(cached) || 0;
-            } else {
-                const balanceParam = urlParams.get('balance');
-                if (balanceParam !== null) {
-                    casinoBalance = parseInt(balanceParam) || 0;
-                    localStorage.setItem('casinoBalance', String(casinoBalance));
-                } else {
-                    casinoBalance = 0;
-                }
-            }
+            casinoBalance = cached ? parseInt(cached) : 0;
             balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
         }
     }
 
-    // ===== HTTP API =====
-    const API_BASE = '';
-
+    // ===== HTTP API (отправка результата) =====
     function sendGameResult(result, bet, win) {
         if (!userId) return;
         fetch(`${API_BASE}/game_result`, {
@@ -367,7 +353,10 @@
                 win: win
             })
         })
-        .then(res => res.json())
+        .then(res => {
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res.json();
+        })
         .then(data => {
             if (data.new_balance !== undefined) {
                 casinoBalance = data.new_balance;
@@ -378,7 +367,7 @@
         .catch(err => console.error('Ошибка отправки результата:', err));
     }
 
-    // ===== ЧАСТИЦЫ (CANVAS) =====
+    // ===== ЧАСТИЦЫ (CANVAS) – БЕЗ ИЗМЕНЕНИЙ =====
     const canvas = document.getElementById('particles-canvas');
     const ctx = canvas.getContext('2d');
     let particles = [];
@@ -779,15 +768,14 @@
 
     // ===== ИНИЦИАЛИЗАЦИЯ =====
     document.addEventListener('DOMContentLoaded', () => {
-        loadBalance();            // загружаем баланс с сервера
+        loadBalance();
         initAudio();
         buildGrid();
     });
 
-    // ===== ОБНОВЛЯЕМ БАЛАНС ПРИ ВОЗВРАТЕ ФОКУСА =====
     window.addEventListener('focus', loadBalance);
 
-    console.log('✅ stair.html: баланс загружается через /profile');
+    console.log('✅ stair.html: баланс загружается через /profile с API_BASE');
 </script>
 </body>
 </html>
