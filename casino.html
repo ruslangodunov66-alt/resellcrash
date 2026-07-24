@@ -610,24 +610,57 @@
             userId = tg.initDataUnsafe.user.id;
         }
 
-        // ===== ПРИОРИТЕТ ПАРАМЕТРА balance ИЗ URL =====
-        const balanceParam = urlParams.get('balance');
-        let localBalance = 0;
+        // ===== ЭЛЕМЕНТЫ =====
+        const balanceSpan = document.getElementById('balanceDisplay');
 
-        if (balanceParam !== null) {
-            // Если параметр есть – используем его (даже если 0)
-            localBalance = parseInt(balanceParam) || 0;
-            localStorage.setItem('casinoBalance', String(localBalance));
-        } else {
-            // Если параметра нет – берём из localStorage
-            localBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+        // ===== ФУНКЦИЯ ЗАГРУЗКИ БАЛАНСА С СЕРВЕРА =====
+        async function loadBalance() {
+            if (!userId) {
+                balanceSpan.innerText = '0 ₽';
+                return;
+            }
+            try {
+                const resp = await fetch(`/profile/${userId}`);
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const data = await resp.json();
+                if (data.casino_balance !== undefined) {
+                    const newBalance = data.casino_balance;
+                    balanceSpan.innerText = newBalance.toLocaleString() + ' ₽';
+                    localStorage.setItem('casinoBalance', String(newBalance));
+                } else {
+                    // Если поле отсутствует – используем localStorage
+                    const cached = localStorage.getItem('casinoBalance');
+                    if (cached !== null) {
+                        balanceSpan.innerText = parseInt(cached).toLocaleString() + ' ₽';
+                    }
+                }
+            } catch (e) {
+                console.warn('Не удалось загрузить баланс с сервера', e);
+                // Fallback на localStorage (или параметр URL, если есть)
+                const cached = localStorage.getItem('casinoBalance');
+                if (cached !== null) {
+                    balanceSpan.innerText = parseInt(cached).toLocaleString() + ' ₽';
+                } else {
+                    // Если и localStorage пуст, пробуем параметр URL (только как резерв)
+                    const paramBalance = urlParams.get('balance');
+                    if (paramBalance !== null) {
+                        const bal = parseInt(paramBalance) || 0;
+                        balanceSpan.innerText = bal.toLocaleString() + ' ₽';
+                        localStorage.setItem('casinoBalance', String(bal));
+                    } else {
+                        balanceSpan.innerText = '0 ₽';
+                    }
+                }
+            }
         }
 
-        // Обновляем отображение
-        const balanceSpan = document.getElementById('balanceDisplay');
-        balanceSpan.innerText = localBalance.toLocaleString() + ' ₽';
+        // ===== ЗАГРУЖАЕМ БАЛАНС ПРИ СТАРТЕ =====
+        document.addEventListener('DOMContentLoaded', loadBalance);
 
-        // ===== КНОПКА ПОПОЛНИТЬ =====
+        // ===== ОБНОВЛЯЕМ БАЛАНС ПРИ ВОЗВРАТЕ НА СТРАНИЦУ (фокус) =====
+        window.addEventListener('focus', loadBalance);
+
+        // ===== КНОПКА ПОПОЛНИТЬ (без параметра balance) =====
         const depositBtn = document.getElementById('depositBtn');
         const URL_WALLET = "https://ruslangodunov66-alt.github.io/resellcrash/wallet.html";
 
@@ -637,11 +670,10 @@
                 return;
             }
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
-            const currentBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
-            window.location.href = URL_WALLET + '?userId=' + userId + '&balance=' + currentBalance;
+            window.location.href = URL_WALLET + '?userId=' + userId;
         };
 
-        // ===== ПЕРЕХОД В ИГРЫ =====
+        // ===== ПЕРЕХОД В ИГРЫ (без параметра balance) =====
         const URL_SLOTS = "https://ruslangodunov66-alt.github.io/resellcrash/slots.html";
         const URL_ZEUS = "https://ruslangodunov66-alt.github.io/resellcrash/slots_zeus.html";
         const URL_ROULETTE = "https://ruslangodunov66-alt.github.io/resellcrash/roulette.html";
@@ -656,8 +688,6 @@
 
         function goToGame(game) {
             if (!userId) return;
-            // Используем актуальный баланс из переменной localBalance
-            const balance = localBalance;
             let url = '';
             if (game === 'crash') url = URL_CRASH;
             else if (game === 'blackjack') url = URL_BLACKJACK;
@@ -671,7 +701,8 @@
             else if (game === 'horses') url = URL_HORSES;
             else if (game === 'football') url = URL_FOOTBALL;
             else return;
-            window.location.href = url + '?userId=' + userId + '&balance=' + balance;
+            // Передаём только userId – баланс будет загружен через /profile
+            window.location.href = url + '?userId=' + userId;
         }
 
         document.querySelectorAll('.game-card').forEach(card => {
@@ -723,7 +754,7 @@
             });
         });
 
-        console.log('✅ Casino lobby loaded with balance from URL (priority)');
+        console.log('✅ Casino lobby: баланс загружается через /profile при каждом открытии');
     </script>
 </body>
 </html>

@@ -7,6 +7,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;1,800&family=Nunito:wght@700;800&display=swap" rel="stylesheet">
     <style>
+        /* ===== ВСЕ СТИЛИ БЕЗ ИЗМЕНЕНИЙ ===== */
         :root {
             --bg-dark: #05080d;
             --container-bg: rgba(17, 24, 34, 0.85);
@@ -299,23 +300,59 @@
     if (urlParams.has('userId')) userId = urlParams.get('userId');
     else if (tg.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
 
-    // ===== ПРИОРИТЕТ БАЛАНСА ИЗ URL (от сервера) =====
-    const balanceParam = urlParams.get('balance');
+    // ===== БАЛАНС: ЗАГРУЗКА С СЕРВЕРА =====
     let casinoBalance = 0;
+    const balanceSpan = document.getElementById('balanceDisplay');
 
-    if (balanceParam !== null) {
-        casinoBalance = parseInt(balanceParam) || 0;
-        localStorage.setItem('casinoBalance', String(casinoBalance));
-    } else {
-        casinoBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
-        if (casinoBalance < 10) casinoBalance = 10000;
+    async function loadBalance() {
+        if (!userId) {
+            // Если userId нет, пробуем localStorage
+            const cached = localStorage.getItem('casinoBalance');
+            if (cached !== null) {
+                casinoBalance = parseInt(cached) || 0;
+            } else {
+                casinoBalance = 0;
+            }
+            balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
+            return;
+        }
+        try {
+            const resp = await fetch(`/profile/${userId}`);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            if (data.casino_balance !== undefined) {
+                casinoBalance = data.casino_balance;
+                localStorage.setItem('casinoBalance', String(casinoBalance));
+                balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
+            } else {
+                // если поле отсутствует – берём из localStorage
+                const cached = localStorage.getItem('casinoBalance');
+                if (cached !== null) {
+                    casinoBalance = parseInt(cached) || 0;
+                    balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
+                }
+            }
+        } catch (e) {
+            console.warn('Не удалось загрузить баланс с сервера', e);
+            // fallback на localStorage (или параметр URL)
+            const cached = localStorage.getItem('casinoBalance');
+            if (cached !== null) {
+                casinoBalance = parseInt(cached) || 0;
+            } else {
+                const balanceParam = urlParams.get('balance');
+                if (balanceParam !== null) {
+                    casinoBalance = parseInt(balanceParam) || 0;
+                    localStorage.setItem('casinoBalance', String(casinoBalance));
+                } else {
+                    casinoBalance = 0;
+                }
+            }
+            balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
+        }
     }
 
-    const balanceSpan = document.getElementById('balanceDisplay');
-    balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
-
     // ===== HTTP API =====
-    const API_BASE = ''; // если на одном домене, пустая строка. Если нет – укажи полный URL
+    const API_BASE = '';
 
     function sendGameResult(result, bet, win) {
         if (!userId) return;
@@ -586,7 +623,6 @@
                     }
                 }
                 updateProfileStats('lose', currentBet, 0);
-                // ОТПРАВКА НА СЕРВЕР
                 sendGameResult('lose', currentBet, 0);
                 endGameResetUI();
                 isAnimating = false;
@@ -735,11 +771,23 @@
 
     startBtn.addEventListener('click', startGame);
     cashoutBtn.addEventListener('click', cashout);
-    document.getElementById('menuBtn').onclick = () => window.location.href = 'casino.html?userId=' + (userId || '');
+
+    // ===== КНОПКА "В МЕНЮ ИГР" (передаём только userId) =====
+    document.getElementById('menuBtn').onclick = () => {
+        window.location.href = 'casino.html?userId=' + (userId || '');
+    };
 
     // ===== ИНИЦИАЛИЗАЦИЯ =====
-    initAudio();
-    buildGrid();
+    document.addEventListener('DOMContentLoaded', () => {
+        loadBalance();            // загружаем баланс с сервера
+        initAudio();
+        buildGrid();
+    });
+
+    // ===== ОБНОВЛЯЕМ БАЛАНС ПРИ ВОЗВРАТЕ ФОКУСА =====
+    window.addEventListener('focus', loadBalance);
+
+    console.log('✅ stair.html: баланс загружается через /profile');
 </script>
 </body>
 </html>
