@@ -493,23 +493,18 @@
                 return;
             }
 
-            // Проверяем основной баланс (получаем с сервера, чтобы быть уверенным)
             try {
-                const respBalance = await fetch(`${API_BASE}/profile/${userId}`);
-                if (!respBalance.ok) throw new Error(`HTTP ${respBalance.status}`);
-                const dataBalance = await respBalance.json();
-                const mainBalanceNow = dataBalance.balance || 0;
+                // Проверяем основной баланс через /profile
+                const profileResp = await fetch(`${API_BASE}/profile/${userId}`);
+                if (!profileResp.ok) throw new Error(`HTTP ${profileResp.status}`);
+                const profileData = await profileResp.json();
+                const mainBalanceNow = profileData.balance || 0;
                 if (mainBalanceNow < amt) {
                     alert(`❌ Недостаточно средств на основном балансе! Доступно: ${mainBalanceNow}₽`);
                     return;
                 }
-            } catch (e) {
-                alert('❌ Не удалось проверить баланс. Попробуйте позже.');
-                console.error(e);
-                return;
-            }
 
-            try {
+                // Выполняем пополнение
                 const resp = await fetch(`${API_BASE}/deposit`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -529,16 +524,13 @@
                         mainBalance = data.new_main_balance;
                         localStorage.setItem('mainBalance', String(mainBalance));
                     }
-                    alert(`✅ Пополнение на ${amt}₽ выполнено! Новый баланс казино: ${casinoBalance}₽`);
-                    // Переходим в казино через 1 секунду, чтобы пользователь увидел обновление
-                    setTimeout(() => {
-                        window.location.href = `casino.html?userId=${userId}`;
-                    }, 1000);
+                    // Сразу переходим в казино
+                    window.location.href = `casino.html?userId=${userId}`;
                 } else {
                     alert('❌ ' + (data.error || 'Ошибка пополнения'));
                 }
             } catch (err) {
-                alert('❌ Ошибка соединения с сервером: ' + err.message);
+                alert('❌ Ошибка: ' + err.message);
                 console.error(err);
             }
         };
@@ -556,23 +548,18 @@
                 return;
             }
 
-            // Проверяем баланс казино (актуальный с сервера)
             try {
-                const respBalance = await fetch(`${API_BASE}/profile/${userId}`);
-                if (!respBalance.ok) throw new Error(`HTTP ${respBalance.status}`);
-                const dataBalance = await respBalance.json();
-                const casinoBalanceNow = dataBalance.casino_balance || 0;
+                // Проверяем баланс казино через /profile
+                const profileResp = await fetch(`${API_BASE}/profile/${userId}`);
+                if (!profileResp.ok) throw new Error(`HTTP ${profileResp.status}`);
+                const profileData = await profileResp.json();
+                const casinoBalanceNow = profileData.casino_balance || 0;
                 if (casinoBalanceNow < amt) {
                     alert(`❌ Недостаточно средств в казино! Доступно: ${casinoBalanceNow}₽`);
                     return;
                 }
-            } catch (e) {
-                alert('❌ Не удалось проверить баланс. Попробуйте позже.');
-                console.error(e);
-                return;
-            }
 
-            try {
+                // Выполняем вывод
                 const resp = await fetch(`${API_BASE}/withdraw`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -591,15 +578,12 @@
                         mainBalance = data.new_main_balance;
                         localStorage.setItem('mainBalance', String(mainBalance));
                     }
-                    alert(`✅ Вывод ${amt}₽ выполнен! Новый баланс казино: ${casinoBalance}₽`);
-                    setTimeout(() => {
-                        window.location.href = `casino.html?userId=${userId}`;
-                    }, 1000);
+                    window.location.href = `casino.html?userId=${userId}`;
                 } else {
                     alert('❌ ' + (data.error || 'Ошибка вывода'));
                 }
             } catch (err) {
-                alert('❌ Ошибка соединения с сервером: ' + err.message);
+                alert('❌ Ошибка: ' + err.message);
                 console.error(err);
             }
         };
