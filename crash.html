@@ -301,7 +301,7 @@
     <div class="header">
         <div class="brand">R-<span>GAME</span></div>
         <div class="header-actions">
-            <div class="info-card">Баланс: <span class="balance-value" id="balanceDisplay">0 ₽</span></div>
+            <div class="info-card">Баланс: <span class="balance-value" id="balanceDisplay">Загрузка...</span></div>
             <button class="menu-btn" id="menuBtn">МЕНЮ</button>
         </div>
     </div>
@@ -389,29 +389,43 @@
     // ========== ПОЛУЧЕНИЕ USER_ID ==========
     const urlParams = new URLSearchParams(window.location.search);
     const userId = urlParams.get('userId') || '';
+    console.log('🆔 userId из URL:', userId || '(пусто)');
 
     // ========== БАЛАНС (единственный источник – сервер) ==========
     let casinoBalance = 0;
     const balanceSpan = document.getElementById('balanceDisplay');
+    let balanceLoaded = false;
 
     async function loadBalance() {
         if (!userId) {
+            console.warn('⚠️ userId отсутствует, баланс не загружается');
             balanceSpan.innerText = '0 ₽';
+            balanceLoaded = true;
             return;
         }
         try {
+            console.log('📡 Запрос к /profile...');
             const resp = await fetch(`${API_BASE}/profile/${userId}`);
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
+            console.log('📦 Ответ от /profile:', data);
             if (data.casino_balance !== undefined) {
                 casinoBalance = data.casino_balance;
                 balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
+                console.log('💰 casino_balance:', casinoBalance);
+                // Дополнительно проверяем, нет ли поля balance, которое может отличаться
+                if (data.balance !== undefined && data.balance !== casinoBalance) {
+                    console.warn('⚠️ Внимание: balance (%s) отличается от casino_balance (%s)', data.balance, casinoBalance);
+                }
             } else {
+                console.warn('⚠️ Поле casino_balance отсутствует в ответе');
                 balanceSpan.innerText = '0 ₽';
             }
+            balanceLoaded = true;
         } catch (e) {
-            console.warn('Не удалось загрузить баланс с сервера', e);
+            console.error('❌ Ошибка загрузки баланса:', e);
             balanceSpan.innerText = '0 ₽';
+            balanceLoaded = true;
         }
     }
 
@@ -420,14 +434,19 @@
 
     // ========== ФУНКЦИЯ ОБНОВЛЕНИЯ БАЛАНСА ПОСЛЕ ОПЕРАЦИЙ ==========
     function updateBalanceFromServer(newBalance) {
+        console.log('🔄 Обновление баланса с сервера:', newBalance);
         casinoBalance = newBalance;
         balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
     }
 
     // ========== ОТПРАВКА РЕЗУЛЬТАТА ИГРЫ (HTTP) ==========
     async function sendGameResult(result, bet, win) {
-        if (!userId) return;
+        if (!userId) {
+            console.error('❌ Нельзя отправить результат: userId отсутствует');
+            return;
+        }
         try {
+            console.log(`📤 Отправка результата: ${result}, ставка ${bet}, выигрыш ${win}`);
             const resp = await fetch(`${API_BASE}/game_result`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -441,12 +460,14 @@
             });
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
+            console.log('📥 Ответ от /game_result:', data);
             if (data.new_balance !== undefined) {
-                // Обновляем баланс из ответа сервера
                 updateBalanceFromServer(data.new_balance);
+            } else {
+                console.warn('⚠️ Поле new_balance отсутствует в ответе');
             }
         } catch (e) {
-            console.error('Ошибка отправки результата:', e);
+            console.error('❌ Ошибка отправки результата:', e);
         }
     }
 
@@ -746,12 +767,8 @@
         }
         if (userBetQueued && gameState === 'WAITING') {
             userBetQueued = false;
-            // Возвращаем ставку локально (на сервер не отправляем, просто обновляем отображение)
-            // Так как ставка ещё не была отправлена на сервер, мы просто корректируем локальный баланс.
-            // Но мы не должны менять баланс без сервера. Однако ставка была списана локально при создании,
-            // поэтому отмена возвращает деньги локально.
-            // Но мы не храним баланс в localStorage, поэтому просто обновим отображение через loadBalance.
-            loadBalance(); // перезагружаем с сервера (чтобы быть уверенными)
+            // Отмена ставки — просто снимаем флаг, баланс не меняем, но перезагружаем с сервера для синхронизации
+            loadBalance();
             updateControls();
             renderBetsTable();
             return;
@@ -764,25 +781,7 @@
             userAutoCashout = parseFloat(autoInput.value) || 2.0;
             autoEnabled = autoEnableCheck.checked;
             userBetQueued = true;
-            // Списываем ставку локально (но на сервер пока не отправляем – только при результате)
-            // Мы не можем изменить баланс на сервере сейчас, поэтому просто обновим отображение, уменьшив localBalance
-            // Но правильнее будет сделать запрос на сервер для блокировки средств? В упрощённой версии – просто локально.
-            // Однако мы договорились, что баланс только с сервера. Значит, мы не должны списывать локально.
-            // Вместо этого мы будем списывать только при подтверждении ставки на сервере, но у нас нет такого эндпоинта.
-            // Поэтому оставим локальное списание для удобства, но при загрузке страницы баланс будет с сервера.
-            // При отмене – перезагрузим с сервера.
-            // При выигрыше/проигрыше – отправим результат и обновим с сервера.
-            // Таким образом, локальное списание – это только для интерфейса, но в случае рассинхрона – серверный баланс будет правильным.
-            // Мы просто уменьшим отображаемый баланс, но при следующей загрузке страницы или после операции он будет скорректирован с сервера.
-            // Чтобы избежать рассинхрона, лучше не списывать локально, а отправлять ставку на сервер.
-            // Но для простоты оставим локальное списание, а после результата обновим с сервера.
-            // Это не идеально, но работает.
-            // Сделаем так: при создании ставки мы запоминаем сумму, но не меняем баланс локально.
-            // Вместо этого мы просто блокируем кнопки, а при отмене – ничего не делаем.
-            // При выигрыше/проигрыше – отправляем результат на сервер и обновляем баланс.
-            // Таким образом, баланс всегда будет соответствовать серверу.
-            // Поэтому мы убираем локальное списание.
-            // Просто устанавливаем флаги и обновляем интерфейс.
+            // Баланс не списываем локально — только при отправке результата на сервер
             updateControls();
             renderBetsTable();
         }
