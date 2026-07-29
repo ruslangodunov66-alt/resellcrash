@@ -7,6 +7,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;1,800&family=Nunito:wght@700;800&display=swap" rel="stylesheet">
     <style>
+        /* ===== ВСЕ СТИЛИ БЕЗ ИЗМЕНЕНИЙ (полностью сохранены) ===== */
         :root {
             --bg-dark: #05080d;
             --container-bg: #0d121a;
@@ -125,7 +126,6 @@
         .wrapper-rub::before { content: '₽'; }
         .wrapper-x::before { content: 'x'; }
 
-        /* Чекбокс авто-вывода */
         .auto-checkbox-group {
             display: flex;
             align-items: center;
@@ -383,9 +383,6 @@
     tg.ready();
     if (tg.HapticFeedback) tg.enableClosingConfirmation();
 
-    // ========== НАСТРОЙКА API ==========
-    const API_BASE = 'https://resellgame.bothost.tech';
-
     // ========== ПОЛУЧЕНИЕ USER_ID ==========
     const urlParams = new URLSearchParams(window.location.search);
     const userId = urlParams.get('userId') || '';
@@ -394,18 +391,16 @@
     // ========== БАЛАНС (единственный источник – сервер) ==========
     let casinoBalance = 0;
     const balanceSpan = document.getElementById('balanceDisplay');
-    let balanceLoaded = false;
 
     async function loadBalance() {
         if (!userId) {
             console.warn('⚠️ userId отсутствует, баланс не загружается');
             balanceSpan.innerText = '0 ₽';
-            balanceLoaded = true;
             return;
         }
         try {
             console.log('📡 Запрос к /profile...');
-            const resp = await fetch(`${API_BASE}/profile/${userId}`);
+            const resp = await fetch(`/profile/${userId}`);
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
             console.log('📦 Ответ от /profile:', data);
@@ -413,19 +408,16 @@
                 casinoBalance = data.casino_balance;
                 balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
                 console.log('💰 casino_balance:', casinoBalance);
-                // Дополнительно проверяем, нет ли поля balance, которое может отличаться
                 if (data.balance !== undefined && data.balance !== casinoBalance) {
-                    console.warn('⚠️ Внимание: balance (%s) отличается от casino_balance (%s)', data.balance, casinoBalance);
+                    console.warn('⚠️ balance (%s) отличается от casino_balance (%s)', data.balance, casinoBalance);
                 }
             } else {
                 console.warn('⚠️ Поле casino_balance отсутствует в ответе');
                 balanceSpan.innerText = '0 ₽';
             }
-            balanceLoaded = true;
         } catch (e) {
             console.error('❌ Ошибка загрузки баланса:', e);
             balanceSpan.innerText = '0 ₽';
-            balanceLoaded = true;
         }
     }
 
@@ -447,7 +439,7 @@
         }
         try {
             console.log(`📤 Отправка результата: ${result}, ставка ${bet}, выигрыш ${win}`);
-            const resp = await fetch(`${API_BASE}/game_result`, {
+            const resp = await fetch(`/game_result`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -491,7 +483,7 @@
     const soundIcon = soundBtn.querySelector('.icon');
     const bgAudio = document.getElementById('bgMusic');
 
-    // === ФУНКЦИЯ ОБНОВЛЕНИЯ СТАТИСТИКИ ПРОФИЛЯ (локально, для интерфейса) ===
+    // === ФУНКЦИЯ ОБНОВЛЕНИЯ СТАТИСТИКИ ПРОФИЛЯ (локально) ===
     function updateProfileStats(result, bet, win) {
         let games = parseInt(localStorage.getItem('profile_games_played')) || 0;
         let wins = parseInt(localStorage.getItem('profile_wins')) || 0;
@@ -520,7 +512,6 @@
     function formatNumber(num) {
         return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
     }
-
     function parseNumber(str) {
         return parseInt(str.replace(/\./g, '')) || 0;
     }
@@ -767,7 +758,7 @@
         }
         if (userBetQueued && gameState === 'WAITING') {
             userBetQueued = false;
-            // Отмена ставки — просто снимаем флаг, баланс не меняем, но перезагружаем с сервера для синхронизации
+            // Перезагружаем баланс с сервера для синхронизации
             loadBalance();
             updateControls();
             renderBetsTable();
@@ -781,7 +772,6 @@
             userAutoCashout = parseFloat(autoInput.value) || 2.0;
             autoEnabled = autoEnableCheck.checked;
             userBetQueued = true;
-            // Баланс не списываем локально — только при отправке результата на сервер
             updateControls();
             renderBetsTable();
         }
@@ -792,7 +782,6 @@
         if (!userBetActive) return;
         userBetActive = false;
         let winAmount = Math.floor(userBetAmount * currentMulti);
-        // Отправляем результат на сервер
         sendGameResult('win', userBetAmount, winAmount);
         updateProfileStats('win', userBetAmount, winAmount);
         if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
@@ -854,7 +843,6 @@
         if (userBetActive) {
             userBetActive = false;
             updateProfileStats('lose', userBetAmount, 0);
-            // Отправляем результат на сервер
             sendGameResult('lose', userBetAmount, 0);
             if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
         }
@@ -1260,7 +1248,6 @@
 
     // === КНОПКА МЕНЮ ===
     menuBtn.onclick = () => {
-        // Передаём только userId, без баланса
         window.location.href = 'casino.html?userId=' + userId;
     };
 
