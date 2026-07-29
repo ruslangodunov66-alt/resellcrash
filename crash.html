@@ -383,32 +383,74 @@
     tg.ready();
     if (tg.HapticFeedback) tg.enableClosingConfirmation();
 
-    // ========== ЧТЕНИЕ БАЛАНСА ИЗ URL ==========
+    // ========== НАСТРОЙКА API ==========
+    const API_BASE = 'https://resellgame.bothost.tech';
+
+    // ========== ПОЛУЧЕНИЕ USER_ID ==========
     const urlParams = new URLSearchParams(window.location.search);
     const userId = urlParams.get('userId') || '';
-    let casinoBalance = parseInt(urlParams.get('balance')) || 0;
-    if (casinoBalance > 0) {
-        localStorage.setItem('casinoBalance', String(casinoBalance));
-    } else {
-        casinoBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
-        if (casinoBalance < 10) casinoBalance = 10000;
+
+    // ========== БАЛАНС (единственный источник – сервер) ==========
+    let casinoBalance = 0;
+    const balanceSpan = document.getElementById('balanceDisplay');
+
+    async function loadBalance() {
+        if (!userId) {
+            balanceSpan.innerText = '0 ₽';
+            return;
+        }
+        try {
+            const resp = await fetch(`${API_BASE}/profile/${userId}`);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            if (data.casino_balance !== undefined) {
+                casinoBalance = data.casino_balance;
+                balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
+            } else {
+                balanceSpan.innerText = '0 ₽';
+            }
+        } catch (e) {
+            console.warn('Не удалось загрузить баланс с сервера', e);
+            balanceSpan.innerText = '0 ₽';
+        }
     }
 
-    // ========== НОВАЯ ФУНКЦИЯ ОТПРАВКИ РЕЗУЛЬТАТА ЧЕРЕЗ sendData ==========
-    function sendGameResult(result, bet, win) {
-        tg.sendData(JSON.stringify({
-            action: 'game_result',
-            game: 'crash',
-            result: result,   // 'win' или 'lose'
-            bet: bet,
-            win: win
-        }));
-        // Закрываем WebApp, чтобы бот прислал результат в чат
-        setTimeout(() => tg.close(), 400);
+    // Загружаем баланс при старте
+    loadBalance();
+
+    // ========== ФУНКЦИЯ ОБНОВЛЕНИЯ БАЛАНСА ПОСЛЕ ОПЕРАЦИЙ ==========
+    function updateBalanceFromServer(newBalance) {
+        casinoBalance = newBalance;
+        balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
+    }
+
+    // ========== ОТПРАВКА РЕЗУЛЬТАТА ИГРЫ (HTTP) ==========
+    async function sendGameResult(result, bet, win) {
+        if (!userId) return;
+        try {
+            const resp = await fetch(`${API_BASE}/game_result`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId: userId,
+                    game: 'crash',
+                    result: result,
+                    bet: bet,
+                    win: win
+                })
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            if (data.new_balance !== undefined) {
+                // Обновляем баланс из ответа сервера
+                updateBalanceFromServer(data.new_balance);
+            }
+        } catch (e) {
+            console.error('Ошибка отправки результата:', e);
+        }
     }
 
     // ===== DOM =====
-    const balanceSpan = document.getElementById('balanceDisplay');
     const multiplierDisplay = document.getElementById('multiplierDisplay');
     const statusMsg = document.getElementById('statusMsg');
     const historyList = document.getElementById('historyList');
@@ -428,7 +470,7 @@
     const soundIcon = soundBtn.querySelector('.icon');
     const bgAudio = document.getElementById('bgMusic');
 
-    // === ФУНКЦИЯ ОБНОВЛЕНИЯ СТАТИСТИКИ ПРОФИЛЯ ===
+    // === ФУНКЦИЯ ОБНОВЛЕНИЯ СТАТИСТИКИ ПРОФИЛЯ (локально, для интерфейса) ===
     function updateProfileStats(result, bet, win) {
         let games = parseInt(localStorage.getItem('profile_games_played')) || 0;
         let wins = parseInt(localStorage.getItem('profile_wins')) || 0;
@@ -485,14 +527,6 @@
     function getBetValue() {
         return parseInt(betInput.dataset.value) || 100;
     }
-
-    // === БАЛАНС ===
-    function updateBalance(amount) {
-        casinoBalance += amount;
-        localStorage.setItem('casinoBalance', String(casinoBalance));
-        balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
-    }
-    updateBalance(0);
 
     // === ИСТОРИЯ ===
     let history = JSON.parse(localStorage.getItem('crash_history')) || [1.2, 4.5, 1.05, 2.3, 15.0];
@@ -712,7 +746,12 @@
         }
         if (userBetQueued && gameState === 'WAITING') {
             userBetQueued = false;
-            updateBalance(userBetAmount);
+            // Возвращаем ставку локально (на сервер не отправляем, просто обновляем отображение)
+            // Так как ставка ещё не была отправлена на сервер, мы просто корректируем локальный баланс.
+            // Но мы не должны менять баланс без сервера. Однако ставка была списана локально при создании,
+            // поэтому отмена возвращает деньги локально.
+            // Но мы не храним баланс в localStorage, поэтому просто обновим отображение через loadBalance.
+            loadBalance(); // перезагружаем с сервера (чтобы быть уверенными)
             updateControls();
             renderBetsTable();
             return;
@@ -725,21 +764,38 @@
             userAutoCashout = parseFloat(autoInput.value) || 2.0;
             autoEnabled = autoEnableCheck.checked;
             userBetQueued = true;
-            updateBalance(-userBetAmount);
+            // Списываем ставку локально (но на сервер пока не отправляем – только при результате)
+            // Мы не можем изменить баланс на сервере сейчас, поэтому просто обновим отображение, уменьшив localBalance
+            // Но правильнее будет сделать запрос на сервер для блокировки средств? В упрощённой версии – просто локально.
+            // Однако мы договорились, что баланс только с сервера. Значит, мы не должны списывать локально.
+            // Вместо этого мы будем списывать только при подтверждении ставки на сервере, но у нас нет такого эндпоинта.
+            // Поэтому оставим локальное списание для удобства, но при загрузке страницы баланс будет с сервера.
+            // При отмене – перезагрузим с сервера.
+            // При выигрыше/проигрыше – отправим результат и обновим с сервера.
+            // Таким образом, локальное списание – это только для интерфейса, но в случае рассинхрона – серверный баланс будет правильным.
+            // Мы просто уменьшим отображаемый баланс, но при следующей загрузке страницы или после операции он будет скорректирован с сервера.
+            // Чтобы избежать рассинхрона, лучше не списывать локально, а отправлять ставку на сервер.
+            // Но для простоты оставим локальное списание, а после результата обновим с сервера.
+            // Это не идеально, но работает.
+            // Сделаем так: при создании ставки мы запоминаем сумму, но не меняем баланс локально.
+            // Вместо этого мы просто блокируем кнопки, а при отмене – ничего не делаем.
+            // При выигрыше/проигрыше – отправляем результат на сервер и обновляем баланс.
+            // Таким образом, баланс всегда будет соответствовать серверу.
+            // Поэтому мы убираем локальное списание.
+            // Просто устанавливаем флаги и обновляем интерфейс.
             updateControls();
             renderBetsTable();
         }
     };
 
-    // ===== ИСПРАВЛЕННАЯ ФУНКЦИЯ cashoutUser =====
+    // ===== cashoutUser (вывод) =====
     function cashoutUser() {
         if (!userBetActive) return;
         userBetActive = false;
         let winAmount = Math.floor(userBetAmount * currentMulti);
-        updateBalance(winAmount);
-        updateProfileStats('win', userBetAmount, winAmount);
-        // ===== ОТПРАВКА РЕЗУЛЬТАТА =====
+        // Отправляем результат на сервер
         sendGameResult('win', userBetAmount, winAmount);
+        updateProfileStats('win', userBetAmount, winAmount);
         if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
         updateControls();
         renderBetsTable();
@@ -790,7 +846,7 @@
         updateControls();
     }
 
-    // ===== ИСПРАВЛЕННАЯ ФУНКЦИЯ handleCrash =====
+    // ===== handleCrash (взрыв) =====
     function handleCrash() {
         gameState = 'CRASHED';
         multiplierDisplay.style.color = 'var(--accent-red)';
@@ -799,7 +855,7 @@
         if (userBetActive) {
             userBetActive = false;
             updateProfileStats('lose', userBetAmount, 0);
-            // ===== ОТПРАВКА РЕЗУЛЬТАТА =====
+            // Отправляем результат на сервер
             sendGameResult('lose', userBetAmount, 0);
             if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
         }
@@ -1205,6 +1261,7 @@
 
     // === КНОПКА МЕНЮ ===
     menuBtn.onclick = () => {
+        // Передаём только userId, без баланса
         window.location.href = 'casino.html?userId=' + userId;
     };
 
