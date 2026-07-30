@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>КОШЕЛЕК | R-GAME</title>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;1,800&family=Nunito:wght@600;700;800&display=swap" rel="stylesheet">
-    <script async src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://telegram.org/js/telegram-web-app.js" async defer></script>
     <style>
         /* ===== ВСЕ СТИЛИ (БЕЗ ИЗМЕНЕНИЙ) ===== */
         :root {
@@ -413,27 +413,32 @@
 
     <script>
         // =========================================================
-        // НАСТРОЙКА – АБСОЛЮТНЫЙ URL БЭКЕНДА (ЕДИНСТВЕННЫЙ ИСТОЧНИК)
+        // БЕЗОПАСНАЯ РАБОТА С TELEGRAM (ДАЖЕ ЕСЛИ СКРИПТ НЕ ЗАГРУЗИЛСЯ)
         // =========================================================
-        const API_BASE = 'https://resellgame.bothost.tech';
+        const tg = window.Telegram?.WebApp || null;
+        if (tg) {
+            tg.expand();
+            tg.enableClosingConfirmation();
+        }
 
-        const tg = window.Telegram.WebApp;
-        tg.expand();
-        tg.enableClosingConfirmation();
-
+        // ===== ПОЛУЧАЕМ USER_ID (из URL или из Telegram) =====
         let userId = null;
         const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.has('userId')) userId = urlParams.get('userId');
-        else if (tg.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
+        if (urlParams.has('userId')) {
+            userId = urlParams.get('userId');
+        } else if (tg?.initDataUnsafe?.user?.id) {
+            userId = tg.initDataUnsafe.user.id;
+        }
 
+        // ===== ЭЛЕМЕНТЫ =====
         const balanceDisplay = document.getElementById('walletBalanceDisplay');
         let casinoBalance = 0;
         let mainBalance = 0;
 
-        // ===== ФУНКЦИЯ ЗАПРОСА С УВЕЛИЧЕННЫМ ТАЙМАУТОМ (30 сек) =====
+        // ===== ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ FETCH С ТАЙМАУТОМ =====
         async function apiFetch(url, options = {}) {
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 30000); // 30 секунд
+            const timeout = setTimeout(() => controller.abort(), 30000);
             try {
                 const response = await fetch(url, {
                     ...options,
@@ -457,17 +462,16 @@
                 return;
             }
             try {
-                const data = await apiFetch(`${API_BASE}/profile/${userId}`);
+                const data = await apiFetch(`/profile/${userId}`);
                 console.log('📦 Данные профиля:', data);
                 casinoBalance = data.casino_balance || 0;
                 mainBalance = data.balance || 0;
                 balanceDisplay.innerText = casinoBalance.toLocaleString() + ' ₽';
-                // Сохраняем в localStorage только для резерва (не используем как основной источник)
+                // Резервное копирование (не используется как основной источник)
                 localStorage.setItem('casinoBalance', String(casinoBalance));
                 localStorage.setItem('mainBalance', String(mainBalance));
             } catch (e) {
                 console.error('❌ Ошибка загрузки баланса:', e);
-                // Если ошибка – показываем 0 и пробуем localStorage
                 balanceDisplay.innerText = '0 ₽';
                 const cached = localStorage.getItem('casinoBalance');
                 if (cached !== null) {
@@ -481,8 +485,8 @@
             }
         }
 
-        // Загружаем при старте
-        loadBalances();
+        // Загружаем баланс после загрузки DOM
+        document.addEventListener('DOMContentLoaded', loadBalances);
 
         function setAmount(type, value) {
             if (type === 'deposit') {
@@ -494,7 +498,7 @@
 
         // Кнопка назад
         document.getElementById('backBtn').onclick = () => {
-            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
+            if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
             window.location.href = 'casino.html?userId=' + (userId || '');
         };
 
@@ -513,7 +517,7 @@
 
             try {
                 // Проверяем основной баланс через /profile
-                const profileData = await apiFetch(`${API_BASE}/profile/${userId}`);
+                const profileData = await apiFetch(`/profile/${userId}`);
                 const mainBalanceNow = profileData.balance || 0;
                 if (mainBalanceNow < amt) {
                     alert(`❌ Недостаточно средств на основном балансе! Доступно: ${mainBalanceNow}₽`);
@@ -521,7 +525,7 @@
                 }
 
                 // Выполняем пополнение
-                const data = await apiFetch(`${API_BASE}/deposit`, {
+                const data = await apiFetch('/deposit', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId: userId, amount: amt })
@@ -563,7 +567,7 @@
 
             try {
                 // Проверяем баланс казино через /profile
-                const profileData = await apiFetch(`${API_BASE}/profile/${userId}`);
+                const profileData = await apiFetch(`/profile/${userId}`);
                 const casinoBalanceNow = profileData.casino_balance || 0;
                 if (casinoBalanceNow < amt) {
                     alert(`❌ Недостаточно средств в казино! Доступно: ${casinoBalanceNow}₽`);
@@ -571,7 +575,7 @@
                 }
 
                 // Выполняем вывод
-                const data = await apiFetch(`${API_BASE}/withdraw`, {
+                const data = await apiFetch('/withdraw', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId: userId, amount: amt })
@@ -600,7 +604,7 @@
         // Обновляем баланс при фокусе
         window.addEventListener('focus', loadBalances);
 
-        console.log('✅ Кошелёк использует API_BASE с таймаутом 30 сек');
+        console.log('✅ Кошелёк загружен с безопасной работой Telegram');
     </script>
 </body>
 </html>
