@@ -413,7 +413,12 @@
 
     <script>
         // =========================================================
-        // БЕЗОПАСНАЯ РАБОТА С TELEGRAM (ДАЖЕ ЕСЛИ СКРИПТ НЕ ЗАГРУЗИЛСЯ)
+        // НАСТРОЙКА – АБСОЛЮТНЫЙ URL БЭКЕНДА
+        // =========================================================
+        const API_BASE = 'https://resellgame.bothost.tech';
+
+        // =========================================================
+        // БЕЗОПАСНАЯ РАБОТА С TELEGRAM
         // =========================================================
         const tg = window.Telegram?.WebApp || null;
         if (tg) {
@@ -421,7 +426,7 @@
             tg.enableClosingConfirmation();
         }
 
-        // ===== ПОЛУЧАЕМ USER_ID (из URL или из Telegram) =====
+        // ===== ПОЛУЧАЕМ USER_ID =====
         let userId = null;
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.has('userId')) {
@@ -462,12 +467,11 @@
                 return;
             }
             try {
-                const data = await apiFetch(`/profile/${userId}`);
+                const data = await apiFetch(`${API_BASE}/profile/${userId}`);
                 console.log('📦 Данные профиля:', data);
                 casinoBalance = data.casino_balance || 0;
                 mainBalance = data.balance || 0;
                 balanceDisplay.innerText = casinoBalance.toLocaleString() + ' ₽';
-                // Резервное копирование (не используется как основной источник)
                 localStorage.setItem('casinoBalance', String(casinoBalance));
                 localStorage.setItem('mainBalance', String(mainBalance));
             } catch (e) {
@@ -485,7 +489,6 @@
             }
         }
 
-        // Загружаем баланс после загрузки DOM
         document.addEventListener('DOMContentLoaded', loadBalances);
 
         function setAmount(type, value) {
@@ -496,7 +499,6 @@
             }
         }
 
-        // Кнопка назад
         document.getElementById('backBtn').onclick = () => {
             if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
             window.location.href = 'casino.html?userId=' + (userId || '');
@@ -517,7 +519,7 @@
 
             try {
                 // Проверяем основной баланс через /profile
-                const profileData = await apiFetch(`/profile/${userId}`);
+                const profileData = await apiFetch(`${API_BASE}/profile/${userId}`);
                 const mainBalanceNow = profileData.balance || 0;
                 if (mainBalanceNow < amt) {
                     alert(`❌ Недостаточно средств на основном балансе! Доступно: ${mainBalanceNow}₽`);
@@ -525,7 +527,7 @@
                 }
 
                 // Выполняем пополнение
-                const data = await apiFetch('/deposit', {
+                const data = await apiFetch(`${API_BASE}/deposit`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId: userId, amount: amt })
@@ -541,7 +543,6 @@
                         mainBalance = data.new_main_balance;
                         localStorage.setItem('mainBalance', String(mainBalance));
                     }
-                    // Переходим в казино
                     window.location.href = `casino.html?userId=${userId}`;
                 } else {
                     alert('❌ ' + (data.error || 'Ошибка пополнения'));
@@ -566,16 +567,14 @@
             }
 
             try {
-                // Проверяем баланс казино через /profile
-                const profileData = await apiFetch(`/profile/${userId}`);
+                const profileData = await apiFetch(`${API_BASE}/profile/${userId}`);
                 const casinoBalanceNow = profileData.casino_balance || 0;
                 if (casinoBalanceNow < amt) {
                     alert(`❌ Недостаточно средств в казино! Доступно: ${casinoBalanceNow}₽`);
                     return;
                 }
 
-                // Выполняем вывод
-                const data = await apiFetch('/withdraw', {
+                const data = await apiFetch(`${API_BASE}/withdraw`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId: userId, amount: amt })
@@ -601,10 +600,8 @@
             }
         };
 
-        // Обновляем баланс при фокусе
         window.addEventListener('focus', loadBalances);
-
-        console.log('✅ Кошелёк загружен с безопасной работой Telegram');
+        console.log('✅ Кошелёк работает с API_BASE');
     </script>
 </body>
 </html>
