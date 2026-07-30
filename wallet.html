@@ -7,7 +7,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;1,800&family=Nunito:wght@600;700;800&display=swap" rel="stylesheet">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        /* ===== ВСЕ ТВОИ СТИЛИ (БЕЗ ИЗМЕНЕНИЙ) ===== */
+        /* ===== ВСЕ СТИЛИ (БЕЗ ИЗМЕНЕНИЙ) ===== */
         :root {
             --bg-dark: #070b12;
             --container-bg: #111822;
@@ -412,10 +412,9 @@
     </div>
 
     <script>
-        // ========================================
-        // 🔧 НАСТРОЙКА – УКАЖИТЕ ВАШ URL БЭКЕНДА
-        // ========================================
-        const API_BASE = 'https://resellgame.bothost.tech';
+        // =========================================================
+        // ВСЕ ЗАПРОСЫ – ОТНОСИТЕЛЬНЫЕ ПУТИ (без API_BASE)
+        // =========================================================
 
         const tg = window.Telegram.WebApp;
         tg.expand();
@@ -430,6 +429,26 @@
         let casinoBalance = 0;
         let mainBalance = 0;
 
+        // ===== ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ FETCH С ТАЙМАУТОМ =====
+        async function apiFetch(url, options = {}) {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 15000); // 15 секунд
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    signal: controller.signal,
+                    cache: "no-store"
+                });
+                clearTimeout(timeout);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return await response.json();
+            } catch (err) {
+                clearTimeout(timeout);
+                console.error('❌ Ошибка запроса:', err);
+                throw err;
+            }
+        }
+
         // ===== ЗАГРУЗКА БАЛАНСА С СЕРВЕРА =====
         async function loadBalances() {
             if (!userId) {
@@ -437,9 +456,7 @@
                 return;
             }
             try {
-                const resp = await fetch(`${API_BASE}/profile/${userId}`);
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                const data = await resp.json();
+                const data = await apiFetch(`/profile/${userId}`);
                 console.log('📦 Данные профиля:', data);
                 casinoBalance = data.casino_balance || 0;
                 mainBalance = data.balance || 0;
@@ -449,8 +466,8 @@
                 localStorage.setItem('mainBalance', String(mainBalance));
             } catch (e) {
                 console.error('❌ Ошибка загрузки баланса:', e);
+                // Если ошибка – показываем 0 и пробуем localStorage
                 balanceDisplay.innerText = '0 ₽';
-                // Fallback на localStorage
                 const cached = localStorage.getItem('casinoBalance');
                 if (cached !== null) {
                     balanceDisplay.innerText = parseInt(cached).toLocaleString() + ' ₽';
@@ -495,9 +512,7 @@
 
             try {
                 // Проверяем основной баланс через /profile
-                const profileResp = await fetch(`${API_BASE}/profile/${userId}`);
-                if (!profileResp.ok) throw new Error(`HTTP ${profileResp.status}`);
-                const profileData = await profileResp.json();
+                const profileData = await apiFetch(`/profile/${userId}`);
                 const mainBalanceNow = profileData.balance || 0;
                 if (mainBalanceNow < amt) {
                     alert(`❌ Недостаточно средств на основном балансе! Доступно: ${mainBalanceNow}₽`);
@@ -505,16 +520,13 @@
                 }
 
                 // Выполняем пополнение
-                const resp = await fetch(`${API_BASE}/deposit`, {
+                const data = await apiFetch('/deposit', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId: userId, amount: amt })
                 });
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                const data = await resp.json();
                 console.log('📥 Ответ /deposit:', data);
                 if (data.success) {
-                    // Обновляем отображение на странице
                     if (data.new_casino_balance !== undefined) {
                         casinoBalance = data.new_casino_balance;
                         balanceDisplay.innerText = casinoBalance.toLocaleString() + ' ₽';
@@ -524,7 +536,7 @@
                         mainBalance = data.new_main_balance;
                         localStorage.setItem('mainBalance', String(mainBalance));
                     }
-                    // Сразу переходим в казино
+                    // Переходим в казино
                     window.location.href = `casino.html?userId=${userId}`;
                 } else {
                     alert('❌ ' + (data.error || 'Ошибка пополнения'));
@@ -550,9 +562,7 @@
 
             try {
                 // Проверяем баланс казино через /profile
-                const profileResp = await fetch(`${API_BASE}/profile/${userId}`);
-                if (!profileResp.ok) throw new Error(`HTTP ${profileResp.status}`);
-                const profileData = await profileResp.json();
+                const profileData = await apiFetch(`/profile/${userId}`);
                 const casinoBalanceNow = profileData.casino_balance || 0;
                 if (casinoBalanceNow < amt) {
                     alert(`❌ Недостаточно средств в казино! Доступно: ${casinoBalanceNow}₽`);
@@ -560,13 +570,11 @@
                 }
 
                 // Выполняем вывод
-                const resp = await fetch(`${API_BASE}/withdraw`, {
+                const data = await apiFetch('/withdraw', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId: userId, amount: amt })
                 });
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                const data = await resp.json();
                 console.log('📥 Ответ /withdraw:', data);
                 if (data.success) {
                     if (data.new_casino_balance !== undefined) {
@@ -591,7 +599,7 @@
         // Обновляем баланс при фокусе
         window.addEventListener('focus', loadBalances);
 
-        console.log('✅ Кошелёк переведён на HTTP (fetch) с API_BASE');
+        console.log('✅ Кошелёк переведён на относительные пути и таймаут');
     </script>
 </body>
 </html>
