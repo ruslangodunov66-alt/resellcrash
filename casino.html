@@ -419,7 +419,7 @@
         const API_BASE = 'https://resellgame.bothost.tech';
 
         // =========================================================
-        // БЕЗОПАСНАЯ РАБОТА С TELEGRAM (НЕ БЛОКИРУЕТ СТРАНИЦУ)
+        // БЕЗОПАСНАЯ РАБОТА С TELEGRAM
         // =========================================================
         const tg = window.Telegram?.WebApp || null;
         if (tg) {
@@ -446,42 +446,7 @@
         let casinoBalance = 0;
         let mainBalance = 0;
 
-        // ===== ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ FETCH (без лишних параметров) =====
-        async function apiFetch(url, options = {}) {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 15000);
-            const startedAt = performance.now();
-            try {
-                console.log('📡 API start:', url);
-                const response = await fetch(url, {
-                    ...options,
-                    signal: controller.signal,
-                    cache: 'no-store'
-                });
-                console.log('📨 Заголовки получены:', url, Math.round(performance.now() - startedAt) + 'ms');
-                const text = await response.text();
-                console.log('📦 Тело получено:', url, Math.round(performance.now() - startedAt) + 'ms');
-                let data;
-                try {
-                    data = text ? JSON.parse(text) : {};
-                } catch {
-                    throw new Error('Сервер вернул не JSON: ' + text.slice(0, 150));
-                }
-                if (!response.ok) {
-                    throw new Error(data.detail || data.error || `HTTP ${response.status}`);
-                }
-                return data;
-            } catch (err) {
-                console.error('❌ Ошибка запроса:', err);
-                throw err;
-            } finally {
-                clearTimeout(timeoutId);
-            }
-        }
-
         // ===== ЗАГРУЗКА БАЛАНСА: СНАЧАЛА ИЗ КЭША, ПОТОМ ОБНОВЛЕНИЕ =====
-        let balanceLoaded = false;
-
         async function loadBalances() {
             if (!userId) {
                 balanceDisplay.innerText = '0 ₽';
@@ -500,7 +465,11 @@
 
             // 2. Фоновый запрос к серверу (не ждём)
             try {
-                const data = await apiFetch(`${API_BASE}/profile/${encodeURIComponent(userId)}`);
+                const response = await fetch(`${API_BASE}/profile/${encodeURIComponent(userId)}`, {
+                    cache: 'no-store'
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
                 console.log('📦 Данные профиля с сервера:', data);
                 if (data.casino_balance !== undefined) {
                     const newBalance = Number(data.casino_balance) || 0;
@@ -511,7 +480,6 @@
                     }
                     mainBalance = Number(data.balance) || 0;
                     localStorage.setItem('mainBalance', String(mainBalance));
-                    balanceLoaded = true;
                 }
             } catch (err) {
                 console.warn('⚠️ Фоновое обновление баланса не удалось:', err.message);
@@ -539,7 +507,7 @@
             window.location.href = 'casino.html?userId=' + (userId || '');
         };
 
-        // ===== ПОПОЛНЕНИЕ =====
+        // ===== ПОПОЛНЕНИЕ (упрощённый вариант для диагностики) =====
         document.getElementById('submitDepositBtn').onclick = async () => {
             const button = document.getElementById('submitDepositBtn');
             const input = document.getElementById('depositInput');
@@ -556,32 +524,42 @@
             button.textContent = 'Пополнение...';
 
             try {
-                // Отправляем запрос (без предварительной проверки)
-                const data = await apiFetch(`${API_BASE}/deposit`, {
+                console.log('🚀 Пополнение: отправка запроса', performance.now());
+                const response = await fetch(`${API_BASE}/deposit`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId: String(userId), amount: amt })
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        userId: String(userId),
+                        amount: amt
+                    })
                 });
-                console.log('📥 Ответ /deposit:', data);
+                console.log('🚀 Пополнение: ответ получен', performance.now(), response.status);
+                const text = await response.text();
+                console.log('📦 Тело ответа:', text);
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch {
+                    throw new Error('Сервер вернул не JSON: ' + text.slice(0, 150));
+                }
+                if (!response.ok) {
+                    throw new Error(data.detail || data.error || `HTTP ${response.status}`);
+                }
                 if (data.success) {
                     casinoBalance = Number(data.new_casino_balance ?? data.casino_balance) || 0;
                     mainBalance = Number(data.new_main_balance ?? data.balance) || 0;
                     balanceDisplay.innerText = casinoBalance.toLocaleString('ru-RU') + ' ₽';
                     localStorage.setItem('casinoBalance', String(casinoBalance));
                     localStorage.setItem('mainBalance', String(mainBalance));
-                    // Переход в казино
                     window.location.replace(`casino.html?userId=${encodeURIComponent(userId)}`);
                 } else {
                     alert('❌ ' + (data.error || 'Ошибка пополнения'));
                 }
             } catch (err) {
                 console.error('Ошибка пополнения:', err);
-                if (err.name === 'AbortError') {
-                    alert('⏳ Сервер не ответил за 15 секунд. Проверьте баланс позже.');
-                } else {
-                    alert('❌ ' + (err.message || 'Ошибка пополнения'));
-                }
-                // Не переходим, просто разблокируем кнопку
+                alert('❌ Ошибка: ' + (err.message || 'Неизвестная ошибка'));
             } finally {
                 button.disabled = false;
                 button.textContent = 'Пополнить';
@@ -605,13 +583,29 @@
             button.textContent = 'Вывод...';
 
             try {
-                // Проверка баланса на сервере не нужна – сервер сам проверит
-                const data = await apiFetch(`${API_BASE}/withdraw`, {
+                console.log('🚀 Вывод: отправка запроса', performance.now());
+                const response = await fetch(`${API_BASE}/withdraw`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId: String(userId), amount: amt })
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        userId: String(userId),
+                        amount: amt
+                    })
                 });
-                console.log('📥 Ответ /withdraw:', data);
+                console.log('🚀 Вывод: ответ получен', performance.now(), response.status);
+                const text = await response.text();
+                console.log('📦 Тело ответа:', text);
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch {
+                    throw new Error('Сервер вернул не JSON: ' + text.slice(0, 150));
+                }
+                if (!response.ok) {
+                    throw new Error(data.detail || data.error || `HTTP ${response.status}`);
+                }
                 if (data.success) {
                     casinoBalance = Number(data.new_casino_balance ?? data.casino_balance) || 0;
                     mainBalance = Number(data.new_main_balance ?? data.balance) || 0;
@@ -624,18 +618,14 @@
                 }
             } catch (err) {
                 console.error('Ошибка вывода:', err);
-                if (err.name === 'AbortError') {
-                    alert('⏳ Сервер не ответил за 15 секунд. Проверьте баланс позже.');
-                } else {
-                    alert('❌ ' + (err.message || 'Ошибка вывода'));
-                }
+                alert('❌ Ошибка: ' + (err.message || 'Неизвестная ошибка'));
             } finally {
                 button.disabled = false;
                 button.textContent = 'Вывести';
             }
         };
 
-        console.log('✅ wallet.html загружен: сначала кэш, потом сервер');
+        console.log('✅ wallet.html загружен (упрощённые запросы для диагностики)');
     </script>
 </body>
 </html>
