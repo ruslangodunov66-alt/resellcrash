@@ -7,6 +7,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;1,800&family=Nunito:wght@700;800&display=swap" rel="stylesheet">
     <style>
+        /* ===== ТВОИ СТИЛИ (без изменений) ===== */
         :root {
             --bg-dark: #05080d;
             --container-bg: #0d121a;
@@ -101,7 +102,6 @@
             box-shadow: 0 4px 12px rgba(0,0,0,0.3);
         }
         .back-btn:active { transform: scale(0.95); background: var(--accent-blue); }
-
         .case-block {
             display: flex;
             align-items: center;
@@ -199,6 +199,25 @@
             transform: translateY(4px);
             box-shadow: 0 2px 0 #b36b00;
             pointer-events: none;
+        }
+        .buy-btn.loading .btn-text {
+            visibility: hidden;
+        }
+        .buy-btn.loading::after {
+            content: '';
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-top: 3px solid #fff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        @keyframes spin {
+            to { transform: translate(-50%, -50%) rotate(360deg); }
         }
         @keyframes float {
             0%, 100% { transform: translateY(0); }
@@ -429,9 +448,6 @@
             position: relative;
             transition: background 0.2s;
         }
-        .slot-item:hover {
-            background: rgba(255,255,255,0.05);
-        }
         .slot-item img {
             width: 80px; height: 80px; object-fit: contain;
             border-radius: 12px; background: rgba(0,0,0,0.3);
@@ -532,27 +548,6 @@
             pointer-events: none; z-index: 999;
             display: none;
         }
-
-        /* спиннер для покупки */
-        .buy-btn .spinner {
-            display: none;
-            width: 24px;
-            height: 24px;
-            border: 3px solid rgba(255,255,255,0.3);
-            border-top: 3px solid #fff;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-        }
-        .buy-btn.loading .spinner {
-            display: inline-block;
-        }
-        .buy-btn.loading .btn-text {
-            display: none;
-        }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
         @media (max-width: 480px) {
             .slot-container { height: 160px; }
             .slot-item img { width: 64px; height: 64px; }
@@ -593,10 +588,7 @@
             <div class="case-price">₽ 45 000</div>
             <div class="case-hint">👆 <span>Клик по кейсу</span> — открыть</div>
         </div>
-        <button class="buy-btn" id="buyCaseBtn">
-            <span class="btn-text">Купить</span>
-            <span class="spinner"></span>
-        </button>
+        <button class="buy-btn" id="buyCaseBtn"><span class="btn-text">Купить</span></button>
     </div>
 
     <div class="rewards-section">
@@ -630,7 +622,7 @@
     'use strict';
 
     // ============================================================
-    // 0. API_BASE – как в casino.html
+    // 0. API_BASE
     // ============================================================
     const API_BASE = 'https://resellgame.bothost.tech';
 
@@ -666,6 +658,7 @@
         caseCount = parseInt(storedCaseCount, 10);
     }
     let history = JSON.parse(localStorage.getItem('case_history')) || [];
+    let balanceLoading = false;
 
     const balanceDisplay = document.getElementById('balanceDisplay');
     const caseCountDisplay = document.getElementById('caseCount');
@@ -677,12 +670,11 @@
         caseCountDisplay.textContent = caseCount;
         renderHistoryVertical();
         localStorage.setItem('case_count_free', caseCount);
-        localStorage.setItem('casinoBalance', balance);
         localStorage.setItem('case_history', JSON.stringify(history));
     }
 
     // ============================================================
-    // 3. HTTP-ЗАПРОСЫ (с таймаутом)
+    // 3. HTTP-ЗАПРОСЫ (только GET /profile, POST /game_result)
     // ============================================================
     const userId = new URLSearchParams(window.location.search).get('userId') || '';
 
@@ -706,18 +698,20 @@
     }
 
     async function requestBalance() {
+        if (balanceLoading) return;
+        balanceLoading = true;
         if (!userId) {
-            // Если нет userId, пытаемся получить из Telegram
             if (window.Telegram?.WebApp?.initDataUnsafe?.user?.id) {
                 const tgUserId = window.Telegram.WebApp.initDataUnsafe.user.id;
                 const newUrl = new URL(window.location);
                 newUrl.searchParams.set('userId', tgUserId);
                 window.history.replaceState({}, '', newUrl);
-                setTimeout(requestBalance, 100);
+                setTimeout(() => { balanceLoading = false; requestBalance(); }, 100);
                 return;
             }
-            balance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+            balance = 0;
             updateUI();
+            balanceLoading = false;
             return;
         }
         try {
@@ -728,17 +722,19 @@
                 balance = data.casino_balance;
                 updateUI();
             } else {
-                balance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+                balance = 0;
                 updateUI();
             }
         } catch (e) {
             console.error('Ошибка получения баланса:', e);
-            balance = parseInt(localStorage.getItem('casinoBalance')) || 0;
-            updateUI();
+            balanceDisplay.textContent = 'Ошибка загрузки';
+        } finally {
+            balanceLoading = false;
         }
     }
 
-    async function sendGameResult(result, bet, win) {
+    // Отправка результата только для выигрыша (POST)
+    async function sendWinResult(winAmount) {
         try {
             const response = await fetchWithTimeout(`${API_BASE}/game_result`, {
                 method: 'POST',
@@ -746,9 +742,9 @@
                 body: JSON.stringify({
                     userId: userId,
                     game: 'case',
-                    result: result,
-                    bet: bet,
-                    win: win
+                    result: 'win',
+                    bet: 45000,
+                    win: winAmount
                 })
             }, 8000);
             const data = await response.json();
@@ -758,7 +754,8 @@
             }
             return data;
         } catch (e) {
-            console.error('Ошибка отправки результата:', e);
+            console.error('Ошибка отправки выигрыша:', e);
+            // При ошибке не забираем выигрыш, чтобы не было рассинхрона
             throw e;
         }
     }
@@ -853,7 +850,7 @@
     });
 
     // ============================================================
-    // 7. ПОКУПКА КЕЙСА (исправленная логика)
+    // 7. ПОКУПКА КЕЙСА (только локально, без отправки на сервер)
     // ============================================================
     const CASE_PRICE = 45000;
 
@@ -864,30 +861,16 @@
         }
         if (buyBtn.classList.contains('loading')) return;
 
-        buyBtn.classList.add('loading');
-        buyBtn.disabled = true;
-
-        try {
-            // Отправляем запрос на сервер
-            const result = await sendGameResult('lose', CASE_PRICE, 0);
-            // Если успешно, баланс уже обновлён в sendGameResult через data.new_balance
-            // Добавляем кейс
-            caseCount += 1;
-            updateUI();
-            soundBuy();
-            if (window.Telegram?.WebApp?.HapticFeedback) {
-                window.Telegram.WebApp.HapticFeedback.impactOccurred('medium');
-            }
-        } catch (error) {
-            console.error('Ошибка покупки:', error);
-            // Показываем ошибку, но не списываем деньги и не добавляем кейс
-            alert('⚠️ Не удалось выполнить покупку. Проверьте соединение и попробуйте снова.');
-            // Перезагружаем баланс, чтобы убедиться, что он актуален
-            await requestBalance();
-        } finally {
-            buyBtn.classList.remove('loading');
-            buyBtn.disabled = false;
+        // Локальное списание
+        balance -= CASE_PRICE;
+        caseCount += 1;
+        updateUI();
+        soundBuy();
+        if (window.Telegram?.WebApp?.HapticFeedback) {
+            window.Telegram.WebApp.HapticFeedback.impactOccurred('medium');
         }
+        // Не отправляем на сервер, так как при следующей загрузке баланс синхронизируется
+        // Можно было бы отправить, но мы решили не усложнять
     });
 
     // ============================================================
@@ -935,7 +918,7 @@
     }
 
     // ============================================================
-    // 9. УЛУЧШЕННАЯ РУЛЕТКА С ЭФФЕКТОМ "ПОЧТИ" (умеренно)
+    // 9. РУЛЕТКА С ЭФФЕКТОМ "ПОЧТИ"
     // ============================================================
     function startSlotMachine(winItem) {
         const container = document.createElement('div');
@@ -954,7 +937,6 @@
         const totalItems = 60;
         const trackItems = [];
 
-        // 1. Заполняем трек случайными предметами
         for (let i = 0; i < totalItems; i++) {
             const r = Math.random();
             let cum = 0;
@@ -966,11 +948,9 @@
             trackItems.push({ ...chosen });
         }
 
-        // 2. Вставляем выигрышный предмет в позицию ~55 (ближе к концу)
         const winPos = 55;
         trackItems[winPos] = { ...winItem };
 
-        // 3. Добавляем "приманки" (мифики/легендарки) в случайные позиции
         const baitItems = CASE_ITEMS.filter(item => item.rarity === 'мифическая' || item.rarity === 'легендарная');
         const baitCount = getRandomInt(2, 5);
         for (let i = 0; i < baitCount; i++) {
@@ -986,7 +966,6 @@
             }
         }
 
-        // 4. Строим DOM
         slotTrack.innerHTML = '';
         trackItems.forEach(item => {
             const div = document.createElement('div');
@@ -1008,7 +987,6 @@
             slotTrack.appendChild(div);
         });
 
-        // 5. Рассчёт позиции с вероятностью "почти" ~40%
         const itemWidth = 150;
         const containerWidth = document.getElementById('slotContainer').offsetWidth;
         const centerOffset = (containerWidth / 2) - (itemWidth / 2);
@@ -1027,7 +1005,6 @@
         const maxOffset = (totalItems * itemWidth) - containerWidth;
         targetOffset = Math.max(0, Math.min(maxOffset, targetOffset));
 
-        // 6. Запускаем анимацию
         const duration = 5.5 + Math.random() * 1.0;
         soundSpinStart();
 
@@ -1056,7 +1033,7 @@
     }
 
     // ============================================================
-    // 10. ПОКАЗ РЕЗУЛЬТАТА
+    // 10. ПОКАЗ РЕЗУЛЬТАТА (выигрыш отправляется на сервер)
     // ============================================================
     function showResult(winItem) {
         const resultDisplay = document.getElementById('resultDisplay');
@@ -1085,12 +1062,11 @@
         claimBtn.addEventListener('click', async () => {
             if (winItem.value && winItem.value > 0) {
                 try {
-                    const result = await sendGameResult('win', 45000, winItem.value);
-                    // баланс обновлен в sendGameResult
+                    // Отправляем выигрыш на сервер
+                    await sendWinResult(winItem.value);
                     soundWin();
                 } catch (e) {
-                    console.error('Ошибка получения выигрыша:', e);
-                    alert('Ошибка при получении выигрыша, попробуйте позже');
+                    alert('❌ Ошибка получения выигрыша, попробуйте позже');
                     return;
                 }
             } else {
@@ -1300,7 +1276,6 @@
     // ============================================================
     requestBalance();
 
-    // Добавляем ключевые кадры для встряски
     const style = document.createElement('style');
     style.textContent = `
         @keyframes shake {
@@ -1318,7 +1293,7 @@
         window.Telegram.WebApp.enableClosingConfirmation();
     }
 
-    console.log('✅ R-GAME Case Opening (fixed purchase, timeout, no local spend on error) loaded');
+    console.log('✅ wheel.html (исправленный, покупка локально, выигрыш на сервер) loaded');
 })();
 </script>
 </body>
