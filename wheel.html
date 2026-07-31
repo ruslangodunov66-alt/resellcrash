@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -7,7 +7,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;1,800&family=Nunito:wght@700;800&display=swap" rel="stylesheet">
     <style>
-        /* ===== ВСЕ СТИЛИ БЕЗ ИЗМЕНЕНИЙ (те же, что в оригинале) ===== */
+        /* ===== ВСЕ СТИЛИ БЕЗ ИЗМЕНЕНИЙ ===== */
         :root {
             --bg-dark: #05080d;
             --container-bg: #0d121a;
@@ -751,7 +751,7 @@
     }
 
     // ============================================================
-    // ПОКУПКА КЕЙСА (через отдельный эндпоинт)
+    // ПОКУПКА КЕЙСА
     // ============================================================
     async function buyCase(amount) {
         const currentUserId = new URLSearchParams(window.location.search).get('userId');
@@ -771,25 +771,21 @@
     }
 
     // ============================================================
-    // ОТПРАВКА ВЫИГРЫША (только win)
+    // ВЫИГРЫШ В КЕЙСЕ (отдельный эндпоинт)
     // ============================================================
-    async function sendWinResult(winAmount) {
+    async function claimCaseWin(winAmount) {
         const currentUserId = new URLSearchParams(window.location.search).get('userId');
         if (!currentUserId) throw new Error('Нет userId');
-        const data = await apiFetch(`${API_BASE}/game_result`, {
+        const data = await apiFetch(`${API_BASE}/case-win`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 userId: currentUserId,
-                game: 'case',
-                result: 'win',
-                bet: 45000,
-                win: winAmount
+                amount: winAmount
             })
         }, 15000);
-        if (data.new_balance !== undefined) {
-            balance = data.new_balance;
-            updateUI();
+        if (!data.success) {
+            throw new Error(data.error || 'Не удалось получить выигрыш');
         }
         return data;
     }
@@ -877,7 +873,7 @@
         startCaseOpening(currentWin);
     });
 
-    // ПОКУПКА КЕЙСА (новая логика – отдельный эндпоинт)
+    // ПОКУПКА КЕЙСА
     const CASE_PRICE = 45000;
 
     buyBtn.addEventListener('click', async () => {
@@ -892,14 +888,11 @@
 
         try {
             const result = await buyCase(CASE_PRICE);
-            // Обновляем баланс из ответа сервера
             if (result.new_casino_balance !== undefined) {
                 balance = result.new_casino_balance;
             } else {
-                // fallback – перезагружаем баланс
                 await loadBalance();
             }
-            // Добавляем кейс
             caseCount += 1;
             updateUI();
             soundBuy();
@@ -909,7 +902,6 @@
         } catch (error) {
             console.error('Ошибка покупки:', error);
             alert('❌ Ошибка при покупке: ' + error.message);
-            // Перезагружаем баланс, чтобы показать актуальное состояние
             loadBalance();
         } finally {
             buyBtn.classList.remove('loading');
@@ -1100,7 +1092,12 @@
         claimBtn.addEventListener('click', async () => {
             if (winItem.value && winItem.value > 0) {
                 try {
-                    await sendWinResult(winItem.value);
+                    const result = await claimCaseWin(winItem.value);
+                    if (result.new_casino_balance !== undefined) {
+                        balance = result.new_casino_balance;
+                    } else {
+                        await loadBalance();
+                    }
                     soundWin();
                 } catch (e) {
                     alert('❌ Ошибка получения выигрыша: ' + e.message);
@@ -1318,7 +1315,7 @@
         window.Telegram.WebApp.enableClosingConfirmation();
     }
 
-    console.log('✅ wheel.html (с отдельным /buy-case, таймаутами) загружен');
+    console.log('✅ wheel.html (отдельные эндпоинты для покупки и выигрыша) загружен');
 })();
 </script>
 </body>
