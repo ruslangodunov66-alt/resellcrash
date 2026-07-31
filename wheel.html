@@ -533,6 +533,26 @@
             display: none;
         }
 
+        /* спиннер для покупки */
+        .buy-btn .spinner {
+            display: none;
+            width: 24px;
+            height: 24px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-top: 3px solid #fff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        .buy-btn.loading .spinner {
+            display: inline-block;
+        }
+        .buy-btn.loading .btn-text {
+            display: none;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
         @media (max-width: 480px) {
             .slot-container { height: 160px; }
             .slot-item img { width: 64px; height: 64px; }
@@ -573,7 +593,10 @@
             <div class="case-price">₽ 45 000</div>
             <div class="case-hint">👆 <span>Клик по кейсу</span> — открыть</div>
         </div>
-        <button class="buy-btn" id="buyCaseBtn">Купить</button>
+        <button class="buy-btn" id="buyCaseBtn">
+            <span class="btn-text">Купить</span>
+            <span class="spinner"></span>
+        </button>
     </div>
 
     <div class="rewards-section">
@@ -612,7 +635,7 @@
     const API_BASE = 'https://resellgame.bothost.tech';
 
     // ============================================================
-    // 1. ДАННЫЕ КЕЙСА (те же шансы)
+    // 1. ДАННЫЕ КЕЙСА
     // ============================================================
     const CASE_ITEMS = [
         { id: 'skin_henri', name: 'Анри Жерар', rarity: 'мифическая', rarityColor: '#e74c3c', image: 'case/photo_2026-07-20_19-21-45.jpg', value: 0 },
@@ -631,7 +654,7 @@
     };
 
     // ============================================================
-    // 2. СОСТОЯНИЕ (баланс храним локально, но синхронизируем с сервером)
+    // 2. СОСТОЯНИЕ
     // ============================================================
     let balance = 0;
     let caseCount;
@@ -647,6 +670,7 @@
     const balanceDisplay = document.getElementById('balanceDisplay');
     const caseCountDisplay = document.getElementById('caseCount');
     const historyListVert = document.getElementById('historyVertical');
+    const buyBtn = document.getElementById('buyCaseBtn');
 
     function updateUI() {
         balanceDisplay.textContent = balance.toLocaleString();
@@ -658,9 +682,28 @@
     }
 
     // ============================================================
-    // 3. HTTP-ЗАПРОСЫ (абсолютные URL)
+    // 3. HTTP-ЗАПРОСЫ (с таймаутом)
     // ============================================================
     const userId = new URLSearchParams(window.location.search).get('userId') || '';
+
+    async function fetchWithTimeout(url, options = {}, timeout = 8000) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+        try {
+            const response = await fetch(url, {
+                ...options,
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+            return response;
+        } catch (error) {
+            clearTimeout(timeoutId);
+            if (error.name === 'AbortError') {
+                throw new Error('Сервер не ответил за ' + (timeout/1000) + ' секунд');
+            }
+            throw error;
+        }
+    }
 
     async function requestBalance() {
         if (!userId) {
@@ -670,7 +713,6 @@
                 const newUrl = new URL(window.location);
                 newUrl.searchParams.set('userId', tgUserId);
                 window.history.replaceState({}, '', newUrl);
-                // Повторим вызов после обновления URL
                 setTimeout(requestBalance, 100);
                 return;
             }
@@ -679,14 +721,13 @@
             return;
         }
         try {
-            const response = await fetch(`${API_BASE}/profile/${userId}`);
+            const response = await fetchWithTimeout(`${API_BASE}/profile/${userId}`, {}, 8000);
             if (!response.ok) throw new Error('Network response was not ok');
             const data = await response.json();
             if (data.casino_balance !== undefined) {
                 balance = data.casino_balance;
                 updateUI();
             } else {
-                // fallback
                 balance = parseInt(localStorage.getItem('casinoBalance')) || 0;
                 updateUI();
             }
@@ -699,7 +740,7 @@
 
     async function sendGameResult(result, bet, win) {
         try {
-            const response = await fetch(`${API_BASE}/game_result`, {
+            const response = await fetchWithTimeout(`${API_BASE}/game_result`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -709,7 +750,7 @@
                     bet: bet,
                     win: win
                 })
-            });
+            }, 8000);
             const data = await response.json();
             if (data.new_balance !== undefined) {
                 balance = data.new_balance;
@@ -718,7 +759,7 @@
             return data;
         } catch (e) {
             console.error('Ошибка отправки результата:', e);
-            return null;
+            throw e;
         }
     }
 
@@ -756,7 +797,7 @@
     }
 
     // ============================================================
-    // 5. ЗВУК (оставлен как есть)
+    // 5. ЗВУК
     // ============================================================
     let audioCtx = null;
     function initAudio() {
@@ -812,9 +853,8 @@
     });
 
     // ============================================================
-    // 7. ПОКУПКА КЕЙСА
+    // 7. ПОКУПКА КЕЙСА (исправленная логика)
     // ============================================================
-    const buyBtn = document.getElementById('buyCaseBtn');
     const CASE_PRICE = 45000;
 
     buyBtn.addEventListener('click', async () => {
@@ -822,24 +862,30 @@
             alert('❌ Недостаточно средств!');
             return;
         }
+        if (buyBtn.classList.contains('loading')) return;
+
+        buyBtn.classList.add('loading');
         buyBtn.disabled = true;
+
         try {
+            // Отправляем запрос на сервер
             const result = await sendGameResult('lose', CASE_PRICE, 0);
-            if (result && result.new_balance !== undefined) {
-                balance = result.new_balance;
-            } else {
-                balance -= CASE_PRICE;
-            }
+            // Если успешно, баланс уже обновлён в sendGameResult через data.new_balance
+            // Добавляем кейс
             caseCount += 1;
             updateUI();
             soundBuy();
             if (window.Telegram?.WebApp?.HapticFeedback) {
                 window.Telegram.WebApp.HapticFeedback.impactOccurred('medium');
             }
-        } catch (e) {
-            console.error('Ошибка покупки:', e);
-            alert('⚠️ Ошибка при покупке. Попробуйте позже.');
+        } catch (error) {
+            console.error('Ошибка покупки:', error);
+            // Показываем ошибку, но не списываем деньги и не добавляем кейс
+            alert('⚠️ Не удалось выполнить покупку. Проверьте соединение и попробуйте снова.');
+            // Перезагружаем баланс, чтобы убедиться, что он актуален
+            await requestBalance();
         } finally {
+            buyBtn.classList.remove('loading');
             buyBtn.disabled = false;
         }
     });
@@ -924,9 +970,8 @@
         const winPos = 55;
         trackItems[winPos] = { ...winItem };
 
-        // 3. Добавляем "приманки" (мифики/легендарки) в случайные позиции, но не всегда рядом с выигрышем
+        // 3. Добавляем "приманки" (мифики/легендарки) в случайные позиции
         const baitItems = CASE_ITEMS.filter(item => item.rarity === 'мифическая' || item.rarity === 'легендарная');
-        // Случайное количество приманок: 2-5
         const baitCount = getRandomInt(2, 5);
         for (let i = 0; i < baitCount; i++) {
             let pos;
@@ -969,19 +1014,16 @@
         const centerOffset = (containerWidth / 2) - (itemWidth / 2);
         let targetOffset = (winPos * itemWidth) - centerOffset;
 
-        // Добавляем случайный сдвиг для создания эффекта "почти"
-        if (Math.random() < 0.4) { // в 40% случаев делаем небольшой сдвиг
+        if (Math.random() < 0.4) {
             const shiftDir = Math.random() > 0.5 ? 1 : -1;
             const shiftPx = 20 + Math.random() * 30;
             targetOffset += shiftDir * shiftPx;
         } else {
-            // Иначе оставляем точное попадание (или очень маленький сдвиг)
             if (Math.random() < 0.2) {
                 targetOffset += (Math.random() - 0.5) * 10;
             }
         }
 
-        // Ограничиваем, чтобы не выйти за пределы
         const maxOffset = (totalItems * itemWidth) - containerWidth;
         targetOffset = Math.max(0, Math.min(maxOffset, targetOffset));
 
@@ -992,10 +1034,8 @@
         slotTrack.style.transition = `transform ${duration}s cubic-bezier(0.15, 0.85, 0.1, 1)`;
         slotTrack.style.transform = `translateX(-${targetOffset}px)`;
 
-        // 7. После остановки – микродвижение (только иногда)
         setTimeout(() => {
             soundSpinStop();
-            // В 30% случаев добавляем "перескок"
             if (Math.random() < 0.3) {
                 setTimeout(() => {
                     const extraShift = (Math.random() > 0.5 ? 1 : -1) * (10 + Math.random() * 20);
@@ -1016,7 +1056,7 @@
     }
 
     // ============================================================
-    // 10. ПОКАЗ РЕЗУЛЬТАТА (без изменений)
+    // 10. ПОКАЗ РЕЗУЛЬТАТА
     // ============================================================
     function showResult(winItem) {
         const resultDisplay = document.getElementById('resultDisplay');
@@ -1044,15 +1084,15 @@
         claimBtn.textContent = 'ЗАБРАТЬ';
         claimBtn.addEventListener('click', async () => {
             if (winItem.value && winItem.value > 0) {
-                const result = await sendGameResult('win', 45000, winItem.value);
-                if (result && result.new_balance !== undefined) {
-                    balance = result.new_balance;
-                    updateUI();
-                } else {
-                    balance += winItem.value;
-                    updateUI();
+                try {
+                    const result = await sendGameResult('win', 45000, winItem.value);
+                    // баланс обновлен в sendGameResult
+                    soundWin();
+                } catch (e) {
+                    console.error('Ошибка получения выигрыша:', e);
+                    alert('Ошибка при получении выигрыша, попробуйте позже');
+                    return;
                 }
-                soundWin();
             } else {
                 soundLose();
             }
@@ -1278,7 +1318,7 @@
         window.Telegram.WebApp.enableClosingConfirmation();
     }
 
-    console.log('✅ R-GAME Case Opening (API_BASE, balanced "almost" effect) loaded');
+    console.log('✅ R-GAME Case Opening (fixed purchase, timeout, no local spend on error) loaded');
 })();
 </script>
 </body>
