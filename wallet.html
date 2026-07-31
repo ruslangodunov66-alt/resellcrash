@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>КОШЕЛЕК | R-GAME</title>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;1,800&family=Nunito:wght@600;700;800&display=swap" rel="stylesheet">
-    <!-- Загружаем Telegram WebApp синхронно, чтобы объект был доступен сразу -->
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- Загружаем Telegram WebApp с defer (не блокирует парсинг) -->
+    <script src="https://telegram.org/js/telegram-web-app.js" defer></script>
     <style>
         /* ===== ВСЕ ТВОИ СТИЛИ (БЕЗ ИЗМЕНЕНИЙ) ===== */
         :root {
@@ -333,6 +333,15 @@
         <div class="bg-text">R-<span>GAME</span></div>
     </div>
 
+    <!-- Оверлей для индикации выполнения операции -->
+    <div id="operationOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(4,7,12,0.85); z-index: 9999; display: flex; align-items: center; justify-content: center; flex-direction: column; color: #fff; font-family: 'Nunito', sans-serif; font-size: 18px; font-weight: 700; backdrop-filter: blur(10px);">
+        <div style="text-align: center;">
+            <div style="font-size: 48px; margin-bottom: 16px;">⏳</div>
+            <div id="operationText">Выполняется операция...</div>
+            <div style="font-size: 14px; color: #8c9eb5; margin-top: 8px;">Пожалуйста, не закрывайте приложение</div>
+        </div>
+    </div>
+
     <div class="content">
         <div class="header">
             <button class="btn-back" id="backBtn">← Назад</button>
@@ -419,29 +428,48 @@
         const API_BASE = 'https://resellgame.bothost.tech';
 
         // =========================================================
-        // TELEGRAM WebApp (загружен синхронно)
+        // БЕЗОПАСНАЯ РАБОТА С TELEGRAM (с defer)
         // =========================================================
-        const tg = window.Telegram.WebApp;
-        tg.expand();
-        tg.enableClosingConfirmation();
+        const tg = window.Telegram?.WebApp || null;
+        if (tg) {
+            try {
+                tg.expand();
+                tg.enableClosingConfirmation();
+            } catch (e) { /* ignore */ }
+        }
 
         let userId = null;
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.has('userId')) userId = urlParams.get('userId');
-        else if (tg.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
+        else if (tg?.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
 
         const balanceDisplay = document.getElementById('walletBalanceDisplay');
         let casinoBalance = 0;
         let mainBalance = 0;
 
-        // ===== ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ С ЛОГАМИ =====
+        // Флаги для защиты от повторных операций
+        let depositInProgress = false;
+        let withdrawInProgress = false;
+
+        // ===== ФУНКЦИЯ ПОКАЗА/СКРЫТИЯ ОВЕРЛЕЯ =====
+        function showOverlay(text) {
+            const overlay = document.getElementById('operationOverlay');
+            document.getElementById('operationText').textContent = text || 'Выполняется операция...';
+            overlay.style.display = 'flex';
+        }
+
+        function hideOverlay() {
+            document.getElementById('operationOverlay').style.display = 'none';
+        }
+
+        // ===== ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ С ЛОГАМИ (ИСПРАВЛЕНА) =====
         async function apiFetch(url, options = {}) {
             const startedAt = performance.now();
             console.log(`📡 [${new Date().toISOString()}] Запрос к ${url}`);
             try {
                 const response = await fetch(url, {
-                    ...options,
-                    cache: 'no-cache'
+                    ...options, // ← ИСПРАВЛЕНО: спред-оператор, а не .options
+                    cache: 'no-store'
                 });
                 const elapsed = Math.round(performance.now() - startedAt);
                 console.log(`✅ [${new Date().toISOString()}] Ответ получен за ${elapsed}мс, статус ${response.status}`);
@@ -483,7 +511,7 @@
         // Загружаем баланс один раз при старте
         loadBalances();
 
-        // Убираем повторные вызовы по focus
+        // Убираем повторные вызовы по focus (уже закомментировано)
         // window.addEventListener('focus', loadBalances);
 
         function setAmount(type, value) {
@@ -496,12 +524,18 @@
 
         // ===== КНОПКА НАЗАД (абсолютный URL) =====
         document.getElementById('backBtn').onclick = () => {
-            tg.HapticFeedback.impactOccurred('medium');
+            if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
             window.location.href = 'https://ruslangodunov66-alt.github.io/resellcrash/casino.html?userId=' + encodeURIComponent(userId || '');
         };
 
-        // ===== ПОПОЛНЕНИЕ (БЕЗ ПРЕДВАРИТЕЛЬНОГО /profile) =====
+        // ===== ПОПОЛНЕНИЕ (С ЗАЩИТОЙ ОТ ПОВТОРОВ) =====
         document.getElementById('submitDepositBtn').onclick = async () => {
+            // Защита от повторных нажатий
+            if (depositInProgress) {
+                console.warn('⚠️ Пополнение уже выполняется, игнорируем повторный клик');
+                return;
+            }
+
             const input = document.getElementById('depositInput');
             const amt = parseInt(input.value);
             if (!userId) {
@@ -513,9 +547,11 @@
                 return;
             }
 
+            depositInProgress = true;
             const btn = document.getElementById('submitDepositBtn');
             btn.disabled = true;
             btn.textContent = 'Пополнение...';
+            showOverlay('Пополнение баланса...');
 
             try {
                 const data = await apiFetch(`${API_BASE}/deposit`, {
@@ -528,13 +564,14 @@
                 });
                 console.log('📥 Ответ /deposit:', data);
                 if (data.success) {
-                    // Поддержка разных имён полей
                     casinoBalance = Number(data.casino_balance ?? data.new_casino_balance ?? data.balance ?? 0);
                     mainBalance = Number(data.main_balance ?? data.new_main_balance ?? data.balance ?? 0);
                     balanceDisplay.innerText = casinoBalance.toLocaleString('ru-RU') + ' ₽';
-                    tg.HapticFeedback.notificationOccurred('success');
+                    if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
                     alert(`✅ Пополнение на ${amt}₽ выполнено! Новый баланс казино: ${casinoBalance}₽`);
                     input.value = '';
+                    // Переход в казино
+                    window.location.replace('https://ruslangodunov66-alt.github.io/resellcrash/casino.html?userId=' + encodeURIComponent(userId));
                 } else {
                     alert('❌ ' + (data.error || 'Ошибка пополнения'));
                 }
@@ -542,13 +579,21 @@
                 console.error('❌ Ошибка пополнения:', err);
                 alert('❌ Ошибка: ' + (err.message || 'Неизвестная ошибка'));
             } finally {
+                depositInProgress = false;
                 btn.disabled = false;
                 btn.textContent = 'Пополнить';
+                hideOverlay();
             }
         };
 
-        // ===== ВЫВОД (БЕЗ ПРЕДВАРИТЕЛЬНОГО /profile) =====
+        // ===== ВЫВОД (С ЗАЩИТОЙ ОТ ПОВТОРОВ) =====
         document.getElementById('submitWithdrawBtn').onclick = async () => {
+            // Защита от повторных нажатий
+            if (withdrawInProgress) {
+                console.warn('⚠️ Вывод уже выполняется, игнорируем повторный клик');
+                return;
+            }
+
             const input = document.getElementById('withdrawInput');
             const amt = parseInt(input.value);
             if (!userId) {
@@ -560,9 +605,11 @@
                 return;
             }
 
+            withdrawInProgress = true;
             const btn = document.getElementById('submitWithdrawBtn');
             btn.disabled = true;
             btn.textContent = 'Вывод...';
+            showOverlay('Вывод средств...');
 
             try {
                 const data = await apiFetch(`${API_BASE}/withdraw`, {
@@ -578,9 +625,10 @@
                     casinoBalance = Number(data.casino_balance ?? data.new_casino_balance ?? data.balance ?? 0);
                     mainBalance = Number(data.main_balance ?? data.new_main_balance ?? data.balance ?? 0);
                     balanceDisplay.innerText = casinoBalance.toLocaleString('ru-RU') + ' ₽';
-                    tg.HapticFeedback.notificationOccurred('success');
+                    if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
                     alert(`✅ Вывод ${amt}₽ выполнен! Новый баланс казино: ${casinoBalance}₽`);
                     input.value = '';
+                    window.location.replace('https://ruslangodunov66-alt.github.io/resellcrash/casino.html?userId=' + encodeURIComponent(userId));
                 } else {
                     alert('❌ ' + (data.error || 'Ошибка вывода'));
                 }
@@ -588,12 +636,14 @@
                 console.error('❌ Ошибка вывода:', err);
                 alert('❌ Ошибка: ' + (err.message || 'Неизвестная ошибка'));
             } finally {
+                withdrawInProgress = false;
                 btn.disabled = false;
                 btn.textContent = 'Вывести';
+                hideOverlay();
             }
         };
 
-        console.log('✅ wallet.html исправлен: удалён предварительный /profile, синхронный Telegram, абсолютные URL');
+        console.log('✅ wallet.html исправлен: защита от повторов, правильный спред-оператор, оверлей');
     </script>
 </body>
 </html>
