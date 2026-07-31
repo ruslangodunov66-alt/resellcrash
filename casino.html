@@ -6,9 +6,10 @@
     <meta name="theme-color" content="#04070e">
     <title>LOBBY | R-GAME</title>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,700;0,800;0,900;1,800&family=Nunito:wght@500;600;700;800;900&display=swap" rel="stylesheet">
+    <!-- Загружаем Telegram WebApp синхронно, чтобы объект был доступен сразу -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        /* ===== ВСЕ ТВОИ СТИЛИ (БЕЗ ИЗМЕНЕНИЙ) ===== */
+        /* ===== ВСЕ ТВОИ СТИЛИ (БЕЗ ИЗМЕНЕНИЙ, ИСПРАВЛЕНА ТОЛЬКО CSS-ОШИБКА) ===== */
         :root {
             --bg-dark: #04070e;
             --bg-deep: #090f1a;
@@ -204,7 +205,7 @@
             content: '';
             position: absolute;
             inset: 0;
-            background: linear-gradient(to cubic-bezier(0.4, 0, 0.2, 1), transparent 75%, rgba(4, 7, 14, 0.4));
+            background: linear-gradient(to bottom, transparent 75%, rgba(4, 7, 14, 0.4));
             pointer-events: none;
             z-index: 3;
         }
@@ -458,7 +459,7 @@
             <div class="balance-block">
                 <div class="balance-info">
                     <span class="balance-label">БАЛАНС</span>
-                    <span class="balance-value" id="balanceDisplay">0 ₽</span>
+                    <span class="balance-value" id="balanceDisplay">Загрузка...</span>
                 </div>
                 <div class="action-buttons">
                     <button class="action-btn deposit" id="depositBtn">ПОПОЛНИТЬ</button>
@@ -599,6 +600,14 @@
     </div>
 
     <script>
+        // =========================================================
+        // ЕДИНЫЙ API_BASE (ЗАМЕНИ НА СВОЙ ДОМЕН, ЕСЛИ ОТЛИЧАЕТСЯ)
+        // =========================================================
+        const API_BASE = 'https://resellgame.bothost.tech';
+
+        // =========================================================
+        // TELEGRAM WebApp (объект уже загружен синхронно)
+        // =========================================================
         const tg = window.Telegram.WebApp;
         tg.expand();
         tg.enableClosingConfirmation();
@@ -613,102 +622,86 @@
         // ===== ЭЛЕМЕНТЫ =====
         const balanceSpan = document.getElementById('balanceDisplay');
 
-        // ===== ФУНКЦИЯ ЗАГРУЗКИ БАЛАНСА С СЕРВЕРА =====
+        // ===== ЗАГРУЗКА БАЛАНСА (без localStorage) =====
         async function loadBalance() {
             if (!userId) {
                 balanceSpan.innerText = '0 ₽';
                 return;
             }
             try {
-                const resp = await fetch(`/profile/${userId}`);
+                const resp = await fetch(`${API_BASE}/profile/${userId}`, {
+                    cache: 'no-cache'
+                });
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const data = await resp.json();
+                console.log('✅ Баланс загружен:', data);
                 if (data.casino_balance !== undefined) {
-                    const newBalance = data.casino_balance;
-                    balanceSpan.innerText = newBalance.toLocaleString() + ' ₽';
-                    localStorage.setItem('casinoBalance', String(newBalance));
+                    balanceSpan.innerText = data.casino_balance.toLocaleString() + ' ₽';
                 } else {
-                    // Если поле отсутствует – используем localStorage
-                    const cached = localStorage.getItem('casinoBalance');
-                    if (cached !== null) {
-                        balanceSpan.innerText = parseInt(cached).toLocaleString() + ' ₽';
-                    }
+                    balanceSpan.innerText = '0 ₽';
                 }
             } catch (e) {
-                console.warn('Не удалось загрузить баланс с сервера', e);
-                // Fallback на localStorage (или параметр URL, если есть)
-                const cached = localStorage.getItem('casinoBalance');
-                if (cached !== null) {
-                    balanceSpan.innerText = parseInt(cached).toLocaleString() + ' ₽';
-                } else {
-                    // Если и localStorage пуст, пробуем параметр URL (только как резерв)
-                    const paramBalance = urlParams.get('balance');
-                    if (paramBalance !== null) {
-                        const bal = parseInt(paramBalance) || 0;
-                        balanceSpan.innerText = bal.toLocaleString() + ' ₽';
-                        localStorage.setItem('casinoBalance', String(bal));
-                    } else {
-                        balanceSpan.innerText = '0 ₽';
-                    }
-                }
+                console.warn('⚠️ Не удалось загрузить баланс:', e);
+                balanceSpan.innerText = 'Ошибка загрузки';
             }
         }
 
-        // ===== ЗАГРУЖАЕМ БАЛАНС ПРИ СТАРТЕ =====
+        // ===== ЗАГРУЖАЕМ ПРИ СТАРТЕ =====
         document.addEventListener('DOMContentLoaded', loadBalance);
 
-        // ===== ОБНОВЛЯЕМ БАЛАНС ПРИ ВОЗВРАТЕ НА СТРАНИЦУ (фокус) =====
-        window.addEventListener('focus', loadBalance);
+        // ===== НЕТ ПОВТОРНЫХ ЗАПРОСОВ =====
+        // window.addEventListener('focus', loadBalance); // удалено
 
-        // ===== КНОПКА ПОПОЛНИТЬ (без параметра balance) =====
+        // ===== КНОПКА ПОПОЛНИТЬ =====
         const depositBtn = document.getElementById('depositBtn');
-        const URL_WALLET = "https://ruslangodunov66-alt.github.io/resellcrash/wallet.html";
+        const URL_WALLET = 'https://ruslangodunov66-alt.github.io/resellcrash/wallet.html';
 
         depositBtn.onclick = () => {
             if (!userId) {
                 alert('❌ Ошибка: userId не найден');
                 return;
             }
-            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
-            window.location.href = URL_WALLET + '?userId=' + userId;
+            tg.HapticFeedback.impactOccurred('medium');
+            window.location.href = URL_WALLET + '?userId=' + encodeURIComponent(userId);
         };
 
-        // ===== ПЕРЕХОД В ИГРЫ (без параметра balance) =====
-        const URL_SLOTS = "https://ruslangodunov66-alt.github.io/resellcrash/slots.html";
-        const URL_ZEUS = "https://ruslangodunov66-alt.github.io/resellcrash/slots_zeus.html";
-        const URL_ROULETTE = "https://ruslangodunov66-alt.github.io/resellcrash/roulette.html";
-        const URL_CRASH = "https://ruslangodunov66-alt.github.io/resellcrash/crash.html";
-        const URL_MINES = "https://ruslangodunov66-alt.github.io/resellcrash/mines.html";
-        const URL_BLACKJACK = "https://ruslangodunov66-alt.github.io/resellcrash/blackjack.html";
-        const URL_LADDER = "https://ruslangodunov66-alt.github.io/resellcrash/stair.html";
-        const URL_POKER = "https://ruslangodunov66-alt.github.io/resellcrash/poker.html";
-        const URL_FRUIT = "https://ruslangodunov66-alt.github.io/resellcrash/slots_fruit.html";
-        const URL_HORSES = "https://ruslangodunov66-alt.github.io/resellcrash/horses.html";
-        const URL_FOOTBALL = "https://ruslangodunov66-alt.github.io/resellcrash/football.html";
+        // ===== ПЕРЕХОД В ИГРЫ =====
+        const URL_SLOTS = 'https://ruslangodunov66-alt.github.io/resellcrash/slots.html';
+        const URL_ZEUS = 'https://ruslangodunov66-alt.github.io/resellcrash/slots_zeus.html';
+        const URL_ROULETTE = 'https://ruslangodunov66-alt.github.io/resellcrash/roulette.html';
+        const URL_CRASH = 'https://ruslangodunov66-alt.github.io/resellcrash/crash.html';
+        const URL_MINES = 'https://ruslangodunov66-alt.github.io/resellcrash/mines.html';
+        const URL_BLACKJACK = 'https://ruslangodunov66-alt.github.io/resellcrash/blackjack.html';
+        const URL_LADDER = 'https://ruslangodunov66-alt.github.io/resellcrash/stair.html';
+        const URL_POKER = 'https://ruslangodunov66-alt.github.io/resellcrash/poker.html';
+        const URL_FRUIT = 'https://ruslangodunov66-alt.github.io/resellcrash/slots_fruit.html';
+        const URL_HORSES = 'https://ruslangodunov66-alt.github.io/resellcrash/horses.html';
+        const URL_FOOTBALL = 'https://ruslangodunov66-alt.github.io/resellcrash/football.html';
 
         function goToGame(game) {
             if (!userId) return;
             let url = '';
-            if (game === 'crash') url = URL_CRASH;
-            else if (game === 'blackjack') url = URL_BLACKJACK;
-            else if (game === 'mines') url = URL_MINES;
-            else if (game === 'slots') url = URL_SLOTS;
-            else if (game === 'zeus') url = URL_ZEUS;
-            else if (game === 'roulette') url = URL_ROULETTE;
-            else if (game === 'ladder') url = URL_LADDER;
-            else if (game === 'poker') url = URL_POKER;
-            else if (game === 'fruit') url = URL_FRUIT;
-            else if (game === 'horses') url = URL_HORSES;
-            else if (game === 'football') url = URL_FOOTBALL;
-            else return;
-            // Передаём только userId – баланс будет загружен через /profile
-            window.location.href = url + '?userId=' + userId;
+            switch (game) {
+                case 'crash': url = URL_CRASH; break;
+                case 'blackjack': url = URL_BLACKJACK; break;
+                case 'mines': url = URL_MINES; break;
+                case 'slots': url = URL_SLOTS; break;
+                case 'zeus': url = URL_ZEUS; break;
+                case 'roulette': url = URL_ROULETTE; break;
+                case 'ladder': url = URL_LADDER; break;
+                case 'poker': url = URL_POKER; break;
+                case 'fruit': url = URL_FRUIT; break;
+                case 'horses': url = URL_HORSES; break;
+                case 'football': url = URL_FOOTBALL; break;
+                default: return;
+            }
+            window.location.href = url + '?userId=' + encodeURIComponent(userId);
         }
 
         document.querySelectorAll('.game-card').forEach(card => {
             card.addEventListener('click', () => {
                 const game = card.getAttribute('data-game');
-                if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
+                tg.HapticFeedback.impactOccurred('medium');
                 goToGame(game);
             });
         });
@@ -721,9 +714,8 @@
 
         function goToSlide(index) {
             currentIndex = index;
-            const offset = -currentIndex * 50;
-            track.style.transform = `translateX(${offset}%)`;
-            dots.forEach(dot => dot.classList.remove('active'));
+            track.style.transform = `translateX(${-currentIndex * 50}%)`;
+            dots.forEach(d => d.classList.remove('active'));
             dots[currentIndex].classList.add('active');
         }
 
@@ -747,14 +739,13 @@
             item.addEventListener('click', () => {
                 document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
                 item.classList.add('active');
-                const navType = item.getAttribute('data-nav');
-                if (navType === 'profile') {
-                    window.location.href = 'profile.html?userId=' + (userId || '');
+                if (item.getAttribute('data-nav') === 'profile') {
+                    window.location.href = 'profile.html?userId=' + encodeURIComponent(userId || '');
                 }
             });
         });
 
-        console.log('✅ Casino lobby: баланс загружается через /profile при каждом открытии');
+        console.log('✅ casino.html исправлен: синхронная загрузка Telegram, абсолютные URL, нет localStorage');
     </script>
 </body>
 </html>
