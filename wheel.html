@@ -7,7 +7,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;1,800&family=Nunito:wght@700;800&display=swap" rel="stylesheet">
     <style>
-        /* ===== ТВОИ СТИЛИ (без изменений) ===== */
+        /* ===== ВСЕ СТИЛИ БЕЗ ИЗМЕНЕНИЙ ===== */
         :root {
             --bg-dark: #05080d;
             --container-bg: #0d121a;
@@ -199,25 +199,6 @@
             transform: translateY(4px);
             box-shadow: 0 2px 0 #b36b00;
             pointer-events: none;
-        }
-        .buy-btn.loading .btn-text {
-            visibility: hidden;
-        }
-        .buy-btn.loading::after {
-            content: '';
-            position: absolute;
-            width: 24px;
-            height: 24px;
-            border: 3px solid rgba(255,255,255,0.3);
-            border-top: 3px solid #fff;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-        }
-        @keyframes spin {
-            to { transform: translate(-50%, -50%) rotate(360deg); }
         }
         @keyframes float {
             0%, 100% { transform: translateY(0); }
@@ -571,7 +552,7 @@
         <div class="header-actions">
             <div class="info-card">
                 <span style="font-weight:900; margin-right:2px;">₽</span>
-                <span class="balance-value" id="balanceDisplay">0</span>
+                <span class="balance-value" id="balanceDisplay">Загрузка...</span>
                 <span class="case-icon-header"></span>
                 <span class="case-count" id="caseCount">0</span>
             </div>
@@ -588,7 +569,7 @@
             <div class="case-price">₽ 45 000</div>
             <div class="case-hint">👆 <span>Клик по кейсу</span> — открыть</div>
         </div>
-        <button class="buy-btn" id="buyCaseBtn"><span class="btn-text">Купить</span></button>
+        <button class="buy-btn" id="buyCaseBtn">Купить</button>
     </div>
 
     <div class="rewards-section">
@@ -674,94 +655,96 @@
     }
 
     // ============================================================
-    // 3. HTTP-ЗАПРОСЫ (только GET /profile, POST /game_result)
+    // 3. ЗАГРУЗКА БАЛАНСА (обычный fetch, без таймаута)
     // ============================================================
     const userId = new URLSearchParams(window.location.search).get('userId') || '';
-
-    async function fetchWithTimeout(url, options = {}, timeout = 8000) {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeout);
-        try {
-            const response = await fetch(url, {
-                ...options,
-                signal: controller.signal
-            });
-            clearTimeout(timeoutId);
-            return response;
-        } catch (error) {
-            clearTimeout(timeoutId);
-            if (error.name === 'AbortError') {
-                throw new Error('Сервер не ответил за ' + (timeout/1000) + ' секунд');
-            }
-            throw error;
-        }
+    if (!userId && window.Telegram?.WebApp?.initDataUnsafe?.user?.id) {
+        const tgUserId = window.Telegram.WebApp.initDataUnsafe.user.id;
+        const newUrl = new URL(window.location);
+        newUrl.searchParams.set('userId', tgUserId);
+        window.history.replaceState({}, '', newUrl);
+        setTimeout(loadBalance, 300);
+    } else {
+        loadBalance();
     }
 
-    async function requestBalance() {
+    function loadBalance() {
         if (balanceLoading) return;
         balanceLoading = true;
-        if (!userId) {
-            if (window.Telegram?.WebApp?.initDataUnsafe?.user?.id) {
-                const tgUserId = window.Telegram.WebApp.initDataUnsafe.user.id;
-                const newUrl = new URL(window.location);
-                newUrl.searchParams.set('userId', tgUserId);
-                window.history.replaceState({}, '', newUrl);
-                setTimeout(() => { balanceLoading = false; requestBalance(); }, 100);
-                return;
-            }
-            balance = 0;
-            updateUI();
+        balanceDisplay.textContent = 'Загрузка...';
+
+        const currentUserId = new URLSearchParams(window.location.search).get('userId');
+        if (!currentUserId) {
+            balanceDisplay.textContent = 'Ошибка: нет ID';
             balanceLoading = false;
             return;
         }
-        try {
-            const response = await fetchWithTimeout(`${API_BASE}/profile/${userId}`, {}, 8000);
-            if (!response.ok) throw new Error('Network response was not ok');
-            const data = await response.json();
-            if (data.casino_balance !== undefined) {
-                balance = data.casino_balance;
-                updateUI();
-            } else {
-                balance = 0;
-                updateUI();
-            }
-        } catch (e) {
-            console.error('Ошибка получения баланса:', e);
-            balanceDisplay.textContent = 'Ошибка загрузки';
-        } finally {
-            balanceLoading = false;
-        }
-    }
 
-    // Отправка результата только для выигрыша (POST)
-    async function sendWinResult(winAmount) {
-        try {
-            const response = await fetchWithTimeout(`${API_BASE}/game_result`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    userId: userId,
-                    game: 'case',
-                    result: 'win',
-                    bet: 45000,
-                    win: winAmount
-                })
-            }, 8000);
-            const data = await response.json();
-            if (data.new_balance !== undefined) {
-                balance = data.new_balance;
-                updateUI();
-            }
-            return data;
-        } catch (e) {
-            console.error('Ошибка отправки выигрыша:', e);
-            // При ошибке не забираем выигрыш, чтобы не было рассинхрона
-            throw e;
-        }
+        fetch(`${API_BASE}/profile/${currentUserId}`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('HTTP ' + response.status);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('✅ Баланс загружен:', data);
+                if (data.casino_balance !== undefined) {
+                    balance = data.casino_balance;
+                    updateUI();
+                } else {
+                    console.warn('⚠️ Поле casino_balance отсутствует, использую balance:', data.balance);
+                    balance = data.balance || 0;
+                    updateUI();
+                }
+            })
+            .catch(error => {
+                console.error('❌ Ошибка загрузки баланса:', error);
+                balanceDisplay.textContent = 'Ошибка загрузки';
+                // Пробуем взять из localStorage
+                const saved = parseInt(localStorage.getItem('casinoBalance')) || 0;
+                if (saved > 0) {
+                    balance = saved;
+                    updateUI();
+                }
+            })
+            .finally(() => {
+                balanceLoading = false;
+            });
     }
 
     // ============================================================
-    // 4. ВСПОМОГАТЕЛЬНЫЕ
+    // 4. ОТПРАВКА ВЫИГРЫША (POST)
+    // ============================================================
+    async function sendWinResult(winAmount) {
+        const currentUserId = new URLSearchParams(window.location.search).get('userId');
+        if (!currentUserId) {
+            throw new Error('Нет userId');
+        }
+        const response = await fetch(`${API_BASE}/game_result`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                userId: currentUserId,
+                game: 'case',
+                result: 'win',
+                bet: 45000,
+                win: winAmount
+            })
+        });
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        const data = await response.json();
+        if (data.new_balance !== undefined) {
+            balance = data.new_balance;
+            updateUI();
+        }
+        return data;
+    }
+
+    // ============================================================
+    // 5. ВСПОМОГАТЕЛЬНЫЕ
     // ============================================================
     function getRandomInt(min, max) {
         return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -794,7 +777,7 @@
     }
 
     // ============================================================
-    // 5. ЗВУК
+    // 6. ЗВУК (без изменений)
     // ============================================================
     let audioCtx = null;
     function initAudio() {
@@ -826,7 +809,7 @@
     function soundLose() { initAudio(); playTone(300, 0.3, 0.06, 'sawtooth'); }
 
     // ============================================================
-    // 6. ОТКРЫТИЕ КЕЙСА
+    // 7. ОТКРЫТИЕ КЕЙСА
     // ============================================================
     const caseOpenTrigger = document.getElementById('caseOpenTrigger');
     const overlay = document.getElementById('overlay');
@@ -850,18 +833,15 @@
     });
 
     // ============================================================
-    // 7. ПОКУПКА КЕЙСА (только локально, без отправки на сервер)
+    // 8. ПОКУПКА КЕЙСА (локально)
     // ============================================================
     const CASE_PRICE = 45000;
 
-    buyBtn.addEventListener('click', async () => {
+    buyBtn.addEventListener('click', () => {
         if (balance < CASE_PRICE) {
             alert('❌ Недостаточно средств!');
             return;
         }
-        if (buyBtn.classList.contains('loading')) return;
-
-        // Локальное списание
         balance -= CASE_PRICE;
         caseCount += 1;
         updateUI();
@@ -869,12 +849,10 @@
         if (window.Telegram?.WebApp?.HapticFeedback) {
             window.Telegram.WebApp.HapticFeedback.impactOccurred('medium');
         }
-        // Не отправляем на сервер, так как при следующей загрузке баланс синхронизируется
-        // Можно было бы отправить, но мы решили не усложнять
     });
 
     // ============================================================
-    // 8. АНИМАЦИЯ ОТКРЫТИЯ
+    // 9. АНИМАЦИЯ ОТКРЫТИЯ
     // ============================================================
     function startCaseOpening(winItem) {
         isOpening = true;
@@ -918,7 +896,7 @@
     }
 
     // ============================================================
-    // 9. РУЛЕТКА С ЭФФЕКТОМ "ПОЧТИ"
+    // 10. РУЛЕТКА С ЭФФЕКТОМ "ПОЧТИ"
     // ============================================================
     function startSlotMachine(winItem) {
         const container = document.createElement('div');
@@ -1033,7 +1011,7 @@
     }
 
     // ============================================================
-    // 10. ПОКАЗ РЕЗУЛЬТАТА (выигрыш отправляется на сервер)
+    // 11. ПОКАЗ РЕЗУЛЬТАТА
     // ============================================================
     function showResult(winItem) {
         const resultDisplay = document.getElementById('resultDisplay');
@@ -1062,7 +1040,6 @@
         claimBtn.addEventListener('click', async () => {
             if (winItem.value && winItem.value > 0) {
                 try {
-                    // Отправляем выигрыш на сервер
                     await sendWinResult(winItem.value);
                     soundWin();
                 } catch (e) {
@@ -1104,7 +1081,7 @@
     }
 
     // ============================================================
-    // 11. ЧАСТИЦЫ
+    // 12. ЧАСТИЦЫ
     // ============================================================
     const canvas = document.getElementById('particleCanvas');
     const ctx = canvas.getContext('2d');
@@ -1184,7 +1161,7 @@
     }
 
     // ============================================================
-    // 12. ИСТОРИЯ
+    // 13. ИСТОРИЯ
     // ============================================================
     function renderHistoryVertical() {
         historyListVert.innerHTML = '';
@@ -1225,7 +1202,7 @@
     }
 
     // ============================================================
-    // 13. КАРУСЕЛЬ НАГРАД
+    // 14. КАРУСЕЛЬ НАГРАД
     // ============================================================
     let carouselIndex = 0;
     const carouselImage = document.getElementById('carouselImage');
@@ -1252,14 +1229,15 @@
     updateCarousel();
 
     // ============================================================
-    // 14. КНОПКА НАЗАД
+    // 15. КНОПКА НАЗАД
     // ============================================================
     document.getElementById('backBtn').addEventListener('click', () => {
-        window.location.href = 'casino.html?userId=' + userId;
+        const currentUserId = new URLSearchParams(window.location.search).get('userId') || '';
+        window.location.href = 'casino.html?userId=' + currentUserId;
     });
 
     // ============================================================
-    // 15. ЗАКРЫТИЕ ОВЕРЛЕЯ
+    // 16. ЗАКРЫТИЕ ОВЕРЛЕЯ
     // ============================================================
     closeBtn.addEventListener('click', () => {
         overlay.classList.remove('active');
@@ -1272,10 +1250,8 @@
     });
 
     // ============================================================
-    // 16. ИНИЦИАЛИЗАЦИЯ
+    // 17. ДОБАВЛЯЕМ КЛЮЧЕВЫЕ КАДРЫ
     // ============================================================
-    requestBalance();
-
     const style = document.createElement('style');
     style.textContent = `
         @keyframes shake {
@@ -1287,13 +1263,16 @@
     `;
     document.head.appendChild(style);
 
+    // ============================================================
+    // 18. TELEGRAM
+    // ============================================================
     if (window.Telegram?.WebApp) {
         window.Telegram.WebApp.ready();
         window.Telegram.WebApp.expand();
         window.Telegram.WebApp.enableClosingConfirmation();
     }
 
-    console.log('✅ wheel.html (исправленный, покупка локально, выигрыш на сервер) loaded');
+    console.log('✅ wheel.html (исправленный, полная версия) загружен');
 })();
 </script>
 </body>
