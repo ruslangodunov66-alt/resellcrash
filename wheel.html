@@ -7,7 +7,6 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;1,800&family=Nunito:wght@700;800&display=swap" rel="stylesheet">
     <style>
-        /* ===== ОСНОВНЫЕ СТИЛИ ===== */
         :root {
             --bg-dark: #05080d;
             --container-bg: #0d121a;
@@ -36,8 +35,6 @@
             display: flex; flex-direction: column;
             padding: 10px 10px calc(20px + var(--tg-viewport-safe-area-inset-bottom, 0px)) 10px;
         }
-
-        /* ===== HEADER ===== */
         .header {
             display: flex; justify-content: space-between; align-items: center;
             padding: 5px; margin-bottom: 10px; flex-shrink: 0;
@@ -105,7 +102,6 @@
         }
         .back-btn:active { transform: scale(0.95); background: var(--accent-blue); }
 
-        /* ===== БЛОК КЕЙСА ===== */
         .case-block {
             display: flex;
             align-items: center;
@@ -204,13 +200,11 @@
             box-shadow: 0 2px 0 #b36b00;
             pointer-events: none;
         }
-
         @keyframes float {
             0%, 100% { transform: translateY(0); }
             50% { transform: translateY(-6px); }
         }
 
-        /* ===== ВОЗМОЖНЫЕ НАГРАДЫ ===== */
         .rewards-section {
             margin-bottom: 15px;
             flex-shrink: 0;
@@ -276,7 +270,6 @@
             box-shadow: 0 0 12px currentColor;
         }
 
-        /* ===== ИСТОРИЯ ===== */
         .history-section {
             flex: 1;
             display: flex;
@@ -330,7 +323,6 @@
             font-size: 10px; color: #6a7a8e;
         }
 
-        /* ===== ОВЕРЛЕЙ ===== */
         .overlay {
             position: fixed; inset: 0; z-index: 1000;
             background: rgba(4, 8, 16, 0.92);
@@ -387,7 +379,6 @@
             100% { filter: brightness(0); transform: scale(0.8); opacity: 0; }
         }
 
-        /* ===== УЛУЧШЕННЫЙ СЛОТ ===== */
         .slot-container {
             width: 100%;
             overflow: hidden;
@@ -456,7 +447,6 @@
             font-size: 10px; text-transform: uppercase;
             letter-spacing: 0.5px; opacity: 0.8;
         }
-
         .slot-pointer {
             position: absolute;
             top: -12px;
@@ -471,7 +461,6 @@
             z-index: 10;
             pointer-events: none;
         }
-
         .slot-glow-line {
             position: absolute;
             top: 0;
@@ -484,7 +473,6 @@
             z-index: 3;
             pointer-events: none;
         }
-
         .result-display {
             width: 100%; text-align: center;
             min-height: 140px;
@@ -517,7 +505,6 @@
             0% { transform: scale(0.5) rotate(-8deg); opacity: 0; }
             100% { transform: scale(1) rotate(0deg); opacity: 1; }
         }
-
         .btn-claim {
             background: linear-gradient(180deg, #34d399, #10b981);
             border: none; color: #fff; font-weight: 700;
@@ -528,7 +515,6 @@
             margin-top: 8px; width: 100%; max-width: 280px;
         }
         .btn-claim:active { transform: scale(0.94); }
-
         .btn-close-overlay {
             background: rgba(255,255,255,0.04);
             border: 1px solid rgba(255,255,255,0.08);
@@ -541,7 +527,6 @@
             margin-top: 12px;
         }
         .btn-close-overlay:active { transform: scale(0.94); }
-
         #particleCanvas {
             position: fixed; inset: 0;
             pointer-events: none; z-index: 999;
@@ -565,10 +550,7 @@
     </style>
 </head>
 <body>
-
 <div class="game-container">
-
-    <!-- HEADER -->
     <div class="header">
         <div class="brand">R-<span>GAME</span></div>
         <div class="header-actions">
@@ -582,7 +564,6 @@
         </div>
     </div>
 
-    <!-- БЛОК КЕЙСА -->
     <div class="case-block">
         <div class="case-image-wrap" id="caseOpenTrigger">
             <img src="case/case.PNG" alt="Case">
@@ -595,7 +576,6 @@
         <button class="buy-btn" id="buyCaseBtn">Купить</button>
     </div>
 
-    <!-- Возможные награды -->
     <div class="rewards-section">
         <div class="section-title">ВОЗМОЖНЫЕ НАГРАДЫ</div>
         <div class="reward-carousel" id="rewardCarousel">
@@ -610,26 +590,26 @@
         </div>
     </div>
 
-    <!-- История -->
     <div class="history-section">
         <div class="section-title" style="margin-bottom:6px;">ИСТОРИЯ</div>
         <div class="history-list-vertical" id="historyVertical"></div>
     </div>
-
 </div>
 
-<!-- OVERLAY -->
 <div class="overlay" id="overlay">
     <div class="overlay-content" id="animationContainer"></div>
     <button class="btn-close-overlay" id="closeOverlayBtn">✕ Закрыть</button>
 </div>
-
-<!-- Canvas для частиц -->
 <canvas id="particleCanvas"></canvas>
 
 <script>
 (function() {
     'use strict';
+
+    // ============================================================
+    // 0. API_BASE – как в casino.html
+    // ============================================================
+    const API_BASE = 'https://resellgame.bothost.tech';
 
     // ============================================================
     // 1. ДАННЫЕ КЕЙСА (те же шансы)
@@ -651,9 +631,9 @@
     };
 
     // ============================================================
-    // 2. СОСТОЯНИЕ
+    // 2. СОСТОЯНИЕ (баланс храним локально, но синхронизируем с сервером)
     // ============================================================
-    let balance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+    let balance = 0;
     let caseCount;
     const storedCaseCount = localStorage.getItem('case_count_free');
     if (storedCaseCount === null) {
@@ -678,17 +658,36 @@
     }
 
     // ============================================================
-    // 3. HTTP-ЗАПРОСЫ (локальный для демо)
+    // 3. HTTP-ЗАПРОСЫ (абсолютные URL)
     // ============================================================
     const userId = new URLSearchParams(window.location.search).get('userId') || '';
 
     async function requestBalance() {
-        if (!userId) return;
+        if (!userId) {
+            // Если нет userId, пытаемся получить из Telegram
+            if (window.Telegram?.WebApp?.initDataUnsafe?.user?.id) {
+                const tgUserId = window.Telegram.WebApp.initDataUnsafe.user.id;
+                const newUrl = new URL(window.location);
+                newUrl.searchParams.set('userId', tgUserId);
+                window.history.replaceState({}, '', newUrl);
+                // Повторим вызов после обновления URL
+                setTimeout(requestBalance, 100);
+                return;
+            }
+            balance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+            updateUI();
+            return;
+        }
         try {
-            const response = await fetch(`/balance/${userId}`);
+            const response = await fetch(`${API_BASE}/profile/${userId}`);
+            if (!response.ok) throw new Error('Network response was not ok');
             const data = await response.json();
-            if (data.balance !== undefined) {
-                balance = data.balance;
+            if (data.casino_balance !== undefined) {
+                balance = data.casino_balance;
+                updateUI();
+            } else {
+                // fallback
+                balance = parseInt(localStorage.getItem('casinoBalance')) || 0;
                 updateUI();
             }
         } catch (e) {
@@ -700,7 +699,7 @@
 
     async function sendGameResult(result, bet, win) {
         try {
-            const response = await fetch('/game_result', {
+            const response = await fetch(`${API_BASE}/game_result`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -760,7 +759,6 @@
     // 5. ЗВУК (оставлен как есть)
     // ============================================================
     let audioCtx = null;
-
     function initAudio() {
         if (!audioCtx && window.AudioContext) {
             audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -768,7 +766,6 @@
             document.addEventListener('click', () => audioCtx?.resume(), { once: true });
         }
     }
-
     function playTone(freq, duration, volume = 0.08, type = 'sine') {
         if (!audioCtx) return;
         try {
@@ -784,33 +781,14 @@
             osc.stop(audioCtx.currentTime + duration);
         } catch(e) {}
     }
-
-    function soundSpinStart() {
-        initAudio();
-        playTone(500, 0.1, 0.06, 'sine');
-    }
-    function soundSpinStop() {
-        initAudio();
-        playTone(880, 0.15, 0.08, 'sine');
-    }
-    function soundBuy() {
-        initAudio();
-        playTone(660, 0.15, 0.08, 'sine');
-        setTimeout(() => playTone(880, 0.1, 0.06, 'sine'), 120);
-    }
-    function soundWin() {
-        initAudio();
-        playTone(523, 0.12, 0.08, 'sine');
-        setTimeout(() => playTone(659, 0.12, 0.08, 'sine'), 130);
-        setTimeout(() => playTone(784, 0.2, 0.08, 'sine'), 260);
-    }
-    function soundLose() {
-        initAudio();
-        playTone(300, 0.3, 0.06, 'sawtooth');
-    }
+    function soundSpinStart() { initAudio(); playTone(500, 0.1, 0.06, 'sine'); }
+    function soundSpinStop() { initAudio(); playTone(880, 0.15, 0.08, 'sine'); }
+    function soundBuy() { initAudio(); playTone(660, 0.15, 0.08, 'sine'); setTimeout(() => playTone(880, 0.1, 0.06, 'sine'), 120); }
+    function soundWin() { initAudio(); playTone(523, 0.12, 0.08, 'sine'); setTimeout(() => playTone(659, 0.12, 0.08, 'sine'), 130); setTimeout(() => playTone(784, 0.2, 0.08, 'sine'), 260); }
+    function soundLose() { initAudio(); playTone(300, 0.3, 0.06, 'sawtooth'); }
 
     // ============================================================
-    // 6. ОТКРЫТИЕ КЕЙСА (без ускорения)
+    // 6. ОТКРЫТИЕ КЕЙСА
     // ============================================================
     const caseOpenTrigger = document.getElementById('caseOpenTrigger');
     const overlay = document.getElementById('overlay');
@@ -911,7 +889,7 @@
     }
 
     // ============================================================
-    // 9. УЛУЧШЕННАЯ РУЛЕТКА С ЭФФЕКТОМ "ПОЧТИ ПОЧТИ"
+    // 9. УЛУЧШЕННАЯ РУЛЕТКА С ЭФФЕКТОМ "ПОЧТИ" (умеренно)
     // ============================================================
     function startSlotMachine(winItem) {
         const container = document.createElement('div');
@@ -927,10 +905,10 @@
         animContainer.appendChild(container);
 
         const slotTrack = document.getElementById('slotTrack');
-        const trackItems = [];
         const totalItems = 60;
+        const trackItems = [];
 
-        // 1. Заполняем трек случайными предметами с учётом вероятностей
+        // 1. Заполняем трек случайными предметами
         for (let i = 0; i < totalItems; i++) {
             const r = Math.random();
             let cum = 0;
@@ -942,17 +920,22 @@
             trackItems.push({ ...chosen });
         }
 
-        // 2. Вставляем выигрышный предмет в позицию 55 (почти в конце)
+        // 2. Вставляем выигрышный предмет в позицию ~55 (ближе к концу)
         const winPos = 55;
         trackItems[winPos] = { ...winItem };
 
-        // 3. Вставляем "заманчивые" предметы рядом с выигрышным (мифики/легендарки)
+        // 3. Добавляем "приманки" (мифики/легендарки) в случайные позиции, но не всегда рядом с выигрышем
         const baitItems = CASE_ITEMS.filter(item => item.rarity === 'мифическая' || item.rarity === 'легендарная');
-        // Вставим на позиции 52, 53, 54 (перед выигрышным) и 56, 57 (после)
-        for (let offset = -3; offset <= 2; offset++) {
-            if (offset === 0) continue; // пропускаем позицию выигрыша
-            const pos = winPos + offset;
-            if (pos >= 0 && pos < totalItems) {
+        // Случайное количество приманок: 2-5
+        const baitCount = getRandomInt(2, 5);
+        for (let i = 0; i < baitCount; i++) {
+            let pos;
+            let attempts = 0;
+            do {
+                pos = getRandomInt(5, totalItems - 5);
+                attempts++;
+            } while ((pos === winPos || Math.abs(pos - winPos) <= 2) && attempts < 20);
+            if (pos !== winPos && Math.abs(pos - winPos) > 2) {
                 const bait = baitItems[Math.floor(Math.random() * baitItems.length)];
                 trackItems[pos] = { ...bait };
             }
@@ -980,44 +963,52 @@
             slotTrack.appendChild(div);
         });
 
-        // 5. Рассчёт позиции: так, чтобы указатель был на элементе winPos, но с небольшим смещением
+        // 5. Рассчёт позиции с вероятностью "почти" ~40%
         const itemWidth = 150;
         const containerWidth = document.getElementById('slotContainer').offsetWidth;
         const centerOffset = (containerWidth / 2) - (itemWidth / 2);
-        // Смещаем так, чтобы указатель не попал точно на winItem, а немного сместился (эффект "почти")
-        // Определим смещение: будем сдвигать на 20-40 пикселей влево или вправо
-        const shiftDir = Math.random() > 0.5 ? 1 : -1;
-        const shiftPx = 20 + Math.random() * 20;
-        let targetOffset = (winPos * itemWidth) - centerOffset + shiftDir * shiftPx;
+        let targetOffset = (winPos * itemWidth) - centerOffset;
+
+        // Добавляем случайный сдвиг для создания эффекта "почти"
+        if (Math.random() < 0.4) { // в 40% случаев делаем небольшой сдвиг
+            const shiftDir = Math.random() > 0.5 ? 1 : -1;
+            const shiftPx = 20 + Math.random() * 30;
+            targetOffset += shiftDir * shiftPx;
+        } else {
+            // Иначе оставляем точное попадание (или очень маленький сдвиг)
+            if (Math.random() < 0.2) {
+                targetOffset += (Math.random() - 0.5) * 10;
+            }
+        }
 
         // Ограничиваем, чтобы не выйти за пределы
         const maxOffset = (totalItems * itemWidth) - containerWidth;
         targetOffset = Math.max(0, Math.min(maxOffset, targetOffset));
 
-        // 6. Запускаем анимацию с долгим торможением
-        const duration = 5.5 + Math.random() * 1.0; // 5.5-6.5 сек
+        // 6. Запускаем анимацию
+        const duration = 5.5 + Math.random() * 1.0;
         soundSpinStart();
 
         slotTrack.style.transition = `transform ${duration}s cubic-bezier(0.15, 0.85, 0.1, 1)`;
         slotTrack.style.transform = `translateX(-${targetOffset}px)`;
 
-        // 7. После остановки – микродвижение (ещё один "почти" эффект)
+        // 7. После остановки – микродвижение (только иногда)
         setTimeout(() => {
             soundSpinStop();
-            // Небольшое дополнительное смещение через 300 мс, чтобы создать "перескок"
-            setTimeout(() => {
-                const extraShift = (Math.random() > 0.5 ? 1 : -1) * (10 + Math.random() * 20);
-                const currentTransform = slotTrack.style.transform;
-                const match = currentTransform.match(/translateX\(-([\d.]+)px\)/);
-                if (match) {
-                    const currentPx = parseFloat(match[1]);
-                    const newPx = Math.max(0, Math.min(maxOffset, currentPx + extraShift));
-                    slotTrack.style.transition = 'transform 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.1)';
-                    slotTrack.style.transform = `translateX(-${newPx}px)`;
-                }
-            }, 300);
-
-            // Показываем результат
+            // В 30% случаев добавляем "перескок"
+            if (Math.random() < 0.3) {
+                setTimeout(() => {
+                    const extraShift = (Math.random() > 0.5 ? 1 : -1) * (10 + Math.random() * 20);
+                    const currentTransform = slotTrack.style.transform;
+                    const match = currentTransform.match(/translateX\(-([\d.]+)px\)/);
+                    if (match) {
+                        const currentPx = parseFloat(match[1]);
+                        const newPx = Math.max(0, Math.min(maxOffset, currentPx + extraShift));
+                        slotTrack.style.transition = 'transform 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.1)';
+                        slotTrack.style.transform = `translateX(-${newPx}px)`;
+                    }
+                }, 300);
+            }
             setTimeout(() => {
                 showResult(winItem);
             }, 800);
@@ -1097,7 +1088,7 @@
     }
 
     // ============================================================
-    // 11. ЧАСТИЦЫ (оставлены)
+    // 11. ЧАСТИЦЫ
     // ============================================================
     const canvas = document.getElementById('particleCanvas');
     const ctx = canvas.getContext('2d');
@@ -1177,7 +1168,7 @@
     }
 
     // ============================================================
-    // 12. ИСТОРИЯ (без изменений)
+    // 12. ИСТОРИЯ
     // ============================================================
     function renderHistoryVertical() {
         historyListVert.innerHTML = '';
@@ -1218,7 +1209,7 @@
     }
 
     // ============================================================
-    // 13. КАРУСЕЛЬ НАГРАД (без изменений)
+    // 13. КАРУСЕЛЬ НАГРАД
     // ============================================================
     let carouselIndex = 0;
     const carouselImage = document.getElementById('carouselImage');
@@ -1287,9 +1278,8 @@
         window.Telegram.WebApp.enableClosingConfirmation();
     }
 
-    console.log('✅ R-GAME Case Opening (with "almost" effect, improved visuals) loaded');
+    console.log('✅ R-GAME Case Opening (API_BASE, balanced "almost" effect) loaded');
 })();
 </script>
-
 </body>
 </html>
