@@ -7,7 +7,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;1,800&family=Nunito:wght@700;800&display=swap" rel="stylesheet">
     <style>
-        /* ===== ВСЕ СТИЛИ БЕЗ ИЗМЕНЕНИЙ ===== */
+        /* ===== ВСЕ СТИЛИ БЕЗ ИЗМЕНЕНИЙ (те же, что были) ===== */
         :root {
             --bg-dark: #05080d;
             --container-bg: #0d121a;
@@ -199,6 +199,25 @@
             transform: translateY(4px);
             box-shadow: 0 2px 0 #b36b00;
             pointer-events: none;
+        }
+        .buy-btn.loading .btn-text {
+            visibility: hidden;
+        }
+        .buy-btn.loading::after {
+            content: '';
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-top: 3px solid #fff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        @keyframes spin {
+            to { transform: translate(-50%, -50%) rotate(360deg); }
         }
         @keyframes float {
             0%, 100% { transform: translateY(0); }
@@ -569,7 +588,7 @@
             <div class="case-price">₽ 45 000</div>
             <div class="case-hint">👆 <span>Клик по кейсу</span> — открыть</div>
         </div>
-        <button class="buy-btn" id="buyCaseBtn">Купить</button>
+        <button class="buy-btn" id="buyCaseBtn"><span class="btn-text">Купить</span></button>
     </div>
 
     <div class="rewards-section">
@@ -602,14 +621,9 @@
 (function() {
     'use strict';
 
-    // ============================================================
-    // 0. API_BASE
-    // ============================================================
     const API_BASE = 'https://resellgame.bothost.tech';
 
-    // ============================================================
-    // 1. ДАННЫЕ КЕЙСА
-    // ============================================================
+    // ДАННЫЕ КЕЙСА
     const CASE_ITEMS = [
         { id: 'skin_henri', name: 'Анри Жерар', rarity: 'мифическая', rarityColor: '#e74c3c', image: 'case/photo_2026-07-20_19-21-45.jpg', value: 0 },
         { id: 'brabus', name: 'Гелик Мансури', rarity: 'мифическая', rarityColor: '#e74c3c', image: 'case/photo_2026-07-20_19-22-03.jpg', value: 0 },
@@ -626,9 +640,7 @@
         'money_common': 0.80
     };
 
-    // ============================================================
-    // 2. СОСТОЯНИЕ
-    // ============================================================
+    // СОСТОЯНИЕ
     let balance = 0;
     let caseCount;
     const storedCaseCount = localStorage.getItem('case_count_free');
@@ -654,9 +666,7 @@
         localStorage.setItem('case_history', JSON.stringify(history));
     }
 
-    // ============================================================
-    // 3. ЗАГРУЗКА БАЛАНСА (обычный fetch, без таймаута)
-    // ============================================================
+    // ЗАГРУЗКА БАЛАНСА
     const userId = new URLSearchParams(window.location.search).get('userId') || '';
     if (!userId && window.Telegram?.WebApp?.initDataUnsafe?.user?.id) {
         const tgUserId = window.Telegram.WebApp.initDataUnsafe.user.id;
@@ -682,9 +692,7 @@
 
         fetch(`${API_BASE}/profile/${currentUserId}`)
             .then(response => {
-                if (!response.ok) {
-                    throw new Error('HTTP ' + response.status);
-                }
+                if (!response.ok) throw new Error('HTTP ' + response.status);
                 return response.json();
             })
             .then(data => {
@@ -693,7 +701,6 @@
                     balance = data.casino_balance;
                     updateUI();
                 } else {
-                    console.warn('⚠️ Поле casino_balance отсутствует, использую balance:', data.balance);
                     balance = data.balance || 0;
                     updateUI();
                 }
@@ -701,7 +708,6 @@
             .catch(error => {
                 console.error('❌ Ошибка загрузки баланса:', error);
                 balanceDisplay.textContent = 'Ошибка загрузки';
-                // Пробуем взять из localStorage
                 const saved = parseInt(localStorage.getItem('casinoBalance')) || 0;
                 if (saved > 0) {
                     balance = saved;
@@ -713,28 +719,22 @@
             });
     }
 
-    // ============================================================
-    // 4. ОТПРАВКА ВЫИГРЫША (POST)
-    // ============================================================
-    async function sendWinResult(winAmount) {
+    // ОТПРАВКА РЕЗУЛЬТАТА (общая)
+    async function sendGameResult(result, bet, win) {
         const currentUserId = new URLSearchParams(window.location.search).get('userId');
-        if (!currentUserId) {
-            throw new Error('Нет userId');
-        }
+        if (!currentUserId) throw new Error('Нет userId');
         const response = await fetch(`${API_BASE}/game_result`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 userId: currentUserId,
                 game: 'case',
-                result: 'win',
-                bet: 45000,
-                win: winAmount
+                result: result,
+                bet: bet,
+                win: win
             })
         });
-        if (!response.ok) {
-            throw new Error('HTTP ' + response.status);
-        }
+        if (!response.ok) throw new Error('HTTP ' + response.status);
         const data = await response.json();
         if (data.new_balance !== undefined) {
             balance = data.new_balance;
@@ -743,9 +743,7 @@
         return data;
     }
 
-    // ============================================================
-    // 5. ВСПОМОГАТЕЛЬНЫЕ
-    // ============================================================
+    // ВСПОМОГАТЕЛЬНЫЕ
     function getRandomInt(min, max) {
         return Math.floor(Math.random() * (max - min + 1)) + min;
     }
@@ -776,9 +774,7 @@
         return fallback;
     }
 
-    // ============================================================
-    // 6. ЗВУК (без изменений)
-    // ============================================================
+    // ЗВУК
     let audioCtx = null;
     function initAudio() {
         if (!audioCtx && window.AudioContext) {
@@ -808,9 +804,7 @@
     function soundWin() { initAudio(); playTone(523, 0.12, 0.08, 'sine'); setTimeout(() => playTone(659, 0.12, 0.08, 'sine'), 130); setTimeout(() => playTone(784, 0.2, 0.08, 'sine'), 260); }
     function soundLose() { initAudio(); playTone(300, 0.3, 0.06, 'sawtooth'); }
 
-    // ============================================================
-    // 7. ОТКРЫТИЕ КЕЙСА
-    // ============================================================
+    // ОТКРЫТИЕ КЕЙСА (клик по картинке)
     const caseOpenTrigger = document.getElementById('caseOpenTrigger');
     const overlay = document.getElementById('overlay');
     const animContainer = document.getElementById('animationContainer');
@@ -832,28 +826,40 @@
         startCaseOpening(currentWin);
     });
 
-    // ============================================================
-    // 8. ПОКУПКА КЕЙСА (локально)
-    // ============================================================
+    // ПОКУПКА КЕЙСА (отправка на сервер)
     const CASE_PRICE = 45000;
 
-    buyBtn.addEventListener('click', () => {
+    buyBtn.addEventListener('click', async () => {
         if (balance < CASE_PRICE) {
             alert('❌ Недостаточно средств!');
             return;
         }
-        balance -= CASE_PRICE;
-        caseCount += 1;
-        updateUI();
-        soundBuy();
-        if (window.Telegram?.WebApp?.HapticFeedback) {
-            window.Telegram.WebApp.HapticFeedback.impactOccurred('medium');
+        if (buyBtn.classList.contains('loading')) return;
+
+        buyBtn.classList.add('loading');
+        buyBtn.disabled = true;
+
+        try {
+            // Отправляем результат "lose" (покупка)
+            await sendGameResult('lose', CASE_PRICE, 0);
+            // Если успешно, баланс обновлён через sendGameResult
+            caseCount += 1;
+            updateUI();
+            soundBuy();
+            if (window.Telegram?.WebApp?.HapticFeedback) {
+                window.Telegram.WebApp.HapticFeedback.impactOccurred('medium');
+            }
+        } catch (error) {
+            console.error('Ошибка покупки:', error);
+            alert('❌ Ошибка при покупке. Попробуйте позже.');
+            // Баланс не меняем, кейс не добавляем
+        } finally {
+            buyBtn.classList.remove('loading');
+            buyBtn.disabled = false;
         }
     });
 
-    // ============================================================
-    // 9. АНИМАЦИЯ ОТКРЫТИЯ
-    // ============================================================
+    // АНИМАЦИЯ ОТКРЫТИЯ
     function startCaseOpening(winItem) {
         isOpening = true;
         overlay.classList.add('active');
@@ -895,9 +901,7 @@
         }, { once: true });
     }
 
-    // ============================================================
-    // 10. РУЛЕТКА С ЭФФЕКТОМ "ПОЧТИ"
-    // ============================================================
+    // РУЛЕТКА С ЭФФЕКТОМ "ПОЧТИ"
     function startSlotMachine(winItem) {
         const container = document.createElement('div');
         container.style.width = '100%';
@@ -1010,9 +1014,7 @@
         }, (duration * 1000) + 200);
     }
 
-    // ============================================================
-    // 11. ПОКАЗ РЕЗУЛЬТАТА
-    // ============================================================
+    // ПОКАЗ РЕЗУЛЬТАТА
     function showResult(winItem) {
         const resultDisplay = document.getElementById('resultDisplay');
         resultDisplay.innerHTML = '';
@@ -1040,7 +1042,7 @@
         claimBtn.addEventListener('click', async () => {
             if (winItem.value && winItem.value > 0) {
                 try {
-                    await sendWinResult(winItem.value);
+                    await sendGameResult('win', 45000, winItem.value);
                     soundWin();
                 } catch (e) {
                     alert('❌ Ошибка получения выигрыша, попробуйте позже');
@@ -1080,9 +1082,7 @@
         }
     }
 
-    // ============================================================
-    // 12. ЧАСТИЦЫ
-    // ============================================================
+    // ЧАСТИЦЫ
     const canvas = document.getElementById('particleCanvas');
     const ctx = canvas.getContext('2d');
     let particles = [];
@@ -1160,9 +1160,7 @@
         }
     }
 
-    // ============================================================
-    // 13. ИСТОРИЯ
-    // ============================================================
+    // ИСТОРИЯ
     function renderHistoryVertical() {
         historyListVert.innerHTML = '';
         if (history.length === 0) {
@@ -1201,9 +1199,7 @@
         });
     }
 
-    // ============================================================
-    // 14. КАРУСЕЛЬ НАГРАД
-    // ============================================================
+    // КАРУСЕЛЬ НАГРАД
     let carouselIndex = 0;
     const carouselImage = document.getElementById('carouselImage');
     const carouselName = document.getElementById('carouselName');
@@ -1228,17 +1224,13 @@
     setInterval(updateCarousel, 2500);
     updateCarousel();
 
-    // ============================================================
-    // 15. КНОПКА НАЗАД
-    // ============================================================
+    // КНОПКА НАЗАД
     document.getElementById('backBtn').addEventListener('click', () => {
         const currentUserId = new URLSearchParams(window.location.search).get('userId') || '';
         window.location.href = 'casino.html?userId=' + currentUserId;
     });
 
-    // ============================================================
-    // 16. ЗАКРЫТИЕ ОВЕРЛЕЯ
-    // ============================================================
+    // ЗАКРЫТИЕ ОВЕРЛЕЯ
     closeBtn.addEventListener('click', () => {
         overlay.classList.remove('active');
         isOpening = false;
@@ -1249,9 +1241,7 @@
         ctx.clearRect(0, 0, canvas.width, canvas.height);
     });
 
-    // ============================================================
-    // 17. ДОБАВЛЯЕМ КЛЮЧЕВЫЕ КАДРЫ
-    // ============================================================
+    // СТИЛЬ ДЛЯ SHAKE
     const style = document.createElement('style');
     style.textContent = `
         @keyframes shake {
@@ -1263,16 +1253,14 @@
     `;
     document.head.appendChild(style);
 
-    // ============================================================
-    // 18. TELEGRAM
-    // ============================================================
+    // TELEGRAM
     if (window.Telegram?.WebApp) {
         window.Telegram.WebApp.ready();
         window.Telegram.WebApp.expand();
         window.Telegram.WebApp.enableClosingConfirmation();
     }
 
-    console.log('✅ wheel.html (исправленный, полная версия) загружен');
+    console.log('✅ wheel.html (финальный, с отправкой покупки) загружен');
 })();
 </script>
 </body>
