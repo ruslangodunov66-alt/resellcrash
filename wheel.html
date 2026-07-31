@@ -7,7 +7,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;1,800&family=Nunito:wght@700;800&display=swap" rel="stylesheet">
     <style>
-        /* ===== ВСЕ СТИЛИ БЕЗ ИЗМЕНЕНИЙ ===== */
+        /* ===== ВСЕ СТИЛИ БЕЗ ИЗМЕНЕНИЙ (те же, что в оригинале) ===== */
         :root {
             --bg-dark: #05080d;
             --container-bg: #0d121a;
@@ -731,8 +731,11 @@
                 if (data.casino_balance !== undefined) {
                     balance = data.casino_balance;
                     updateUI();
+                } else if (data.balance !== undefined) {
+                    balance = data.balance;
+                    updateUI();
                 } else {
-                    balance = data.balance || 0;
+                    balance = 0;
                     updateUI();
                 }
             })
@@ -771,7 +774,7 @@
     }
 
     // ============================================================
-    // ВЫИГРЫШ В КЕЙСЕ (отдельный эндпоинт)
+    // ВЫИГРЫШ В КЕЙСЕ
     // ============================================================
     async function claimCaseWin(winAmount) {
         const currentUserId = new URLSearchParams(window.location.search).get('userId');
@@ -790,7 +793,9 @@
         return data;
     }
 
+    // ============================================================
     // ВСПОМОГАТЕЛЬНЫЕ
+    // ============================================================
     function getRandomInt(min, max) {
         return Math.floor(Math.random() * (max - min + 1)) + min;
     }
@@ -805,12 +810,17 @@
                 if (item.id === 'money_legend') {
                     result.value = getRandomInt(250000, 750000);
                     result.name = `💰 ${result.value.toLocaleString()} ₽`;
+                    result.displayName = '💰 Деньги'; // для трека
                 } else if (item.id === 'money_rare') {
                     result.value = getRandomInt(25000, 250000);
                     result.name = `💰 ${result.value.toLocaleString()} ₽`;
+                    result.displayName = '💰 Деньги';
                 } else if (item.id === 'money_common') {
                     result.value = getRandomInt(100, 25000);
                     result.name = `💰 ${result.value.toLocaleString()} ₽`;
+                    result.displayName = '💰 Деньги';
+                } else {
+                    result.displayName = result.name; // для скинов имя без изменений
                 }
                 return result;
             }
@@ -818,6 +828,7 @@
         const fallback = { ...CASE_ITEMS[CASE_ITEMS.length-1] };
         fallback.value = getRandomInt(100, 25000);
         fallback.name = `💰 ${fallback.value.toLocaleString()} ₽`;
+        fallback.displayName = '💰 Деньги';
         return fallback;
     }
 
@@ -890,6 +901,10 @@
             const result = await buyCase(CASE_PRICE);
             if (result.new_casino_balance !== undefined) {
                 balance = result.new_casino_balance;
+            } else if (result.new_balance !== undefined) {
+                balance = result.new_balance;
+            } else if (result.balance !== undefined) {
+                balance = result.balance;
             } else {
                 await loadBalance();
             }
@@ -951,7 +966,7 @@
         }, { once: true });
     }
 
-    // РУЛЕТКА С ЭФФЕКТОМ "ПОЧТИ"
+    // РУЛЕТКА С УСИЛЕННЫМ ЭФФЕКТОМ "ПОЧТИ-ПОЧТИ"
     function startSlotMachine(winItem) {
         const container = document.createElement('div');
         container.style.width = '100%';
@@ -969,6 +984,7 @@
         const totalItems = 60;
         const trackItems = [];
 
+        // Заполняем трек случайными предметами
         for (let i = 0; i < totalItems; i++) {
             const r = Math.random();
             let cum = 0;
@@ -980,24 +996,38 @@
             trackItems.push({ ...chosen });
         }
 
+        // Вставляем выигрышный предмет в позицию ~55
         const winPos = 55;
         trackItems[winPos] = { ...winItem };
 
+        // --- УСИЛЕННЫЙ ЭФФЕКТ "ПОЧТИ-ПОЧТИ" ---
+        // Добавляем приманки (мифики/легендарки) вокруг выигрыша
         const baitItems = CASE_ITEMS.filter(item => item.rarity === 'мифическая' || item.rarity === 'легендарная');
-        const baitCount = getRandomInt(2, 5);
-        for (let i = 0; i < baitCount; i++) {
+        // Гарантируем приманки на позициях winPos-3, winPos-2, winPos-1, winPos+1, winPos+2, winPos+3
+        const baitPositions = [-3, -2, -1, 1, 2, 3];
+        for (const offset of baitPositions) {
+            const pos = winPos + offset;
+            if (pos >= 0 && pos < totalItems) {
+                const bait = baitItems.length > 0 ? baitItems[Math.floor(Math.random() * baitItems.length)] : CASE_ITEMS[0];
+                trackItems[pos] = { ...bait };
+            }
+        }
+        // Дополнительно добавляем случайные приманки в другие места
+        const extraBaitCount = getRandomInt(3, 6);
+        for (let i = 0; i < extraBaitCount; i++) {
             let pos;
             let attempts = 0;
             do {
                 pos = getRandomInt(5, totalItems - 5);
                 attempts++;
-            } while ((pos === winPos || Math.abs(pos - winPos) <= 2) && attempts < 20);
-            if (pos !== winPos && Math.abs(pos - winPos) > 2) {
-                const bait = baitItems[Math.floor(Math.random() * baitItems.length)];
+            } while ((pos >= winPos - 4 && pos <= winPos + 4) && attempts < 20);
+            if (pos >= 0 && pos < totalItems) {
+                const bait = baitItems.length > 0 ? baitItems[Math.floor(Math.random() * baitItems.length)] : CASE_ITEMS[0];
                 trackItems[pos] = { ...bait };
             }
         }
 
+        // Строим DOM
         slotTrack.innerHTML = '';
         trackItems.forEach(item => {
             const div = document.createElement('div');
@@ -1009,7 +1039,8 @@
             div.appendChild(img);
             const nameSpan = document.createElement('div');
             nameSpan.className = 'item-name';
-            nameSpan.textContent = item.name;
+            // Используем displayName для денег, иначе обычное имя
+            nameSpan.textContent = item.displayName || item.name;
             div.appendChild(nameSpan);
             const raritySpan = document.createElement('div');
             raritySpan.className = 'item-rarity';
@@ -1019,41 +1050,47 @@
             slotTrack.appendChild(div);
         });
 
+        // Расчёт позиции с сильным смещением
         const itemWidth = 150;
         const containerWidth = document.getElementById('slotContainer').offsetWidth;
         const centerOffset = (containerWidth / 2) - (itemWidth / 2);
         let targetOffset = (winPos * itemWidth) - centerOffset;
 
-        if (Math.random() < 0.4) {
+        // В 60% случаев делаем заметный сдвиг (30-50px) для эффекта "почти"
+        if (Math.random() < 0.6) {
             const shiftDir = Math.random() > 0.5 ? 1 : -1;
-            const shiftPx = 20 + Math.random() * 30;
+            const shiftPx = 30 + Math.random() * 20; // 30-50px
             targetOffset += shiftDir * shiftPx;
         } else {
-            if (Math.random() < 0.2) {
-                targetOffset += (Math.random() - 0.5) * 10;
+            // Иначе маленький сдвиг
+            if (Math.random() < 0.3) {
+                targetOffset += (Math.random() - 0.5) * 15;
             }
         }
 
         const maxOffset = (totalItems * itemWidth) - containerWidth;
         targetOffset = Math.max(0, Math.min(maxOffset, targetOffset));
 
+        // Запускаем анимацию
         const duration = 5.5 + Math.random() * 1.0;
         soundSpinStart();
 
         slotTrack.style.transition = `transform ${duration}s cubic-bezier(0.15, 0.85, 0.1, 1)`;
         slotTrack.style.transform = `translateX(-${targetOffset}px)`;
 
+        // После остановки – микродвижение (усиленное)
         setTimeout(() => {
             soundSpinStop();
-            if (Math.random() < 0.3) {
+            // В 50% случаев добавляем "перескок"
+            if (Math.random() < 0.5) {
                 setTimeout(() => {
-                    const extraShift = (Math.random() > 0.5 ? 1 : -1) * (10 + Math.random() * 20);
+                    const extraShift = (Math.random() > 0.5 ? 1 : -1) * (15 + Math.random() * 25);
                     const currentTransform = slotTrack.style.transform;
                     const match = currentTransform.match(/translateX\(-([\d.]+)px\)/);
                     if (match) {
                         const currentPx = parseFloat(match[1]);
                         const newPx = Math.max(0, Math.min(maxOffset, currentPx + extraShift));
-                        slotTrack.style.transition = 'transform 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.1)';
+                        slotTrack.style.transition = 'transform 0.6s cubic-bezier(0.2, 0.9, 0.3, 1.1)';
                         slotTrack.style.transform = `translateX(-${newPx}px)`;
                     }
                 }, 300);
@@ -1077,7 +1114,7 @@
         container.appendChild(img);
         const name = document.createElement('div');
         name.className = 'result-name';
-        name.textContent = winItem.name;
+        name.textContent = winItem.name; // здесь полное имя с суммой
         name.style.color = winItem.rarityColor;
         container.appendChild(name);
         const rarity = document.createElement('div');
@@ -1095,9 +1132,14 @@
                     const result = await claimCaseWin(winItem.value);
                     if (result.new_casino_balance !== undefined) {
                         balance = result.new_casino_balance;
+                    } else if (result.new_balance !== undefined) {
+                        balance = result.new_balance;
+                    } else if (result.balance !== undefined) {
+                        balance = result.balance;
                     } else {
                         await loadBalance();
                     }
+                    updateUI();
                     soundWin();
                 } catch (e) {
                     alert('❌ Ошибка получения выигрыша: ' + e.message);
@@ -1315,7 +1357,7 @@
         window.Telegram.WebApp.enableClosingConfirmation();
     }
 
-    console.log('✅ wheel.html (отдельные эндпоинты для покупки и выигрыша) загружен');
+    console.log('✅ wheel.html (финальный: скрыта сумма в треке, усилен "почти", надёжное обновление баланса) загружен');
 })();
 </script>
 </body>
