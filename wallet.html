@@ -5,9 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>КОШЕЛЕК | R-GAME</title>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;1,800&family=Nunito:wght@600;700;800&display=swap" rel="stylesheet">
-    <script src="https://telegram.org/js/telegram-web-app.js" async defer></script>
+    <!-- Загружаем Telegram WebApp синхронно, чтобы объект был доступен сразу -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        /* ===== ВСЕ СТИЛИ (БЕЗ ИЗМЕНЕНИЙ) ===== */
+        /* ===== ВСЕ ТВОИ СТИЛИ (БЕЗ ИЗМЕНЕНИЙ) ===== */
         :root {
             --bg-dark: #070b12;
             --container-bg: #111822;
@@ -418,93 +419,72 @@
         const API_BASE = 'https://resellgame.bothost.tech';
 
         // =========================================================
-        // БЕЗОПАСНАЯ РАБОТА С TELEGRAM
+        // TELEGRAM WebApp (загружен синхронно)
         // =========================================================
-        const tg = window.Telegram?.WebApp || null;
-        if (tg) {
-            tg.expand();
-            tg.enableClosingConfirmation();
-        }
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.enableClosingConfirmation();
 
-        // ===== ПОЛУЧАЕМ USER_ID =====
         let userId = null;
         const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.has('userId')) {
-            userId = urlParams.get('userId');
-        } else if (tg?.initDataUnsafe?.user?.id) {
-            userId = tg.initDataUnsafe.user.id;
-        }
+        if (urlParams.has('userId')) userId = urlParams.get('userId');
+        else if (tg.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
 
-        // ===== ЭЛЕМЕНТЫ =====
         const balanceDisplay = document.getElementById('walletBalanceDisplay');
         let casinoBalance = 0;
         let mainBalance = 0;
 
-        // ===== УПРОЩЁННЫЙ apiFetch (без лишних параметров) =====
+        // ===== ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ С ЛОГАМИ =====
         async function apiFetch(url, options = {}) {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000);
             const startedAt = performance.now();
+            console.log(`📡 [${new Date().toISOString()}] Запрос к ${url}`);
             try {
-                console.log('📡 API start:', url);
                 const response = await fetch(url, {
                     ...options,
-                    signal: controller.signal,
-                    cache: 'no-store'
+                    cache: 'no-cache'
                 });
-                console.log('📨 Заголовки получены:', url, Math.round(performance.now() - startedAt) + 'ms');
+                const elapsed = Math.round(performance.now() - startedAt);
+                console.log(`✅ [${new Date().toISOString()}] Ответ получен за ${elapsed}мс, статус ${response.status}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const text = await response.text();
-                console.log('📦 Тело получено:', url, Math.round(performance.now() - startedAt) + 'ms');
+                console.log(`📦 Тело ответа (${text.length} байт):`, text);
                 let data;
                 try {
                     data = text ? JSON.parse(text) : {};
                 } catch {
                     throw new Error('Сервер вернул не JSON: ' + text.slice(0, 150));
                 }
-                if (!response.ok) {
-                    throw new Error(data.detail || data.error || `HTTP ${response.status}`);
-                }
                 return data;
             } catch (err) {
-                console.error('❌ Ошибка запроса:', err);
+                const elapsed = Math.round(performance.now() - startedAt);
+                console.error(`❌ [${new Date().toISOString()}] Ошибка за ${elapsed}мс:`, err);
                 throw err;
-            } finally {
-                clearTimeout(timeoutId);
             }
         }
 
-        // ===== ОДНОКРАТНАЯ ЗАГРУЗКА БАЛАНСА =====
+        // ===== ЗАГРУЗКА БАЛАНСА (БЕЗ localStorage) =====
         async function loadBalances() {
             if (!userId) {
                 balanceDisplay.innerText = '0 ₽';
                 return;
             }
             try {
-                const data = await apiFetch(`${API_BASE}/profile/${encodeURIComponent(userId)}`);
+                const data = await apiFetch(`${API_BASE}/profile/${userId}`);
                 console.log('📦 Данные профиля:', data);
-                casinoBalance = Number(data.casino_balance) || 0;
-                mainBalance = Number(data.balance) || 0;
+                casinoBalance = Number(data.casino_balance ?? data.balance ?? 0);
+                mainBalance = Number(data.main_balance ?? data.balance ?? 0);
                 balanceDisplay.innerText = casinoBalance.toLocaleString('ru-RU') + ' ₽';
-                localStorage.setItem('casinoBalance', String(casinoBalance));
-                localStorage.setItem('mainBalance', String(mainBalance));
-            } catch (error) {
-                console.error('❌ Ошибка загрузки баланса:', error);
-                const cached = Number(localStorage.getItem('casinoBalance'));
-                balanceDisplay.innerText =
-                    Number.isFinite(cached)
-                        ? cached.toLocaleString('ru-RU') + ' ₽'
-                        : '0 ₽';
-                if (Number.isFinite(cached)) {
-                    casinoBalance = cached;
-                }
+            } catch (e) {
+                console.error('❌ Ошибка загрузки баланса:', e);
+                balanceDisplay.innerText = 'Ошибка загрузки';
             }
         }
 
-        // Загружаем баланс один раз при запуске
+        // Загружаем баланс один раз при старте
         loadBalances();
 
-        // ===== НЕТ ПОВТОРНЫХ АВТОМАТИЧЕСКИХ ЗАПРОСОВ =====
-        // (убраны focus, visibilitychange, чтобы исключить лишние запросы)
+        // Убираем повторные вызовы по focus
+        // window.addEventListener('focus', loadBalances);
 
         function setAmount(type, value) {
             if (type === 'deposit') {
@@ -514,108 +494,106 @@
             }
         }
 
+        // ===== КНОПКА НАЗАД (абсолютный URL) =====
         document.getElementById('backBtn').onclick = () => {
-            if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
-            window.location.href = 'casino.html?userId=' + (userId || '');
+            tg.HapticFeedback.impactOccurred('medium');
+            window.location.href = 'https://ruslangodunov66-alt.github.io/resellcrash/casino.html?userId=' + encodeURIComponent(userId || '');
         };
 
-        // ===== ПОПОЛНЕНИЕ (без предварительного /profile) =====
+        // ===== ПОПОЛНЕНИЕ (БЕЗ ПРЕДВАРИТЕЛЬНОГО /profile) =====
         document.getElementById('submitDepositBtn').onclick = async () => {
-            const button = document.getElementById('submitDepositBtn');
             const input = document.getElementById('depositInput');
-            const amt = Number.parseInt(input.value, 10);
+            const amt = parseInt(input.value);
             if (!userId) {
                 alert('❌ Ошибка: сессия не идентифицирована');
                 return;
             }
-            if (!Number.isFinite(amt) || amt <= 0) {
+            if (isNaN(amt) || amt <= 0) {
                 alert('💰 Введите корректную сумму');
                 return;
             }
-            button.disabled = true;
-            button.textContent = 'Пополнение...';
+
+            const btn = document.getElementById('submitDepositBtn');
+            btn.disabled = true;
+            btn.textContent = 'Пополнение...';
+
             try {
                 const data = await apiFetch(`${API_BASE}/deposit`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        userId: String(userId),
+                        user_id: Number(userId),
                         amount: amt
                     })
                 });
                 console.log('📥 Ответ /deposit:', data);
                 if (data.success) {
-                    casinoBalance = Number(data.new_casino_balance ?? data.casino_balance);
-                    mainBalance = Number(data.new_main_balance ?? data.balance);
+                    // Поддержка разных имён полей
+                    casinoBalance = Number(data.casino_balance ?? data.new_casino_balance ?? data.balance ?? 0);
+                    mainBalance = Number(data.main_balance ?? data.new_main_balance ?? data.balance ?? 0);
                     balanceDisplay.innerText = casinoBalance.toLocaleString('ru-RU') + ' ₽';
-                    window.location.replace(`casino.html?userId=${encodeURIComponent(userId)}`);
+                    tg.HapticFeedback.notificationOccurred('success');
+                    alert(`✅ Пополнение на ${amt}₽ выполнено! Новый баланс казино: ${casinoBalance}₽`);
+                    input.value = '';
                 } else {
                     alert('❌ ' + (data.error || 'Ошибка пополнения'));
                 }
-            } catch (error) {
-                console.error('Ошибка пополнения:', error);
-                if (error.name === 'AbortError') {
-                    alert('Сервер не ответил вовремя. Проверьте баланс перед повторной попыткой.');
-                } else {
-                    alert('❌ ' + (error.message || 'Ошибка пополнения'));
-                }
+            } catch (err) {
+                console.error('❌ Ошибка пополнения:', err);
+                alert('❌ Ошибка: ' + (err.message || 'Неизвестная ошибка'));
             } finally {
-                button.disabled = false;
-                button.textContent = 'Пополнить';
+                btn.disabled = false;
+                btn.textContent = 'Пополнить';
             }
         };
 
-        // ===== ВЫВОД (без предварительного /profile) =====
+        // ===== ВЫВОД (БЕЗ ПРЕДВАРИТЕЛЬНОГО /profile) =====
         document.getElementById('submitWithdrawBtn').onclick = async () => {
-            const button = document.getElementById('submitWithdrawBtn');
             const input = document.getElementById('withdrawInput');
-            const amt = Number.parseInt(input.value, 10);
+            const amt = parseInt(input.value);
             if (!userId) {
                 alert('❌ Ошибка: сессия не идентифицирована');
                 return;
             }
-            if (!Number.isFinite(amt) || amt <= 0) {
+            if (isNaN(amt) || amt <= 0) {
                 alert('💵 Введите корректную сумму');
                 return;
             }
-            button.disabled = true;
-            button.textContent = 'Вывод...';
+
+            const btn = document.getElementById('submitWithdrawBtn');
+            btn.disabled = true;
+            btn.textContent = 'Вывод...';
+
             try {
                 const data = await apiFetch(`${API_BASE}/withdraw`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        userId: String(userId),
+                        user_id: Number(userId),
                         amount: amt
                     })
                 });
                 console.log('📥 Ответ /withdraw:', data);
                 if (data.success) {
-                    casinoBalance = Number(data.new_casino_balance ?? data.casino_balance);
-                    mainBalance = Number(data.new_main_balance ?? data.balance);
+                    casinoBalance = Number(data.casino_balance ?? data.new_casino_balance ?? data.balance ?? 0);
+                    mainBalance = Number(data.main_balance ?? data.new_main_balance ?? data.balance ?? 0);
                     balanceDisplay.innerText = casinoBalance.toLocaleString('ru-RU') + ' ₽';
-                    window.location.replace(`casino.html?userId=${encodeURIComponent(userId)}`);
+                    tg.HapticFeedback.notificationOccurred('success');
+                    alert(`✅ Вывод ${amt}₽ выполнен! Новый баланс казино: ${casinoBalance}₽`);
+                    input.value = '';
                 } else {
                     alert('❌ ' + (data.error || 'Ошибка вывода'));
                 }
-            } catch (error) {
-                console.error('Ошибка вывода:', error);
-                if (error.name === 'AbortError') {
-                    alert('Сервер не ответил вовремя. Проверьте баланс перед повторной попыткой.');
-                } else {
-                    alert('❌ ' + (error.message || 'Ошибка вывода'));
-                }
+            } catch (err) {
+                console.error('❌ Ошибка вывода:', err);
+                alert('❌ Ошибка: ' + (err.message || 'Неизвестная ошибка'));
             } finally {
-                button.disabled = false;
-                button.textContent = 'Вывести';
+                btn.disabled = false;
+                btn.textContent = 'Вывести';
             }
         };
 
-        console.log('✅ Кошелёк загружен с упрощёнными запросами и таймаутом 30 сек');
+        console.log('✅ wallet.html исправлен: удалён предварительный /profile, синхронный Telegram, абсолютные URL');
     </script>
 </body>
 </html>
