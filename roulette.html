@@ -8,7 +8,7 @@
     </script>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;1,800&family=Nunito:wght@700;800;900&display=swap" rel="stylesheet">
     <style>
-        /* (стили без изменений, оставлены как в предыдущей версии) */
+        /* ===== ВСЕ СТИЛИ БЕЗ ИЗМЕНЕНИЙ ===== */
         * {
             margin: 0;
             padding: 0;
@@ -980,13 +980,97 @@
             tg.ready();
             if (tg.HapticFeedback) tg.enableClosingConfirmation();
 
+            const API_BASE = 'https://resellgame.bothost.tech';
+
             let userId = null;
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.has('userId')) userId = urlParams.get('userId');
             else if (tg.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
 
             // ============================================================
-            // 2. КОНСТАНТЫ И СОСТОЯНИЕ
+            // 2. БАЛАНС — ЗАГРУЗКА С СЕРВЕРА
+            // ============================================================
+            let casinoBalance = 0;
+            const balanceSpan = document.getElementById('balanceDisplay');
+
+            function updateBalanceUI() {
+                balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
+                localStorage.setItem('casinoBalance', String(casinoBalance));
+            }
+
+            function loadBalanceFromServer() {
+                if (!userId) {
+                    casinoBalance = parseInt(localStorage.getItem('casinoBalance')) || 50000;
+                    updateBalanceUI();
+                    return;
+                }
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+                fetch(`${API_BASE}/profile/${encodeURIComponent(userId)}`, { signal: controller.signal })
+                    .then(res => {
+                        clearTimeout(timeoutId);
+                        if (!res.ok) throw new Error('HTTP ' + res.status);
+                        return res.json();
+                    })
+                    .then(data => {
+                        const bal = Number(data.casino_balance ?? data.balance ?? 0);
+                        casinoBalance = bal;
+                        updateBalanceUI();
+                        console.log('✅ Баланс загружен с сервера:', casinoBalance);
+                    })
+                    .catch(err => {
+                        clearTimeout(timeoutId);
+                        console.error('❌ Ошибка загрузки баланса:', err);
+                        casinoBalance = parseInt(localStorage.getItem('casinoBalance')) || 50000;
+                        updateBalanceUI();
+                    });
+            }
+
+            // ============================================================
+            // 3. ОТПРАВКА РЕЗУЛЬТАТА НА СЕРВЕР
+            // ============================================================
+            async function sendGameResult(result, bet, win) {
+                if (!userId) {
+                    console.warn('Нет userId, результат не отправлен');
+                    return null;
+                }
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+                try {
+                    const response = await fetch(`${API_BASE}/game_result`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        signal: controller.signal,
+                        body: JSON.stringify({
+                            userId: userId,
+                            game: 'roulette',
+                            result: result,
+                            bet: bet,
+                            win: win
+                        })
+                    });
+                    clearTimeout(timeoutId);
+                    if (!response.ok) throw new Error('HTTP ' + response.status);
+                    const data = await response.json();
+                    if (data.new_balance !== undefined) {
+                        casinoBalance = Number(data.new_balance);
+                        updateBalanceUI();
+                        console.log(`✅ Результат ${result} отправлен, новый баланс: ${casinoBalance}`);
+                    }
+                    return data;
+                } catch (err) {
+                    clearTimeout(timeoutId);
+                    console.error('❌ Ошибка отправки результата:', err);
+                    // В случае ошибки пытаемся перезагрузить баланс
+                    loadBalanceFromServer();
+                    return null;
+                }
+            }
+
+            // ============================================================
+            // 4. КОНСТАНТЫ И СОСТОЯНИЕ
             // ============================================================
             const wheelNumbers = [
                 0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5,
@@ -1007,14 +1091,12 @@
                 return 'green';
             }
 
-            let casinoBalance = parseInt(localStorage.getItem('casinoBalance')) || 50000;
             let spinHistory = JSON.parse(localStorage.getItem('roulette_history')) || [0, 32, 15, 19, 4];
 
             let activeBets = {};
             let selectedChipValue = 100;
             let isSpinning = false;
 
-            const balanceSpan = document.getElementById('balanceDisplay');
             const totalBetSpan = document.getElementById('totalBetDisplay');
             const historyList = document.getElementById('historyList');
             const statusPanel = document.getElementById('statusPanel');
@@ -1023,15 +1105,8 @@
             const betGrid = document.getElementById('betGrid');
 
             // ============================================================
-            // 3. ОБНОВЛЕНИЕ ИНТЕРФЕЙСА
+            // 5. ОБНОВЛЕНИЕ ИНТЕРФЕЙСА
             // ============================================================
-            function updateBalanceDisplay(newBalance) {
-                casinoBalance = newBalance;
-                localStorage.setItem('casinoBalance', String(casinoBalance));
-                balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
-            }
-            updateBalanceDisplay(casinoBalance);
-
             function updateTotalBetDisplay() {
                 const totalStaked = Object.values(activeBets).reduce((sum, b) => sum + b.amount, 0);
                 totalBetSpan.innerText = totalStaked.toLocaleString() + ' ₽';
@@ -1082,7 +1157,7 @@
             updateHistoryUI();
 
             // ============================================================
-            // 4. ПОСТРОЕНИЕ ТАБЛИЦЫ СТАВОК
+            // 6. ПОСТРОЕНИЕ ТАБЛИЦЫ СТАВОК
             // ============================================================
             function buildBetTable() {
                 for (let row = 0; row < 12; row++) {
@@ -1132,7 +1207,7 @@
             buildBetTable();
 
             // ============================================================
-            // 5. ВЫБОР ФИШКИ
+            // 7. ВЫБОР ФИШКИ
             // ============================================================
             chipsContainer.querySelectorAll('.chip').forEach(chip => {
                 chip.addEventListener('click', function() {
@@ -1145,7 +1220,7 @@
             });
 
             // ============================================================
-            // 6. ЛОГИКА СТАВОК
+            // 8. ЛОГИКА СТАВОК
             // ============================================================
             function getSectorId(type, value) {
                 return `${type}-${value}`;
@@ -1215,7 +1290,9 @@
                     };
                 }
 
-                updateBalanceDisplay(casinoBalance - selectedChipValue);
+                // Локальное списание (для UI)
+                casinoBalance -= selectedChipValue;
+                updateBalanceUI();
 
                 const bet = activeBets[sectorId];
                 bet.amount += selectedChipValue;
@@ -1275,7 +1352,7 @@
             }
 
             // ============================================================
-            // 7. АНИМАЦИЯ ПОЛЕТА ФИШКИ
+            // 9. АНИМАЦИЯ ПОЛЕТА ФИШКИ
             // ============================================================
             function animateChipTo(targetElement, chipValue, onComplete) {
                 const activeChip = chipsContainer.querySelector('.chip.active');
@@ -1319,7 +1396,7 @@
             }
 
             // ============================================================
-            // 8. СТОПКИ ФИШЕК НА СТОЛЕ
+            // 10. СТОПКИ ФИШЕК НА СТОЛЕ
             // ============================================================
             function addChipToTable(targetElement, chipValue, stackIndex) {
                 const existingChips = targetElement.querySelectorAll('.table-chip');
@@ -1359,7 +1436,7 @@
             }
 
             // ============================================================
-            // 9. SPIN
+            // 11. SPIN
             // ============================================================
             spinBtn.addEventListener('click', function() {
                 if (isSpinning) return;
@@ -1390,7 +1467,7 @@
             }
 
             // ============================================================
-            // 10. РАСЧЕТ ВЫИГРЫШЕЙ
+            // 12. РАСЧЕТ ВЫИГРЫШЕЙ
             // ============================================================
             function evaluateBets(winningNumber) {
                 let totalWin = 0;
@@ -1447,7 +1524,7 @@
             }
 
             // ============================================================
-            // 11. КАНВАС + ФИЗИКА КОЛЕСА (ПЛАВНАЯ И БЕЗ СКАЧКОВ)
+            // 13. КАНВАС + ФИЗИКА КОЛЕСА
             // ============================================================
             const canvas = document.getElementById('rouletteCanvas');
             const ctx = canvas.getContext('2d');
@@ -1468,7 +1545,6 @@
             let ballOffset = 0;
             let targetSlotAngle = 0;
 
-            // Для плавной интерполяции в фазе 3
             let phase3StartOffset = null;
             let phase3Diff = null;
 
@@ -1583,7 +1659,10 @@
                 statusPanel.innerHTML = '🌀 Колесо вращается...';
             }
 
-            function finishSpin(winningNum) {
+            // ============================================================
+            // 14. ФИНИШ СПИНА (С ОТПРАВКОЙ НА СЕРВЕР)
+            // ============================================================
+            async function finishSpin(winningNum) {
                 isSpinning = false;
                 spinBtn.disabled = false;
 
@@ -1597,42 +1676,54 @@
                 });
 
                 const { totalWin, results } = evaluateBets(winningNum);
-                updateBalanceDisplay(casinoBalance + totalWin);
+                const totalStaked = Object.values(activeBets).reduce((sum, b) => sum + b.amount, 0);
+
+                // Определяем результат
+                const resultType = totalWin > 0 ? 'win' : 'lose';
+
+                // Обновляем локальный баланс (для UI)
+                casinoBalance += totalWin;
+                updateBalanceUI();
+
+                // Отправляем результат на сервер
+                await sendGameResult(resultType, totalStaked, totalWin);
 
                 spinHistory.push(winningNum);
                 localStorage.setItem('roulette_history', JSON.stringify(spinHistory));
                 updateHistoryUI();
 
-                let games = parseInt(localStorage.getItem('profile_games_played')) || 0;
-                let wins = parseInt(localStorage.getItem('profile_wins')) || 0;
-                let losses = parseInt(localStorage.getItem('profile_losses')) || 0;
-                let totalBet = parseInt(localStorage.getItem('profile_total_bet')) || 0;
-                let totalWinAmount = parseInt(localStorage.getItem('profile_total_win')) || 0;
+                // Локальная статистика
+                try {
+                    let games = parseInt(localStorage.getItem('profile_games_played')) || 0;
+                    let wins = parseInt(localStorage.getItem('profile_wins')) || 0;
+                    let losses = parseInt(localStorage.getItem('profile_losses')) || 0;
+                    let totalBet = parseInt(localStorage.getItem('profile_total_bet')) || 0;
+                    let totalWinAmount = parseInt(localStorage.getItem('profile_total_win')) || 0;
 
-                const totalStaked = Object.values(activeBets).reduce((sum, b) => sum + b.amount, 0);
-                games += 1;
-                totalBet += totalStaked;
+                    games += 1;
+                    totalBet += totalStaked;
 
-                if (totalWin > 0) {
-                    wins += 1;
-                    totalWinAmount += totalWin;
-                    statusPanel.innerHTML =
-                        `<span class="win-glow">🎉 ВЫИГРЫШ! +${totalWin.toLocaleString()}₽</span><br>Выпало: <b>${winningNum} (${getColorByNumber(winningNum).toUpperCase()})</b>`;
-                    soundWin();
-                    triggerHaptic('success');
-                } else {
-                    losses += 1;
-                    statusPanel.innerHTML =
-                        `<span style="color:var(--accent-red);font-weight:800;">❌ ПРОИГРЫШ! -${totalStaked.toLocaleString()}₽</span><br>Выпало: <b>${winningNum} (${getColorByNumber(winningNum).toUpperCase()})</b>`;
-                    soundLose();
-                    triggerHaptic('error');
-                }
+                    if (totalWin > 0) {
+                        wins += 1;
+                        totalWinAmount += totalWin;
+                        statusPanel.innerHTML =
+                            `<span class="win-glow">🎉 ВЫИГРЫШ! +${totalWin.toLocaleString()}₽</span><br>Выпало: <b>${winningNum} (${getColorByNumber(winningNum).toUpperCase()})</b>`;
+                        soundWin();
+                        triggerHaptic('success');
+                    } else {
+                        losses += 1;
+                        statusPanel.innerHTML =
+                            `<span style="color:var(--accent-red);font-weight:800;">❌ ПРОИГРЫШ! -${totalStaked.toLocaleString()}₽</span><br>Выпало: <b>${winningNum} (${getColorByNumber(winningNum).toUpperCase()})</b>`;
+                        soundLose();
+                        triggerHaptic('error');
+                    }
 
-                localStorage.setItem('profile_games_played', String(games));
-                localStorage.setItem('profile_wins', String(wins));
-                localStorage.setItem('profile_losses', String(losses));
-                localStorage.setItem('profile_total_bet', String(totalBet));
-                localStorage.setItem('profile_total_win', String(totalWinAmount));
+                    localStorage.setItem('profile_games_played', String(games));
+                    localStorage.setItem('profile_wins', String(wins));
+                    localStorage.setItem('profile_losses', String(losses));
+                    localStorage.setItem('profile_total_bet', String(totalBet));
+                    localStorage.setItem('profile_total_win', String(totalWinAmount));
+                } catch (e) {}
 
                 clearTable();
                 activeBets = {};
@@ -1650,7 +1741,7 @@
             }
 
             // ============================================================
-            // 12. ОТРИСОВКА КОЛЕСА
+            // 15. ОТРИСОВКА КОЛЕСА
             // ============================================================
             function drawWheel() {
                 const w = canvas.width / dpr;
@@ -1813,7 +1904,7 @@
             }
 
             // ============================================================
-            // 13. ФИЗИКА — ПЛАВНАЯ БЕЗ СКАЧКОВ
+            // 16. ФИЗИКА — ПЛАВНАЯ
             // ============================================================
             let lastTimestamp = 0;
 
@@ -1826,12 +1917,10 @@
                     const elapsed = timestamp - spinStartTime;
                     const progress = Math.min(elapsed / spinDuration, 1);
 
-                    // Замедление колеса
                     const easeOut = 1 - Math.pow(progress, 2);
                     wheelSpeed = 0.12 * easeOut + 0.003;
                     wheelAngle += wheelSpeed;
 
-                    // Радиус шарика
                     let radius;
                     if (progress < 0.7) {
                         radius = wheelRadius - 18;
@@ -1844,31 +1933,23 @@
                         radius = wheelRadius - 34 + bounce;
                     }
 
-                    // ---- Управление ballOffset ----
                     if (progress < 0.7) {
-                        // Фаза 1: быстрое вращение
                         const p = progress / 0.7;
                         let speed = 0.5 - p * 0.2;
                         ballOffset -= speed;
                     } else if (progress < 0.9) {
-                        // Фаза 2: замедление + постепенное притяжение к целевому углу
-                        const p = (progress - 0.7) / 0.2; // 0..1
-                        // Притяжение к целевому углу
+                        const p = (progress - 0.7) / 0.2;
                         let diff = targetSlotAngle - ballOffset;
                         while (diff > Math.PI) diff -= 2 * Math.PI;
                         while (diff < -Math.PI) diff += 2 * Math.PI;
                         const approachSpeed = 0.2 * p;
                         ballOffset += diff * approachSpeed;
-
-                        // Инерционное движение (затухающее)
                         let speed = 0.12 * (1 - p);
                         ballOffset -= speed;
-
                         if (Math.random() < 0.06) {
                             ballOffset += (Math.random() - 0.5) * 0.02;
                         }
                     } else {
-                        // Фаза 3: финальная точная интерполяция
                         if (phase3StartOffset === null) {
                             phase3StartOffset = ballOffset;
                             phase3Diff = targetSlotAngle - phase3StartOffset;
@@ -1876,19 +1957,16 @@
                             while (phase3Diff < -Math.PI) phase3Diff += 2 * Math.PI;
                         }
                         const p = (progress - 0.9) / 0.1;
-                        const eased = p * p * (3 - 2 * p); // smoothstep
+                        const eased = p * p * (3 - 2 * p);
                         ballOffset = phase3StartOffset + phase3Diff * eased;
-
                         if (Math.random() < 0.04) {
                             playSynthesizedTick(400, 0.04, 0.04);
                         }
                     }
 
-                    // Нормализация
                     while (ballOffset > Math.PI) ballOffset -= 2 * Math.PI;
                     while (ballOffset < -Math.PI) ballOffset += 2 * Math.PI;
 
-                    // Абсолютный угол шарика
                     ball.angle = wheelAngle + ballOffset;
                     while (ball.angle > 2 * Math.PI) ball.angle -= 2 * Math.PI;
                     while (ball.angle < 0) ball.angle += 2 * Math.PI;
@@ -1912,7 +1990,6 @@
                         }
                     }
                 } else {
-                    // Медленное вращение после спина
                     wheelSpeed = 0.005;
                     wheelAngle += wheelSpeed;
                     if (ball.active) {
@@ -1929,7 +2006,7 @@
             requestAnimationFrame(updatePhysics);
 
             // ============================================================
-            // 14. НАВИГАЦИЯ
+            // 17. НАВИГАЦИЯ
             // ============================================================
             function exitToMenu() {
                 window.location.href = 'casino.html?userId=' + (userId || '');
@@ -1943,7 +2020,7 @@
             document.getElementById('exitBtn').addEventListener('click', exitAndCollect);
 
             // ============================================================
-            // 15. ДИНАМИЧЕСКИЙ ПЕРЕСЧЕТ РАЗМЕРОВ
+            // 18. ДИНАМИЧЕСКИЙ ПЕРЕСЧЕТ РАЗМЕРОВ
             // ============================================================
             function resizeCanvas() {
                 const r = canvas.getBoundingClientRect();
@@ -1960,7 +2037,12 @@
             window.addEventListener('resize', resizeCanvas);
             setTimeout(resizeCanvas, 80);
 
-            console.log('🎡 VIP ROULETTE — плавная физика без скачков.');
+            // ============================================================
+            // 19. ЗАГРУЗКА БАЛАНСА ПРИ СТАРТЕ
+            // ============================================================
+            loadBalanceFromServer();
+
+            console.log('🎡 VIP ROULETTE — синхронизация баланса с сервером.');
         })();
     </script>
 </body>
