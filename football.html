@@ -68,7 +68,6 @@
     .odd-item .trend.up { color: #3ddc84; display: block; }
     .odd-item .trend.down { color: #f03043; display: block; }
 
-    /* Дополнительные рынки */
     .extra-toggle-btn { background: none; border: none; color: rgba(255,255,255,0.2); font-size: 12px; font-weight: 600; cursor: pointer; padding: 6px 12px; border-radius: 20px; transition: 0.2s; margin-top: 6px; display: block; width: 100%; text-align: center; }
     .extra-toggle-btn:active { transform: scale(0.9); }
     .extra-toggle-btn.active { color: #FFD54A; background: rgba(255,215,0,0.06); }
@@ -139,7 +138,6 @@
     .float-info .odds { font-size: 18px; font-weight: 900; color: #FFD54A; }
     .float-go-btn { background: #1882ff; color: #fff; border: none; font-weight: 800; font-size: 14px; padding: 10px 20px; border-radius: 12px; cursor: pointer; text-transform: uppercase; }
 
-    /* Модалка депозита */
     .deposit-modal .modal-content { max-width: 360px; }
     .deposit-modal .deposit-amounts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0; }
     .deposit-modal .deposit-amounts button { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 12px; color: #fff; font-weight: 800; font-size: 16px; cursor: pointer; transition: 0.2s; }
@@ -270,7 +268,105 @@
     'use strict';
 
     // =========================================================================
-    // 1. БАЗА ДАННЫХ КОМАНД И ЛИГ (расширено)
+    // 0. API и синхронизация баланса (добавлено)
+    // =========================================================================
+    const API_BASE = 'https://resellgame.bothost.tech';
+
+    // Получение userId из URL или Telegram
+    const tg = window.Telegram?.WebApp;
+    let userId = null;
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('userId')) userId = urlParams.get('userId');
+    else if (tg?.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
+
+    // Функция загрузки баланса с сервера
+    function loadBalanceFromServer() {
+      if (!userId) {
+        // fallback на localStorage
+        balance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+        updateBalanceUI();
+        return;
+      }
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+      fetch(`${API_BASE}/profile/${encodeURIComponent(userId)}`, { signal: controller.signal })
+        .then(res => {
+          clearTimeout(timeoutId);
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          return res.json();
+        })
+        .then(data => {
+          const bal = Number(data.casino_balance ?? data.balance ?? 0);
+          balance = bal;
+          localStorage.setItem('casinoBalance', String(balance));
+          updateBalanceUI();
+          console.log('✅ Баланс загружен с сервера:', balance);
+        })
+        .catch(err => {
+          clearTimeout(timeoutId);
+          console.error('❌ Ошибка загрузки баланса:', err);
+          // fallback на localStorage
+          balance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+          updateBalanceUI();
+        });
+    }
+
+    // Отправка результата на сервер
+    function sendGameResult(result, bet, win) {
+      return new Promise((resolve, reject) => {
+        if (!userId) {
+          reject(new Error('Нет userId'));
+          return;
+        }
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+        fetch(`${API_BASE}/game_result`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            userId: userId,
+            game: 'football',
+            result: result,
+            bet: bet,
+            win: win
+          })
+        })
+        .then(res => {
+          clearTimeout(timeoutId);
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          return res.json();
+        })
+        .then(data => {
+          if (data.new_balance !== undefined) {
+            resolve(data.new_balance);
+          } else {
+            reject(new Error('Ответ сервера не содержит new_balance'));
+          }
+        })
+        .catch(err => {
+          clearTimeout(timeoutId);
+          reject(err);
+        });
+      });
+    }
+
+    // Обновление UI баланса
+    function updateBalanceUI() {
+      document.getElementById('balanceDisplay').innerText = balance.toLocaleString() + ' ₽';
+    }
+
+    // Сохранение состояния (локально)
+    function saveState() {
+      localStorage.setItem('casinoBalance', String(balance));
+      localStorage.setItem('rg_history', JSON.stringify(betHistory));
+      updateBalanceUI();
+    }
+
+    // =========================================================================
+    // 1. БАЗА ДАННЫХ КОМАНД И ЛИГ (без изменений)
     // =========================================================================
     const CLUBS = [
       { name: 'Реал Мадрид', emblem: '👑', att: 94, def: 91, mentality: 'attack' },
@@ -297,7 +393,6 @@
       { name: 'Бенфика', emblem: '🦅', att: 83, def: 82, mentality: 'balanced' },
       { name: 'Порту', emblem: '🐉', att: 82, def: 83, mentality: 'defensive' },
       { name: 'Аякс', emblem: '❌', att: 81, def: 77, mentality: 'attack' },
-      // Новые команды для расширения лиг
       { name: 'Рома', emblem: '🐺', att: 84, def: 81, mentality: 'balanced' },
       { name: 'Лацио', emblem: '🦅', att: 83, def: 79, mentality: 'attack' },
       { name: 'Фиорентина', emblem: '⚜️', att: 82, def: 77, mentality: 'balanced' },
@@ -337,7 +432,7 @@
     ];
 
     // =========================================================================
-    // 2. АУДИО-ДВИЖОК
+    // 2. АУДИО-ДВИЖОК (без изменений)
     // =========================================================================
     class AudioEngine {
       constructor() { this.ctx = null; this.ambientGain = null; this.ambientSource = null; }
@@ -426,24 +521,48 @@
     const Sound = new AudioEngine();
 
     // =========================================================================
-    // 3. ЯДРО СИМУЛЯТОРА
+    // 3. ЯДРО СИМУЛЯТОРА (изменена инициализация баланса)
     // =========================================================================
-    let balance = parseInt(localStorage.getItem('casinoBalance')) || 10000;
+    let balance = 0;  // будет загружено с сервера
     let matches = [];
     let activeSlip = [];
     let betHistory = JSON.parse(localStorage.getItem('rg_history')) || [];
 
-    function saveState() {
-      localStorage.setItem('casinoBalance', balance);
-      localStorage.setItem('rg_history', JSON.stringify(betHistory));
-      document.getElementById('balanceDisplay').innerText = balance.toLocaleString() + ' ₽';
-    }
-
+    // Функции deposit изменены: они теперь обновляют баланс через сервер
     function deposit(amount) {
-      balance += amount;
-      saveState();
-      document.getElementById('depositModal').classList.remove('show');
-      alert(`Баланс пополнен на ${amount} ₽`);
+      if (!userId) {
+        alert('Не удалось определить пользователя');
+        return;
+      }
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+      fetch(`${API_BASE}/deposit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({ userId: userId, user_id: userId, amount: amount })
+      })
+      .then(res => {
+        clearTimeout(timeoutId);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(data => {
+        if (data.success) {
+          balance = Number(data.casino_balance ?? data.new_casino_balance ?? balance);
+          saveState();
+          document.getElementById('depositModal').classList.remove('show');
+          alert(`Баланс пополнен на ${amount} ₽`);
+        } else {
+          alert('Ошибка пополнения: ' + (data.error || 'неизвестная ошибка'));
+        }
+      })
+      .catch(err => {
+        clearTimeout(timeoutId);
+        console.error('Ошибка пополнения:', err);
+        alert('Не удалось пополнить баланс. Проверьте соединение.');
+      });
     }
 
     function depositCustom() {
@@ -456,21 +575,21 @@
       document.getElementById('depositModal').classList.add('show');
     });
 
-    // Кнопка назад
     document.getElementById('backBtn').addEventListener('click', () => {
-      const userId = new URLSearchParams(window.location.search).get('userId') || '';
-      window.location.href = 'casino.html' + (userId ? '?userId=' + userId : '');
+      const userIdParam = userId ? '?userId=' + userId : '';
+      window.location.href = 'casino.html' + userIdParam;
     });
 
-    // Слушатель изменения баланса в других вкладках
+    // Слушатель изменения баланса в других вкладках (обновляем UI)
     window.addEventListener('storage', (e) => {
       if (e.key === 'casinoBalance') {
         balance = parseInt(e.newValue) || 0;
-        document.getElementById('balanceDisplay').innerText = balance.toLocaleString() + ' ₽';
+        updateBalanceUI();
         renderCoupon();
       }
     });
 
+    // Остальная логика симулятора без изменений
     function initMatchEngine() {
       matches = [];
       let currentId = 101;
@@ -553,7 +672,6 @@
         });
       }
       m.odds = newOdds;
-      // Дополнительные рынки
       m.extra = {
         'Обе забьют (Да)': +(1.7 + Math.random() * 0.5).toFixed(2),
         'Обе забьют (Нет)': +(1.8 + Math.random() * 0.5).toFixed(2),
@@ -621,7 +739,6 @@
       updateSlipUi();
     }
 
-    // Периодический запуск
     setInterval(() => {
       let ns = matches.filter(m => m.status === 'NS');
       if (ns.length > 0 && Math.random() < 0.3) {
@@ -634,7 +751,7 @@
     setInterval(updateSimulation, 2200);
 
     // =========================================================================
-    // 4. КУПОН, СТАВКИ, ИСТОРИЯ
+    // 4. КУПОН, СТАВКИ, ИСТОРИЯ (изменены функции размещения ставок)
     // =========================================================================
     function switchTab(t) {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -770,7 +887,6 @@
           `;
         }
 
-        // Дополнительные рынки
         let extraHtml = '';
         if (!isFin) {
           const extraKeys = Object.keys(m.extra);
@@ -863,13 +979,30 @@
     function setStake(v) { document.getElementById('couponStakeInput').value = v; renderCoupon(); }
     function removeCouponItem(idx) { activeSlip.splice(idx, 1); updateSlipUi(); renderCoupon(); renderMatches(); }
 
-    function executePlacement() {
+    // === ИСПРАВЛЕННАЯ ФУНКЦИЯ РАЗМЕЩЕНИЯ СТАВКИ с отправкой на сервер ===
+    async function executePlacement() {
       const stake = parseInt(document.getElementById('couponStakeInput').value) || 0;
       if (stake <= 0 || stake > balance) return;
       if (!confirm(`Подтвердить ставку на ${stake} ₽ с коэффициентом ${document.getElementById('couponTotalOdds').innerText}?`)) return;
 
-      balance -= stake;
+      // Рассчитываем потенциальный выигрыш
       let totalOdds = activeSlip.reduce((acc, x) => acc * x.odds, 1);
+      let winAmount = Math.floor(stake * totalOdds);
+
+      // Отправляем результат на сервер (пока считаем, что ставка выиграла? Нет, мы отправляем результат после матча.
+      // Однако по логике футбольного симулятора ставка остаётся в статусе pending до завершения матча.
+      // В текущей реализации settleBetsForMatch обновляет баланс локально и вызывает saveState.
+      // Чтобы синхронизировать с сервером, мы должны при завершении матча отправить результат.
+      // Поэтому здесь мы только локально списываем ставку, но баланс должен быть обновлён после завершения матча.
+      // Мы добавим вызов сервера в settleBetsForMatch.
+      // Но для консистентности, перед списанием мы должны убедиться, что баланс на сервере актуален.
+      // Сделаем так: при размещении ставки отправляем запрос на /game_result с результатом 'pending'? 
+      // Лучше: при завершении матча вызываем sendGameResult.
+      // Для этого модифицируем settleBetsForMatch.
+      // Пока оставим локальное списание, но после завершения матча отправим реальный результат.
+
+      // Локальное списание (отображение)
+      balance -= stake;
       let record = {
         id: Date.now().toString().slice(-6),
         type: activeSlip.length > 1 ? 'Экспресс' : 'Ординар',
@@ -885,6 +1018,60 @@
       updateSlipUi();
       switchTab('bets');
       alert(`✅ Ставка принята!\nСумма: ${stake} ₽\nКоэффициент: ${totalOdds.toFixed(2)}`);
+    }
+
+    // === ИСПРАВЛЕННАЯ ФУНКЦИЯ РАСЧЁТА СТАВОК ПОСЛЕ МАТЧА (с отправкой на сервер) ===
+    async function settleBetsForMatch(m) {
+      let changed = false;
+      for (let b of betHistory) {
+        if (b.status !== 'pending') continue;
+        let matchItems = b.items.filter(x => x.matchId === m.id);
+        if (matchItems.length === 0) continue;
+        matchItems.forEach(item => {
+          let win = false;
+          if (item.market === 'w1' && m.homeScore > m.awayScore) win = true;
+          if (item.market === 'x' && m.homeScore === m.awayScore) win = true;
+          if (item.market === 'w2' && m.homeScore < m.awayScore) win = true;
+          if (item.market === 'tb' && (m.homeScore + m.awayScore) > 2.5) win = true;
+          if (item.market === 'tm' && (m.homeScore + m.awayScore) < 2.5) win = true;
+          if (item.market === 'Обе забьют (Да)' && m.homeScore > 0 && m.awayScore > 0) win = true;
+          if (item.market === 'Обе забьют (Нет)' && (m.homeScore === 0 || m.awayScore === 0)) win = true;
+          if (item.market === 'Угловые > 9.5') {
+            const corners = Math.floor(Math.random() * 15);
+            if (corners > 9.5) win = true;
+          }
+          if (item.market === 'Угловые < 9.5') {
+            const corners = Math.floor(Math.random() * 15);
+            if (corners < 9.5) win = true;
+          }
+          item.settledStatus = win ? 'win' : 'lose';
+        });
+        let totalPending = b.items.filter(x => !x.settledStatus);
+        if (totalPending.length === 0) {
+          let hasLoss = b.items.some(x => x.settledStatus === 'lose');
+          let result = hasLoss ? 'lose' : 'win';
+          let winAmount = 0;
+          if (!hasLoss) {
+            winAmount = Math.floor(b.stake * b.odds);
+            balance += winAmount;
+          }
+          b.status = result;
+          // Отправляем результат на сервер
+          try {
+            const newBalance = await sendGameResult(result, b.stake, winAmount);
+            // Обновляем баланс из ответа сервера (как истинное значение)
+            balance = Number(newBalance);
+            saveState();
+          } catch (err) {
+            console.error('Ошибка отправки результата на сервер:', err);
+            // Если ошибка, оставляем локальный баланс и помечаем проблему
+            // Можно повторно загрузить баланс
+            loadBalanceFromServer();
+          }
+          changed = true;
+        }
+      }
+      if (changed) saveState();
     }
 
     function renderHistory() {
@@ -916,44 +1103,8 @@
       });
     }
 
-    function settleBetsForMatch(m) {
-      let changed = false;
-      betHistory.forEach(b => {
-        if (b.status !== 'pending') return;
-        let matchItems = b.items.filter(x => x.matchId === m.id);
-        if (matchItems.length === 0) return;
-        matchItems.forEach(item => {
-          let win = false;
-          if (item.market === 'w1' && m.homeScore > m.awayScore) win = true;
-          if (item.market === 'x' && m.homeScore === m.awayScore) win = true;
-          if (item.market === 'w2' && m.homeScore < m.awayScore) win = true;
-          if (item.market === 'tb' && (m.homeScore + m.awayScore) > 2.5) win = true;
-          if (item.market === 'tm' && (m.homeScore + m.awayScore) < 2.5) win = true;
-          if (item.market === 'Обе забьют (Да)' && m.homeScore > 0 && m.awayScore > 0) win = true;
-          if (item.market === 'Обе забьют (Нет)' && (m.homeScore === 0 || m.awayScore === 0)) win = true;
-          if (item.market === 'Угловые > 9.5') {
-            const corners = Math.floor(Math.random() * 15);
-            if (corners > 9.5) win = true;
-          }
-          if (item.market === 'Угловые < 9.5') {
-            const corners = Math.floor(Math.random() * 15);
-            if (corners < 9.5) win = true;
-          }
-          item.settledStatus = win ? 'win' : 'lose';
-        });
-        let totalPending = b.items.filter(x => !x.settledStatus);
-        if (totalPending.length === 0) {
-          let hasLoss = b.items.some(x => x.settledStatus === 'lose');
-          b.status = hasLoss ? 'lose' : 'win';
-          if (!hasLoss) balance += Math.floor(b.stake * b.odds);
-          changed = true;
-        }
-      });
-      if (changed) saveState();
-    }
-
     // =========================================================================
-    // 5. ЭКСПРЕСС-МОМЕНТЫ (2D Canvas анимация) — ПОЛНАЯ ВЕРСИЯ
+    // 5. ЭКСПРЕСС-МОМЕНТЫ (исправлена функция resolveMomentMatchResult)
     // =========================================================================
     let canvasCtx = null;
     let animFrameId = null;
@@ -1098,10 +1249,11 @@
       }
     }
 
-    function placeMomentBet() {
+    async function placeMomentBet() {
       if (selectedMomentOutcomeIdx === -1) return;
       const stake = parseInt(document.getElementById('momentStakeInput').value) || 0;
       if (stake <= 0 || stake > balance) return;
+      // Локально списываем
       balance -= stake;
       saveState();
       document.getElementById('momentBetUi').style.display = 'none';
@@ -1341,7 +1493,8 @@
       }
     }
 
-    function resolveMomentMatchResult(isWin, textStatus, type) {
+    // === ИСПРАВЛЕННАЯ ФУНКЦИЯ resolveMomentMatchResult с отправкой на сервер ===
+    async function resolveMomentMatchResult(isWin, textStatus, type) {
       if (momentResultResolved) return;
       momentResultResolved = true;
       sceneState = 'result';
@@ -1356,7 +1509,10 @@
         background: rgba(0,0,0,0.85); font-family: 'Montserrat', sans-serif; text-align: center; z-index: 10;
       `;
       let winAmount = Math.floor(currentStake * activeMomentConfig.opts[selectedMomentOutcomeIdx].o);
+      let result = 'lose';
       if (isWin) {
+        result = 'win';
+        // Локально добавим выигрыш
         balance += winAmount;
         resText.innerHTML = `
           <h2 style="color:#3DDC84; font-size:28px; font-weight:900; margin-bottom:10px;">✅ СТАВКА ВЫИГРАЛА</h2>
@@ -1381,11 +1537,24 @@
         description: `Блиц-пари: ${m.home.name}-${m.away.name} [${activeMomentConfig.opts[selectedMomentOutcomeIdx].l}]`,
         odds: activeMomentConfig.opts[selectedMomentOutcomeIdx].o,
         stake: currentStake,
-        status: isWin ? 'win' : 'lose',
+        status: result,
         items: []
       });
       m.expressMomentAvailable = false;
+      // Сохраняем локально
       saveState();
+
+      // Отправляем результат на сервер
+      try {
+        const newBalance = await sendGameResult(result, currentStake, winAmount);
+        balance = Number(newBalance);
+        saveState();
+      } catch (err) {
+        console.error('Ошибка отправки результата момента на сервер:', err);
+        // В случае ошибки пытаемся перезагрузить баланс
+        loadBalanceFromServer();
+      }
+
       calculateOdds(m);
       renderMatches();
     }
@@ -1488,8 +1657,13 @@
       document.getElementById('momentModal').addEventListener('click', (e) => {
         if(e.target.id === 'momentModal') terminateMoment();
       });
+
+      // Загружаем баланс с сервера
+      loadBalanceFromServer();
+
       initMatchEngine();
       renderMatches();
+      // Сохраняем состояние после загрузки
       saveState();
       document.addEventListener('click', (e) => {
         if (e.target.id === 'physicsResultOverlay') {
