@@ -7,7 +7,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;1,800&family=Nunito:wght@600;700;800&display=swap" rel="stylesheet">
     <script src="https://telegram.org/js/telegram-web-app.js" defer></script>
     <style>
-        /* ===== ВСЕ ТВОИ СТИЛИ (БЕЗ ИЗМЕНЕНИЙ) ===== */
+        /* ===== ВСЕ СТИЛИ БЕЗ ИЗМЕНЕНИЙ (я их не трогаю) ===== */
         :root {
             --bg-dark: #070b12;
             --container-bg: #111822;
@@ -385,7 +385,7 @@
         </div>
     </div>
 
-    <!-- МОДАЛЬНЫЕ ОКНА -->
+    <!-- МОДАЛЬНЫЕ ОКНА (без изменений) -->
     <div class="modal-overlay" id="confirmModal">
         <div class="modal-container">
             <div class="modal-title">💰 Подтверждение пополнения</div>
@@ -472,18 +472,7 @@
         const withdrawButton = document.getElementById('submitWithdrawBtn');
 
         // =========================================================
-        // МГНОВЕННО ПОКАЗЫВАЕМ БАЛАНС ИЗ LOCALSTORAGE
-        // =========================================================
-        const savedBalance = parseInt(localStorage.getItem('casinoBalance'));
-        if (!isNaN(savedBalance) && savedBalance > 0) {
-            casinoBalance = savedBalance;
-            balanceDisplay.textContent = savedBalance.toLocaleString('ru-RU') + ' ₽';
-        } else {
-            balanceDisplay.textContent = 'Загрузка...';
-        }
-
-        // =========================================================
-        // ЗАГРУЗКА БАЛАНСА С ТАЙМАУТОМ 5 СЕКУНД
+        // ЗАГРУЗКА БАЛАНСА (без кеширования, только с таймаутом)
         // =========================================================
         function loadBalances() {
             if (balanceLoading) return;
@@ -492,41 +481,34 @@
                 return;
             }
             balanceLoading = true;
+            balanceDisplay.textContent = 'Загрузка...';
 
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 5000);
+            const timeoutId = setTimeout(() => controller.abort(), 8000);
 
-            fetch(`${API_BASE}/profile/${encodeURIComponent(userId)}`, {
-                signal: controller.signal
-            })
-            .then(response => {
-                clearTimeout(timeout);
-                if (!response.ok) {
-                    throw new Error('HTTP ' + response.status);
-                }
-                return response.json();
-            })
-            .then(data => {
-                console.log('📦 Баланс загружен:', data);
-                casinoBalance = Number(data.casino_balance ?? data.balance ?? 0);
-                mainBalance = Number(data.main_balance ?? data.balance ?? 0);
-                localStorage.setItem('casinoBalance', String(casinoBalance));
-                balanceDisplay.textContent = casinoBalance.toLocaleString('ru-RU') + ' ₽';
-            })
-            .catch(error => {
-                clearTimeout(timeout);
-                console.error('❌ Ошибка загрузки баланса:', error);
-                // Показываем сохранённое значение
-                const saved = parseInt(localStorage.getItem('casinoBalance')) || 0;
-                if (saved > 0) {
-                    balanceDisplay.textContent = saved.toLocaleString('ru-RU') + ' ₽';
-                } else {
+            fetch(`${API_BASE}/profile/${encodeURIComponent(userId)}`, { signal: controller.signal })
+                .then(response => {
+                    clearTimeout(timeoutId);
+                    if (!response.ok) {
+                        throw new Error('HTTP ' + response.status);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('📦 Баланс загружен:', data);
+                    casinoBalance = Number(data.casino_balance ?? data.balance ?? 0);
+                    mainBalance = Number(data.main_balance ?? data.balance ?? 0);
+                    balanceDisplay.textContent = casinoBalance.toLocaleString('ru-RU') + ' ₽';
+                    // НЕ сохраняем в localStorage, чтобы не подменять
+                })
+                .catch(error => {
+                    clearTimeout(timeoutId);
+                    console.error('❌ Ошибка загрузки баланса:', error);
                     balanceDisplay.textContent = 'Ошибка загрузки';
-                }
-            })
-            .finally(() => {
-                balanceLoading = false;
-            });
+                })
+                .finally(() => {
+                    balanceLoading = false;
+                });
         }
 
         // =========================================================
@@ -553,26 +535,17 @@
         // ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ОТПРАВКИ ЗАПРОСОВ
         // =========================================================
         function apiFetch(url, options = {}) {
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 8000);
             return fetch(url, {
                 ...options,
                 headers: {
                     'Content-Type': 'application/json',
                     ...(options.headers || {})
-                },
-                signal: controller.signal
-            })
-            .then(response => {
-                clearTimeout(timeout);
+                }
+            }).then(response => {
                 if (!response.ok) {
                     throw new Error('HTTP ' + response.status);
                 }
                 return response.json();
-            })
-            .catch(error => {
-                clearTimeout(timeout);
-                throw error;
             });
         }
 
@@ -605,7 +578,6 @@
                 }
                 casinoBalance = Number(data.casino_balance ?? data.new_casino_balance ?? data.balance ?? casinoBalance);
                 balanceDisplay.textContent = casinoBalance.toLocaleString('ru-RU') + ' ₽';
-                localStorage.setItem('casinoBalance', String(casinoBalance));
                 input.value = '';
                 if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
                 alert(`✅ Пополнение выполнено!\n\nБаланс казино: ${casinoBalance} ₽`);
@@ -650,7 +622,6 @@
                 }
                 casinoBalance = Number(data.casino_balance ?? data.new_casino_balance ?? data.balance ?? casinoBalance);
                 balanceDisplay.textContent = casinoBalance.toLocaleString('ru-RU') + ' ₽';
-                localStorage.setItem('casinoBalance', String(casinoBalance));
                 input.value = '';
                 if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
                 alert(`✅ Вывод выполнен!\n\nБаланс казино: ${casinoBalance} ₽`);
