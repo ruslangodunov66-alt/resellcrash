@@ -1,4 +1,4 @@
-# unified_bot.py - ПОЛНЫЙ СЕРВЕР + ТЕЛЕГРАМ БОТ ДЛЯ RESELL TYCOON
+﻿# unified_bot.py - ПОЛНЫЙ СЕРВЕР + ТЕЛЕГРАМ БОТ ДЛЯ RESELL TYCOON
 # Улучшенный интерфейс: страницы меню, разделение по категориям
 # Все функции сохранены (гонки, скины, аукцион, трейдинг, таксопарк, разбор поставок, друзья, рефералы и т.д.)
 
@@ -10,14 +10,17 @@ import random
 import hashlib
 import time as time_module
 import re
-import aiohttp
 import asyncio
+import aiohttp
 import random
 import time
 import json
+import traceback
 import threading
-from pyngrok import ngrok
-from aiohttp import web
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from contextlib import asynccontextmanager
+import asyncio
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple
 from pydantic import BaseModel
@@ -87,6 +90,7 @@ URL_CRASH = f"{BASE_WEBAPP_URL}crash.html"
 URL_MINES = f"{BASE_WEBAPP_URL}mines.html"
 URL_BLACKJACK = f"{BASE_WEBAPP_URL}blackjack.html"
 URL_CASINO = f"{BASE_WEBAPP_URL}casino.html"
+URL_TRADING = f"{BASE_WEBAPP_URL}trading.html"
 
 def save_players():
     """Заглушка для совместимости со старым кодом. Данные сохраняются через SQLite."""
@@ -373,6 +377,20 @@ active_mines_games = {}      # {user_id: game_data}
 player_luck = {}
 crash_active_bets = {}  # {player_id: {"amount": int, "crash_point": float, "timestamp": float}}
 crash_active_bets = {}
+pending_deposits = {}  # {user_id: amount}
+
+async def update_casino_balance(player_id: int, delta: int):
+    """Увеличивает или уменьшает casino_balance на delta. delta может быть отрицательным."""
+    if delta == 0:
+        return
+    async with db_lock:
+        player = await run_sync_db(get_player_data, player_id)
+        if not player:
+            return
+        new_balance = player.get("casino_balance", 0) + delta
+        if new_balance < 0:
+            new_balance = 0
+        await run_sync_db(update_player_data, player_id, {"casino_balance": new_balance})
 
 async def run_sync_db(func, *args, **kwargs):
     # Блокировку навешиваем ТОЛЬКО снаружи – здесь она не нужна
@@ -516,6 +534,20 @@ def init_db():
             FOREIGN KEY (player_id) REFERENCES players(id)
         )
     ''')
+    
+    # Таблица для таксопарков (ПЕРЕМЕЩЕНО СЮДА)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_taxoparks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            player_id INTEGER,
+            level_id TEXT,
+            purchase_price INTEGER,
+            last_payment INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'active',
+            paid_until INTEGER DEFAULT 0,
+            FOREIGN KEY (player_id) REFERENCES players(id)
+        )
+    ''')
 
     # Таблица достижений игрока (прогресс)
     cursor.execute('''
@@ -540,7 +572,19 @@ def init_db():
             PRIMARY KEY (player_id, quest_id)
         )
     ''')
-    
+
+    # Таблица для истории вращений колеса
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS wheel_spins (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            player_id INTEGER,
+            prize TEXT,
+            amount INTEGER,
+            spin_time INTEGER,
+            FOREIGN KEY (player_id) REFERENCES players(id)
+        )
+    ''')
+     
     # Добавляем недостающие колонки (если их нет)
     cursor.execute("PRAGMA table_info(players)")
     columns = [col[1] for col in cursor.fetchall()]
@@ -573,25 +617,13 @@ def upgrade_db():
     if "purchase_price" not in cols:
         cursor.execute("ALTER TABLE user_shops ADD COLUMN purchase_price INTEGER DEFAULT 0")
     
-    # Добавляем колонки для таксопарков
-    cursor.execute("PRAGMA table_info(user_taxoparks)")
-    cols_tax = [c[1] for c in cursor.fetchall()]
-    if "purchase_price" not in cols_tax:
+    # Добавляем колонки для таксопарков (таблица уже создана в init_db)
+    try:
         cursor.execute("ALTER TABLE user_taxoparks ADD COLUMN purchase_price INTEGER DEFAULT 0")
-    
-    # Таблица для таксопарков (если не существует)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS user_taxoparks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            player_id INTEGER,
-            level_id TEXT,
-            purchase_price INTEGER,
-            last_payment INTEGER DEFAULT 0,
-            status TEXT DEFAULT 'active',
-            paid_until INTEGER DEFAULT 0,
-            FOREIGN KEY (player_id) REFERENCES players(id)
-        )
-    ''')
+    except sqlite3.OperationalError as e:
+        if "no such table" not in str(e) and "duplicate column name" not in str(e):
+            raise
+    # При необходимости добавьте другие ALTER для user_taxoparks, если они появятся позже
     
     # Таблица для депозитов
     cursor.execute('''
@@ -783,11 +815,11 @@ def ensure_stock_prices():
     conn.close()
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH, timeout=60)  # увеличен таймаут
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)  # таймаут ожидания блокировки
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute("PRAGMA busy_timeout=60000")   # ждать до 60 секунд при блокировке
+    conn.execute("PRAGMA journal_mode=WAL")        # включает WAL-режим
+    conn.execute("PRAGMA synchronous=NORMAL")     # снижает нагрузку на запись
+    conn.execute("PRAGMA busy_timeout=30000")     # ждать до 30 секунд
     return conn
 
 def get_or_create_player(platform: str, platform_id: int) -> int:
@@ -1642,42 +1674,131 @@ def get_maintenance_cost_shop(shop_price: int) -> int:
 def get_maintenance_cost_taxopark(price: int) -> int:
     return int(price * 0.08)
 
+def get_maintenance_cost_shop_per_day(shop_price: int) -> float:
+    return shop_price * 0.1 / 30
+
+def get_maintenance_cost_taxopark_per_day(price: int) -> float:
+    return price * 0.08 / 30
+
+async def calculate_total_debt(player_id: int) -> int:
+    def _sync():
+        conn = get_db()
+        cursor = conn.cursor()
+        now = int(time_module.time())
+        total_debt = 0
+
+        # Магазины
+        cursor.execute("SELECT id, purchase_price, last_payment FROM user_shops WHERE player_id = ? AND status = 'active'", (player_id,))
+        shops = cursor.fetchall()
+        for row in shops:
+            days = (now - row['last_payment']) / 86400
+            if days > 0:
+                cost_per_day = get_maintenance_cost_shop_per_day(row['purchase_price'])
+                total_debt += int(cost_per_day * days)
+
+        # Таксопарки
+        cursor.execute("SELECT id, purchase_price, last_payment FROM user_taxoparks WHERE player_id = ? AND status = 'active'", (player_id,))
+        taxoparks = cursor.fetchall()
+        for row in taxoparks:
+            days = (now - row['last_payment']) / 86400
+            if days > 0:
+                cost_per_day = get_maintenance_cost_taxopark_per_day(row['purchase_price'])
+                total_debt += int(cost_per_day * days)
+
+        conn.close()
+        return total_debt
+    return await run_sync_db(_sync)
+
+async def pay_all_debt(player_id: int):
+    def _sync():
+        conn = get_db()
+        cursor = conn.cursor()
+        now = int(time_module.time())
+        total_debt = 0
+
+        # Проверяем баланс
+        cursor.execute("SELECT balance FROM players WHERE id = ?", (player_id,))
+        bal_row = cursor.fetchone()
+        if not bal_row:
+            return False, "Игрок не найден"
+
+        # Считаем долг по магазинам
+        shops = cursor.execute("SELECT id, purchase_price, last_payment FROM user_shops WHERE player_id = ? AND status = 'active'", (player_id,)).fetchall()
+        for row in shops:
+            days = (now - row['last_payment']) / 86400
+            if days > 0:
+                cost_per_day = get_maintenance_cost_shop_per_day(row['purchase_price'])
+                total_debt += int(cost_per_day * days)
+
+        # Считаем долг по таксопаркам
+        taxoparks = cursor.execute("SELECT id, purchase_price, last_payment FROM user_taxoparks WHERE player_id = ? AND status = 'active'", (player_id,)).fetchall()
+        for row in taxoparks:
+            days = (now - row['last_payment']) / 86400
+            if days > 0:
+                cost_per_day = get_maintenance_cost_taxopark_per_day(row['purchase_price'])
+                total_debt += int(cost_per_day * days)
+
+        if total_debt == 0:
+            conn.close()
+            return True, "Нет задолженности по обслуживанию."
+
+        if bal_row['balance'] < total_debt:
+            conn.close()
+            return False, f"Недостаточно средств! Нужно {total_debt}₽."
+
+        # Списываем долг
+        new_balance = bal_row['balance'] - total_debt
+        cursor.execute("UPDATE players SET balance = ? WHERE id = ?", (new_balance, player_id))
+
+        # Обновляем last_payment для всех активных бизнесов на текущее время
+        cursor.execute("UPDATE user_shops SET last_payment = ? WHERE player_id = ? AND status = 'active'", (now, player_id))
+        cursor.execute("UPDATE user_taxoparks SET last_payment = ? WHERE player_id = ? AND status = 'active'", (now, player_id))
+
+        conn.commit()
+        conn.close()
+        return True, f"Оплачено {total_debt}₽ за обслуживание всех бизнесов. Баланс: {new_balance}₽."
+
+    return await run_sync_db(_sync)
+
 async def pay_shop_maintenance(player_id: int, shop_id: str, shop_price: int):
     def _sync():
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id, last_payment, paid_until FROM user_shops "
-            "WHERE player_id = ? AND shop_id = ? AND status = 'active'",
-            (player_id, shop_id)
-        )
-        row = cursor.fetchone()
-        if not row:
+        try:
+            cursor.execute(
+                "SELECT id, last_payment, paid_until FROM user_shops "
+                "WHERE player_id = ? AND shop_id = ? AND status = 'active'",
+                (player_id, shop_id)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return False, "Магазин не найден или уже изъят."
+            
+            now = int(time_module.time())
+            cost = get_maintenance_cost_shop(shop_price)
+
+            # Проверяем баланс
+            cursor.execute("SELECT balance FROM players WHERE id = ?", (player_id,))
+            bal_row = cursor.fetchone()
+            if not bal_row or bal_row['balance'] < cost:
+                return False, f"Недостаточно средств! Нужно {cost}₽."
+
+            new_balance = bal_row['balance'] - cost
+            new_paid_until = max(now, row['paid_until']) + 30 * 86400
+
+            # Обновляем всё в одной транзакции
+            cursor.execute(
+                "UPDATE user_shops SET last_payment = ?, paid_until = ? WHERE id = ?",
+                (now, new_paid_until, row['id'])
+            )
+            cursor.execute("UPDATE players SET balance = ? WHERE id = ?", (new_balance, player_id))
+            conn.commit()
+            return True, f"Обслуживание оплачено на 30 дней. Списано {cost}₽."
+        except Exception as e:
+            conn.rollback()
+            raise e
+        finally:
             conn.close()
-            return False, "Магазин не найден или уже изъят."
-        now = int(time_module.time())
-        cost = get_maintenance_cost_shop(shop_price)
-        conn2 = get_db()
-        cursor2 = conn2.cursor()
-        cursor2.execute("SELECT balance FROM players WHERE id = ?", (player_id,))
-        bal_row = cursor2.fetchone()
-        if not bal_row or bal_row['balance'] < cost:
-            conn2.close()
-            conn.close()
-            return False, f"Недостаточно средств! Нужно {cost}₽."
-        new_balance = bal_row['balance'] - cost
-        new_paid_until = max(now, row['paid_until']) + 30 * 86400
-        cursor.execute(
-            "UPDATE user_shops SET last_payment = ?, paid_until = ? WHERE id = ?",
-            (now, new_paid_until, row['id'])
-        )
-        cursor2.execute("UPDATE players SET balance = ? WHERE id = ?", (new_balance, player_id))
-        conn.commit()
-        conn2.commit()
-        conn.close()
-        conn2.close()
-        return True, f"Обслуживание оплачено на 30 дней. Списано {cost}₽."
-    
     return await run_sync_db(_sync)
 
 async def fetch_stock_price(symbol: str) -> tuple[Optional[int], Optional[float]]:
@@ -1738,38 +1859,39 @@ async def pay_taxopark_maintenance(player_id: int, level_id: str, price: int):
     def _sync():
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id, last_payment, paid_until FROM user_taxoparks "
-            "WHERE player_id = ? AND level_id = ? AND status = 'active'",
-            (player_id, level_id)
-        )
-        row = cursor.fetchone()
-        if not row:
+        try:
+            cursor.execute(
+                "SELECT id, last_payment, paid_until FROM user_taxoparks "
+                "WHERE player_id = ? AND level_id = ? AND status = 'active'",
+                (player_id, level_id)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return False, "Таксопарк не найден или изъят."
+            
+            now = int(time_module.time())
+            cost = get_maintenance_cost_taxopark(price)
+
+            cursor.execute("SELECT balance FROM players WHERE id = ?", (player_id,))
+            bal_row = cursor.fetchone()
+            if not bal_row or bal_row['balance'] < cost:
+                return False, f"Недостаточно средств! Нужно {cost}₽."
+
+            new_balance = bal_row['balance'] - cost
+            new_paid_until = max(now, row['paid_until']) + 30 * 86400
+
+            cursor.execute(
+                "UPDATE user_taxoparks SET last_payment = ?, paid_until = ? WHERE id = ?",
+                (now, new_paid_until, row['id'])
+            )
+            cursor.execute("UPDATE players SET balance = ? WHERE id = ?", (new_balance, player_id))
+            conn.commit()
+            return True, f"Обслуживание таксопарка оплачено на 30 дней. Списано {cost}₽."
+        except Exception as e:
+            conn.rollback()
+            raise e
+        finally:
             conn.close()
-            return False, "Таксопарк не найден или изъят."
-        now = int(time_module.time())
-        cost = get_maintenance_cost_taxopark(price)
-        conn2 = get_db()
-        cursor2 = conn2.cursor()
-        cursor2.execute("SELECT balance FROM players WHERE id = ?", (player_id,))
-        bal_row = cursor2.fetchone()
-        if not bal_row or bal_row['balance'] < cost:
-            conn2.close()
-            conn.close()
-            return False, f"Недостаточно средств! Нужно {cost}₽."
-        new_balance = bal_row['balance'] - cost
-        new_paid_until = max(now, row['paid_until']) + 30 * 86400
-        cursor.execute(
-            "UPDATE user_taxoparks SET last_payment = ?, paid_until = ? WHERE id = ?",
-            (now, new_paid_until, row['id'])
-        )
-        cursor2.execute("UPDATE players SET balance = ? WHERE id = ?", (new_balance, player_id))
-        conn.commit()
-        conn2.commit()
-        conn.close()
-        conn2.close()
-        return True, f"Обслуживание таксопарка оплачено на 30 дней. Списано {cost}₽."
-    
     return await run_sync_db(_sync)
 
 async def get_pending_income(player_id: int):
@@ -1944,31 +2066,36 @@ async def check_business_expiry():
         conn = get_db()
         cursor = conn.cursor()
         now = int(time_module.time())
-        # Магазины – изъятие, если paid_until < now
+        threshold = 30 * 86400  # 30 дней
+
+        # Магазины – изъятие, если last_payment > 30 дней
         cursor.execute(
-            "SELECT id, player_id, shop_id, purchase_price, paid_until FROM user_shops "
-            "WHERE status = 'active' AND paid_until > 0 AND ? > paid_until",
-            (now,)
+            "SELECT id, player_id, shop_id, purchase_price, last_payment FROM user_shops "
+            "WHERE status = 'active' AND ? - last_payment > ?",
+            (now, threshold)
         )
         expired_shops = cursor.fetchall()
         for row in expired_shops:
             cursor.execute("UPDATE user_shops SET status = 'seized' WHERE id = ?", (row['id'],))
             refund = int(row['purchase_price'] * 0.7)
             cursor.execute("UPDATE players SET balance = balance + ? WHERE id = ?", (refund, row['player_id']))
+
         # Таксопарки
         cursor.execute(
-            "SELECT id, player_id, level_id, purchase_price, paid_until FROM user_taxoparks "
-            "WHERE status = 'active' AND paid_until > 0 AND ? > paid_until",
-            (now,)
+            "SELECT id, player_id, level_id, purchase_price, last_payment FROM user_taxoparks "
+            "WHERE status = 'active' AND ? - last_payment > ?",
+            (now, threshold)
         )
         expired_taxoparks = cursor.fetchall()
         for row in expired_taxoparks:
             cursor.execute("UPDATE user_taxoparks SET status = 'seized' WHERE id = ?", (row['id'],))
             refund = int(row['purchase_price'] * 0.7)
             cursor.execute("UPDATE players SET balance = balance + ? WHERE id = ?", (refund, row['player_id']))
+
         conn.commit()
         conn.close()
         return expired_shops, expired_taxoparks
+
     while True:
         await asyncio.sleep(86400)
         async with db_lock:
@@ -1976,7 +2103,7 @@ async def check_business_expiry():
         for row in expired_shops:
             player = await run_sync_db(get_player_data, row['player_id'])
             if player and player.get('tg_id'):
-                await bot.send_message(player['tg_id'], f"⚠️ Ваш магазин «{row['shop_id']}» изъят государством за неуплату. Возвращено {int(row['purchase_price'] * 0.7)}₽.")
+                await bot.send_message(player['tg_id'], f"⚠️ Ваш магазин «{row['shop_id']}» изъят за неуплату. Возвращено {int(row['purchase_price'] * 0.7)}₽.")
         for row in expired_taxoparks:
             player = await run_sync_db(get_player_data, row['player_id'])
             if player and player.get('tg_id'):
@@ -2091,44 +2218,6 @@ async def handle_action(action: PlayerAction):
         async with db_lock:
             await run_sync_db(update_player_data, player_id, {"shop_name": name})
         return {"success": True, "message": f"✅ Магазин: {name}", "shop_name": name}
-  
-    elif action == "crash_bet":
-        try:
-            amount = data.get("amount", 0)
-            if amount < 10 or amount > 5000:
-                return
-
-            player = await run_sync_db(get_player_data, player_id)
-            if not player:
-                return
-
-            if player.get("casino_balance", 0) < amount:
-                return
-
-            async with db_lock:
-                new_casino = player["casino_balance"] - amount
-                await run_sync_db(update_player_data, player_id, {"casino_balance": new_casino})
-        except Exception as e:
-            print(f"Ошибка в crash_bet: {e}")
-        return
-
-    elif action == "crash_cashout":
-        try:
-            multiplier = data.get("multiplier", 1.0)
-            win_amount = data.get("win_amount", 0)
-            if win_amount <= 0:
-                return
-
-            player = await run_sync_db(get_player_data, player_id)
-            if not player:
-                return
-
-            async with db_lock:
-                new_casino = player["casino_balance"] + win_amount
-                await run_sync_db(update_player_data, player_id, {"casino_balance": new_casino})
-        except Exception as e:
-            print(f"Ошибка в crash_cashout: {e}")
-        return
 
     elif action.action == "get_balance":
         return {"success": True, "balance": player.get("balance", 0)}
@@ -3446,7 +3535,7 @@ def make_main_kb(category=1):
             [InlineKeyboardButton(text="🎯 КВЕСТЫ", callback_data="quests_menu"), 
              InlineKeyboardButton(text="🏢 БИЗНЕСЫ", callback_data="balance_details")],
             [InlineKeyboardButton(text="📜 ИСТОРИЯ ПРОДАЖ", callback_data="sales_history")],
-            [InlineKeyboardButton(text="🎮 МИНИ-ИГРЫ", callback_data="minigames_menu", style=ButtonStyle.PRIMARY)],  # <-- кнопка здесь
+            [InlineKeyboardButton(text="🎮 МИНИ-ИГРЫ", callback_data="minigames_menu", style=ButtonStyle.PRIMARY)],
             [InlineKeyboardButton(text="🏠 ТОРГОВЛЯ", callback_data="main_cat_1", style=ButtonStyle.DANGER),
              InlineKeyboardButton(text="💰 ФИНАНСЫ/ИМУЩЕСТВО", callback_data="main_cat_2", style=ButtonStyle.PRIMARY),
              InlineKeyboardButton(text="👥 СОЦИУМ", callback_data="main_cat_3", style=ButtonStyle.DANGER)]
@@ -3461,6 +3550,7 @@ def make_main_kb(category=1):
             [InlineKeyboardButton(text="🏠 ГАРАЖ", callback_data="garage_menu")],
             [InlineKeyboardButton(text="🏦 БАНК", callback_data="bank_menu", style=ButtonStyle.PRIMARY)],
             [InlineKeyboardButton(text="🖥 МАЙНИНГ", callback_data="mining_menu", style=ButtonStyle.PRIMARY)],
+            [InlineKeyboardButton(text="📊 ТРЕЙДИНГ", web_app=WebAppInfo(url=URL_TRADING), style=ButtonStyle.PRIMARY)],
             [InlineKeyboardButton(text="🏠 ТОРГОВЛЯ", callback_data="main_cat_1", style=ButtonStyle.DANGER),
              InlineKeyboardButton(text="💰 ФИНАНСЫ/ИМУЩЕСТВО", callback_data="main_cat_2", style=ButtonStyle.PRIMARY),
              InlineKeyboardButton(text="👥 СОЦИУМ", callback_data="main_cat_3", style=ButtonStyle.DANGER)]
@@ -3771,44 +3861,6 @@ async def sell_shop_callback(callback: CallbackQuery):
     else:
         await safe_callback_answer(callback, r.get("message", "Ошибка"), show_alert=True)
 
-@dp.callback_query(lambda c: c.data == "pay_maintenance_list")
-async def pay_maintenance_list_callback(callback: CallbackQuery):
-    user_id = callback.from_user.id
-    player_id = await get_player_id_by_tg(user_id)
-    if not player_id:
-        await safe_callback_answer(callback, "Ошибка", show_alert=True)
-        return
-    
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT shop_id, purchase_price FROM user_shops WHERE player_id = ? AND status = 'active'", (player_id,))
-    shops = cursor.fetchall()
-    cursor.execute("SELECT level_id, purchase_price FROM user_taxoparks WHERE player_id = ? AND status = 'active'", (player_id,))
-    taxoparks = cursor.fetchall()
-    conn.close()
-    
-    if not shops and not taxoparks:
-        await callback.message.answer("У вас нет активных бизнесов для оплаты обслуживания.")
-        await safe_callback_answer(callback)
-        return
-    
-    text = "💸 <b>ОПЛАТА ОБСЛУЖИВАНИЯ БИЗНЕСА</b>\n\n"
-    kb = []
-    for shop in shops:
-        cost = get_maintenance_cost_shop(shop['purchase_price'])
-        text += f"🏪 Магазин {shop['shop_id']} — {cost}₽/мес\n"
-        kb.append([InlineKeyboardButton(text=f"Оплатить магазин {shop['shop_id']} ({cost}₽)", callback_data=f"pay_shop_{shop['shop_id']}")])
-    for tax in taxoparks:
-        cost = get_maintenance_cost_taxopark(tax['purchase_price'])
-        text += f"🚕 Таксопарк {tax['level_id']} — {cost}₽/мес\n"
-        kb.append([InlineKeyboardButton(text=f"Оплатить таксопарк {tax['level_id']} ({cost}₽)", callback_data=f"pay_taxopark_{tax['level_id']}")])
-    kb.append([InlineKeyboardButton(text="🔙 НАЗАД", callback_data="balance_details")])
-    
-    reply_markup = InlineKeyboardMarkup(inline_keyboard=kb)
-    await safe_delete_message(callback.message)
-    await callback.message.answer(text, parse_mode="HTML", reply_markup=reply_markup)
-    await safe_callback_answer(callback)
-
 @dp.callback_query(lambda c: c.data == "take_loan")
 async def take_loan_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(Form.waiting_for_loan_amount)
@@ -3892,11 +3944,26 @@ async def process_loan_amount(message: Message, state: FSMContext):
 @dp.callback_query(lambda c: c.data == "casino_new")
 async def casino_new_menu(callback: CallbackQuery):
     user_id = callback.from_user.id
-    webapp_url = f"https://ruslangodunov66-alt.github.io/resellcrash/casino.html?userId={user_id}"
+    player_id = await get_player_id_by_tg(user_id)
+    if not player_id:
+        await callback.answer("❌ Вы не зарегистрированы", show_alert=True)
+        return
+    player = await run_sync_db(get_player_data, player_id)
+    balance = player.get("casino_balance", 0) if player else 0
+    
+    # Лог для проверки (можно посмотреть в консоли)
+    print(f"🔍 Casino balance for user {user_id}: {balance}")
+    
+    # Добавляем случайный параметр, чтобы избежать кеширования
+    webapp_url = (
+        f"https://ruslangodunov66-alt.github.io/resellcrash/casino.html"
+        f"?userId={user_id}"
+        f"&balance={balance}"
+        f"&_={int(time.time())}"   # <-- случайное число, меняется каждый раз
+    )
     
     web_app_button = KeyboardButton(text="🎰 ОТКРЫТЬ КАЗИНО", web_app=WebAppInfo(url=webapp_url))
     reply_keyboard = ReplyKeyboardMarkup(keyboard=[[web_app_button]], resize_keyboard=True)
-    
     await callback.message.answer(
         "🎮 <b>ДОБРО ПОЖАЛОВАТЬ В КАЗИНО!</b>\n\n"
         "Нажми на кнопку внизу, чтобы открыть казино.\n"
@@ -3905,6 +3972,7 @@ async def casino_new_menu(callback: CallbackQuery):
         reply_markup=reply_keyboard
     )
     await callback.answer()
+
 @dp.callback_query(lambda c: c.data == "my_loans")
 async def my_loans(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -3968,7 +4036,13 @@ async def repay_loan_menu(callback: CallbackQuery, state: FSMContext):
 @dp.callback_query(lambda c: c.data == "crash_open")
 async def crash_open(callback: CallbackQuery):
     user_id = callback.from_user.id
-    webapp_url = f"https://ruslangodunov66-alt.github.io/resellcrash/crash.html?userId={user_id}"
+    player_id = await get_player_id_by_tg(user_id)
+    if not player_id:
+        await callback.answer("❌ Вы не зарегистрированы", show_alert=True)
+        return
+    player = await run_sync_db(get_player_data, player_id)
+    balance = player.get("casino_balance", 0) if player else 0
+    webapp_url = f"https://ruslangodunov66-alt.github.io/resellcrash/crash.html?userId={user_id}&balance={balance}"
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💥 ИГРАТЬ CRASH", web_app=WebAppInfo(url=webapp_url))]
     ])
@@ -4038,53 +4112,6 @@ async def process_loan_repayment(message: Message, state: FSMContext):
         conn.close()
     
     await state.clear()
-
-@dp.callback_query(lambda c: c.data.startswith("pay_shop_"))
-async def pay_shop_callback(callback: CallbackQuery):
-    user_id = callback.from_user.id
-    player_id = await get_player_id_by_tg(user_id)
-    shop_id = callback.data.split("_")[2]
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT purchase_price FROM user_shops WHERE player_id = ? AND shop_id = ? AND status = 'active'", (player_id, shop_id))
-    row = cursor.fetchone()
-    conn.close()
-    if not row:
-        await safe_callback_answer(callback, "Магазин не найден", show_alert=True)
-        return
-    
-    # Обернуть в блокировку БД
-    async with db_lock:
-        success, msg = await pay_shop_maintenance(player_id, shop_id, row['purchase_price'])
-    
-    await safe_delete_message(callback.message)
-    await callback.message.answer(msg, parse_mode="HTML", reply_markup=menu_kb())
-    if success:
-        await unified_profit_callback(callback)
-    await safe_callback_answer(callback)
-
-@dp.callback_query(lambda c: c.data.startswith("pay_taxopark_"))
-async def pay_taxopark_callback(callback: CallbackQuery):
-    user_id = callback.from_user.id
-    player_id = await get_player_id_by_tg(user_id)
-    level_id = callback.data.split("_")[2]
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT purchase_price FROM user_taxoparks WHERE player_id = ? AND level_id = ? AND status = 'active'", (player_id, level_id))
-    row = cursor.fetchone()
-    conn.close()
-    if not row:
-        await safe_callback_answer(callback, "Таксопарк не найден", show_alert=True)
-        return
-    
-    async with db_lock:
-        success, msg = await pay_taxopark_maintenance(player_id, level_id, row['purchase_price'])
-    
-    await safe_delete_message(callback.message)
-    await callback.message.answer(msg, parse_mode="HTML", reply_markup=menu_kb())
-    if success:
-        await unified_profit_callback(callback)
-    await safe_callback_answer(callback)
 
 @dp.callback_query(lambda c: c.data.startswith("garage_page_"))
 async def garage_page_callback(callback: CallbackQuery):
@@ -4629,13 +4656,12 @@ async def handle_shopname(message: types.Message, state: FSMContext):
         if player_id:
             async with db_lock:
                 # Начисляем бонус новому игроку (15 000₽ на casino_balance) – оставляем как было
+# Бонус новому игроку – начисляем на основной баланс
                 new_player = await run_sync_db(get_player_data, player_id)
                 if new_player:
-                    new_casino_balance = new_player.get("casino_balance", 0) + 15000
-                    await run_sync_db(update_player_data, player_id, {
-                        "casino_balance": new_casino_balance
-                    })
-                    print(f"✅ Реферальный бонус новому игроку {user_id}: +15000₽ на казино")
+                    new_balance = new_player.get("balance", 0) + 15000
+                    await run_sync_db(update_player_data, player_id, {"balance": new_balance})
+                    print(f"✅ Реферальный бонус новому игроку {user_id}: +15000₽ на баланс")
 
         # Начисляем бонус пригласившему по новым правилам
         inviter_player_id = await get_player_id_by_tg(inviter_id)
@@ -4973,24 +4999,17 @@ async def unified_profit_callback(callback: CallbackQuery):
     house = next((h for h in HOUSES if h["id"] == house_id), HOUSES[0])
     house_income_day = house["income_bonus"]
 
-    # Доход от ОДНОГО магазина (shop_level) – для совместимости со старым кодом,
-    # но теперь у нас могут быть куплены несколько магазинов через user_shops,
-    # поэтому посчитаем доход от ВСЕХ магазинов за день.
-    # Для этого используем get_hourly_income, а затем умножим на 24.
     hourly, _ = await run_sync_db(get_hourly_income, player_id)
     total_income_day = hourly * 24
 
-    # Доход от автомобиля (за день)
     car_id = player.get("current_car", "none")
     car = next((c for c in CARS if c["id"] == car_id), None)
     car_income_day = (car["income_per_hour"] * 24) if car else 0
 
-    # Доход от таксопарка (за день)
     taxopark = player.get("taxopark", {"level": "none", "cars": []})
     taxopark_level = next((l for l in TAXOPARK_LEVELS if l["id"] == taxopark.get("level")), TAXOPARK_LEVELS[0])
     taxopark_income_day = taxopark_level["income_per_car"] * 24 * len(taxopark.get("cars", []))
 
-    # Доход от всех магазинов (через user_shops) за день
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("SELECT shop_id FROM user_shops WHERE player_id = ?", (player_id,))
@@ -5004,7 +5023,6 @@ async def unified_profit_callback(callback: CallbackQuery):
             shops_income_day += shop["income_per_hour"] * 24
             shops_list.append(f"{shop['name']} (+{shop['income_per_hour']}₽/ч)")
 
-    # ---- 2. Накопленный доход ----
     pending, hourly_pending, pending_breakdown = await get_pending_income(player_id)
 
     # ---- 3. Формируем текст ----
@@ -5029,21 +5047,32 @@ async def unified_profit_callback(callback: CallbackQuery):
         f"📦 Продано: {player.get('stat_sold_today', 0)} шт.\n"
     )
 
-    # Список купленных магазинов (кратко)
     if shops_list:
         text += f"\n📦 <b>Ваши магазины ({len(shops_list)} шт.):</b>\n" + "\n".join(shops_list) + "\n"
         text += f"<i>Продать магазин — вернётся 70% его стоимости.</i>\n"
     else:
         text += "\n📦 <b>У вас нет магазинов.</b> Купите первый!\n"
 
+    # Рассчитываем долг
+    debt = await calculate_total_debt(player_id)
+
+    # Добавляем информацию о долге в текст
+    debt_text = f"\n⚠️ <b>Задолженность по обслуживанию:</b> {debt:,}₽" if debt > 0 else "\n✅ <b>Задолженности нет.</b>"
+    text += debt_text
+
     # ---- 4. Клавиатура ----
-    kb = InlineKeyboardMarkup(inline_keyboard=[
+    kb_buttons = [
         [InlineKeyboardButton(text="💰 ЗАБРАТЬ ПРИБЫЛЬ", callback_data="collect_income", style=ButtonStyle.SUCCESS)],
         [InlineKeyboardButton(text="🏪 КУПИТЬ МАГАЗИН", callback_data="buy_shop_entry", style=ButtonStyle.PRIMARY)],
         [InlineKeyboardButton(text="🏪 ПРОДАТЬ МАГАЗИН", callback_data="sell_shop_list", style=ButtonStyle.DANGER)],
-        [InlineKeyboardButton(text="💸 ОПЛАТИТЬ ОБСЛУЖИВАНИЕ", callback_data="pay_maintenance_list", style=ButtonStyle.PRIMARY)],
-        [InlineKeyboardButton(text="🔙 В МЕНЮ", callback_data="back_to_menu")]
-    ])
+    ]
+
+    if debt > 0:
+        kb_buttons.append([InlineKeyboardButton(text=f"💸 ОПЛАТИТЬ БИЗНЕС ({debt:,}₽)", callback_data="pay_all_debt", style=ButtonStyle.PRIMARY)])
+
+    kb_buttons.append([InlineKeyboardButton(text="🔙 В МЕНЮ", callback_data="back_to_menu")])
+
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_buttons)
 
     await safe_delete_message(callback.message)
     await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
@@ -5458,6 +5487,29 @@ async def collect_income_callback(callback: CallbackQuery):
         )
     else:
         await safe_callback_answer(callback, "Накоплений пока нет.", show_alert=True)
+
+@dp.callback_query(lambda c: c.data == "pay_all_debt")
+async def pay_all_debt_callback(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    player_id = await get_player_id_by_tg(user_id)
+    if not player_id:
+        await safe_callback_answer(callback, "Ошибка", show_alert=True)
+        return
+    try:
+        success, msg = await pay_all_debt(player_id)
+        await safe_delete_message(callback.message)
+        await callback.message.answer(msg, parse_mode="HTML", reply_markup=menu_kb())
+        if success:
+            await unified_profit_callback(callback)
+    except Exception as e:
+        print(f"Ошибка в pay_all_debt_callback: {e}")
+        import traceback
+        traceback.print_exc()
+        await safe_delete_message(callback.message)
+        await callback.message.answer(f"❌ Произошла ошибка: {str(e)}", parse_mode="HTML", reply_markup=menu_kb())
+        await safe_callback_answer(callback, "Ошибка", show_alert=True)
+    else:
+        await safe_callback_answer(callback)
 
 @dp.callback_query(lambda c: c.data == "shop_entry")
 async def shop_entry_callback(callback: CallbackQuery):
@@ -7341,77 +7393,71 @@ async def handle_web_app_data(message: Message):
         await message.answer(f"❌ Ошибка: {e}")
         return
 
-    # ---------- CRASH ----------
+    # ---- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ОБНОВЛЕНИЯ БАЛАНСА И СТАТИСТИКИ ----
+    async def process_game_result(bet: int, win_amount: int, game_name: str):
+        """Обрабатывает результат игры: проверяет баланс, списывает ставку, начисляет выигрыш, обновляет статистику."""
+        if bet <= 0:
+            await message.answer("❌ Ставка должна быть больше 0")
+            return False
+        player = await run_sync_db(get_player_data, player_id)
+        if not player:
+            await message.answer("❌ Игрок не найден")
+            return False
+        current_balance = player.get("casino_balance", 0)
+        if current_balance < bet:
+            await message.answer(f"❌ Недостаточно средств! Доступно: {current_balance}₽")
+            return False
+        # Вычисляем изменение баланса: выигрыш - ставка
+        delta = win_amount - bet
+        new_balance = current_balance + delta
+        if new_balance < 0:
+            new_balance = 0
+        # Обновляем баланс в БД
+        await run_sync_db(update_player_data, player_id, {"casino_balance": new_balance})
+        # Обновляем статистику
+        if win_amount > 0:
+            await update_casino_stats(player_id, "win", bet, win_amount)
+        else:
+            await update_casino_stats(player_id, "lose", bet, 0)
+        return True
+
+    # ===== CRASH =====
     if action == "crash_result":
         try:
             win = data.get("win", False)
             bet = data.get("bet", 0)
             multiplier = data.get("multiplier", 1.0)
             if bet < 10 or bet > 5000:
-                await respond_to_webapp({"error": "Некорректная ставка"})
+                await message.answer("❌ Некорректная ставка")
                 return
-            player = await run_sync_db(get_player_data, player_id)
-            if not player:
-                await respond_to_webapp({"error": "Игрок не найден"})
-                return
-            if win:
-                win_amount = int(bet * multiplier)
-                if player.get("casino_balance", 0) < bet:
-                    await respond_to_webapp({"error": "Недостаточно средств"})
-                    return
-                async with db_lock:
-                    new_casino = player["casino_balance"] - bet + win_amount
-                    await run_sync_db(update_player_data, player_id, {"casino_balance": new_casino})
-                await respond_to_webapp({"action": "crash_result", "win": True, "new_balance": new_casino})
-            else:
-                if player.get("casino_balance", 0) < bet:
-                    await respond_to_webapp({"error": "Недостаточно средств"})
-                    return
-                async with db_lock:
-                    new_casino = player["casino_balance"] - bet
-                    await run_sync_db(update_player_data, player_id, {"casino_balance": new_casino})
-                await respond_to_webapp({"action": "crash_result", "win": False, "new_balance": new_casino})
+            win_amount = int(bet * multiplier) if win else 0
+            success = await process_game_result(bet, win_amount, "crash")
+            if success:
+                await message.answer("✅ Результат CRASH зафиксирован (баланс обновлён).")
         except Exception as e:
-            await respond_to_webapp({"error": str(e)})
+            await message.answer(f"❌ Ошибка: {e}")
         return
 
     elif action == "crash_session":
         try:
             total_profit = data.get("total_profit", 0)
-            player = await run_sync_db(get_player_data, player_id)
-            if not player:
-                return
-            if total_profit > 0:
-                async with db_lock:
-                    new_balance = player["balance"] + total_profit
-                    await run_sync_db(update_player_data, player_id, {"balance": new_balance})
-            elif total_profit < 0:
-                if player["balance"] < -total_profit:
-                    return
-                async with db_lock:
-                    new_balance = player["balance"] + total_profit
-                    await run_sync_db(update_player_data, player_id, {"balance": new_balance})
+            await message.answer("✅ Сессия CRASH завершена (статистика обновлена).")
         except Exception as e:
-            print(f"Ошибка в crash_session: {e}")
+            await message.answer(f"❌ Ошибка: {e}")
         return
 
-    # ---------- БЛЭКДЖЕК ----------
+    # ===== БЛЭКДЖЕК =====
     elif action == "blackjack_win":
         try:
             win_amount = data.get("win", 0)
             bet = data.get("bet", 0)
             if win_amount <= 0 or bet <= 0:
                 return
-
-            player = await run_sync_db(get_player_data, player_id)
-            if not player:
-                return
-
-            async with db_lock:
-                new_casino = player.get("casino_balance", 0) + win_amount
-                await run_sync_db(update_player_data, player_id, {"casino_balance": new_casino})
+            success = await process_game_result(bet, win_amount, "blackjack")
+            if success:
+                await message.answer("✅ Победа в блэкджеке зафиксирована (баланс обновлён).")
         except Exception as e:
-            print(f"Ошибка в blackjack_win: {e}")
+            await message.answer(f"❌ Ошибка: {e}")
         return
 
     elif action == "blackjack_lose":
@@ -7419,13 +7465,11 @@ async def handle_web_app_data(message: Message):
             bet = data.get("bet", 0)
             if bet <= 0:
                 return
-
-            player = await run_sync_db(get_player_data, player_id)
-            if not player:
-                return
-            # Ставка уже списана оптимистично, ничего не делаем
+            success = await process_game_result(bet, 0, "blackjack")
+            if success:
+                await message.answer("✅ Поражение в блэкджеке зафиксировано (баланс обновлён).")
         except Exception as e:
-            print(f"Ошибка в blackjack_lose: {e}")
+            await message.answer(f"❌ Ошибка: {e}")
         return
 
     elif action == "blackjack_push":
@@ -7433,94 +7477,60 @@ async def handle_web_app_data(message: Message):
             bet = data.get("bet", 0)
             if bet <= 0:
                 return
-
+            # Ничья – возвращаем ставку
             player = await run_sync_db(get_player_data, player_id)
-            if not player:
-                return
-
-            async with db_lock:
-                new_casino = player.get("casino_balance", 0) + bet
-                await run_sync_db(update_player_data, player_id, {"casino_balance": new_casino})
+            if player:
+                current = player.get("casino_balance", 0)
+                await run_sync_db(update_player_data, player_id, {"casino_balance": current + bet})
+            await message.answer("✅ Ничья в блэкджеке зафиксирована (ставка возвращена).")
         except Exception as e:
-            print(f"Ошибка в blackjack_push: {e}")
+            await message.answer(f"❌ Ошибка: {e}")
         return
 
     elif action == "blackjack_session":
         try:
             total_profit = data.get("total_profit", 0)
-            player = await run_sync_db(get_player_data, player_id)
-            if not player:
-                return
-            if total_profit > 0:
-                async with db_lock:
-                    new_balance = player["balance"] + total_profit
-                    await run_sync_db(update_player_data, player_id, {"balance": new_balance})
-            elif total_profit < 0:
-                if player["balance"] < -total_profit:
-                    return
-                async with db_lock:
-                    new_balance = player["balance"] + total_profit
-                    await run_sync_db(update_player_data, player_id, {"balance": new_balance})
+            await message.answer("✅ Сессия блэкджека завершена.")
         except Exception as e:
-            print(f"Ошибка в blackjack_session: {e}")
+            await message.answer(f"❌ Ошибка: {e}")
         return
 
-    # ---------- СЛОТЫ ----------
+    # ===== СЛОТЫ =====
     elif action == "slots_result":
         try:
             result = data.get("result")
             bet = data.get("bet", 0)
             win = data.get("win", 0)
-
-            player = await run_sync_db(get_player_data, player_id)
-            if not player:
+            if bet <= 0:
                 return
-
-            if result == "win":
-                async with db_lock:
-                    new_casino = player.get("casino_balance", 0) + win
-                    await run_sync_db(update_player_data, player_id, {"casino_balance": new_casino})
+            win_amount = win if result == "win" else 0
+            success = await process_game_result(bet, win_amount, "slots")
+            if success:
+                await message.answer("✅ Результат слотов зафиксирован (баланс обновлён).")
         except Exception as e:
-            print(f"Ошибка в slots_result: {e}")
+            await message.answer(f"❌ Ошибка: {e}")
         return
 
     elif action == "slots_session":
         try:
             total_profit = data.get("total_profit", 0)
-            player = await run_sync_db(get_player_data, player_id)
-            if not player:
-                return
-            if total_profit > 0:
-                async with db_lock:
-                    new_balance = player["balance"] + total_profit
-                    await run_sync_db(update_player_data, player_id, {"balance": new_balance})
-            elif total_profit < 0:
-                if player["balance"] < -total_profit:
-                    return
-                async with db_lock:
-                    new_balance = player["balance"] + total_profit
-                    await run_sync_db(update_player_data, player_id, {"balance": new_balance})
+            await message.answer("✅ Сессия слотов завершена.")
         except Exception as e:
-            print(f"Ошибка в slots_session: {e}")
+            await message.answer(f"❌ Ошибка: {e}")
         return
 
-    # ---------- РУЛЕТКА ----------
+    # ===== РУЛЕТКА =====
     elif action == "win" and data.get("game") == "roulette":
         try:
             win_amount = data.get("win", 0)
             bet = data.get("bet", 0)
             if win_amount <= 0 or bet <= 0:
                 return
-            player = await run_sync_db(get_player_data, player_id)
-            if not player:
-                return
-            if player.get("casino_balance", 0) < bet:
-                return
-            async with db_lock:
-                new_casino = player["casino_balance"] - bet + win_amount
-                await run_sync_db(update_player_data, player_id, {"casino_balance": new_casino})
+            success = await process_game_result(bet, win_amount, "roulette")
+            if success:
+                await message.answer("✅ Победа в рулетке зафиксирована (баланс обновлён).")
         except Exception as e:
-            print(f"Ошибка в roulette win: {e}")
+            await message.answer(f"❌ Ошибка: {e}")
         return
 
     elif action == "lose" and data.get("game") == "roulette":
@@ -7528,136 +7538,268 @@ async def handle_web_app_data(message: Message):
             bet = data.get("bet", 0)
             if bet <= 0:
                 return
-            player = await run_sync_db(get_player_data, player_id)
-            if not player:
-                return
-            if player.get("casino_balance", 0) < bet:
-                return
-            async with db_lock:
-                new_casino = player["casino_balance"] - bet
-                await run_sync_db(update_player_data, player_id, {"casino_balance": new_casino})
+            success = await process_game_result(bet, 0, "roulette")
+            if success:
+                await message.answer("✅ Поражение в рулетке зафиксировано (баланс обновлён).")
         except Exception as e:
-            print(f"Ошибка в roulette lose: {e}")
+            await message.answer(f"❌ Ошибка: {e}")
         return
 
     elif action in ("roulette_session", "roulette_session_close"):
         try:
             total_profit = data.get("total_profit", 0)
-            player = await run_sync_db(get_player_data, player_id)
-            if not player:
-                return
-            if total_profit > 0:
-                async with db_lock:
-                    new_balance = player["balance"] + total_profit
-                    await run_sync_db(update_player_data, player_id, {"balance": new_balance})
-            elif total_profit < 0:
-                if player["balance"] < -total_profit:
-                    return
-                async with db_lock:
-                    new_balance = player["balance"] + total_profit
-                    await run_sync_db(update_player_data, player_id, {"balance": new_balance})
+            await message.answer("✅ Сессия рулетки завершена.")
         except Exception as e:
-            print(f"Ошибка в roulette_session: {e}")
+            await message.answer(f"❌ Ошибка: {e}")
         return
 
-    # ---------- МАЙНС ----------
+    # ===== MINES =====
     elif action == "mines_result":
         try:
             result = data.get("result")
             bet = data.get("bet", 0)
             win = data.get("win", 0)
-
-            player = await run_sync_db(get_player_data, player_id)
-            if not player:
+            if bet <= 0:
                 return
-
-            if result == "win":
-                async with db_lock:
-                    new_casino = player.get("casino_balance", 0) + win
-                    await run_sync_db(update_player_data, player_id, {"casino_balance": new_casino})
+            win_amount = win if result == "win" else 0
+            success = await process_game_result(bet, win_amount, "mines")
+            if success:
+                await message.answer("✅ Результат MINES зафиксирован (баланс обновлён).")
         except Exception as e:
-            print(f"Ошибка в mines_result: {e}")
+            await message.answer(f"❌ Ошибка: {e}")
         return
 
     elif action == "mines_session":
         try:
             total_profit = data.get("total_profit", 0)
-            player = await run_sync_db(get_player_data, player_id)
-            if not player:
-                return
-            if total_profit > 0:
-                async with db_lock:
-                    new_balance = player["balance"] + total_profit
-                    await run_sync_db(update_player_data, player_id, {"balance": new_balance})
-            elif total_profit < 0:
-                if player["balance"] < -total_profit:
-                    return
-                async with db_lock:
-                    new_balance = player["balance"] + total_profit
-                    await run_sync_db(update_player_data, player_id, {"balance": new_balance})
+            await message.answer("✅ Сессия MINES завершена.")
         except Exception as e:
-            print(f"Ошибка в mines_session: {e}")
+            await message.answer(f"❌ Ошибка: {e}")
         return
 
-    # ---------- ПОПОЛНЕНИЕ / ВЫВОД ----------
+    # ===== ПОЛУЧЕНИЕ БАЛАНСА КАЗИНО =====
+    elif action == "get_casino_balance":
+        print(f"🔍 get_casino_balance: user_id={user_id}")
+        
+        player_id = await get_player_id_by_tg(user_id)
+        print(f"🔍 player_id найден: {player_id}")
+        
+        if not player_id:
+            player_id = await run_sync_db(get_or_create_player, "tg", user_id)
+            print(f"🔍 создан новый player_id: {player_id}")
+        
+        if not player_id:
+            await message.answer(json.dumps({"error": "Player not found"}))
+            return
+        
+        player = await run_sync_db(get_player_data, player_id)
+        if not player:
+            await message.answer(json.dumps({"error": "Player not found"}))
+            return
+        
+        casino_balance = player.get("casino_balance", 0)
+        print(f"💰 casino_balance: {casino_balance}")
+        await message.answer(json.dumps({"balance": casino_balance}))
+        return
+
+    # ===== ПОПОЛНЕНИЕ КАЗИНО =====
     elif action in ("deposit", "deposit_to_casino"):
-        try:
-            amount = data.get("amount", 0)
-            if amount <= 0:
-                await message.answer("❌ Сумма должна быть больше 0")
-                return
-            player = await run_sync_db(get_player_data, player_id)
-            if not player:
-                await message.answer("❌ Игрок не найден")
-                return
-            if player.get("balance", 0) < amount:
-                await message.answer("❌ Недостаточно средств на балансе бота!")
-                return
-            async with db_lock:
-                new_balance = player["balance"] - amount
-                new_casino = player.get("casino_balance", 0) + amount
-                await run_sync_db(update_player_data, player_id, {
-                    "balance": new_balance,
-                    "casino_balance": new_casino
-                })
-            await message.answer(f"✅ Пополнение на {amount}₽ выполнено!\n💰 Новый баланс казино: {new_casino}₽")
-        except Exception as e:
-            await message.answer(f"❌ Ошибка: {str(e)}")
+        amount = data.get("amount", 0)
+        if amount <= 0:
+            await message.answer(json.dumps({"error": "Сумма должна быть больше 0"}))
+            return
+        
+        player_id = await get_player_id_by_tg(user_id)
+        if not player_id:
+            player_id = await run_sync_db(get_or_create_player, "tg", user_id)
+        if not player_id:
+            await message.answer(json.dumps({"error": "Игрок не найден"}))
+            return
+
+        player = await run_sync_db(get_player_data, player_id)
+        if not player:
+            await message.answer(json.dumps({"error": "Игрок не найден"}))
+            return
+
+        main_balance = player.get("balance", 0)
+        if main_balance < amount:
+            await message.answer(json.dumps({
+                "error": f"Недостаточно средств на основном балансе! Доступно: {main_balance}₽"
+            }))
+            return
+
+        async with db_lock:
+            new_main_balance = main_balance - amount
+            current_casino = player.get("casino_balance", 0)
+            new_casino = current_casino + amount
+            await run_sync_db(update_player_data, player_id, {
+                "balance": new_main_balance,
+                "casino_balance": new_casino
+            })
+
+        await message.answer(json.dumps({
+            "action": "deposit_success",
+            "amount": amount,
+            "new_casino_balance": new_casino,
+            "message": f"Пополнение на {amount}₽ выполнено!\nОсновной баланс: {new_main_balance}₽"
+        }))
         return
 
-    # ---------- ВЫВОД СРЕДСТВ ИЗ КАЗИНО НА ОСНОВНОЙ БАЛАНС ----------
-    elif action == "withdraw":
-        try:
-            amount = data.get("amount", 0)
-            if amount <= 0:
-                await message.answer("❌ Сумма должна быть больше 0")
-                return
-            player = await run_sync_db(get_player_data, player_id)
-            if not player:
-                await message.answer("❌ Игрок не найден")
-                return
-            casino_balance = player.get("casino_balance", 0)
-            if casino_balance < amount:
-                await message.answer(f"❌ Недостаточно средств в казино! Доступно: {casino_balance}₽")
-                return
-            async with db_lock:
-                new_casino = casino_balance - amount
-                new_main_balance = player.get("balance", 0) + amount
-                await run_sync_db(update_player_data, player_id, {
-                    "casino_balance": new_casino,
-                    "balance": new_main_balance
-                })
-            await message.answer(f"✅ Вывод {amount}₽ выполнен!\n💰 Новый баланс казино: {new_casino}₽")
-        except Exception as e:
-            await message.answer(f"❌ Ошибка: {str(e)}")
+    # ===== ВЫВОД ИЗ КАЗИНО =====
+    elif action in ("withdraw", "withdraw_from_casino"):
+        amount = data.get("amount", 0)
+        if amount <= 0:
+            await message.answer(json.dumps({"error": "Сумма должна быть больше 0"}))
+            return
+
+        player_id = await get_player_id_by_tg(user_id)
+        if not player_id:
+            player_id = await run_sync_db(get_or_create_player, "tg", user_id)
+        if not player_id:
+            await message.answer(json.dumps({"error": "Игрок не найден"}))
+            return
+
+        player = await run_sync_db(get_player_data, player_id)
+        if not player:
+            await message.answer(json.dumps({"error": "Игрок не найден"}))
+            return
+
+        current_casino = player.get("casino_balance", 0)
+        if current_casino < amount:
+            await message.answer(json.dumps({
+                "error": f"Недостаточно средств в казино! Доступно: {current_casino}₽"
+            }))
+            return
+
+        async with db_lock:
+            new_casino = current_casino - amount
+            main_balance = player.get("balance", 0) + amount
+            await run_sync_db(update_player_data, player_id, {
+                "casino_balance": new_casino,
+                "balance": main_balance
+            })
+
+        await message.answer(json.dumps({
+            "action": "withdraw_success",
+            "amount": amount,
+            "new_casino_balance": new_casino,
+            "message": f"Вывод {amount}₽ выполнен!\nОсновной баланс: {main_balance}₽"
+        }))
         return
 
-    elif action == "profile":
-        # Профиль теперь запрашивается через HTTP-эндпоинт /profile/{tg_id}
-        # Этот обработчик больше не нужен.
+    # ===== ЗАПРОС НА ПОПОЛНЕНИЕ (ПРОВЕРКА ОСНОВНОГО БАЛАНСА) =====
+    elif action == "deposit_request":
+        amount = data.get("amount", 0)
+        if amount <= 0:
+            await message.answer(json.dumps({"error": "Сумма должна быть больше 0"}))
+            return
+
+        player_id = await get_player_id_by_tg(user_id)
+        if not player_id:
+            player_id = await run_sync_db(get_or_create_player, "tg", user_id)
+        if not player_id:
+            await message.answer(json.dumps({"error": "Игрок не найден"}))
+            return
+
+        player = await run_sync_db(get_player_data, player_id)
+        if not player:
+            await message.answer(json.dumps({"error": "Игрок не найден"}))
+            return
+
+        main_balance = player.get("balance", 0)
+        if main_balance < amount:
+            await message.answer(json.dumps({
+                "error": f"Недостаточно средств на основном балансе! Доступно: {main_balance}₽"
+            }))
+            return
+
+        # Сохраняем заявку
+        pending_deposits[user_id] = amount
+
+        # Отвечаем, что проверка пройдена
+        await message.answer(json.dumps({
+            "status": "ok",
+            "amount": amount,
+            "message": f"Проверка пройдена. Подтвердите пополнение на {amount}₽."
+        }))
         return
 
-    # ---------- РЕФЕРАЛЫ ----------
+    # ===== ПОДТВЕРЖДЕНИЕ ПОПОЛНЕНИЯ =====
+    elif action == "deposit_confirm":
+        if pending_deposits.get(user_id) is None:
+            await message.answer(json.dumps({"error": "Нет активной заявки на пополнение"}))
+            return
+
+        amount = pending_deposits.pop(user_id)
+
+        player_id = await get_player_id_by_tg(user_id)
+        if not player_id:
+            await message.answer(json.dumps({"error": "Игрок не найден"}))
+            return
+
+        player = await run_sync_db(get_player_data, player_id)
+        if not player:
+            await message.answer(json.dumps({"error": "Игрок не найден"}))
+            return
+
+        main_balance = player.get("balance", 0)
+        if main_balance < amount:
+            # на случай, если баланс изменился за время ожидания
+            await message.answer(json.dumps({"error": "Недостаточно средств на основном балансе"}))
+            return
+
+        # СПИСЫВАЕМ с основного баланса
+        new_main = main_balance - amount
+        async with db_lock:
+            await run_sync_db(update_player_data, player_id, {"balance": new_main})
+
+        # ОТВЕЧАЕМ КЛИЕНТУ – он сам добавит сумму к localBalance
+        await message.answer(json.dumps({
+            "action": "deposit_success",
+            "amount": amount,
+            "new_main_balance": new_main,
+            "message": f"Пополнение на {amount}₽ выполнено!"
+        }))
+        return
+
+    # ===== ОТМЕНА ПОПОЛНЕНИЯ =====
+    elif action == "deposit_cancel":
+        if user_id in pending_deposits:
+            del pending_deposits[user_id]
+        await message.answer(json.dumps({"status": "cancelled", "message": "Пополнение отменено"}))
+        return
+
+    # ===== ВЫВОД СРЕДСТВ (старый метод, оставлен для совместимости) =====
+    elif action == "withdraw_from_casino":
+        amount = data.get("amount", 0)
+        if amount <= 0:
+            await message.answer(json.dumps({"error": "Сумма должна быть больше 0"}))
+            return
+
+        player_id = await get_player_id_by_tg(user_id)
+        if not player_id:
+            await message.answer(json.dumps({"error": "Игрок не найден"}))
+            return
+
+        player = await run_sync_db(get_player_data, player_id)
+        if not player:
+            await message.answer(json.dumps({"error": "Игрок не найден"}))
+            return
+
+        # Зачисляем на основной баланс (без проверки локального баланса – доверяем клиенту)
+        new_balance = player.get("balance", 0) + amount
+        async with db_lock:
+            await run_sync_db(update_player_data, player_id, {"balance": new_balance})
+
+        await message.answer(json.dumps({
+            "action": "withdraw_success",
+            "amount": amount,
+            "new_main_balance": new_balance,
+            "message": f"Вывод {amount}₽ выполнен!"
+        }))
+        return
+
+    # ===== РЕФЕРАЛЫ =====
     elif action == "generate_referral_link":
         try:
             player_id = await get_player_id_by_tg(user_id)
@@ -7672,6 +7814,7 @@ async def handle_web_app_data(message: Message):
             )
         except Exception as e:
             await message.answer(f"❌ Ошибка: {str(e)}")
+        return
 
     elif action == "view_referral_users":
         try:
@@ -7696,6 +7839,7 @@ async def handle_web_app_data(message: Message):
             await message.answer(text, parse_mode="HTML")
         except Exception as e:
             await message.answer(f"❌ Ошибка: {str(e)}")
+        return
 
     elif action == "view_referral_income":
         try:
@@ -7720,30 +7864,187 @@ async def handle_web_app_data(message: Message):
             await message.answer(text, parse_mode="HTML")
         except Exception as e:
             await message.answer(f"❌ Ошибка: {str(e)}")
-
-    # ---------- ЗАПРОС БАЛАНСА ----------
-    elif action == "get_balance":
-        player = await run_sync_db(get_player_data, player_id)
-        if player:
-            if message.web_app_data and message.web_app_data.id:
-                await bot.answer_web_app_query(
-                    message.web_app_data.id,
-                    result=InlineQueryResultArticle(
-                        id='balance',
-                        title='Баланс',
-                        type='article',
-                        input_message_content=InputTextMessageContent(
-                            message_text=json.dumps({"balance": player.get("casino_balance", 0)}),
-                            parse_mode=None
-                        )
-                    ),
-                    cache_time=0
-                )
-            else:
-                await message.answer(f"💰 Ваш баланс в казино: {player.get('casino_balance', 0)}₽")
-        else:
-            await message.answer("❌ Игрок не найден")
         return
+
+    elif action == "get_balance":
+        await message.answer("💰 Баланс казино отображается в самой игре.")
+        return
+
+    elif action == "profile":
+        return
+
+    # ===== ТРЕЙДИНГ =====
+    elif action == "get_trading_prices":
+        async with trading_lock:
+            prices = trading_prices.copy()
+        await message.answer(json.dumps({"success": True, "prices": prices}))
+
+    elif action == "get_trading_portfolio":
+        player_id = await get_player_id_by_tg(user_id)
+        if not player_id:
+            await message.answer(json.dumps({"success": False, "error": "Player not found"}))
+            return
+        player = await run_sync_db(get_player_data, player_id)
+        if not player:
+            await message.answer(json.dumps({"success": False, "error": "Player not found"}))
+            return
+        history = bet_history.get(user_id, [])
+        total_bets = len(history)
+        wins = sum(1 for bet in history if bet["result"] == "win")
+        losses = total_bets - wins
+        total_profit = sum(bet["profit"] for bet in history)
+        portfolio = {
+            "balance": player.get("balance", 0),
+            "total_bets": total_bets,
+            "wins": wins,
+            "losses": losses,
+            "total_profit": total_profit,
+            "history": history[-10:]
+        }
+        await message.answer(json.dumps({"success": True, "portfolio": portfolio}))
+
+    elif action == "trade_bet":
+        asset = data.get("asset")
+        direction = data.get("direction")
+        amount = data.get("amount", 0)
+        if not asset or direction not in ("up", "down") or amount <= 0:
+            await message.answer(json.dumps({"success": False, "error": "Invalid parameters"}))
+            return
+
+        asset_info = TRADING_ASSETS.get(asset)
+        if not asset_info:
+            await message.answer(json.dumps({"success": False, "error": "Asset not found"}))
+            return
+
+        if amount < asset_info["min_bet"] or amount > asset_info["max_bet"]:
+            await message.answer(json.dumps({"success": False, "error": f"Bet must be between {asset_info['min_bet']} and {asset_info['max_bet']}"}))
+            return
+
+        player_id = await get_player_id_by_tg(user_id)
+        if not player_id:
+            await message.answer(json.dumps({"success": False, "error": "Player not found"}))
+            return
+
+        player = await run_sync_db(get_player_data, player_id)
+        if not player or player.get("balance", 0) < amount:
+            await message.answer(json.dumps({"success": False, "error": "Insufficient funds"}))
+            return
+
+        async with trading_lock:
+            if asset not in trading_prices:
+                await message.answer(json.dumps({"success": False, "error": "Prices not loaded"}))
+                return
+            start_price = trading_prices[asset]["price"]
+
+        async with db_lock:
+            await run_sync_db(update_player_data, player_id, {"balance": player["balance"] - amount})
+
+        bet_id = f"{user_id}_{int(time_module.time()*1000)}"
+        active_bets[bet_id] = {
+            "user_id": user_id,
+            "asset": asset,
+            "direction": direction,
+            "amount": amount,
+            "start_price": start_price,
+            "start_time": time_module.time()
+        }
+
+        asyncio.create_task(check_bet_result(bet_id))
+
+        await message.answer(json.dumps({
+            "success": True,
+            "message": f"Bet placed: {amount}₽ on {asset} {direction} at ${start_price:.2f}",
+            "bet_id": bet_id
+        }))
+
+    # ===== КОЛЕСО ПРИЗОВ =====
+    elif action == "spin_wheel":
+        amount = data.get("amount", 1000)
+        if amount < 1000 or amount > 5000:
+            await message.answer(json.dumps({"error": "Ставка должна быть от 1000 до 5000₽"}))
+            return
+
+        player_id = await get_player_id_by_tg(user_id)
+        if not player_id:
+            await message.answer(json.dumps({"error": "Игрок не найден"}))
+            return
+
+        player = await run_sync_db(get_player_data, player_id)
+        if not player:
+            await message.answer(json.dumps({"error": "Игрок не найден"}))
+            return
+
+        casino_balance = player.get("casino_balance", 0)
+        if casino_balance < amount:
+            await message.answer(json.dumps({"error": f"Недостаточно средств в казино! Доступно: {casino_balance}₽"}))
+            return
+
+        # === Определяем приз (вероятности) ===
+        prizes = [
+            {"name": "50 000 ₽", "chance": 0.02, "reward": 50000, "type": "money"},
+            {"name": "10 000 ₽", "chance": 0.08, "reward": 10000, "type": "money"},
+            {"name": "1 000 ₽", "chance": 0.20, "reward": 1000, "type": "money"},
+            {"name": "Бесплатное вращение", "chance": 0.15, "reward": amount, "type": "free_spin"},
+            {"name": "Бонус ×2", "chance": 0.10, "reward": amount * 2, "type": "bonus"},
+            {"name": "5 000 ₽", "chance": 0.15, "reward": 5000, "type": "money"},
+            {"name": "BRABUS MANSORY", "chance": 0.001, "reward": 5000000, "type": "car"},
+            {"name": "Ничего", "chance": 0.25, "reward": 0, "type": "nothing"},
+            {"name": "Ещё раз", "chance": 0.049, "reward": amount, "type": "retry"},
+        ]
+
+        roll = random.random()
+        cumulative = 0
+        chosen_prize = None
+        for prize in prizes:
+            cumulative += prize["chance"]
+            if roll <= cumulative:
+                chosen_prize = prize
+                break
+        if not chosen_prize:
+            chosen_prize = {"name": "Ничего", "reward": 0, "type": "nothing"}
+
+        # === Обработка выигрыша ===
+        async with db_lock:
+            new_balance = casino_balance - amount
+            if chosen_prize["type"] == "money":
+                new_balance += chosen_prize["reward"]
+            elif chosen_prize["type"] == "free_spin":
+                new_balance += amount
+            elif chosen_prize["type"] == "bonus":
+                new_balance += chosen_prize["reward"]
+            elif chosen_prize["type"] == "car":
+                car_collection = player.get("car_collection", [])
+                if "brabus" not in car_collection:
+                    car_collection.append("brabus")
+                    await run_sync_db(update_player_data, player_id, {"car_collection": car_collection})
+                new_balance += chosen_prize["reward"]
+            elif chosen_prize["type"] == "retry":
+                new_balance += amount
+            await run_sync_db(update_player_data, player_id, {"casino_balance": new_balance})
+
+        # === Сохраняем историю ===
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO wheel_spins (player_id, prize, amount, spin_time) VALUES (?, ?, ?, ?)",
+            (player_id, chosen_prize["name"], amount, int(time_module.time()))
+        )
+        conn.commit()
+        conn.close()
+
+        # === Отправляем результат ===
+        await message.answer(json.dumps({
+            "success": True,
+            "prize": chosen_prize["name"],
+            "prize_type": chosen_prize["type"],
+            "reward": chosen_prize["reward"],
+            "new_balance": new_balance,
+            "message": f"🎡 Выпало: {chosen_prize['name']}!"
+        }))
+        return
+
+    else:
+        await message.answer("⚠️ Неизвестное действие.")
 
 @dp.message(StateFilter(Form.waiting_for_stock_quantity))
 async def handle_stock_quantity(message: Message, state: FSMContext):
@@ -7929,284 +8230,480 @@ def ensure_stock_prices_table():
     conn.close()
     print("✅ Таблица stock_prices проверена/создана")
 
-async def handle_balance(request):
-    tg_id = request.match_info.get('tg_id')
-    if not tg_id:
-        return web.json_response({"error": "No tg_id"}, status=400)
-    try:
-        tg_id = int(tg_id)
-    except ValueError:
-        return web.json_response({"error": "Invalid tg_id"}, status=400)
-    player_id = await get_player_id_by_tg(tg_id)
-    if not player_id:
-        return web.json_response({"error": "Player not found"}, status=404)
-    player = get_player_data(player_id)
-    if not player:
-        return web.json_response({"error": "Player not found"}, status=404)
-    # ВОЗВРАЩАЕМ casino_balance, а не balance
-    return web.json_response({"balance": player.get("casino_balance", 0)})
-
-async def handle_options(request):
-    return web.Response(headers={
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-    })
-
-async def handle_profile(request):
-    tg_id = request.match_info.get('tg_id')
-    if not tg_id:
-        return web.json_response({"error": "No tg_id"}, status=400)
-    try:
-        tg_id = int(tg_id)
-    except ValueError:
-        return web.json_response({"error": "Invalid tg_id"}, status=400)
-
-    player_id = await get_player_id_by_tg(tg_id)
-    if not player_id:
-        return web.json_response({"error": "Player not found"}, status=404)
-
-    player = get_player_data(player_id)
-    if not player:
-        return web.json_response({"error": "Player not found"}, status=404)
-
-    # Получаем статистику
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT 
-            casino_games_played,
-            casino_wins,
-            casino_losses,
-            casino_total_bet,
-            casino_total_win
-        FROM players WHERE id = ?
-    """, (player_id,))
-    row = cursor.fetchone()
-    conn.close()
-
-    if row:
-        games_played = row[0] or 0
-        wins = row[1] or 0
-        losses = row[2] or 0
-        total_bet = row[3] or 0
-        total_win = row[4] or 0
-    else:
-        games_played = wins = losses = total_bet = total_win = 0
-
-    net_profit = total_win - total_bet
-    winrate = round((wins / games_played * 100), 1) if games_played > 0 else 0
-
-    profile_data = {
-        "nickname": player.get('nickname', 'Игрок'),
-        "balance": player.get('balance', 0),
-        "casino_balance": player.get('casino_balance', 0),
-        "total_earned": player.get('total_earned', 0),
-        "games_played": games_played,
-        "wins": wins,
-        "losses": losses,
-        "total_bet": total_bet,
-        "total_win": total_win,
-        "net_profit": net_profit,
-        "winrate": winrate
-    }
-    return web.json_response(profile_data)
-
-async def handle_game_result(request):
-    """Принимает результат игры и обновляет casino_balance в БД"""
-    try:
-        data = await request.json()
-        tg_id = data.get('userId')
-        game = data.get('game')
-        result = data.get('result')  # 'win' или 'lose'
-        bet = data.get('bet', 0)
-        win_amount = data.get('win', 0)
-
-        if not tg_id:
-            return web.json_response({"error": "No userId"}, status=400)
-
-        player_id = await get_player_id_by_tg(tg_id)
-        if not player_id:
-            return web.json_response({"error": "Player not found"}, status=404)
-
-        async with db_lock:
-            player = await run_sync_db(get_player_data, player_id)
-            if not player:
-                return web.json_response({"error": "Player not found"}, status=404)
-
-            current_casino = player.get("casino_balance", 0)
-
-            if result == "win":
-                new_casino = current_casino + win_amount
-            else:
-                # При проигрыше ставка уже списана локально, но для надёжности можно не менять баланс
-                # или убедиться, что баланс корректен (локально он уже уменьшен)
-                new_casino = current_casino  # ничего не делаем
-
-            await run_sync_db(update_player_data, player_id, {"casino_balance": new_casino})
-
-            return web.json_response({
-                "status": "ok",
-                "new_balance": new_casino,
-                "game": game,
-                "result": result
-            })
-    except Exception as e:
-        print(f"Ошибка в handle_game_result: {e}")
-        return web.json_response({"error": str(e)}, status=500)
-
-async def handle_referral_generate(request):
-    """Возвращает реферальную ссылку для пользователя"""
-    tg_id = request.query.get('tg_id')
-    if not tg_id:
-        return web.json_response({"error": "No tg_id"}, status=400)
-    try:
-        tg_id = int(tg_id)
-    except ValueError:
-        return web.json_response({"error": "Invalid tg_id"}, status=400)
-
-    player_id = await get_player_id_by_tg(tg_id)
-    if not player_id:
-        return web.json_response({"error": "Player not found"}, status=404)
-
-    # Генерируем реферальную ссылку
-    ref_code = gen_ref(tg_id)  # функция gen_ref уже есть в боте
-    link = f"https://t.me/{BOT_USERNAME}?start=ref_{ref_code}"
-    return web.json_response({"link": link})
-
-async def handle_referral_users(request):
-    """Возвращает список приглашённых пользователей"""
-    tg_id = request.query.get('tg_id')
-    if not tg_id:
-        return web.json_response({"error": "No tg_id"}, status=400)
-    try:
-        tg_id = int(tg_id)
-    except ValueError:
-        return web.json_response({"error": "Invalid tg_id"}, status=400)
-
-    player_id = await get_player_id_by_tg(tg_id)
-    if not player_id:
-        return web.json_response({"error": "Player not found"}, status=404)
-
-    ref_data = await run_sync_db(get_referral_data, player_id)
-    invited = ref_data.get("invited", [])
-    # Получаем никнеймы приглашённых
-    users = []
-    for invited_id in invited:
-        # invited_id – это tg_id? В вашей БД в invited хранятся user_id? Проверим.
-        # Судя по коду, в invited добавляется user_id (внутренний ID), но для отображения лучше взять tg_id или nickname.
-        # В вашем коде при добавлении реферала (add_referral) используется new_player_id (внутренний ID), а в get_referral_data возвращается список этих ID.
-        # Надо получить tg_id или nickname для каждого.
-        # Проще: пройдём по списку и для каждого получим данные.
-        player = await run_sync_db(get_player_data, invited_id)
-        if player:
-            users.append({
-                "id": invited_id,
-                "nickname": player.get("nickname", f"ID:{player.get('tg_id', invited_id)}"),
-                "tg_id": player.get("tg_id")
-            })
-        else:
-            users.append({"id": invited_id, "nickname": "Неизвестный", "tg_id": None})
-    return web.json_response({"users": users})
-
-async def handle_referral_income(request):
-    """Возвращает общий доход от рефералов"""
-    tg_id = request.query.get('tg_id')
-    if not tg_id:
-        return web.json_response({"error": "No tg_id"}, status=400)
-    try:
-        tg_id = int(tg_id)
-    except ValueError:
-        return web.json_response({"error": "Invalid tg_id"}, status=400)
-
-    player_id = await get_player_id_by_tg(tg_id)
-    if not player_id:
-        return web.json_response({"error": "Player not found"}, status=404)
-
-    ref_data = await run_sync_db(get_referral_data, player_id)
-    invited = ref_data.get("invited", [])
-    count = len(invited)
-    income = count * 20000
-    # Бонус за каждые 15 человек
-    bonus = (count // 15) * 150000
-    total = income + bonus
-    return web.json_response({
-        "count": count,
-        "income": income,
-        "bonus": bonus,
-        "total": total
-    })
-
-async def start_web_server_async():
-    try:
-        print("🔄 Запуск веб-сервера на порту 8080...")
-        app = web.Application()
-        app.router.add_get('/balance/{tg_id}', handle_balance)
-        app.router.add_options('/balance/{tg_id}', handle_options)
-        app.router.add_get('/profile/{tg_id}', handle_profile)
-        app.router.add_options('/profile/{tg_id}', handle_options)
-        app.router.add_post('/game_result', handle_game_result)
-        app.router.add_options('/game_result', handle_options)  # для CORS
-        app.router.add_get('/referral/generate', handle_referral_generate)
-        app.router.add_get('/referral/users', handle_referral_users)
-        app.router.add_get('/referral/income', handle_referral_income)
-        app.router.add_options('/referral/generate', handle_options)
-        app.router.add_options('/referral/users', handle_options)
-        app.router.add_options('/referral/income', handle_options)
-        runner = web.AppRunner(app)
-        await runner.setup()
-        site = web.TCPSite(runner, '0.0.0.0', 8080)
-        await site.start()
-        print("✅ Веб-сервер запущен на порту 8080")
-
-        # ngrok больше не используется – закомментировано
-        # ngrok.set_auth_token("3FGqkYWVafZ98IL0LKhTKrMYbii_2v5ZN878Y3UrXXxMHKtdc")
-        # ngrok.set_ngrok_path("/usr/local/bin/ngrok")
-        # public_url = ngrok.connect(8080)
-        # print(f"✅ ngrok туннель: {public_url}")
-        # with open("/tmp/ngrok_url.txt", "w") as f:
-        #     f.write(public_url)
-        # admin_tg_id = ADMIN_ID
-        # try:
-        #     await bot.send_message(admin_tg_id, f"🔗 ngrok URL: {public_url}\nИспользуйте этот адрес в HTML-файлах для баланса.")
-        # except Exception as e:
-        #     print(f"⚠️ Не удалось отправить уведомление админу: {e}")
-
-        # Бесконечное ожидание, чтобы сервер не завершался
-        await asyncio.Event().wait()
-        
-    except Exception as e:
-        print(f"❌ Ошибка запуска веб-сервера: {e}")
-        import traceback
-        traceback.print_exc()
-
-async def main():
+# ==================== LIFESPAN ДЛЯ FASTAPI ====================
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # ---- 1. Инициализация (то, что было в main()) ----
     init_db()
     upgrade_db()
     ensure_stock_prices_table()
     generate_supplier_items()
     init_trading()
     
-    print("🤖 Бот запущен в режиме polling")
+    # ---- 2. Фоновые задачи (все твои asyncio.create_task) ----
+    tasks = [
+        asyncio.create_task(update_trading_loop()),
+        asyncio.create_task(auction_loop()),
+        asyncio.create_task(check_business_expiry()),
+        asyncio.create_task(process_deposits()),
+        asyncio.create_task(process_mining()),
+        asyncio.create_task(check_overdue_loans()),
+        asyncio.create_task(race_timeout_check()),
+        asyncio.create_task(update_stock_prices_loop()),
+        asyncio.create_task(dividends_loop()),
+        asyncio.create_task(clean_inactive_chats()),
+        asyncio.create_task(daily_day_increment()),
+    ]
+    # (start_web_server_async мы не запускаем – он больше не нужен)
     
-    # Фоновые задачи
-    asyncio.create_task(update_trading_loop())
-    asyncio.create_task(auction_loop())
-    asyncio.create_task(check_business_expiry())
-    asyncio.create_task(process_deposits())
-    asyncio.create_task(process_mining())
-    asyncio.create_task(check_overdue_loans())
-    asyncio.create_task(race_timeout_check())
-    asyncio.create_task(update_stock_prices_loop())
-    asyncio.create_task(dividends_loop())
-    asyncio.create_task(clean_inactive_chats())
-    asyncio.create_task(daily_day_increment())
-    asyncio.create_task(start_web_server_async())  # <-- здесь
-
+    # ---- 3. Запуск aiogram polling (единственный!) ----
     await bot.delete_webhook(drop_pending_updates=True)
-    print("✅ Вебхук удалён, запускаем polling...")
+    polling_task = asyncio.create_task(dp.start_polling(bot, allowed_updates=["message", "callback_query", "web_app_data"]))
+    tasks.append(polling_task)
     
-    await dp.start_polling(bot, allowed_updates=["message", "callback_query", "web_app_data"])
+    print("✅ Бот и фоновые задачи запущены")
+    
+    yield  # здесь приложение работает
+    
+    # ---- 4. Остановка (при завершении) ----
+    for t in tasks:
+        t.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+    await bot.session.close()
+    print("✅ Приложение остановлено")
 
-if __name__ == "__main__":
-    asyncio.run(main())
+app = FastAPI(title="Resell Tycoon API", lifespan=lifespan)
+
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://ruslangodunov66-alt.github.io",
+        "https://resellgame.bothost.tech",
+        # для локального теста, если нужно:
+        "http://localhost:3000",
+        "http://127.0.0.1:3000"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ==================== HTTP ОБРАБОТЧИКИ (FASTAPI) ====================
+@app.get("/")
+async def root():
+    return JSONResponse({"message": "✅ Бот работает! Используйте /api/player для данных."})
+
+@app.post("/game_result")
+async def game_result(request: Request):
+    import time
+    start = time.perf_counter()
+    try:
+        data = await request.json()
+        tg_id = data.get('userId') or data.get('user_id')   # универсальный приём
+        result = data.get('result')
+        bet = int(data.get('bet', 0))
+        win = int(data.get('win', 0))
+        game = data.get('game', 'unknown')
+
+        if not tg_id:
+            return JSONResponse({"error": "No userId"}, status_code=400)
+
+        player_id = await get_player_id_by_tg(int(tg_id))
+        if not player_id:
+            # автоматическое создание, если игрок ещё не существует
+            player_id = await run_sync_db(get_or_create_player, "tg", int(tg_id))
+
+        if not player_id:
+            return JSONResponse({"error": "Player not found"}, status_code=404)
+
+        # ---------- ЕДИНАЯ ТРАНЗАКЦИЯ С ОДНИМ db_lock ----------
+        async with db_lock:
+            def _update_game_result():
+                conn = get_db()
+                cursor = conn.cursor()
+                try:
+                    # 1. Получаем текущий casino_balance
+                    cursor.execute("SELECT casino_balance FROM players WHERE id = ?", (player_id,))
+                    row = cursor.fetchone()
+                    if not row:
+                        return None
+                    current = row["casino_balance"]
+
+                    # 2. Рассчитываем новый баланс (сохраняем логику)
+                    if result == "win":
+                        new_balance = current + win
+                    else:
+                        new_balance = current - bet
+                    if new_balance < 0:
+                        new_balance = 0
+
+                    # 3. Обновляем баланс
+                    cursor.execute(
+                        "UPDATE players SET casino_balance = ? WHERE id = ?",
+                        (new_balance, player_id)
+                    )
+
+                    # 4. Обновляем статистику казино (все поля)
+                    cursor.execute(
+                        "UPDATE players SET casino_games_played = casino_games_played + 1 WHERE id = ?",
+                        (player_id,)
+                    )
+                    if result == "win":
+                        cursor.execute(
+                            "UPDATE players SET casino_wins = casino_wins + 1 WHERE id = ?",
+                            (player_id,)
+                        )
+                        if win > 0:
+                            cursor.execute(
+                                "UPDATE players SET casino_total_win = casino_total_win + ? WHERE id = ?",
+                                (win, player_id)
+                            )
+                    else:
+                        cursor.execute(
+                            "UPDATE players SET casino_losses = casino_losses + 1 WHERE id = ?",
+                            (player_id,)
+                        )
+                    if bet > 0:
+                        cursor.execute(
+                            "UPDATE players SET casino_total_bet = casino_total_bet + ? WHERE id = ?",
+                            (bet, player_id)
+                        )
+
+                    conn.commit()
+                    return new_balance
+                except Exception as e:
+                    conn.rollback()
+                    raise e
+                finally:
+                    conn.close()
+
+            new_balance = await run_sync_db(_update_game_result)
+            if new_balance is None:
+                return JSONResponse({"error": "Player not found"}, status_code=404)
+
+            elapsed = time.perf_counter() - start
+            print(f"✅ /game_result выполнена за {elapsed:.3f}с, баланс={new_balance}")
+
+            return JSONResponse({
+                "status": "ok",
+                "new_balance": new_balance,
+                "game": game,
+                "result": result
+            })
+
+    except Exception as e:
+        print(f"❌ Ошибка в /game_result: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.post("/buy-case")
+async def buy_case(request: Request):
+    import time
+    start = time.perf_counter()
+    try:
+        data = await request.json()
+        tg_id = data.get("userId") or data.get("user_id")
+        amount = int(data.get("amount", 0))
+        if not tg_id or amount <= 0:
+            return JSONResponse({"success": False, "error": "Invalid data"})
+
+        player_id = await get_player_id_by_tg(int(tg_id))
+        if not player_id:
+            return JSONResponse({"success": False, "error": "Player not found"})
+
+        async with db_lock:
+            def _buy_case_sync():
+                conn = get_db()
+                cursor = conn.cursor()
+                try:
+                    cursor.execute(
+                        "UPDATE players SET casino_balance = casino_balance - ? WHERE id = ? AND casino_balance >= ?",
+                        (amount, player_id, amount)
+                    )
+                    affected = cursor.rowcount
+                    if affected == 0:
+                        return None   # недостаточно средств или игрок не найден
+                    cursor.execute("SELECT casino_balance FROM players WHERE id = ?", (player_id,))
+                    row = cursor.fetchone()
+                    new_balance = row["casino_balance"] if row else 0
+                    conn.commit()
+                    return new_balance
+                except Exception as e:
+                    conn.rollback()
+                    raise e
+                finally:
+                    conn.close()
+
+            new_balance = await run_sync_db(_buy_case_sync)
+            if new_balance is None:
+                return JSONResponse({"success": False, "error": "Недостаточно средств или игрок не найден"}, status_code=400)
+
+            elapsed = time.perf_counter() - start
+            print(f"✅ /buy-case выполнена за {elapsed:.3f}с, новый баланс={new_balance}")
+
+            return JSONResponse({
+                "success": True,
+                "new_casino_balance": new_balance,
+                "message": f"Кейс куплен за {amount}₽"
+            })
+    except Exception as e:
+        print(f"❌ Ошибка в /buy-case: {e}")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/case-win")
+async def case_win(request: Request):
+    import time
+    start_time = time.perf_counter()
+    try:
+        data = await request.json()
+        tg_id = data.get("userId") or data.get("user_id")
+        amount = int(data.get("amount", 0))
+        if not tg_id or amount <= 0:
+            return JSONResponse({"success": False, "error": "Invalid data"}, status_code=400)
+
+        print(f"[CASE WIN START] tg_id={tg_id}, amount={amount}")
+
+        player_id = await get_player_id_by_tg(tg_id)
+        if not player_id:
+            return JSONResponse({"success": False, "error": "Player not found"}, status_code=404)
+
+        # Атомарное добавление выигрыша
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE players SET casino_balance = casino_balance + ? WHERE id = ?",
+            (amount, player_id)
+        )
+        if cursor.rowcount == 0:
+            conn.close()
+            return JSONResponse({"success": False, "error": "Игрок не найден"}, status_code=404)
+
+        cursor.execute("SELECT casino_balance FROM players WHERE id = ?", (player_id,))
+        row = cursor.fetchone()
+        new_balance = row["casino_balance"] if row else 0
+        conn.commit()
+        conn.close()
+
+        elapsed = time.perf_counter() - start_time
+        print(f"[CASE WIN END] elapsed={elapsed:.3f}s, new_balance={new_balance}")
+
+        return JSONResponse({
+            "success": True,
+            "new_casino_balance": new_balance,
+            "message": f"Выигрыш {amount}₽ начислен"
+        })
+    except Exception as e:
+        elapsed = time.perf_counter() - start_time
+        print(f"[CASE WIN ERROR] elapsed={elapsed:.3f}s, error={str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/deposit")
+async def deposit(request: Request):
+    try:
+        data = await request.json()
+        tg_id = data.get("userId") or data.get("user_id")
+        amount = int(data.get("amount", 0))
+        if not tg_id or amount <= 0:
+            return JSONResponse({"success": False, "error": "Invalid data"})
+
+        player_id = await get_player_id_by_tg(int(tg_id))
+        if not player_id:
+            player_id = await run_sync_db(get_or_create_player, "tg", int(tg_id))
+        if not player_id:
+            return JSONResponse({"success": False, "error": "Player not found"})
+
+        async with db_lock:
+            def _deposit():
+                conn = get_db()
+                cursor = conn.cursor()
+                try:
+                    cursor.execute("SELECT balance, casino_balance FROM players WHERE id = ?", (player_id,))
+                    row = cursor.fetchone()
+                    if not row:
+                        return None
+                    main = row["balance"]
+                    casino = row["casino_balance"]
+                    if main < amount:
+                        return False, main, casino
+                    new_main = main - amount
+                    new_casino = casino + amount
+                    cursor.execute(
+                        "UPDATE players SET balance = ?, casino_balance = ? WHERE id = ?",
+                        (new_main, new_casino, player_id)
+                    )
+                    conn.commit()
+                    return True, new_main, new_casino
+                except Exception as e:
+                    conn.rollback()
+                    raise e
+                finally:
+                    conn.close()
+
+            result = await run_sync_db(_deposit)
+            if result is None:
+                return JSONResponse({"success": False, "error": "Player not found"})
+            success, new_main, new_casino = result
+            if not success:
+                return JSONResponse({
+                    "success": False,
+                    "error": f"Недостаточно средств на основном балансе! Доступно: {new_main}₽"
+                })
+            return JSONResponse({
+                "success": True,
+                "casino_balance": new_casino,
+                "main_balance": new_main,
+                "message": f"Пополнение на {amount}₽ выполнено!"
+            })
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)})
+
+@app.post("/withdraw")
+async def withdraw(request: Request):
+    try:
+        data = await request.json()
+        tg_id = data.get("userId") or data.get("user_id")
+        amount = int(data.get("amount", 0))
+        if not tg_id or amount <= 0:
+            return JSONResponse({"success": False, "error": "Invalid data"})
+
+        player_id = await get_player_id_by_tg(int(tg_id))
+        if not player_id:
+            return JSONResponse({"success": False, "error": "Player not found"})
+
+        player = get_player_data(player_id)
+        if not player:
+            return JSONResponse({"success": False, "error": "Player not found"})
+
+        casino_balance = player.get("casino_balance", 0)
+        if casino_balance < amount:
+            return JSONResponse({
+                "success": False,
+                "error": f"Недостаточно средств в казино! Доступно: {casino_balance}₽"
+            })
+
+        new_casino = casino_balance - amount
+        new_main = player.get("balance", 0) + amount
+        update_player_data(player_id, {
+            "balance": new_main,
+            "casino_balance": new_casino
+        })
+
+        return JSONResponse({
+            "success": True,
+            "casino_balance": new_casino,
+            "main_balance": new_main,
+            "message": f"Вывод {amount}₽ выполнен!"
+        })
+    except Exception as e:
+        print(f"Ошибка в /withdraw: {e}")
+        return JSONResponse({"success": False, "error": str(e)})
+
+@app.get("/profile/{tg_id}")
+async def profile(tg_id: int):
+    player_id = await get_player_id_by_tg(tg_id)
+    if not player_id:
+        # Создаём игрока, если его нет (для новых пользователей)
+        player_id = await run_sync_db(get_or_create_player, "tg", tg_id)
+    if not player_id:
+        return JSONResponse({"error": "Player not found"}, status_code=404)
+
+    player = await run_sync_db(get_player_data, player_id)   # <-- асинхронно
+    if not player:
+        return JSONResponse({"error": "Player not found"}, status_code=404)
+
+    return JSONResponse({
+        "nickname": player.get("nickname"),
+        "balance": player.get("balance", 0),
+        "casino_balance": player.get("casino_balance", 0),
+        "total_earned": player.get("total_earned", 0),
+        "total_sales": player.get("total_sales", 0),
+        "level": get_rep_level(player.get("total_sales", 0))
+    })
+
+@app.get("/referral/generate")
+async def referral_generate(request: Request):
+    tg_id = request.query_params.get('tg_id')
+    if not tg_id:
+        return JSONResponse({"error": "No tg_id"}, status_code=400)
+    try:
+        tg_id = int(tg_id)
+    except ValueError:
+        return JSONResponse({"error": "Invalid tg_id"}, status_code=400)
+
+    player_id = await get_player_id_by_tg(tg_id)
+    if not player_id:
+        return JSONResponse({"error": "Player not found"}, status_code=404)
+
+    ref_code = gen_ref(tg_id)
+    link = f"https://t.me/{BOT_USERNAME}?start=ref_{ref_code}"
+    return JSONResponse({"link": link})
+
+@app.get("/referral/users")
+async def referral_users(request: Request):
+    tg_id = request.query_params.get('tg_id')
+    if not tg_id:
+        return JSONResponse({"error": "No tg_id"}, status_code=400)
+    try:
+        tg_id = int(tg_id)
+    except ValueError:
+        return JSONResponse({"error": "Invalid tg_id"}, status_code=400)
+
+    player_id = await get_player_id_by_tg(tg_id)
+    if not player_id:
+        return JSONResponse({"error": "Player not found"}, status_code=404)
+
+    ref_data = await run_sync_db(get_referral_data, player_id)
+    invited = ref_data.get("invited", [])
+
+    users = []
+    for inv_id in invited:
+        player = await run_sync_db(get_player_data, inv_id)
+        if player:
+            users.append({
+                "id": inv_id,
+                "nickname": player.get("nickname", f"ID:{player.get('tg_id', inv_id)}"),
+                "tg_id": player.get("tg_id")
+            })
+        else:
+            users.append({"id": inv_id, "nickname": "Неизвестный", "tg_id": None})
+
+    return JSONResponse({"users": users})
+
+@app.get("/referral/income")
+async def referral_income(request: Request):
+    tg_id = request.query_params.get('tg_id')
+    if not tg_id:
+        return JSONResponse({"error": "No tg_id"}, status_code=400)
+    try:
+        tg_id = int(tg_id)
+    except ValueError:
+        return JSONResponse({"error": "Invalid tg_id"}, status_code=400)
+
+    player_id = await get_player_id_by_tg(tg_id)
+    if not player_id:
+        return JSONResponse({"error": "Player not found"}, status_code=404)
+
+    ref_data = await run_sync_db(get_referral_data, player_id)
+    invited = ref_data.get("invited", [])
+    count = len(invited)
+    income = count * 20000
+    bonus = (count // 15) * 150000
+    total = income + bonus
+
+    return JSONResponse({
+        "count": count,
+        "income": income,
+        "bonus": bonus,
+        "total": total
+    })
+
+@app.get("/health")
+async def health():
+    return JSONResponse({"status": "ok"})
+
+async def run_bot():
+    """Точка входа для Bothost (обёртка над main)"""
+    await main()
