@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8" />
@@ -2475,6 +2475,65 @@
             const urlParams = new URLSearchParams(window.location.search);
             const userId = urlParams.get('userId') || (tg?.initDataUnsafe?.user?.id) || '';
 
+    // ===== ДОБАВЛЕНО ДЛЯ СИНХРОНИЗАЦИИ С FASTAPI =====
+    const API_BASE = 'https://resellgame.bothost.tech';
+
+    function loadBalanceFromServer(callback) {
+        if (!userId) {
+            if (callback) callback(0);
+            return;
+        }
+        fetch(`${API_BASE}/profile/${userId}`)
+            .then(res => {
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                return res.json();
+            })
+            .then(data => {
+                const balance = data.casino_balance ?? data.balance ?? 0;
+                if (callback) callback(balance);
+            })
+            .catch(err => {
+                console.error('Ошибка загрузки баланса:', err);
+                const saved = parseInt(localStorage.getItem('casinoBalance')) || 0;
+                if (callback) callback(saved);
+            });
+    }
+
+    function sendGameResult(result, bet, win, callback) {
+        if (!userId) {
+            if (callback) callback(new Error('Нет userId'));
+            return;
+        }
+        fetch(`${API_BASE}/game_result`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                userId: userId,
+                game: 'slots_zeus',
+                result: result,
+                bet: bet,
+                win: win
+            })
+        })
+        .then(res => {
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res.json();
+        })
+        .then(data => {
+            if (data.new_balance !== undefined) {
+                localStorage.setItem('casinoBalance', String(data.new_balance));
+                if (callback) callback(null, data.new_balance);
+            } else {
+                if (callback) callback(new Error('Нет new_balance'));
+            }
+        })
+        .catch(err => {
+            console.error('Ошибка отправки результата:', err);
+            if (callback) callback(err);
+        });
+    }
+    // ===== КОНЕЦ ДОБАВЛЕННОГО БЛОКА =====
+
             // =============================================================
             // 2. НАСТРОЙКИ
             // =============================================================
@@ -2680,8 +2739,7 @@
             // =============================================================
             // 4. STATE
             // =============================================================
-            let balance = parseInt(localStorage.getItem('casinoBalance'));
-            if (isNaN(balance) || balance < 0) balance = 0;
+            let balance = 0;
             let isSpinning = false;
             let currentWin = 0;
             let freeSpins = 0;
@@ -3904,6 +3962,29 @@
                     }
                 }
 
+                // ===== ОТПРАВКА РЕЗУЛЬТАТА НА СЕРВЕР =====
+                const winAmount = currentWin;
+                const betAmount = bet;
+                sendGameResult(
+                    winAmount > 0 ? 'win' : 'lose',
+                    betAmount,
+                    winAmount,
+                    function(err, newBalance) {
+                        if (err) {
+                            console.error('Ошибка синхронизации баланса:', err);
+                            loadBalanceFromServer(function(bal) {
+                                balance = bal;
+                                updateBalance(balance, false);
+                            });
+                        } else {
+                            if (newBalance !== balance) {
+                                balance = newBalance;
+                                updateBalance(balance, false);
+                            }
+                        }
+                    }
+                );
+
                 if (callback) callback();
             }
 
@@ -3997,6 +4078,14 @@
                 if (bonusPopup.classList.contains('show')) {
                     setTimeout(() => bonusPopup.classList.remove('show'), 400);
                 }
+
+                // ===== ОТПРАВКА РЕЗУЛЬТАТА БОНУСА НА СЕРВЕР =====
+                sendGameResult('win', 0, bonusTotalWin, function(err, newBalance) {
+                    if (!err && newBalance !== balance) {
+                        balance = newBalance;
+                        updateBalance(balance, false);
+                    }
+                });
             }
 
             // =============================================================
@@ -4105,7 +4194,6 @@
                     balanceDisplay.innerText = formatNumber(newBalance) + ' ₽';
                 }
                 balance = newBalance;
-                localStorage.setItem('casinoBalance', String(balance));
                 balanceBox.classList.remove('pop');
                 void balanceBox.offsetWidth;
                 balanceBox.classList.add('pop');
@@ -4415,9 +4503,15 @@
             });
 
             // =============================================================
-            // 22. ЗАПУСК
+            // 22. ЗАПУСК (с загрузкой баланса)
             // =============================================================
-            init();
+            loadBalanceFromServer(function(bal) {
+                balance = bal;
+                if (balanceDisplay) {
+                    balanceDisplay.innerText = formatNumber(balance) + ' ₽';
+                }
+                init();
+            });
 
             window.__slots = {
                 balance,
