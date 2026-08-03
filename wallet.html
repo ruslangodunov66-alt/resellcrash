@@ -472,7 +472,18 @@
         const withdrawButton = document.getElementById('submitWithdrawBtn');
 
         // =========================================================
-        // ЗАГРУЗКА БАЛАНСА (без таймаутов, без cache: no-store)
+        // МГНОВЕННО ПОКАЗЫВАЕМ БАЛАНС ИЗ LOCALSTORAGE
+        // =========================================================
+        const savedBalance = parseInt(localStorage.getItem('casinoBalance'));
+        if (!isNaN(savedBalance) && savedBalance > 0) {
+            casinoBalance = savedBalance;
+            balanceDisplay.textContent = savedBalance.toLocaleString('ru-RU') + ' ₽';
+        } else {
+            balanceDisplay.textContent = 'Загрузка...';
+        }
+
+        // =========================================================
+        // ЗАГРУЗКА БАЛАНСА С ТАЙМАУТОМ 5 СЕКУНД
         // =========================================================
         function loadBalances() {
             if (balanceLoading) return;
@@ -481,33 +492,41 @@
                 return;
             }
             balanceLoading = true;
-            balanceDisplay.textContent = 'Загрузка...';
 
-            fetch(`${API_BASE}/profile/${encodeURIComponent(userId)}`)
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error('HTTP ' + response.status);
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    console.log('📦 Баланс загружен:', data);
-                    casinoBalance = Number(data.casino_balance ?? data.balance ?? 0);
-                    mainBalance = Number(data.main_balance ?? data.balance ?? 0);
-                    balanceDisplay.textContent = casinoBalance.toLocaleString('ru-RU') + ' ₽';
-                    localStorage.setItem('casinoBalance', casinoBalance);
-                })
-                .catch(error => {
-                    console.error('❌ Ошибка загрузки баланса:', error);
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 5000);
+
+            fetch(`${API_BASE}/profile/${encodeURIComponent(userId)}`, {
+                signal: controller.signal
+            })
+            .then(response => {
+                clearTimeout(timeout);
+                if (!response.ok) {
+                    throw new Error('HTTP ' + response.status);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('📦 Баланс загружен:', data);
+                casinoBalance = Number(data.casino_balance ?? data.balance ?? 0);
+                mainBalance = Number(data.main_balance ?? data.balance ?? 0);
+                localStorage.setItem('casinoBalance', String(casinoBalance));
+                balanceDisplay.textContent = casinoBalance.toLocaleString('ru-RU') + ' ₽';
+            })
+            .catch(error => {
+                clearTimeout(timeout);
+                console.error('❌ Ошибка загрузки баланса:', error);
+                // Показываем сохранённое значение
+                const saved = parseInt(localStorage.getItem('casinoBalance')) || 0;
+                if (saved > 0) {
+                    balanceDisplay.textContent = saved.toLocaleString('ru-RU') + ' ₽';
+                } else {
                     balanceDisplay.textContent = 'Ошибка загрузки';
-                    const saved = parseInt(localStorage.getItem('casinoBalance')) || 0;
-                    if (saved > 0) {
-                        balanceDisplay.textContent = saved.toLocaleString('ru-RU') + ' ₽';
-                    }
-                })
-                .finally(() => {
-                    balanceLoading = false;
-                });
+                }
+            })
+            .finally(() => {
+                balanceLoading = false;
+            });
         }
 
         // =========================================================
@@ -534,17 +553,26 @@
         // ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ОТПРАВКИ ЗАПРОСОВ
         // =========================================================
         function apiFetch(url, options = {}) {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 8000);
             return fetch(url, {
                 ...options,
                 headers: {
                     'Content-Type': 'application/json',
                     ...(options.headers || {})
-                }
-            }).then(response => {
+                },
+                signal: controller.signal
+            })
+            .then(response => {
+                clearTimeout(timeout);
                 if (!response.ok) {
                     throw new Error('HTTP ' + response.status);
                 }
                 return response.json();
+            })
+            .catch(error => {
+                clearTimeout(timeout);
+                throw error;
             });
         }
 
@@ -577,7 +605,7 @@
                 }
                 casinoBalance = Number(data.casino_balance ?? data.new_casino_balance ?? data.balance ?? casinoBalance);
                 balanceDisplay.textContent = casinoBalance.toLocaleString('ru-RU') + ' ₽';
-                localStorage.setItem('casinoBalance', casinoBalance);
+                localStorage.setItem('casinoBalance', String(casinoBalance));
                 input.value = '';
                 if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
                 alert(`✅ Пополнение выполнено!\n\nБаланс казино: ${casinoBalance} ₽`);
@@ -622,7 +650,7 @@
                 }
                 casinoBalance = Number(data.casino_balance ?? data.new_casino_balance ?? data.balance ?? casinoBalance);
                 balanceDisplay.textContent = casinoBalance.toLocaleString('ru-RU') + ' ₽';
-                localStorage.setItem('casinoBalance', casinoBalance);
+                localStorage.setItem('casinoBalance', String(casinoBalance));
                 input.value = '';
                 if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
                 alert(`✅ Вывод выполнен!\n\nБаланс казино: ${casinoBalance} ₽`);
