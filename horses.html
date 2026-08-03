@@ -115,7 +115,7 @@
 
         /* ===== ТРЕК — РАСТЯНУТЫЙ ===== */
         .race-wrapper {
-            flex: 1; /* растягиваем на всё доступное пространство */
+            flex: 1;
             width: 100%;
             position: relative;
             border-radius: 16px;
@@ -123,7 +123,7 @@
             background: #0a0f1a;
             border: 1px solid rgba(255, 213, 74, 0.08);
             box-shadow: inset 0 0 60px rgba(0, 0, 0, 0.7);
-            min-height: 0; /* чтобы не переполнял */
+            min-height: 0;
         }
         #raceCanvas {
             width: 100%;
@@ -1018,7 +1018,39 @@
             const MAX_HISTORY = 12;
 
             // ---- КОЭФФИЦИЕНТЫ ----
-            let horseOdds = HORSES.map(() => (1.2 + Math.random() * 2.0).toFixed(1));
+            let horseOdds = [];
+
+            // Функция генерации реалистичных коэффициентов
+            function generateOdds() {
+                const num = HORSES.length;
+                const weights = [];
+                let sum = 0;
+                // Генерируем веса с большим разбросом (экспоненциальное распределение)
+                for (let i = 0; i < num; i++) {
+                    // Используем произведение случайных чисел для создания фаворитов и аутсайдеров
+                    let w = 1 - Math.random() * Math.random() * 0.9; // от 0.1 до 1
+                    w = Math.max(0.1, w);
+                    weights.push(w);
+                    sum += w;
+                }
+                // Маржа (букмекерская комиссия)
+                const margin = 1.15 + Math.random() * 0.1; // 1.15-1.25
+
+                // Сортируем лошадей по весу (по убыванию) для назначения коэффициентов
+                const indexed = weights.map((w, i) => ({ index: i, weight: w }));
+                indexed.sort((a, b) => b.weight - a.weight);
+
+                const oddsArray = new Array(num);
+                indexed.forEach((item, rank) => {
+                    const prob = item.weight / sum;
+                    let odd = 1 / (prob * margin);
+                    odd = Math.max(1.01, Math.round(odd * 100) / 100);
+                    oddsArray[item.index] = odd.toFixed(2);
+                });
+                return oddsArray;
+            }
+
+            horseOdds = generateOdds();
 
             // =============================================================
             // 6. ЗАГРУЗКА ИЗОБРАЖЕНИЙ
