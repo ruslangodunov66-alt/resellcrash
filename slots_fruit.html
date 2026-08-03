@@ -767,10 +767,11 @@
     'use strict';
 
     // =============================================================
-    // 1. TELEGRAM
+    // 1. TELEGRAM И API
     // =============================================================
     const tg = window.Telegram.WebApp;
     if (tg) { tg.expand(); tg.enableClosingConfirmation(); }
+    const API_BASE = 'https://resellgame.bothost.tech';
     const userId = new URLSearchParams(window.location.search).get('userId') || (tg?.initDataUnsafe?.user?.id) || '';
 
     // =============================================================
@@ -1030,9 +1031,9 @@
     }
 
     // =============================================================
-    // 6. БАЛАНС С АНИМАЦИЕЙ
+    // 6. БАЛАНС С АНИМАЦИЕЙ И СИНХРОНИЗАЦИЯ
     // =============================================================
-    let balance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+    let balance = 0;
     let balanceAnimId = null;
 
     function animateBalance(newValue, isWin = false) {
@@ -1080,6 +1081,80 @@
         localStorage.setItem('casinoBalance', String(balance));
     }
 
+    // ===== ЗАГРУЗКА С СЕРВЕРА =====
+    function loadBalanceFromServer() {
+        if (!userId) {
+            balance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+            updateBalance(balance, false);
+            return;
+        }
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+        fetch(`${API_BASE}/profile/${encodeURIComponent(userId)}`, { signal: controller.signal })
+            .then(res => {
+                clearTimeout(timeoutId);
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                return res.json();
+            })
+            .then(data => {
+                const bal = Number(data.casino_balance ?? data.balance ?? 0);
+                balance = bal;
+                updateBalance(balance, false);
+                console.log('✅ Баланс загружен с сервера:', balance);
+            })
+            .catch(err => {
+                clearTimeout(timeoutId);
+                console.error('❌ Ошибка загрузки баланса:', err);
+                balance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+                updateBalance(balance, false);
+            });
+    }
+
+    // ===== ОТПРАВКА РЕЗУЛЬТАТА =====
+    function sendGameResult(result, bet, win) {
+        return new Promise((resolve, reject) => {
+            if (!userId) {
+                reject(new Error('Нет userId'));
+                return;
+            }
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+            fetch(`${API_BASE}/game_result`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                signal: controller.signal,
+                body: JSON.stringify({
+                    userId: userId,
+                    game: 'slots_fruit',
+                    result: result,
+                    bet: bet,
+                    win: win
+                })
+            })
+            .then(res => {
+                clearTimeout(timeoutId);
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                return res.json();
+            })
+            .then(data => {
+                if (data.new_balance !== undefined) {
+                    resolve(data.new_balance);
+                } else {
+                    reject(new Error('Ответ сервера не содержит new_balance'));
+                }
+            })
+            .catch(err => {
+                clearTimeout(timeoutId);
+                reject(err);
+            });
+        });
+    }
+
+    // =============================================================
+    // 7. ИГРОВАЯ ЛОГИКА
+    // =============================================================
     function getBet() {
         let val = parseInt(betInput.value.replace(/\s/g, ''));
         if (isNaN(val) || val < 10) val = 10;
@@ -1089,9 +1164,7 @@
     }
     function setBetDisplay(val) { betInput.value = val.toLocaleString(); }
 
-    // =============================================================
-    // 7. СОСТОЯНИЕ
-    // =============================================================
+    // ===== СОСТОЯНИЕ =====
     let isSpinning = false;
     let freeSpins = 0;
     let isBonusActive = false;
@@ -1106,9 +1179,7 @@
     let spinAnimId = null;
     let winHighlightIndices = new Set();
 
-    // =============================================================
-    // 8. ПОСТРОЕНИЕ ПОЛОС
-    // =============================================================
+    // ===== ПОСТРОЕНИЕ ПОЛОС =====
     function buildReelStrips() {
         const strips = [];
         for (let col=0; col<5; col++) {
@@ -1135,47 +1206,28 @@
         return grid;
     }
 
-    // =============================================================
-    // 9. ОТРИСОВКА С ПОДСВЕТКОЙ — ИСПРАВЛЕННАЯ drawSymbol
-    // =============================================================
-    let drawPending = false;
-
-    // 🔥 НОВАЯ ФУНКЦИЯ — сохраняет пропорции картинок (object-fit: contain)
+    // ===== ОТРИСОВКА (без изменений) =====
     function drawSymbol(ctx, img, x, y, w, h, scale = 1, alpha = 1) {
         if (!img) return;
-
-        // Небольшой кроп для удаления пустых краёв (если есть)
         const crop = 0.05;
         const sx = img.width * crop;
         const sy = img.height * crop;
         const sw = img.width * (1 - 2 * crop);
         const sh = img.height * (1 - 2 * crop);
-
-        // Вычисляем пропорции
         const imgRatio = sw / sh;
         const cellRatio = w / h;
-
         let cw, ch;
-
-        // Аналог object-fit: contain
         if (imgRatio > cellRatio) {
-            // Картинка шире пропорций ячейки
             cw = w;
             ch = w / imgRatio;
         } else {
-            // Картинка выше пропорций ячейки
             ch = h;
             cw = h * imgRatio;
         }
-
-        // Применяем дополнительный масштаб (для анимаций)
         cw *= scale;
         ch *= scale;
-
-        // Центрируем
         const dx = x + (w - cw) / 2;
         const dy = y + (h - ch) / 2;
-
         ctx.globalAlpha = alpha;
         ctx.drawImage(img, sx, sy, sw, sh, dx, dy, cw, ch);
         ctx.globalAlpha = 1;
@@ -1282,9 +1334,7 @@
         winCtx.clearRect(0, 0, winCanvas.width, winCanvas.height);
     }
 
-    // =============================================================
-    // 10. WIN LINES (без изменений)
-    // =============================================================
+    // ===== WIN LINES =====
     function drawWinLines(winLines) {
         const dpr = window.devicePixelRatio || 1;
         const w = winCanvas.clientWidth;
@@ -1354,7 +1404,7 @@
     }
 
     // =============================================================
-    // 11. АНИМАЦИЯ (улучшенная физика) — без изменений
+    // 8. АНИМАЦИЯ ВРАЩЕНИЯ (без изменений)
     // =============================================================
     function easeOutBack(x) {
         const c1 = 1.70158;
@@ -1507,7 +1557,7 @@
     }
 
     // =============================================================
-    // 12. ЛОГИКА ВЫИГРЫША (без изменений)
+    // 9. ЛОГИКА ВЫИГРЫША И ОТПРАВКА НА СЕРВЕР
     // =============================================================
     function checkWins(grid) {
         let totalMult = 0;
@@ -1606,9 +1656,7 @@
         drawReels(reelOffsets, reelStrips);
     }
 
-    // =============================================================
-    // 13. ОБРАБОТКА РЕЗУЛЬТАТА
-    // =============================================================
+    // ===== ОСНОВНАЯ ОБРАБОТКА РЕЗУЛЬТАТА С ОТПРАВКОЙ =====
     async function processResult(bet, isFreeSpin) {
         let grid = [...currentGrid];
         let totalWin = 0, cascadeCount = 0, hasWin = false;
@@ -1699,20 +1747,38 @@
             }
         }
 
+        // ---- ОТПРАВКА РЕЗУЛЬТАТА НА СЕРВЕР ----
+        if (!isFreeSpin && !isBonusActive) {
+            // Обычный спин — отправляем результат
+            try {
+                const resultType = totalWin > 0 ? 'win' : 'lose';
+                const newBalance = await sendGameResult(resultType, bet, totalWin);
+                // Обновляем баланс из ответа сервера
+                balance = Number(newBalance);
+                updateBalance(balance, false);
+                console.log(`✅ Результат ${resultType} отправлен, новый баланс: ${balance}`);
+            } catch (err) {
+                console.error('❌ Ошибка отправки результата:', err);
+                // Если ошибка, оставляем локальный баланс (уже списан/добавлен)
+                // Пытаемся перезагрузить баланс
+                loadBalanceFromServer();
+                setStatus('⚠️ Ошибка синхронизации. Баланс мог не обновиться.', '');
+                setTimeout(() => setStatus('⚡ НАЖМИТЕ SPIN', 'idle'), 2000);
+            }
+        } else if (isBonusActive || isFreeSpin) {
+            // В бонусе накапливаем, но не отправляем до конца бонуса
+            // После завершения бонуса отправим общий результат в endBonus
+        }
+
+        // Обновляем UI (выигрыш уже показан)
         if (hasWin && !isFreeSpin && !isBonusActive) {
-            animateCoinsToBalance(totalWin);
-            updateBalance(balance + totalWin, true);
+            // Анимация монет уже сделана в processResult, но мы не должны дважды добавлять выигрыш
+            // Баланс уже обновлён из ответа сервера
             if (totalWin > bet * 20) {
                 showBigWin(totalWin, bet);
             }
             updateProfileStats(bet, totalWin);
-        } else if (hasWin && (isFreeSpin || isBonusActive)) {
-            bonusTotalWin += totalWin;
-            setStatus(`💰 БОНУС: +${bonusTotalWin.toLocaleString()} ₽`, 'win');
         } else if (!hasWin && !isFreeSpin && !isBonusActive) {
-            setStatus('😞 ПОПРОБУЙТЕ СНОВА!', 'lose');
-            playLose();
-            vibrate('error');
             updateProfileStats(bet, 0);
         }
 
@@ -1723,11 +1789,12 @@
             }, 3000);
         }
 
+        // Завершаем спин (разблокировка и автоспин)
         finishSpin(bet, isFreeSpin);
     }
 
     // =============================================================
-    // 14. ЗАВЕРШЕНИЕ СПИНА
+    // 10. ЗАВЕРШЕНИЕ СПИНА И АВТОСПИН
     // =============================================================
     function unlockControls() {
         spinBtn.disabled = false;
@@ -1788,6 +1855,7 @@
                     if (!isSpinning && autoSpinActive) {
                         const nextBet = getBet();
                         if (balance >= nextBet) {
+                            // Локально списываем ставку (сервер подтвердит позже)
                             updateBalance(balance - nextBet, false);
                             startSpin(nextBet, false);
                         } else {
@@ -1815,7 +1883,7 @@
     }
 
     // =============================================================
-    // 15. БОНУС
+    // 11. БОНУСЫ
     // =============================================================
     function triggerBonus(spins, triggerText, icon, title, sub, detail) {
         if (isBonusActive && freeSpins > 0) {
@@ -1838,17 +1906,41 @@
         }, 1200);
     }
 
-    function endBonus() {
+    async function endBonus() {
         isBonusActive = false;
         const finalWin = bonusTotalWin;
         freeSpins = 0;
         bonusMultiplier = 1;
         setStatus(`🍒 БОНУС ЗАВЕРШЕН: +${finalWin.toLocaleString()} ₽`, '');
+
+        // Отправляем результат бонуса на сервер
         if (finalWin > 0) {
+            try {
+                const resultType = 'win';
+                const newBalance = await sendGameResult(resultType, 0, finalWin); // ставка 0, т.к. бонус бесплатный
+                balance = Number(newBalance);
+                updateBalance(balance, false);
+                console.log(`✅ Бонус отправлен, новый баланс: ${balance}`);
+            } catch (err) {
+                console.error('❌ Ошибка отправки бонуса:', err);
+                loadBalanceFromServer();
+                setStatus('⚠️ Ошибка синхронизации бонуса.', '');
+            }
             animateCoinsToBalance(finalWin);
-            updateBalance(balance + finalWin, true);
+            updateBalance(balance, false); // уже обновлено, но для UI
             if (finalWin > 5000) showBigWin(finalWin, 0);
+        } else {
+            try {
+                const resultType = 'lose';
+                const newBalance = await sendGameResult(resultType, 0, 0);
+                balance = Number(newBalance);
+                updateBalance(balance, false);
+            } catch (err) {
+                console.error('❌ Ошибка отправки бонуса:', err);
+                loadBalanceFromServer();
+            }
         }
+
         if (!autoSpinActive) {
             unlockControls();
         } else {
@@ -1881,7 +1973,7 @@
     }
 
     // =============================================================
-    // 16. ВСПОМОГАТЕЛЬНЫЕ
+    // 12. ВСПОМОГАТЕЛЬНЫЕ
     // =============================================================
     function setStatus(text, type = '') {
         statusBar.textContent = text;
@@ -2089,7 +2181,7 @@
     }
 
     // =============================================================
-    // 17. ТАБЛИЦА ВЫПЛАТ
+    // 13. ТАБЛИЦА ВЫПЛАТ
     // =============================================================
     function buildPaytable() {
         let html = '';
@@ -2128,7 +2220,7 @@
     }
 
     // =============================================================
-    // 18. АВТОСПИН
+    // 14. АВТОСПИН
     // =============================================================
     function toggleAutoSpin() {
         if (autoSpinActive) { stopAutoSpin('Остановлено пользователем'); return; }
@@ -2150,6 +2242,7 @@
         betInput.disabled = true;
         betPresets.forEach(b => b.style.pointerEvents = 'none');
         setStatus(`🔁 АВТО-СПИН ${autoSpinRemaining}`, '');
+        // Локально списываем ставку
         updateBalance(balance - bet, false);
         startSpin(bet, false);
     }
@@ -2169,7 +2262,7 @@
     }
 
     // =============================================================
-    // 19. ИНИЦИАЛИЗАЦИЯ
+    // 15. ИНИЦИАЛИЗАЦИЯ
     // =============================================================
     function init() {
         initAudio();
@@ -2178,7 +2271,8 @@
             reelStrips = buildReelStrips();
             reelOffsets = [0,0,0,0,0];
             currentGrid = getGridFromOffsets(reelOffsets, reelStrips);
-            updateBalance(balance, false);
+            // Загружаем баланс с сервера
+            loadBalanceFromServer();
             setBetDisplay(100);
             applyUI();
             updateAudio();
@@ -2211,6 +2305,7 @@
             }
             playClick();
             vibrate('light');
+            // Локально списываем ставку
             updateBalance(balance - bet, false);
             startSpin(bet, false);
         });
@@ -2275,7 +2370,7 @@
             }
         });
 
-        console.log('🍒 FRUIT 777 (исправлены пропорции) загружен, баланс:', balance);
+        console.log('🍒 FRUIT 777 (с синхронизацией баланса) загружен, баланс:', balance);
     }
 
     init();
