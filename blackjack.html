@@ -7,7 +7,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;1,800&family=Nunito:wght@700;800&display=swap" rel="stylesheet">
     <style>
-        /* ===== ОБЩИЕ СТИЛИ ===== */
+        /* ===== ОБЩИЕ СТИЛИ (без изменений) ===== */
         :root {
             --bg-dark: #0a0f16;
             --container-bg: #111822;
@@ -382,17 +382,22 @@
 </div>
 
 <script>
+    // =============================================================
+    // ИСПРАВЛЕННАЯ ВЕРСИЯ С СИНХРОНИЗАЦИЕЙ С СЕРВЕРОМ
+    // =============================================================
     const tg = window.Telegram.WebApp;
     tg.expand();
     tg.ready();
     if (tg.HapticFeedback) tg.enableClosingConfirmation();
+
+    const API_BASE = 'https://resellgame.bothost.tech';
 
     let userId = null;
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.has('userId')) userId = urlParams.get('userId');
     else if (tg.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
 
-    // ===== ФОРМАТИРОВАНИЕ ЧИСЕЛ =====
+    // ===== ФОРМАТИРОВАНИЕ =====
     function formatNumber(num) {
         return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
     }
@@ -400,7 +405,80 @@
         return parseInt(str.replace(/\s/g, '')) || 0;
     }
 
-    // ===== ФУНКЦИЯ ОБНОВЛЕНИЯ СТАТИСТИКИ =====
+    // ===== ЗАГРУЗКА БАЛАНСА С СЕРВЕРА =====
+    function loadBalanceFromServer() {
+        if (!userId) {
+            balanceSpan.innerText = 'Ошибка ID';
+            return;
+        }
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+        fetch(`${API_BASE}/profile/${encodeURIComponent(userId)}`, { signal: controller.signal })
+            .then(res => {
+                clearTimeout(timeoutId);
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                return res.json();
+            })
+            .then(data => {
+                const bal = Number(data.casino_balance ?? data.balance ?? 0);
+                casinoBalance = bal;
+                localStorage.setItem('casinoBalance', String(casinoBalance));
+                balanceSpan.innerText = formatNumber(casinoBalance) + ' ₽';
+                console.log('✅ Баланс загружен:', casinoBalance);
+            })
+            .catch(err => {
+                clearTimeout(timeoutId);
+                console.error('❌ Ошибка загрузки баланса:', err);
+                // fallback на localStorage
+                const saved = parseInt(localStorage.getItem('casinoBalance')) || 0;
+                casinoBalance = saved;
+                balanceSpan.innerText = formatNumber(casinoBalance) + ' ₽';
+            });
+    }
+
+    // ===== ОТПРАВКА РЕЗУЛЬТАТА =====
+    function sendGameResult(result, bet, win) {
+        return new Promise((resolve, reject) => {
+            if (!userId) {
+                reject(new Error('Нет userId'));
+                return;
+            }
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+            fetch(`${API_BASE}/game_result`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                signal: controller.signal,
+                body: JSON.stringify({
+                    userId: userId,
+                    game: 'blackjack',
+                    result: result,
+                    bet: bet,
+                    win: win
+                })
+            })
+            .then(res => {
+                clearTimeout(timeoutId);
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                return res.json();
+            })
+            .then(data => {
+                if (data.new_balance !== undefined) {
+                    resolve(data.new_balance);
+                } else {
+                    reject(new Error('Ответ сервера не содержит new_balance'));
+                }
+            })
+            .catch(err => {
+                clearTimeout(timeoutId);
+                reject(err);
+            });
+        });
+    }
+
+    // ===== ОБНОВЛЕНИЕ СТАТИСТИКИ (локально, для интерфейса) =====
     function updateProfileStats(result, bet, win) {
         let games = parseInt(localStorage.getItem('profile_games_played')) || 0;
         let wins = parseInt(localStorage.getItem('profile_wins')) || 0;
@@ -411,11 +489,13 @@
         games += 1;
         total_bet += bet;
 
-        if (result === 'win') {
+        if (result === 'win' || result === 'blackjack_win') {
             wins += 1;
             total_win += win;
         } else if (result === 'lose') {
             losses += 1;
+        } else if (result === 'tie') {
+            // ничья не считается ни победой ни поражением
         }
 
         localStorage.setItem('profile_games_played', String(games));
@@ -440,21 +520,12 @@
     const dealerValueSpan = document.getElementById('dealerValue');
     const playerValueSpan = document.getElementById('playerValue');
 
+    let casinoBalance = 0;
     let currentBet = 1000;
     let deck = [], playerHand = [], dealerHand = [];
     let gameActive = false;
     let canDouble = true;
     let isBlackjack = false;
-
-    // ===== БАЛАНС =====
-    let casinoBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
-    balanceSpan.innerText = formatNumber(casinoBalance) + ' ₽';
-
-    function updateBalanceDisplay(newBalance) {
-        casinoBalance = newBalance;
-        localStorage.setItem('casinoBalance', String(casinoBalance));
-        balanceSpan.innerText = formatNumber(casinoBalance) + ' ₽';
-    }
 
     // ===== ЗВУКИ И ВИБРАЦИЯ =====
     let audioCtx = null;
@@ -520,7 +591,6 @@
         return deck.pop();
     }
 
-    // ИСПРАВЛЕННАЯ ФУНКЦИЯ ПОДСЧЁТА ОЧКОВ
     function handTotal(hand) {
         let sum = 0;
         let aces = 0;
@@ -543,7 +613,7 @@
         return hand.length === 2 && handTotal(hand) === 21;
     }
 
-    // ===== ОТРИСОВКА КАРТ (классические, рубашка с R) =====
+    // ===== ОТРИСОВКА =====
     function renderCard(card, isBack = false) {
         const div = document.createElement('div');
         div.className = 'card';
@@ -559,7 +629,6 @@
     }
 
     function updateUI() {
-        // Игрок
         playerCardsDiv.innerHTML = '';
         playerHand.forEach(c => playerCardsDiv.appendChild(renderCard(c)));
         const pTotal = handTotal(playerHand);
@@ -569,7 +638,6 @@
             playerValueSpan.classList.add('blackjack');
         }
 
-        // Дилер
         dealerCardsDiv.innerHTML = '';
         if (gameActive && dealerHand.length === 2) {
             dealerCardsDiv.appendChild(renderCard(dealerHand[0]));
@@ -608,7 +676,9 @@
         currentBet = amount;
         betInput.value = formatNumber(currentBet);
 
-        updateBalanceDisplay(casinoBalance - currentBet);
+        // Локально списываем ставку для отображения (сервер подтвердит позже)
+        casinoBalance -= currentBet;
+        balanceSpan.innerText = formatNumber(casinoBalance) + ' ₽';
 
         deck = createDeck();
         playerHand = [popCard(), popCard()];
@@ -634,37 +704,67 @@
         }
     }
 
-    function finishRound(result, winAmount = 0) {
+    // Функция завершения раунда с отправкой на сервер
+    async function finishRound(result, winAmount = 0) {
+        if (!gameActive && result !== 'tie' && result !== 'blackjack_win') return;
+
+        // Блокируем кнопки
         gameActive = false;
         hitBtn.disabled = true;
         standBtn.disabled = true;
         doubleBtn.disabled = true;
-        startBtn.disabled = false;
-        betInput.disabled = false;
+        startBtn.disabled = true;
+        betInput.disabled = true;
 
+        // Локально обновим баланс для отображения (временно)
         if (result === 'win') {
-            updateBalanceDisplay(casinoBalance + winAmount);
-            setStatus(`🎉 ПОБЕДА! +${formatNumber(winAmount)} ₽`, 'win');
-            updateProfileStats('win', currentBet, winAmount);
-            soundWin();
-            vibrate('success');
+            casinoBalance += winAmount;
         } else if (result === 'blackjack_win') {
-            updateBalanceDisplay(casinoBalance + winAmount);
-            setStatus(`♠️ BLACKJACK! +${formatNumber(winAmount)} ₽`, 'blackjack');
-            updateProfileStats('win', currentBet, winAmount);
-            soundBlackjack();
-            vibrate('success');
-        } else if (result === 'lose') {
-            setStatus(`💥 ПРОИГРЫШ! -${formatNumber(currentBet)} ₽`, 'lose');
-            updateProfileStats('lose', currentBet, 0);
-            soundLose();
-            vibrate('error');
+            casinoBalance += winAmount;
         } else if (result === 'tie') {
-            updateBalanceDisplay(casinoBalance + currentBet);
-            setStatus('🤝 НИЧЬЯ! Ставка возвращена', '');
-            vibrate('medium');
+            casinoBalance += currentBet; // возврат ставки
+        } // при проигрыше ничего не добавляем
+
+        balanceSpan.innerText = formatNumber(casinoBalance) + ' ₽';
+
+        // Отправляем результат на сервер
+        try {
+            const newBalance = await sendGameResult(result, currentBet, winAmount);
+            // Обновляем баланс из ответа сервера (это истинное значение)
+            casinoBalance = Number(newBalance);
+            localStorage.setItem('casinoBalance', String(casinoBalance));
+            balanceSpan.innerText = formatNumber(casinoBalance) + ' ₽';
+
+            // Обновляем статус и звуки
+            if (result === 'win') {
+                setStatus(`🎉 ПОБЕДА! +${formatNumber(winAmount - currentBet)} ₽`, 'win');
+                soundWin();
+                vibrate('success');
+            } else if (result === 'blackjack_win') {
+                setStatus(`♠️ BLACKJACK! +${formatNumber(winAmount - currentBet)} ₽`, 'blackjack');
+                soundBlackjack();
+                vibrate('success');
+            } else if (result === 'lose') {
+                setStatus(`💥 ПРОИГРЫШ! -${formatNumber(currentBet)} ₽`, 'lose');
+                soundLose();
+                vibrate('error');
+            } else if (result === 'tie') {
+                setStatus('🤝 НИЧЬЯ! Ставка возвращена', '');
+                vibrate('medium');
+            }
+            updateProfileStats(result, currentBet, winAmount);
+        } catch (err) {
+            console.error('❌ Ошибка отправки результата:', err);
+            setStatus('⚠️ Ошибка синхронизации. Баланс мог не обновиться.', 'lose');
+            // В случае ошибки оставляем локальный баланс как есть, но помечаем проблему
+            // Можно попробовать повторно загрузить баланс
+            loadBalanceFromServer();
+        } finally {
+            // Разблокируем кнопки
+            startBtn.disabled = false;
+            betInput.disabled = false;
+            updateUI();
         }
-        updateUI();
     }
 
     function doubleBet() {
@@ -678,7 +778,9 @@
         vibrate('heavy');
         canDouble = false;
         doubleBtn.disabled = true;
-        updateBalanceDisplay(casinoBalance - currentBet);
+        // Локально списываем дополнительную ставку
+        casinoBalance -= currentBet;
+        balanceSpan.innerText = formatNumber(casinoBalance) + ' ₽';
         currentBet *= 2;
 
         playerHand.push(popCard());
@@ -735,16 +837,16 @@
 
         if (isPlayerBJ && !isDealerBJ) {
             const winAmount = Math.floor(currentBet * 2.5);
-            finishRound('blackjack_win', winAmount);
+            await finishRound('blackjack_win', winAmount);
         } else if (isDealerBJ && !isPlayerBJ) {
-            finishRound('lose');
+            await finishRound('lose');
         } else if (dealerTotal > 21 || playerTotal > dealerTotal) {
             const winAmount = currentBet * 2;
-            finishRound('win', winAmount);
+            await finishRound('win', winAmount);
         } else if (playerTotal === dealerTotal) {
-            finishRound('tie');
+            await finishRound('tie');
         } else {
-            finishRound('lose');
+            await finishRound('lose');
         }
     }
 
@@ -799,7 +901,8 @@
     betInput.dataset.value = 1000;
     betInput.value = formatNumber(1000);
 
-    // Инициализация
+    // ===== ЗАГРУЗКА ПРИ СТАРТЕ =====
+    loadBalanceFromServer();
     updateUI();
     setStatus('Сделайте ставку и нажмите ИГРАТЬ');
 </script>
