@@ -291,491 +291,581 @@
 </div>
 
 <script>
-    // ========================================
-    // 🔧 НАСТРОЙКА – УКАЖИТЕ ВАШ URL БЭКЕНДА
-    // ========================================
-    const API_BASE = 'https://resellgame.bothost.tech';
+    (function() {
+        'use strict';
 
-    // ===== TELEGRAM WEBAPP =====
-    const tg = window.Telegram.WebApp;
-    tg.expand(); tg.ready();
-    if (tg.HapticFeedback) tg.enableClosingConfirmation();
+        // =============================================================
+        // 1. TELEGRAM И API
+        // =============================================================
+        const tg = window.Telegram.WebApp;
+        tg.expand(); tg.ready();
+        if (tg.HapticFeedback) tg.enableClosingConfirmation();
 
-    let userId = null;
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.has('userId')) userId = urlParams.get('userId');
-    else if (tg.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
+        const API_BASE = 'https://resellgame.bothost.tech';
 
-    // ===== БАЛАНС: ЗАГРУЗКА С СЕРВЕРА =====
-    let casinoBalance = 0;
-    const balanceSpan = document.getElementById('balanceDisplay');
+        let userId = null;
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('userId')) userId = urlParams.get('userId');
+        else if (tg.initDataUnsafe?.user?.id) userId = tg.initDataUnsafe.user.id;
 
-    async function loadBalance() {
-        if (!userId) {
-            const cached = localStorage.getItem('casinoBalance');
-            casinoBalance = cached ? parseInt(cached) : 0;
+        // =============================================================
+        // 2. БАЛАНС — ЗАГРУЗКА С СЕРВЕРА
+        // =============================================================
+        let casinoBalance = 0;
+        const balanceSpan = document.getElementById('balanceDisplay');
+
+        function updateBalanceUI() {
             balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
-            return;
+            localStorage.setItem('casinoBalance', String(casinoBalance));
         }
-        try {
-            const resp = await fetch(`${API_BASE}/profile/${userId}`);
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            const data = await resp.json();
-            if (data.casino_balance !== undefined) {
-                casinoBalance = data.casino_balance;
-                localStorage.setItem('casinoBalance', String(casinoBalance));
-                balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
-            } else {
-                // если поля нет – берём из localStorage
-                const cached = localStorage.getItem('casinoBalance');
-                casinoBalance = cached ? parseInt(cached) : 0;
-                balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
+
+        function loadBalanceFromServer() {
+            if (!userId) {
+                casinoBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+                updateBalanceUI();
+                return;
             }
-        } catch (e) {
-            console.warn('Не удалось загрузить баланс с сервера', e);
-            const cached = localStorage.getItem('casinoBalance');
-            casinoBalance = cached ? parseInt(cached) : 0;
-            balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+            fetch(`${API_BASE}/profile/${encodeURIComponent(userId)}`, { signal: controller.signal })
+                .then(res => {
+                    clearTimeout(timeoutId);
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return res.json();
+                })
+                .then(data => {
+                    const bal = Number(data.casino_balance ?? data.balance ?? 0);
+                    casinoBalance = bal;
+                    updateBalanceUI();
+                    console.log('✅ Баланс загружен с сервера:', casinoBalance);
+                })
+                .catch(err => {
+                    clearTimeout(timeoutId);
+                    console.error('❌ Ошибка загрузки баланса:', err);
+                    casinoBalance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+                    updateBalanceUI();
+                });
         }
-    }
 
-    // ===== HTTP API (отправка результата) =====
-    function sendGameResult(result, bet, win) {
-        if (!userId) return;
-        fetch(`${API_BASE}/game_result`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                userId: userId,
-                game: 'stair',
-                result: result,
-                bet: bet,
-                win: win
-            })
-        })
-        .then(res => {
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            return res.json();
-        })
-        .then(data => {
-            if (data.new_balance !== undefined) {
-                casinoBalance = data.new_balance;
-                localStorage.setItem('casinoBalance', String(casinoBalance));
-                balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
-            }
-        })
-        .catch(err => console.error('Ошибка отправки результата:', err));
-    }
-
-    // ===== ЧАСТИЦЫ (CANVAS) – БЕЗ ИЗМЕНЕНИЙ =====
-    const canvas = document.getElementById('particles-canvas');
-    const ctx = canvas.getContext('2d');
-    let particles = [];
-    
-    function resizeCanvas() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-    }
-    window.addEventListener('resize', resizeCanvas);
-    resizeCanvas();
-
-    class Particle {
-        constructor() { this.reset(); }
-        reset() {
-            this.x = Math.random() * canvas.width;
-            this.y = Math.random() * canvas.height;
-            this.size = Math.random() * 2 + 0.5;
-            this.speedX = Math.random() * 0.5 - 0.25;
-            this.speedY = Math.random() * -1 - 0.2;
-            this.alpha = Math.random() * 0.5 + 0.1;
-        }
-        update() {
-            this.x += this.speedX; this.y += this.speedY;
-            if (this.y < 0 || this.x < 0 || this.x > canvas.width) this.reset();
-        }
-        draw() {
-            ctx.fillStyle = `rgba(24, 130, 255, ${this.alpha})`;
-            ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fill();
-        }
-    }
-    for (let i = 0; i < 1000; i++) particles.push(new Particle());
-    
-    function animateParticles() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        particles.forEach(p => { p.update(); p.draw(); });
-        requestAnimationFrame(animateParticles);
-    }
-    animateParticles();
-
-    // ===== БАЛАНС И СТАТИСТИКА (локальная) =====
-    function updateBalanceDisplay(newBalance) {
-        casinoBalance = newBalance;
-        localStorage.setItem('casinoBalance', String(casinoBalance));
-        balanceSpan.innerText = casinoBalance.toLocaleString() + ' ₽';
-    }
-
-    function updateProfileStats(result, bet, win) {
-        let games = parseInt(localStorage.getItem('profile_games_played')) || 0;
-        let wins = parseInt(localStorage.getItem('profile_wins')) || 0;
-        let losses = parseInt(localStorage.getItem('profile_losses')) || 0;
-        let total_bet = parseInt(localStorage.getItem('profile_total_bet')) || 0;
-        let total_win = parseInt(localStorage.getItem('profile_total_win')) || 0;
-
-        games += 1; total_bet += bet;
-        if (result === 'win') { wins += 1; total_win += win; } 
-        else if (result === 'lose') { losses += 1; }
-        
-        localStorage.setItem('profile_games_played', String(games));
-        localStorage.setItem('profile_wins', String(wins));
-        localStorage.setItem('profile_losses', String(losses));
-        localStorage.setItem('profile_total_bet', String(total_bet));
-        localStorage.setItem('profile_total_win', String(total_win));
-    }
-
-    // ===== ЗВУКИ И ВИБРАЦИЯ =====
-    let audioCtx = null;
-    function initAudio() {
-        if (!audioCtx && window.AudioContext) {
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            document.body.addEventListener('touchstart', () => audioCtx?.resume(), { once: true });
-            document.body.addEventListener('click', () => audioCtx?.resume(), { once: true });
-        }
-    }
-    function playTone(freq, duration, vol = 0.08, type = 'sine') {
-        if (!audioCtx) return;
-        try {
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.type = type; osc.frequency.value = freq;
-            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
-            osc.connect(gain); gain.connect(audioCtx.destination);
-            osc.start(); osc.stop(audioCtx.currentTime + duration);
-        } catch(e) {}
-    }
-    
-    function soundClimb() { 
-        playTone(700, 0.1, 0.05, 'sine'); 
-        setTimeout(() => playTone(900, 0.1, 0.05, 'sine'), 100); 
-    }
-    function soundRun() {
-        let t = 0;
-        let runInterval = setInterval(() => {
-            playTone(200 + Math.random()*100, 0.05, 0.05, 'square');
-            t++; if(t>15) clearInterval(runInterval);
-        }, 60);
-    }
-    function soundCrash() { playTone(150, 0.4, 0.15, 'sawtooth'); playTone(100, 0.5, 0.1, 'square'); }
-    function soundWin() { playTone(880, 0.15, 0.1); playTone(1100, 0.15, 0.1); playTone(1320, 0.2, 0.1); }
-    function soundError() { playTone(300, 0.3, 0.1, 'sawtooth'); }
-
-    function vibrate(style = 'light') {
-        if (!tg.HapticFeedback) return;
-        if (style === 'light') tg.HapticFeedback.impactOccurred('light');
-        else if (style === 'medium') tg.HapticFeedback.impactOccurred('medium');
-        else if (style === 'heavy') tg.HapticFeedback.impactOccurred('heavy');
-        else if (style === 'success') tg.HapticFeedback.notificationOccurred('success');
-        else if (style === 'error') tg.HapticFeedback.notificationOccurred('error');
-    }
-
-    // ===== ЛОГИКА ИГРЫ =====
-    const STAGES = [
-        { rows: 10, cols: 7 },
-        { rows: 10, cols: 6 },
-        { rows: 10, cols: 5 }
-    ];
-    
-    let bombsCount = 1;
-    let gameActive = false;
-    let currentBet = 1000;
-    
-    let currentStageIndex = 0;
-    let localRow = 0;
-    let globalRow = 0;
-    
-    let currentMultiplier = 1.0;
-    let field = [];
-    let isAnimating = false;
-
-    const betInput = document.getElementById('betAmount');
-    const startBtn = document.getElementById('startBtn');
-    const cashoutBtn = document.getElementById('cashoutBtn');
-    const multiplierSpan = document.getElementById('multiplierDisplay');
-    const currentWinSpan = document.getElementById('currentWinAmount');
-    const statusDiv = document.getElementById('statusMsg');
-    const gridDiv = document.getElementById('grid');
-    const cinematicRock = document.getElementById('cinematic-rock');
-    const stageTransition = document.getElementById('stage-transition');
-    const stageDisplay = document.getElementById('stageDisplay');
-
-    function calculateMultiplier(targetGlobalRow, bombs) {
-        let mult = 1.0;
-        let gRow = 0;
-        for (let s = 0; s < STAGES.length; s++) {
-            for (let r = 0; r < STAGES[s].rows; r++) {
-                if (gRow > targetGlobalRow) break;
-                let cols = STAGES[s].cols;
-                let winProb = (cols - bombs) / cols;
-                mult *= (1 / winProb) * 0.96;
-                gRow++;
-            }
-        }
-        return mult;
-    }
-
-    function buildGrid() {
-        const transitionEl = document.getElementById('stage-transition');
-        gridDiv.innerHTML = '';
-        gridDiv.appendChild(transitionEl);
-        
-        const cols = STAGES[currentStageIndex].cols;
-        const rows = STAGES[currentStageIndex].rows;
-        
-        for (let r = 0; r < rows; r++) {
-            const rowDiv = document.createElement('div');
-            rowDiv.className = 'stair-row';
-            rowDiv.dataset.row = r;
-            for (let c = 0; c < cols; c++) {
-                const cell = document.createElement('div');
-                cell.className = 'cell';
-                cell.dataset.row = r;
-                cell.dataset.col = c;
-                cell.addEventListener('click', () => handleCellClick(r, c));
-                rowDiv.appendChild(cell);
-            }
-            gridDiv.appendChild(rowDiv);
-        }
-    }
-
-    function generateFieldForStage(stageIdx) {
-        field = [];
-        const cols = STAGES[stageIdx].cols;
-        const rows = STAGES[stageIdx].rows;
-        for (let r = 0; r < rows; r++) {
-            let rowArr = Array(cols).fill(false);
-            let minesPlaced = 0;
-            while(minesPlaced < bombsCount) {
-                let randCol = Math.floor(Math.random() * cols);
-                if (!rowArr[randCol]) {
-                    rowArr[randCol] = true;
-                    minesPlaced++;
+        // =============================================================
+        // 3. ОТПРАВКА РЕЗУЛЬТАТА НА СЕРВЕР
+        // =============================================================
+        function sendGameResult(result, bet, win) {
+            return new Promise((resolve, reject) => {
+                if (!userId) {
+                    reject(new Error('Нет userId'));
+                    return;
                 }
-            }
-            field.push(rowArr);
-        }
-    }
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000);
 
-    function updateRowVisuals() {
-        document.querySelectorAll('.stair-row').forEach(rowDiv => {
-            const r = parseInt(rowDiv.dataset.row);
-            rowDiv.classList.remove('active', 'passed');
-            if (r === localRow && gameActive) rowDiv.classList.add('active');
-            else if (r < localRow) rowDiv.classList.add('passed');
-        });
-        stageDisplay.innerText = `СТАДИЯ ${currentStageIndex + 1}/3`;
-    }
-
-    function handleCellClick(r, c) {
-        if (!gameActive || r !== localRow || isAnimating) return;
-        isAnimating = true;
-        
-        const cell = document.querySelector(`.cell[data-row='${r}'][data-col='${c}']`);
-        const cols = STAGES[currentStageIndex].cols;
-        
-        if (r > 0) {
-            document.querySelectorAll(`.cell[data-row='${r-1}']`).forEach(prevCell => {
-                if (prevCell.innerHTML.includes('🧗‍♂️') || prevCell.innerHTML.includes('🏃‍♂️')) {
-                    prevCell.innerHTML = '<span class="emoji">💎</span>';
-                }
+                fetch(`${API_BASE}/game_result`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    signal: controller.signal,
+                    body: JSON.stringify({
+                        userId: userId,
+                        game: 'stair',
+                        result: result,
+                        bet: bet,
+                        win: win
+                    })
+                })
+                .then(res => {
+                    clearTimeout(timeoutId);
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return res.json();
+                })
+                .then(data => {
+                    if (data.new_balance !== undefined) {
+                        resolve(data.new_balance);
+                    } else {
+                        reject(new Error('Ответ сервера не содержит new_balance'));
+                    }
+                })
+                .catch(err => {
+                    clearTimeout(timeoutId);
+                    reject(err);
+                });
             });
         }
 
-        cell.classList.add('opened');
-        cell.innerHTML = '<span class="ladder-anim">🪜</span>';
-        vibrate('light');
+        // =============================================================
+        // 4. ЛОКАЛЬНАЯ СТАТИСТИКА (для интерфейса)
+        // =============================================================
+        function updateProfileStats(result, bet, win) {
+            try {
+                let games = parseInt(localStorage.getItem('profile_games_played')) || 0;
+                let wins = parseInt(localStorage.getItem('profile_wins')) || 0;
+                let losses = parseInt(localStorage.getItem('profile_losses')) || 0;
+                let total_bet = parseInt(localStorage.getItem('profile_total_bet')) || 0;
+                let total_win = parseInt(localStorage.getItem('profile_total_win')) || 0;
 
-        setTimeout(() => {
-            if (field[r][c]) {
-                // ПОРАЖЕНИЕ
-                cell.classList.add('mine');
-                cell.innerHTML += '<span class="rock-anim emoji">🪨</span>';
-                vibrate('heavy');
-                soundCrash();
-                
-                statusDiv.innerHTML = `<span style="color:var(--accent-red)">💥 Камень сбил вас! -${currentBet}₽</span>`;
-                gameActive = false;
+                games += 1;
+                total_bet += bet;
 
-                for (let i = 0; i < cols; i++) {
-                    if (field[r][i] && i !== c) {
-                        const revealCell = document.querySelector(`.cell[data-row='${r}'][data-col='${i}']`);
-                        revealCell.innerHTML = '<span class="emoji" style="opacity:0.5">🪨</span>';
-                    }
+                if (result === 'win') {
+                    wins += 1;
+                    total_win += win;
+                } else if (result === 'lose') {
+                    losses += 1;
                 }
-                updateProfileStats('lose', currentBet, 0);
-                sendGameResult('lose', currentBet, 0);
-                endGameResetUI();
-                isAnimating = false;
-            } else {
-                // УСПЕХ
-                cell.classList.add('safe');
-                cell.innerHTML += '<span class="player-anim emoji">🧗‍♂️</span>';
-                vibrate('medium');
-                soundClimb();
-                
-                currentMultiplier = calculateMultiplier(globalRow, bombsCount);
-                localRow++;
-                globalRow++;
-                updateUI();
 
-                if (localRow >= STAGES[currentStageIndex].rows) {
-                    if (currentStageIndex < STAGES.length - 1) {
-                        statusDiv.innerHTML = `<span style="color:var(--accent-orange)">Бежим дальше! Загрузка стадии ${currentStageIndex + 2}...</span>`;
-                        soundRun();
-                        stageTransition.classList.add('running-transition');
-                        
-                        setTimeout(() => {
-                            stageTransition.classList.remove('running-transition');
-                            currentStageIndex++;
-                            localRow = 0;
-                            generateFieldForStage(currentStageIndex);
-                            buildGrid();
-                            updateRowVisuals();
-                            isAnimating = false;
-                            statusDiv.innerHTML = `<span style="color:var(--accent-blue)">🧗 Выберите безопасную ступень!</span>`;
-                        }, 1500);
+                localStorage.setItem('profile_games_played', String(games));
+                localStorage.setItem('profile_wins', String(wins));
+                localStorage.setItem('profile_losses', String(losses));
+                localStorage.setItem('profile_total_bet', String(total_bet));
+                localStorage.setItem('profile_total_win', String(total_win));
+            } catch (e) {}
+        }
 
-                    } else {
-                        // ПОБЕДА
-                        setTimeout(() => {
-                            cinematicRock.classList.add('falling-cinematic');
-                            setTimeout(() => cinematicRock.classList.remove('falling-cinematic'), 1100);
-                            autoCashout();
-                            isAnimating = false;
-                        }, 500);
-                    }
-                } else {
-                    updateRowVisuals();
-                    isAnimating = false;
+        // =============================================================
+        // 5. ЧАСТИЦЫ (CANVAS) – без изменений
+        // =============================================================
+        const canvas = document.getElementById('particles-canvas');
+        const ctx = canvas.getContext('2d');
+        let particles = [];
+        
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        class Particle {
+            constructor() { this.reset(); }
+            reset() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.size = Math.random() * 2 + 0.5;
+                this.speedX = Math.random() * 0.5 - 0.25;
+                this.speedY = Math.random() * -1 - 0.2;
+                this.alpha = Math.random() * 0.5 + 0.1;
+            }
+            update() {
+                this.x += this.speedX; this.y += this.speedY;
+                if (this.y < 0 || this.x < 0 || this.x > canvas.width) this.reset();
+            }
+            draw() {
+                ctx.fillStyle = `rgba(24, 130, 255, ${this.alpha})`;
+                ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fill();
+            }
+        }
+        for (let i = 0; i < 1000; i++) particles.push(new Particle());
+        
+        function animateParticles() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            particles.forEach(p => { p.update(); p.draw(); });
+            requestAnimationFrame(animateParticles);
+        }
+        animateParticles();
+
+        // =============================================================
+        // 6. ЗВУКИ И ВИБРАЦИЯ
+        // =============================================================
+        let audioCtx = null;
+        function initAudio() {
+            if (!audioCtx && window.AudioContext) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                document.body.addEventListener('touchstart', () => audioCtx?.resume(), { once: true });
+                document.body.addEventListener('click', () => audioCtx?.resume(), { once: true });
+            }
+        }
+        function playTone(freq, duration, vol = 0.08, type = 'sine') {
+            if (!audioCtx) return;
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = type; osc.frequency.value = freq;
+                gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+                osc.connect(gain); gain.connect(audioCtx.destination);
+                osc.start(); osc.stop(audioCtx.currentTime + duration);
+            } catch(e) {}
+        }
+        
+        function soundClimb() { 
+            playTone(700, 0.1, 0.05, 'sine'); 
+            setTimeout(() => playTone(900, 0.1, 0.05, 'sine'), 100); 
+        }
+        function soundRun() {
+            let t = 0;
+            let runInterval = setInterval(() => {
+                playTone(200 + Math.random()*100, 0.05, 0.05, 'square');
+                t++; if(t>15) clearInterval(runInterval);
+            }, 60);
+        }
+        function soundCrash() { playTone(150, 0.4, 0.15, 'sawtooth'); playTone(100, 0.5, 0.1, 'square'); }
+        function soundWin() { playTone(880, 0.15, 0.1); playTone(1100, 0.15, 0.1); playTone(1320, 0.2, 0.1); }
+        function soundError() { playTone(300, 0.3, 0.1, 'sawtooth'); }
+
+        function vibrate(style = 'light') {
+            if (!tg.HapticFeedback) return;
+            if (style === 'light') tg.HapticFeedback.impactOccurred('light');
+            else if (style === 'medium') tg.HapticFeedback.impactOccurred('medium');
+            else if (style === 'heavy') tg.HapticFeedback.impactOccurred('heavy');
+            else if (style === 'success') tg.HapticFeedback.notificationOccurred('success');
+            else if (style === 'error') tg.HapticFeedback.notificationOccurred('error');
+        }
+
+        // =============================================================
+        // 7. ЛОГИКА ИГРЫ
+        // =============================================================
+        const STAGES = [
+            { rows: 10, cols: 7 },
+            { rows: 10, cols: 6 },
+            { rows: 10, cols: 5 }
+        ];
+        
+        let bombsCount = 1;
+        let gameActive = false;
+        let currentBet = 1000;
+        
+        let currentStageIndex = 0;
+        let localRow = 0;
+        let globalRow = 0;
+        
+        let currentMultiplier = 1.0;
+        let field = [];
+        let isAnimating = false;
+
+        const betInput = document.getElementById('betAmount');
+        const startBtn = document.getElementById('startBtn');
+        const cashoutBtn = document.getElementById('cashoutBtn');
+        const multiplierSpan = document.getElementById('multiplierDisplay');
+        const currentWinSpan = document.getElementById('currentWinAmount');
+        const statusDiv = document.getElementById('statusMsg');
+        const gridDiv = document.getElementById('grid');
+        const cinematicRock = document.getElementById('cinematic-rock');
+        const stageTransition = document.getElementById('stage-transition');
+        const stageDisplay = document.getElementById('stageDisplay');
+
+        // =============================================================
+        // 8. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+        // =============================================================
+        function calculateMultiplier(targetGlobalRow, bombs) {
+            let mult = 1.0;
+            let gRow = 0;
+            for (let s = 0; s < STAGES.length; s++) {
+                for (let r = 0; r < STAGES[s].rows; r++) {
+                    if (gRow > targetGlobalRow) break;
+                    let cols = STAGES[s].cols;
+                    let winProb = (cols - bombs) / cols;
+                    mult *= (1 / winProb) * 0.96;
+                    gRow++;
                 }
             }
-        }, 200);
-    }
-
-    function updateUI() {
-        multiplierSpan.textContent = currentMultiplier.toFixed(2) + 'x';
-        const winAmount = Math.floor(currentBet * currentMultiplier);
-        currentWinSpan.textContent = winAmount;
-        
-        if (gameActive && globalRow > 0) {
-            statusDiv.innerHTML = `<span style="color:var(--accent-blue)">Отлично! Текущий выигрыш: ${winAmount}₽</span>`;
-        }
-    }
-
-    function autoCashout() {
-        if (!gameActive) return;
-        const winAmount = Math.floor(currentBet * currentMultiplier);
-        updateBalanceDisplay(casinoBalance + winAmount);
-        updateProfileStats('win', currentBet, winAmount);
-        sendGameResult('win', currentBet, winAmount);
-        
-        statusDiv.innerHTML = `<span style="color:var(--accent-green)">🏆 ПУТЬ ПРОЙДЕН ДО КОНЦА! Выигрыш ${winAmount}₽</span>`;
-        soundWin(); vibrate('success');
-        
-        gameActive = false;
-        endGameResetUI();
-    }
-
-    function cashout() {
-        if (!gameActive || globalRow === 0 || isAnimating) return;
-        const winAmount = Math.floor(currentBet * currentMultiplier);
-        updateBalanceDisplay(casinoBalance + winAmount);
-        updateProfileStats('win', currentBet, winAmount);
-        sendGameResult('win', currentBet, winAmount);
-        
-        statusDiv.innerHTML = `<span style="color:var(--accent-orange)">💰 ВЫ ЗАБРАЛИ ${winAmount}₽</span>`;
-        soundWin(); vibrate('success');
-        
-        gameActive = false;
-        endGameResetUI();
-    }
-
-    function endGameResetUI() {
-        startBtn.disabled = false;
-        cashoutBtn.disabled = true;
-        document.querySelectorAll('.mine-btn').forEach(btn => btn.style.pointerEvents = 'auto');
-        updateRowVisuals();
-    }
-
-    function startGame() {
-        let amount = parseInt(betInput.value);
-        if (isNaN(amount) || amount < 10) amount = 1000;
-        if (casinoBalance < amount) {
-            statusDiv.innerHTML = `<span style="color:var(--accent-red)">❌ Недостаточно средств! Баланс: ${casinoBalance}₽</span>`;
-            soundError(); vibrate('error'); return;
+            return mult;
         }
 
-        currentBet = amount;
-        betInput.value = currentBet;
-        updateBalanceDisplay(casinoBalance - currentBet);
+        function buildGrid() {
+            const transitionEl = document.getElementById('stage-transition');
+            gridDiv.innerHTML = '';
+            gridDiv.appendChild(transitionEl);
+            
+            const cols = STAGES[currentStageIndex].cols;
+            const rows = STAGES[currentStageIndex].rows;
+            
+            for (let r = 0; r < rows; r++) {
+                const rowDiv = document.createElement('div');
+                rowDiv.className = 'stair-row';
+                rowDiv.dataset.row = r;
+                for (let c = 0; c < cols; c++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.dataset.row = r;
+                    cell.dataset.col = c;
+                    cell.addEventListener('click', () => handleCellClick(r, c));
+                    rowDiv.appendChild(cell);
+                }
+                gridDiv.appendChild(rowDiv);
+            }
+        }
 
-        currentStageIndex = 0;
-        localRow = 0;
-        globalRow = 0;
-        currentMultiplier = 1.0;
-        gameActive = true;
-        isAnimating = false;
-        
-        generateFieldForStage(currentStageIndex);
-        buildGrid();
-        
-        startBtn.disabled = true;
-        cashoutBtn.disabled = false;
-        document.querySelectorAll('.mine-btn').forEach(btn => btn.style.pointerEvents = 'none');
-        
-        updateMultiplierTableUI();
-        updateRowVisuals();
-        
-        soundClimb(); vibrate('medium');
-        statusDiv.innerHTML = '<span style="color:var(--accent-blue)"><span style="display:inline-block; animation: climbUp 0.3s ease forwards;">🏃‍♂️</span> Старт!</span>';
-    }
+        function generateFieldForStage(stageIdx) {
+            field = [];
+            const cols = STAGES[stageIdx].cols;
+            const rows = STAGES[stageIdx].rows;
+            for (let r = 0; r < rows; r++) {
+                let rowArr = Array(cols).fill(false);
+                let minesPlaced = 0;
+                while(minesPlaced < bombsCount) {
+                    let randCol = Math.floor(Math.random() * cols);
+                    if (!rowArr[randCol]) {
+                        rowArr[randCol] = true;
+                        minesPlaced++;
+                    }
+                }
+                field.push(rowArr);
+            }
+        }
 
-    function updateMultiplierTableUI() {
-        currentMultiplier = 1.0;
-        multiplierSpan.textContent = '1.00x';
-        currentWinSpan.textContent = '0';
-        stageDisplay.innerText = `СТАДИЯ 1/3`;
-    }
+        function updateRowVisuals() {
+            document.querySelectorAll('.stair-row').forEach(rowDiv => {
+                const r = parseInt(rowDiv.dataset.row);
+                rowDiv.classList.remove('active', 'passed');
+                if (r === localRow && gameActive) rowDiv.classList.add('active');
+                else if (r < localRow) rowDiv.classList.add('passed');
+            });
+            stageDisplay.innerText = `СТАДИЯ ${currentStageIndex + 1}/3`;
+        }
 
-    // ===== ОБРАБОТЧИКИ =====
-    document.querySelectorAll('.mine-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            if (gameActive) return;
-            document.querySelectorAll('.mine-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            bombsCount = parseInt(btn.getAttribute('data-mines'));
-            vibrate('light'); soundClimb();
+        function updateUI() {
+            multiplierSpan.textContent = currentMultiplier.toFixed(2) + 'x';
+            const winAmount = Math.floor(currentBet * currentMultiplier);
+            currentWinSpan.textContent = winAmount;
+            
+            if (gameActive && globalRow > 0) {
+                statusDiv.innerHTML = `<span style="color:var(--accent-blue)">Отлично! Текущий выигрыш: ${winAmount}₽</span>`;
+            }
+        }
+
+        // =============================================================
+        // 9. ОБРАБОТКА КЛИКА ПО КЛЕТКЕ (с атомарным сохранением)
+        // =============================================================
+        function handleCellClick(r, c) {
+            if (!gameActive || r !== localRow || isAnimating) return;
+            isAnimating = true;
+            
+            const cell = document.querySelector(`.cell[data-row='${r}'][data-col='${c}']`);
+            const cols = STAGES[currentStageIndex].cols;
+            
+            if (r > 0) {
+                document.querySelectorAll(`.cell[data-row='${r-1}']`).forEach(prevCell => {
+                    if (prevCell.innerHTML.includes('🧗‍♂️') || prevCell.innerHTML.includes('🏃‍♂️')) {
+                        prevCell.innerHTML = '<span class="emoji">💎</span>';
+                    }
+                });
+            }
+
+            cell.classList.add('opened');
+            cell.innerHTML = '<span class="ladder-anim">🪜</span>';
+            vibrate('light');
+
+            setTimeout(() => {
+                if (field[r][c]) {
+                    // ПОРАЖЕНИЕ
+                    cell.classList.add('mine');
+                    cell.innerHTML += '<span class="rock-anim emoji">🪨</span>';
+                    vibrate('heavy');
+                    soundCrash();
+                    
+                    statusDiv.innerHTML = `<span style="color:var(--accent-red)">💥 Камень сбил вас! -${currentBet}₽</span>`;
+                    gameActive = false;
+
+                    for (let i = 0; i < cols; i++) {
+                        if (field[r][i] && i !== c) {
+                            const revealCell = document.querySelector(`.cell[data-row='${r}'][data-col='${i}']`);
+                            revealCell.innerHTML = '<span class="emoji" style="opacity:0.5">🪨</span>';
+                        }
+                    }
+
+                    // Обновляем статистику и отправляем результат на сервер
+                    updateProfileStats('lose', currentBet, 0);
+                    // Отправляем результат и обновляем баланс из ответа
+                    sendGameResult('lose', currentBet, 0)
+                        .then(newBalance => {
+                            casinoBalance = Number(newBalance);
+                            updateBalanceUI();
+                            console.log('✅ Результат проигрыша отправлен, новый баланс:', casinoBalance);
+                        })
+                        .catch(err => {
+                            console.error('❌ Ошибка отправки результата:', err);
+                            // При ошибке перезагружаем баланс
+                            loadBalanceFromServer();
+                            statusDiv.innerHTML = '<span style="color:var(--accent-orange)">⚠️ Ошибка синхронизации. Баланс обновлён.</span>';
+                        });
+
+                    endGameResetUI();
+                    isAnimating = false;
+                } else {
+                    // УСПЕХ
+                    cell.classList.add('safe');
+                    cell.innerHTML += '<span class="player-anim emoji">🧗‍♂️</span>';
+                    vibrate('medium');
+                    soundClimb();
+                    
+                    currentMultiplier = calculateMultiplier(globalRow, bombsCount);
+                    localRow++;
+                    globalRow++;
+                    updateUI();
+
+                    if (localRow >= STAGES[currentStageIndex].rows) {
+                        if (currentStageIndex < STAGES.length - 1) {
+                            statusDiv.innerHTML = `<span style="color:var(--accent-orange)">Бежим дальше! Загрузка стадии ${currentStageIndex + 2}...</span>`;
+                            soundRun();
+                            stageTransition.classList.add('running-transition');
+                            
+                            setTimeout(() => {
+                                stageTransition.classList.remove('running-transition');
+                                currentStageIndex++;
+                                localRow = 0;
+                                generateFieldForStage(currentStageIndex);
+                                buildGrid();
+                                updateRowVisuals();
+                                isAnimating = false;
+                                statusDiv.innerHTML = `<span style="color:var(--accent-blue)">🧗 Выберите безопасную ступень!</span>`;
+                            }, 1500);
+
+                        } else {
+                            // ПОБЕДА (все стадии пройдены)
+                            setTimeout(() => {
+                                cinematicRock.classList.add('falling-cinematic');
+                                setTimeout(() => cinematicRock.classList.remove('falling-cinematic'), 1100);
+                                autoCashout();
+                                isAnimating = false;
+                            }, 500);
+                        }
+                    } else {
+                        updateRowVisuals();
+                        isAnimating = false;
+                    }
+                }
+            }, 200);
+        }
+
+        // =============================================================
+        // 10. ЗАВЕРШЕНИЕ ИГРЫ (выигрыш / кэшаут)
+        // =============================================================
+        async function autoCashout() {
+            if (!gameActive) return;
+            const winAmount = Math.floor(currentBet * currentMultiplier);
+            // Отправляем результат на сервер и обновляем баланс
+            try {
+                const newBalance = await sendGameResult('win', currentBet, winAmount);
+                casinoBalance = Number(newBalance);
+                updateBalanceUI();
+                updateProfileStats('win', currentBet, winAmount);
+                statusDiv.innerHTML = `<span style="color:var(--accent-green)">🏆 ПУТЬ ПРОЙДЕН ДО КОНЦА! Выигрыш ${winAmount}₽</span>`;
+                soundWin(); vibrate('success');
+            } catch (err) {
+                console.error('❌ Ошибка отправки результата (autoCashout):', err);
+                loadBalanceFromServer();
+                statusDiv.innerHTML = '<span style="color:var(--accent-orange)">⚠️ Ошибка синхронизации. Баланс обновлён.</span>';
+                // Если ошибка, всё равно показываем выигрыш локально, но баланс будет перезагружен
+                casinoBalance += winAmount;
+                updateBalanceUI();
+                updateProfileStats('win', currentBet, winAmount);
+                soundWin(); vibrate('success');
+            }
+            gameActive = false;
+            endGameResetUI();
+        }
+
+        async function cashout() {
+            if (!gameActive || globalRow === 0 || isAnimating) return;
+            const winAmount = Math.floor(currentBet * currentMultiplier);
+            try {
+                const newBalance = await sendGameResult('win', currentBet, winAmount);
+                casinoBalance = Number(newBalance);
+                updateBalanceUI();
+                updateProfileStats('win', currentBet, winAmount);
+                statusDiv.innerHTML = `<span style="color:var(--accent-orange)">💰 ВЫ ЗАБРАЛИ ${winAmount}₽</span>`;
+                soundWin(); vibrate('success');
+            } catch (err) {
+                console.error('❌ Ошибка отправки результата (cashout):', err);
+                loadBalanceFromServer();
+                // Если ошибка, добавляем выигрыш локально и перезагружаем
+                casinoBalance += winAmount;
+                updateBalanceUI();
+                updateProfileStats('win', currentBet, winAmount);
+                statusDiv.innerHTML = `<span style="color:var(--accent-orange)">💰 ВЫ ЗАБРАЛИ ${winAmount}₽ (синхронизация отложена)</span>`;
+                soundWin(); vibrate('success');
+            }
+            gameActive = false;
+            endGameResetUI();
+        }
+
+        function endGameResetUI() {
+            startBtn.disabled = false;
+            cashoutBtn.disabled = true;
+            document.querySelectorAll('.mine-btn').forEach(btn => btn.style.pointerEvents = 'auto');
+            updateRowVisuals();
+        }
+
+        // =============================================================
+        // 11. СТАРТ ИГРЫ
+        // =============================================================
+        function startGame() {
+            let amount = parseInt(betInput.value);
+            if (isNaN(amount) || amount < 10) amount = 1000;
+            if (casinoBalance < amount) {
+                statusDiv.innerHTML = `<span style="color:var(--accent-red)">❌ Недостаточно средств! Баланс: ${casinoBalance}₽</span>`;
+                soundError(); vibrate('error'); return;
+            }
+
+            currentBet = amount;
+            betInput.value = currentBet;
+
+            // Локально списываем ставку (сервер подтвердит позже)
+            casinoBalance -= currentBet;
+            updateBalanceUI();
+
+            currentStageIndex = 0;
+            localRow = 0;
+            globalRow = 0;
+            currentMultiplier = 1.0;
+            gameActive = true;
+            isAnimating = false;
+            
+            generateFieldForStage(currentStageIndex);
+            buildGrid();
+            
+            startBtn.disabled = true;
+            cashoutBtn.disabled = false;
+            document.querySelectorAll('.mine-btn').forEach(btn => btn.style.pointerEvents = 'none');
+            
             updateMultiplierTableUI();
+            updateRowVisuals();
+            
+            soundClimb(); vibrate('medium');
+            statusDiv.innerHTML = '<span style="color:var(--accent-blue)"><span style="display:inline-block; animation: climbUp 0.3s ease forwards;">🏃‍♂️</span> Старт!</span>';
+        }
+
+        function updateMultiplierTableUI() {
+            currentMultiplier = 1.0;
+            multiplierSpan.textContent = '1.00x';
+            currentWinSpan.textContent = '0';
+            stageDisplay.innerText = `СТАДИЯ 1/3`;
+        }
+
+        // =============================================================
+        // 12. ОБРАБОТЧИКИ
+        // =============================================================
+        document.querySelectorAll('.mine-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (gameActive) return;
+                document.querySelectorAll('.mine-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                bombsCount = parseInt(btn.getAttribute('data-mines'));
+                vibrate('light'); soundClimb();
+                updateMultiplierTableUI();
+            });
         });
-    });
 
-    startBtn.addEventListener('click', startGame);
-    cashoutBtn.addEventListener('click', cashout);
+        startBtn.addEventListener('click', startGame);
+        cashoutBtn.addEventListener('click', cashout);
 
-    // ===== КНОПКА "В МЕНЮ ИГР" (передаём только userId) =====
-    document.getElementById('menuBtn').onclick = () => {
-        window.location.href = 'casino.html?userId=' + (userId || '');
-    };
+        document.getElementById('menuBtn').onclick = () => {
+            window.location.href = 'casino.html?userId=' + (userId || '');
+        };
 
-    // ===== ИНИЦИАЛИЗАЦИЯ =====
-    document.addEventListener('DOMContentLoaded', () => {
-        loadBalance();
-        initAudio();
-        buildGrid();
-    });
+        // =============================================================
+        // 13. ИНИЦИАЛИЗАЦИЯ
+        // =============================================================
+        document.addEventListener('DOMContentLoaded', () => {
+            initAudio();
+            loadBalanceFromServer();
+            buildGrid();
+        });
 
-    window.addEventListener('focus', loadBalance);
+        // Обновляем баланс при возврате на страницу
+        window.addEventListener('focus', loadBalanceFromServer);
 
-    console.log('✅ stair.html: баланс загружается через /profile с API_BASE');
+        console.log('✅ stair.html: синхронизация баланса с сервером');
+    })();
 </script>
 </body>
 </html>
