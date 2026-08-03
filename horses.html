@@ -115,9 +115,8 @@
 
         /* ===== ТРЕК — РАСТЯНУТЫЙ ===== */
         .race-wrapper {
-            flex: 1 1 auto;          /* изменено: было 0 0 auto */
+            flex: 1 1 auto;
             width: 100%;
-            /* удалены height и aspect-ratio */
             position: relative;
             border-radius: 16px;
             overflow: hidden;
@@ -243,7 +242,7 @@
 
         /* ===== НИЖНЯЯ ПАНЕЛЬ ===== */
         .bottom-panel {
-            flex: 0 0 auto;          /* изменено: было flex: 1 */
+            flex: 0 0 auto;
             padding: 6px 0 4px;
             display: flex;
             flex-direction: column;
@@ -419,13 +418,13 @@
             text-shadow: 0 0 30px rgba(61, 220, 132, 0.15);
         }
 
-        /* ---- КНОПКИ (исправлены отступы и шрифт) ---- */
+        /* ---- КНОПКИ ---- */
         .btn {
             border: none;
             border-radius: 22px;
-            padding: 0 12px;          /* было 30px */
+            padding: 0 12px;
             font-weight: 800;
-            font-size: 18px;          /* было 22px */
+            font-size: 18px;
             text-transform: uppercase;
             cursor: pointer;
             transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
@@ -723,14 +722,7 @@
             .horse-btn .thumb { width: 44px; height: 44px; }
             .horse-btn .hname { font-size: 11px; }
             .bet-input { width: 90px; font-size: 18px; height: 48px; }
-            /* исправленные кнопки */
-            .btn {
-                font-size: 15px;          /* было 18px */
-                height: 48px;
-                padding: 0 10px;          /* было 0 20px */
-                min-width: 70px;
-                border-radius: 18px;
-            }
+            .btn { font-size: 15px; height: 48px; padding: 0 10px; min-width: 70px; border-radius: 18px; }
             .btn-start { font-size: 20px; min-width: 70px; }
             .result-card { padding: 20px 18px 18px; }
             .result-card .emoji-big { font-size: 44px; }
@@ -859,7 +851,7 @@
             'use strict';
 
             // =============================================================
-            // 1. TELEGRAM
+            // 1. TELEGRAM и API
             // =============================================================
             const tg = window.Telegram.WebApp;
             if (tg) { tg.expand();
@@ -867,16 +859,89 @@
             const urlParams = new URLSearchParams(window.location.search);
             const userId = urlParams.get('userId') || (tg?.initDataUnsafe?.user?.id) || '';
 
+            const API_BASE = 'https://resellgame.bothost.tech';
+
             // =============================================================
             // 2. БАЛАНС
             // =============================================================
-            let balance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+            let balance = 0;
             const balanceDisplay = document.getElementById('balanceDisplay');
 
-            function updateBalanceDisplay() {
+            function updateBalanceUI() {
                 balanceDisplay.innerText = balance.toLocaleString() + ' ₽';
+                localStorage.setItem('casinoBalance', String(balance));
             }
-            updateBalanceDisplay();
+
+            // ---- ЗАГРУЗКА С СЕРВЕРА ----
+            function loadBalanceFromServer() {
+                if (!userId) {
+                    balance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+                    updateBalanceUI();
+                    return;
+                }
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+                fetch(`${API_BASE}/profile/${encodeURIComponent(userId)}`, { signal: controller.signal })
+                    .then(res => {
+                        clearTimeout(timeoutId);
+                        if (!res.ok) throw new Error('HTTP ' + res.status);
+                        return res.json();
+                    })
+                    .then(data => {
+                        const bal = Number(data.casino_balance ?? data.balance ?? 0);
+                        balance = bal;
+                        updateBalanceUI();
+                        console.log('✅ Баланс загружен с сервера:', balance);
+                    })
+                    .catch(err => {
+                        clearTimeout(timeoutId);
+                        console.error('❌ Ошибка загрузки баланса:', err);
+                        balance = parseInt(localStorage.getItem('casinoBalance')) || 0;
+                        updateBalanceUI();
+                    });
+            }
+
+            // ---- ОТПРАВКА РЕЗУЛЬТАТА ----
+            function sendGameResult(result, bet, win) {
+                return new Promise((resolve, reject) => {
+                    if (!userId) {
+                        reject(new Error('Нет userId'));
+                        return;
+                    }
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+                    fetch(`${API_BASE}/game_result`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            signal: controller.signal,
+                            body: JSON.stringify({
+                                userId: userId,
+                                game: 'horses',
+                                result: result,
+                                bet: bet,
+                                win: win
+                            })
+                        })
+                        .then(res => {
+                            clearTimeout(timeoutId);
+                            if (!res.ok) throw new Error('HTTP ' + res.status);
+                            return res.json();
+                        })
+                        .then(data => {
+                            if (data.new_balance !== undefined) {
+                                resolve(data.new_balance);
+                            } else {
+                                reject(new Error('Ответ сервера не содержит new_balance'));
+                            }
+                        })
+                        .catch(err => {
+                            clearTimeout(timeoutId);
+                            reject(err);
+                        });
+                });
+            }
 
             // =============================================================
             // 3. КОНФИГ ЛОШАДЕЙ
@@ -1082,7 +1147,7 @@
             }
 
             // =============================================================
-            // 10. РЕНДЕРИНГ — с исправленным кругом выделения
+            // 10. РЕНДЕРИНГ
             // =============================================================
             function render() {
                 const dpr = window.devicePixelRatio || 1;
@@ -1091,7 +1156,7 @@
 
                 ctx.clearRect(0, 0, w, h);
 
-                // ---- ФОН (трек) – простое растягивание ----
+                // ---- ФОН (трек) ----
                 if (trackImage && trackImage.complete && trackImage.naturalWidth > 0) {
                     ctx.drawImage(trackImage, 0, 0, w, h);
                 } else {
@@ -1139,7 +1204,7 @@
                     ctx.fill();
                 }
 
-                // ---- ПОДСВЕТКА ЛИДЕРА (во время забега) ----
+                // ---- ПОДСВЕТКА ЛИДЕРА ----
                 if (isRaceRunning) {
                     let maxProgress = -1;
                     let leaderIdx = -1;
@@ -1197,7 +1262,7 @@
                         ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
                         ctx.restore();
 
-                        // ---- ВЫДЕЛЕНИЕ ВЫБРАННОЙ ЛОШАДИ (исправлено) ----
+                        // ---- ВЫДЕЛЕНИЕ ВЫБРАННОЙ ЛОШАДИ ----
                         if (selectedHorseId === i && !isRaceRunning && !raceFinished) {
                             ctx.shadowBlur = 30;
                             ctx.shadowColor = 'rgba(255,213,74,0.3)';
@@ -1205,7 +1270,6 @@
                             ctx.lineWidth = 2;
                             ctx.setLineDash([4, 6]);
                             ctx.beginPath();
-                            // Исправлено: центр круга привязан к визуальному центру картинки
                             ctx.ellipse(px + drawW / 2, py + drawH / 2, size * 0.9, size * 0.6, 0, 0, Math.PI * 2);
                             ctx.stroke();
                             ctx.setLineDash([]);
@@ -1246,7 +1310,7 @@
 
                 drawDust(w, h);
 
-                // ---- СТАТУС (плашка с текстом) ----
+                // ---- СТАТУС (плашка) ----
                 if (isRaceRunning) {
                     const text = '🏇 ЗАБЕГ ИДЁТ...';
                     ctx.font = `bold ${Math.min(w, h) * 0.04}px Nunito, sans-serif`;
@@ -1373,7 +1437,7 @@
                     statusMsg.textContent = '🏇 Забег идёт...';
                     statusMsg.className = 'status-bar race';
                 } else if (raceFinished) {
-                    // в модалке
+                    // in modal
                 } else if (hasSelection && !hasBet) {
                     statusMsg.textContent = `Выбрана ${HORSES[selectedHorseId].name}. Сделайте ставку.`;
                     statusMsg.className = 'status-bar';
@@ -1493,7 +1557,7 @@
             buildHorseButtons();
 
             // =============================================================
-            // 17. СТАВКА
+            // 17. СТАВКА (локальное списание)
             // =============================================================
             function placeBet() {
                 if (isRaceRunning || raceFinished) {
@@ -1518,9 +1582,9 @@
                     return;
                 }
 
+                // Локальное списание (для UI)
                 balance -= bet;
-                localStorage.setItem('casinoBalance', String(balance));
-                updateBalanceDisplay();
+                updateBalanceUI();
 
                 betAmount = bet;
                 hasBet = true;
@@ -1673,9 +1737,9 @@
             }
 
             // =============================================================
-            // 21. РЕЗУЛЬТАТ
+            // 21. РЕЗУЛЬТАТ (с отправкой на сервер)
             // =============================================================
-            function showResult() {
+            async function showResult() {
                 const horse = HORSES[winnerId];
                 const isWin = (selectedHorseId === winnerId);
 
@@ -1685,9 +1749,17 @@
                     const multiplier = parseFloat(horseOdds[winnerId]) || 1.5;
                     const winAmount = Math.floor(betAmount * multiplier);
 
-                    balance += winAmount;
-                    localStorage.setItem('casinoBalance', String(balance));
-                    updateBalanceDisplay();
+                    // Отправляем результат на сервер
+                    try {
+                        const newBalance = await sendGameResult('win', betAmount, winAmount);
+                        balance = Number(newBalance);
+                        updateBalanceUI();
+                    } catch (err) {
+                        console.error('Ошибка отправки результата на сервер:', err);
+                        // Если ошибка, оставляем локальный баланс (уже списали ставку)
+                        // Пытаемся перезагрузить баланс
+                        loadBalanceFromServer();
+                    }
 
                     winTextArea.innerHTML = '';
                     const titleEl = document.createElement('div');
@@ -1746,6 +1818,16 @@
                     statusMsg.className = 'status-bar win';
 
                 } else {
+                    // Проигрыш
+                    try {
+                        const newBalance = await sendGameResult('lose', betAmount, 0);
+                        balance = Number(newBalance);
+                        updateBalanceUI();
+                    } catch (err) {
+                        console.error('Ошибка отправки результата на сервер:', err);
+                        loadBalanceFromServer();
+                    }
+
                     rEmoji.textContent = '❌';
                     rName.textContent = `Победил ${horse.name}`;
                     rAmount.textContent = `-${betAmount.toLocaleString()} ₽`;
@@ -1768,7 +1850,7 @@
                 winOverlay.classList.remove('show');
                 resultOverlay.classList.remove('show');
                 resetGame();
-                updateBalanceDisplay();
+                updateBalanceUI();
                 betBtn.disabled = false;
                 startBtn.disabled = true;
                 statusMsg.textContent = 'Выберите лошадь и сделайте ставку';
@@ -1836,10 +1918,13 @@
                 console.log('🐎 Скачки загружены (с ошибками), баланс:', balance);
             });
 
+            // Загружаем баланс с сервера
+            loadBalanceFromServer();
+
             window.addEventListener('storage', (e) => {
                 if (e.key === 'casinoBalance') {
                     balance = parseInt(e.newValue) || 0;
-                    updateBalanceDisplay();
+                    updateBalanceUI();
                     updateUI();
                 }
             });
