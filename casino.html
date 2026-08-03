@@ -634,43 +634,37 @@
         // ===== ЭЛЕМЕНТЫ =====
         const balanceSpan = document.getElementById('balanceDisplay');
 
-        // ===== МГНОВЕННО ПОКАЗЫВАЕМ СОХРАНЁННЫЙ БАЛАНС (ЕСЛИ ЕСТЬ) =====
-        const savedBalance = parseInt(localStorage.getItem('casinoBalance'));
-        if (!isNaN(savedBalance) && savedBalance > 0) {
-            balanceSpan.innerText = savedBalance.toLocaleString() + ' ₽';
-        } else {
-            balanceSpan.innerText = 'Загрузка...';
-        }
-
-        // ===== ЗАГРУЗКА БАЛАНСА С СЕРВЕРА (С ТАЙМАУТОМ) =====
+        // ===== ЗАГРУЗКА БАЛАНСА (БЕЗ LOCALSTORAGE, ТОЛЬКО СЕРВЕР) =====
         async function loadBalance() {
             if (!userId) {
-                balanceSpan.innerText = '0 ₽';
+                balanceSpan.innerText = 'Ошибка: нет ID';
                 return;
             }
+            // Всегда показываем "Загрузка..." перед запросом
+            balanceSpan.innerText = 'Загрузка...';
+
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 8000);
+
             try {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 5000);
                 const resp = await fetch(`${API_BASE}/profile/${userId}`, { signal: controller.signal });
                 clearTimeout(timeoutId);
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const data = await resp.json();
-                console.log('✅ Баланс загружен:', data);
+                console.log('✅ Баланс загружен с сервера:', data);
                 if (data.casino_balance !== undefined) {
                     const newBalance = data.casino_balance;
+                    // Сохраняем в localStorage для других страниц (но НЕ для отображения)
                     localStorage.setItem('casinoBalance', String(newBalance));
                     balanceSpan.innerText = newBalance.toLocaleString() + ' ₽';
                 } else {
                     balanceSpan.innerText = '0 ₽';
                 }
             } catch (e) {
-                console.warn('⚠️ Не удалось загрузить баланс с сервера:', e);
-                // Если запрос упал, но в localStorage уже есть значение, оно уже отображается
-                // Если его нет, покажем 0
-                if (!balanceSpan.innerText || balanceSpan.innerText === 'Загрузка...') {
-                    const saved = parseInt(localStorage.getItem('casinoBalance')) || 0;
-                    balanceSpan.innerText = saved.toLocaleString() + ' ₽';
-                }
+                clearTimeout(timeoutId);
+                console.error('❌ Ошибка загрузки баланса:', e);
+                // Если ошибка – показываем сообщение, а не подменяем из localStorage
+                balanceSpan.innerText = 'Ошибка загрузки';
             }
         }
 
@@ -772,7 +766,7 @@
             });
         });
 
-        console.log('✅ casino.html обновлён: мгновенный баланс из localStorage, таймаут 5с');
+        console.log('✅ casino.html: баланс загружается только с сервера, таймаут 8с');
     </script>
 </body>
 </html>
