@@ -207,7 +207,7 @@
             border: 2px solid rgba(255, 215, 0, 0.15); pointer-events: none;
         }
 
-        .table-center { display: flex; flex-direction: column; align-items: center; gap: 4px; z-index: 10; margin-top: -10px; }
+        .table-center { display: flex; flex-direction: column; align-items: center; gap: 4px; z-index: 10; margin-top: 15px; }
         .pot-badge {
             background: rgba(10, 15, 22, 0.92); border: 1px solid var(--accent-gold); padding: 3px 14px;
             border-radius: 18px; color: var(--accent-gold); font-weight: 900; font-size: 14px;
@@ -238,7 +238,7 @@
             color: rgba(255,255,255,0.25); box-shadow: inset 0 0 8px rgba(0,0,0,0.4);
         }
 
-        /* 3D ПОЗИЦИИ БОТОВ (Защита от наложения элементов) */
+        /* 3D ПОЗИЦИИ БОТОВ (Четко разнесены, без наложений на карты) */
         .seat {
             position: absolute; display: flex; flex-direction: column; align-items: center;
             transform: translate(-50%, -50%); z-index: 20; pointer-events: none; transition: all 0.3s;
@@ -382,22 +382,22 @@
             <div class="lobby-title">Техасский Холдем</div>
             
             <div class="lobby-card">
-                <span class="section-label">Выберите бай-ин (Ставка за стол)</span>
+                <span class="section-label">Выберите бай-ин (до 750 000 ₽)</span>
                 <div class="bet-input-wrapper">
-                    <input type="text" id="betInput" value="1 000">
+                    <input type="text" id="betInput" value="10 000">
                 </div>
                 <div class="quick-chips">
-                    <button class="chip-btn" data-amount="100">100</button>
-                    <button class="chip-btn" data-amount="500">500</button>
                     <button class="chip-btn" data-amount="1000">1K</button>
-                    <button class="chip-btn" data-amount="5000">5K</button>
                     <button class="chip-btn" data-amount="10000">10K</button>
+                    <button class="chip-btn" data-amount="50000">50K</button>
+                    <button class="chip-btn" data-amount="100000">100K</button>
+                    <button class="chip-btn" data-amount="500000">500K</button>
                     <button class="chip-btn max" data-amount="MAX">MAX</button>
                 </div>
             </div>
 
             <div class="lobby-card">
-                <span class="section-label">Соперники (Боты)</span>
+                <span class="section-label">Количество соперников</span>
                 <div class="bot-select-grid" id="botSelect">
                     <button class="bot-btn" data-count="2">2</button>
                     <button class="bot-btn active" data-count="3">3</button>
@@ -426,7 +426,7 @@
             <div class="action-panel">
                 <div class="status-bar" id="statusMsg">Сделайте ход</div>
                 <div class="raise-slider-box" id="raiseControl">
-                    <input type="range" id="raiseRange" min="0" max="1000" value="0" step="10">
+                    <input type="range" id="raiseRange" min="0" max="1000" value="0" step="100">
                     <span class="raise-val" id="raiseAmountDisplay">0</span>
                 </div>
                 <div class="action-grid">
@@ -496,7 +496,7 @@
             const modalBtnPrimary = document.getElementById('modalBtnPrimary');
 
             let casinoBalance = 0;
-            let initialBuyIn = 1000;
+            let initialBuyIn = 10000;
             let botCount = 3;
             
             // AUDIO & HAPTIC
@@ -554,13 +554,13 @@
                 } catch (e) { console.warn("Failed to sync game result", e); }
             }
 
-            // ADVANCED DEEP-STACK POKER ENGINE
+            // ADVANCED DEEP-STACK POKER ENGINE (Долгая, тактическая и динамичная игра)
             const STAGES = ['preflop', 'flop', 'turn', 'river', 'showdown'];
             let game = {
                 active: false, stageIdx: 0, pot: 0, deck: [],
                 communityCards: [], players: [], dealerIdx: 0, turnIdx: 0,
                 currentBet: 0, minRaise: 0, log: [], lastAggressor: -1,
-                blinds: { small: 25, big: 50 }
+                blinds: { small: 500, big: 1000 }
             };
 
             const BOT_CONFIGS = [
@@ -596,9 +596,9 @@
                 game.active = true; game.stageIdx = 0; game.pot = 0; game.currentBet = 0;
                 game.communityCards = []; game.log = []; game.deck = createDeck();
                 
-                // Глубокий стек для долгой и динамичной игры (100 больших блайндов)
-                let startingStack = Math.max(buyIn * 5, 20000);
-                game.blinds = { small: 100, big: 200 };
+                // Глубокий стек для крупных ставок (до 750k)
+                let startingStack = Math.max(buyIn * 10, 200000);
+                game.blinds = { small: Math.max(250, Math.floor(buyIn * 0.02)), big: Math.max(500, Math.floor(buyIn * 0.04)) };
                 game.minRaise = game.blinds.big;
                 
                 let ps = [];
@@ -629,7 +629,7 @@
                 game.lastAggressor = bbIdx;
                 game.turnIdx = (bbIdx + 1) % ps.length;
                 
-                addLog('♠️ Глубокий стек активирован. Приятной игры!');
+                addLog('♠️ Высокие ставки активированы. Играем глубоко!');
                 updateUI();
                 processTurn();
             }
@@ -652,8 +652,8 @@
 
             function evaluateHandStrength(cards, commCards) {
                 let val = Math.max(cards[0].value, cards[1].value);
-                if (cards[0].rank === cards[1].rank) val += 22;
-                if (cards[0].suit === cards[1].suit) val += 5;
+                if (cards[0].rank === cards[1].rank) val += 24;
+                if (cards[0].suit === cards[1].suit) val += 6;
                 
                 if (commCards.length > 0) {
                     let pairs = 0;
@@ -662,8 +662,8 @@
                             if (cards[i].rank === commCards[j].rank) pairs++;
                         }
                     }
-                    if (pairs === 1) val += 30;
-                    if (pairs >= 2) val += 60;
+                    if (pairs === 1) val += 32;
+                    if (pairs >= 2) val += 65;
                 }
                 return val;
             }
@@ -700,23 +700,23 @@
                 updateUI();
                 statusMsg.textContent = `Бот ${cp.name} размышляет...`; statusMsg.className = 'status-bar';
                 
-                await new Promise(r => setTimeout(r, 1300 + Math.random()*900));
+                await new Promise(r => setTimeout(r, 1400 + Math.random()*1000));
 
                 let callAmount = game.currentBet - cp.currentBet;
                 let strength = evaluateHandStrength(cp.cards, game.communityCards);
                 let rand = Math.random();
 
-                // Сбалансированный ИИ ботов (играют осмотрительно, не сливают фишки сразу)
+                // Тактический ИИ: боты берегут стек, торгуются до ривера, блефуют реже
                 if (callAmount === 0) {
-                    if (strength > 38 && rand > 0.45) {
+                    if (strength > 40 && rand > 0.4) {
                         let r = Math.min(cp.stack, game.minRaise * 2);
                         placeBet(game.turnIdx, r, 'RAISE'); addLog(`${cp.name} рейз ${formatNumber(r)} ₽`);
                     } else {
                         placeBet(game.turnIdx, 0, 'CHECK'); addLog(`${cp.name} чек`);
                     }
                 } else {
-                    if (strength > 24 || (callAmount <= game.blinds.big * 3 && rand > 0.25) || rand > 0.85) {
-                        if (strength > 55 && rand > 0.4 && cp.stack > callAmount * 2) {
+                    if (strength > 26 || (callAmount <= game.blinds.big * 4 && rand > 0.3) || rand > 0.9) {
+                        if (strength > 58 && rand > 0.45 && cp.stack > callAmount * 2) {
                             let r = Math.min(cp.stack, callAmount + game.minRaise * 2);
                             placeBet(game.turnIdx, r, 'RAISE'); addLog(`${cp.name} рейз до ${formatNumber(r)} ₽`);
                         } else {
@@ -875,10 +875,10 @@
                 }
                 communityCards.innerHTML = cHTML;
 
-                // ДИНАМИЧЕСКИЕ И БЕЗОПАСНЫЕ ПОЗИЦИИ БОТОВ (Без наложений)
+                // БЕЗОПАСНЫЕ И РАЗНЕСЕННЫЕ ПОЗИЦИИ БОТОВ (Исключающие наложения на общие карты)
                 seatsContainer.innerHTML = '';
                 const totalBots = botCount;
-                let avatarSize = totalBots === 2 ? 64 : totalBots === 3 ? 56 : totalBots === 4 ? 48 : 42;
+                let avatarSize = totalBots === 2 ? 60 : totalBots === 3 ? 54 : totalBots === 4 ? 46 : 42;
 
                 for (let i=1; i<=totalBots; i++) {
                     let bot = game.players[i];
@@ -886,11 +886,11 @@
                     let div = document.createElement('div');
                     div.className = 'seat';
                     
-                    let left=50, top=16;
-                    if (totalBots === 2) { left = i===1?28:72; top=22; }
-                    else if (totalBots === 3) { if(i===1){left=18; top=32;} if(i===2){left=50; top=14;} if(i===3){left=82; top=32;} }
-                    else if (totalBots === 4) { if(i===1){left=15; top=42;} if(i===2){left=32; top=16;} if(i===3){left=68; top=16;} if(i===4){left=85; top=42;} }
-                    else if (totalBots >= 5) { if(i===1){left=12;top=50;} if(i===2){left=24;top=18;} if(i===3){left=50;top=12;} if(i===4){left=76;top=18;} if(i===5){left=88;top=50;} }
+                    let left=50, top=14;
+                    if (totalBots === 2) { left = i===1?28:72; top=20; }
+                    else if (totalBots === 3) { if(i===1){left=16; top=30;} if(i===2){left=50; top=12;} if(i===3){left=84; top=30;} }
+                    else if (totalBots === 4) { if(i===1){left=14; top=40;} if(i===2){left=30; top=14;} if(i===3){left=70; top=14;} if(i===4){left=86; top=40;} }
+                    else if (totalBots >= 5) { if(i===1){left=10;top=48;} if(i===2){left=22;top=16;} if(i===3){left=50;top=10;} if(i===4){left=78;top=16;} if(i===5){left=90;top=48;} }
                     
                     div.style.left = `${left}%`; div.style.top = `${top}%`;
                     if (game.turnIdx === i && game.active && !bot.folded) div.classList.add('active-turn');
@@ -972,7 +972,9 @@
             document.querySelectorAll('.chip-btn').forEach(b => {
                 b.addEventListener('click', function() {
                     initAudio(); soundClick(); vibrate('light');
-                    betInput.value = formatNumber(this.dataset.amount === 'MAX' ? casinoBalance : this.dataset.amount);
+                    let amt = this.dataset.amount === 'MAX' ? casinoBalance : parseInt(this.dataset.amount);
+                    if (amt > 750000) amt = 750000;
+                    betInput.value = formatNumber(amt);
                 });
             });
 
@@ -984,7 +986,12 @@
                 });
             });
 
-            betInput.addEventListener('input', function() { this.value = formatNumber(parseNumber(this.value)); });
+            betInput.addEventListener('input', function() { 
+                let num = parseNumber(this.value);
+                if (num > 750000) num = 750000;
+                this.value = formatNumber(num); 
+            });
+
             logToggle.addEventListener('click', () => { initAudio(); soundClick(); logPanel.classList.toggle('open'); });
 
             async function exitToMenu() {
