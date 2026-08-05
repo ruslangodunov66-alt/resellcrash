@@ -238,7 +238,7 @@
             color: rgba(255,255,255,0.25); box-shadow: inset 0 0 8px rgba(0,0,0,0.4);
         }
 
-        /* 3D ПОЗИЦИИ БОТОВ (Крупные аватары с круглой обрезкой) */
+        /* 3D ПОЗИЦИИ БОТОВ */
         .seat {
             position: absolute; display: flex; flex-direction: column; align-items: center;
             transform: translate(-50%, -50%); z-index: 20; pointer-events: none; transition: all 0.3s;
@@ -266,7 +266,6 @@
         .seat-name { font-size: 9px; font-weight: 800; color: var(--text-main); white-space: nowrap; }
         .seat-stack { font-size: 9px; font-weight: 900; color: var(--accent-green); }
 
-        /* Понятная фишка с иконкой чипа 🎰 */
         .seat-chip-bet {
             position: absolute; bottom: -16px; background: rgba(0, 0, 0, 0.92); border: 1px solid var(--accent-gold);
             border-radius: 12px; padding: 1px 6px; font-size: 8px; font-weight: 900; color: var(--accent-gold);
@@ -283,7 +282,6 @@
         .seat-status.raise { background: var(--accent-orange); color: #fff; }
         .seat-status.allin { background: var(--accent-green); color: #000; }
 
-        /* Значок дилера вынесен аккуратно на золотом бейдже */
         .dealer-badge-wrap {
             position: absolute; top: 0; right: 0; width: 18px; height: 18px;
             background: radial-gradient(circle at 30% 30%, #ffffff, #ffd700);
@@ -306,7 +304,7 @@
             padding: 2px 8px; border-radius: 8px; white-space: nowrap; z-index: 26; box-shadow: 0 2px 10px rgba(0,0,0,0.6);
         }
 
-        /* ACTION PANEL (Улучшенные, понятные и удобные кнопки) */
+        /* ACTION PANEL */
         .action-panel { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; flex-shrink: 0; z-index: 30; }
         .status-bar { text-align: center; font-size: 12px; font-weight: 800; color: var(--text-muted); min-height: 18px; }
         .status-bar.win { color: var(--accent-green); text-shadow: 0 0 10px rgba(27, 209, 93, 0.4); }
@@ -404,7 +402,6 @@
         <!-- TABLE AREA -->
         <div class="table-area" id="tableArea">
             <div class="poker-table" id="pokerTable">
-                <div class="table-watermark">R-POKER</div>
                 <div class="table-center">
                     <div class="stage-badge" id="stageLabel">ПРЕФЛОП</div>
                     <div class="community-cards" id="communityCards"></div>
@@ -547,7 +544,7 @@
                 } catch (e) { console.warn("Failed to sync game result", e); }
             }
 
-            // POKER ENGINE
+            // ADVANCED POKER ENGINE WITH SMART BOTS
             const STAGES = ['preflop', 'flop', 'turn', 'river', 'showdown'];
             let game = {
                 active: false, stageIdx: 0, pot: 0, deck: [],
@@ -566,7 +563,7 @@
 
             function addLog(msg) {
                 game.log.push(msg);
-                if (game.log.length > 20) game.log.shift();
+                if (game.log.length > 25) game.log.shift();
                 logPanel.innerHTML = game.log.map(e => `<div class="log-entry">${e}</div>`).join('');
                 logPanel.scrollTop = logPanel.scrollHeight;
             }
@@ -588,13 +585,15 @@
             function initGame(botsCount, buyIn) {
                 game.active = true; game.stageIdx = 0; game.pot = 0; game.currentBet = 0;
                 game.communityCards = []; game.log = []; game.deck = createDeck();
-                game.blinds = { small: Math.max(10, Math.floor(buyIn * 0.01)), big: Math.max(20, Math.floor(buyIn * 0.02)) };
+                // Глубокий стек для долгой и интересной игры (стандартный стэк 100 больших блайндов)
+                let startingStack = Math.max(buyIn, 10000);
+                game.blinds = { small: 50, big: 100 };
                 game.minRaise = game.blinds.big;
                 
                 let ps = [];
                 ps.push({
                     id: 'hero', name: 'Вы', avatar: '', isBot: false,
-                    stack: buyIn, currentBet: 0, totalInvested: 0, folded: false, allIn: false,
+                    stack: startingStack, currentBet: 0, totalInvested: 0, folded: false, allIn: false,
                     cards: [game.deck.pop(), game.deck.pop()], status: ''
                 });
 
@@ -602,7 +601,7 @@
                 for(let i=0; i<botsCount; i++) {
                     ps.push({
                         id: `bot_${i}`, name: shuffledBots[i].name, avatar: shuffledBots[i].avatar, isBot: true,
-                        stack: buyIn, currentBet: 0, totalInvested: 0, folded: false, allIn: false,
+                        stack: startingStack, currentBet: 0, totalInvested: 0, folded: false, allIn: false,
                         cards: [game.deck.pop(), game.deck.pop()], status: ''
                     });
                 }
@@ -612,14 +611,14 @@
                 let sbIdx = (game.dealerIdx + 1) % ps.length;
                 let bbIdx = (game.dealerIdx + 2) % ps.length;
                 
-                placeBet(sbIdx, game.blinds.small, 'Blind');
-                placeBet(bbIdx, game.blinds.big, 'Blind');
+                placeBet(sbIdx, game.blinds.small, 'BLIND');
+                placeBet(bbIdx, game.blinds.big, 'BLIND');
                 
                 game.currentBet = game.blinds.big;
                 game.lastAggressor = bbIdx;
                 game.turnIdx = (bbIdx + 1) % ps.length;
                 
-                addLog('♠️ Раздача началась! Удачи.');
+                addLog('♠️ Раздача началась! Стол глубоких стеков.');
                 updateUI();
                 processTurn();
             }
@@ -642,8 +641,8 @@
 
             function evaluateHandStrength(cards, commCards) {
                 let val = Math.max(cards[0].value, cards[1].value);
-                if (cards[0].rank === cards[1].rank) val += 18;
-                if (cards[0].suit === cards[1].suit) val += 4;
+                if (cards[0].rank === cards[1].rank) val += 20;
+                if (cards[0].suit === cards[1].suit) val += 6;
                 
                 if (commCards.length > 0) {
                     let pairs = 0;
@@ -652,8 +651,8 @@
                             if (cards[i].rank === commCards[j].rank) pairs++;
                         }
                     }
-                    if (pairs === 1) val += 22;
-                    if (pairs >= 2) val += 45;
+                    if (pairs === 1) val += 25;
+                    if (pairs >= 2) val += 50;
                 }
                 return val;
             }
@@ -688,31 +687,32 @@
                 }
 
                 updateUI();
-                statusMsg.textContent = `Бот ${cp.name} думает...`; statusMsg.className = 'status-bar';
+                statusMsg.textContent = `Бот ${cp.name} размышляет...`; statusMsg.className = 'status-bar';
                 
-                await new Promise(r => setTimeout(r, 1100 + Math.random()*800));
+                await new Promise(r => setTimeout(r, 1400 + Math.random()*1000));
 
                 let callAmount = game.currentBet - cp.currentBet;
                 let strength = evaluateHandStrength(cp.cards, game.communityCards);
                 let rand = Math.random();
 
+                // Умный ИИ ботов: они играют тайтово-агрессивно, не сливают фишки мгновенно
                 if (callAmount === 0) {
-                    if (strength > 32 && rand > 0.5) {
+                    if (strength > 35 && rand > 0.4) {
                         let r = Math.min(cp.stack, game.minRaise * 2);
-                        placeBet(game.turnIdx, r, 'RAISE'); addLog(`${cp.name} повысил до ${formatNumber(r)}`);
+                        placeBet(game.turnIdx, r, 'RAISE'); addLog(`${cp.name} сделал рейз ${formatNumber(r)} ₽`);
                     } else {
-                        placeBet(game.turnIdx, 0, 'CHECK'); addLog(`${cp.name} чекнул`);
+                        placeBet(game.turnIdx, 0, 'CHECK'); addLog(`${cp.name} сыграл чек`);
                     }
                 } else {
-                    if (strength > 16 || rand > 0.82) {
-                        if (strength > 48 && rand > 0.4) {
+                    if (strength > 20 || (callAmount <= game.blinds.big * 2 && rand > 0.3) || rand > 0.88) {
+                        if (strength > 50 && rand > 0.4 && cp.stack > callAmount * 2) {
                             let r = Math.min(cp.stack, callAmount + game.minRaise * 2);
-                            placeBet(game.turnIdx, r, 'RAISE'); addLog(`${cp.name} рейз ${formatNumber(r)}`);
+                            placeBet(game.turnIdx, r, 'RAISE'); addLog(`${cp.name} повысил до ${formatNumber(r)} ₽`);
                         } else {
-                            placeBet(game.turnIdx, callAmount, 'CALL'); addLog(`${cp.name} колл ${formatNumber(callAmount)}`);
+                            placeBet(game.turnIdx, callAmount, 'CALL'); addLog(`${cp.name} заколлировал ${formatNumber(callAmount)} ₽`);
                         }
                     } else {
-                        cp.folded = true; cp.status = 'FOLD'; addLog(`${cp.name} сбросил (фолд)`);
+                        cp.folded = true; cp.status = 'FOLD'; addLog(`${cp.name} сбросил карты (фолд)`);
                     }
                 }
 
@@ -740,15 +740,15 @@
                 game.currentBet = 0; game.lastAggressor = -1;
                 
                 game.stageIdx++;
-                if (game.stageIdx === 1) { soundDeal(); game.communityCards.push(game.deck.pop(), game.deck.pop(), game.deck.pop()); addLog('Флоп открыт'); }
-                else if (game.stageIdx === 2) { soundDeal(); game.communityCards.push(game.deck.pop()); addLog('Тёрн открыт'); }
-                else if (game.stageIdx === 3) { soundDeal(); game.communityCards.push(game.deck.pop()); addLog('Ривер открыт'); }
+                if (game.stageIdx === 1) { soundDeal(); game.communityCards.push(game.deck.pop(), game.deck.pop(), game.deck.pop()); addLog('--- ФЛОП ОТКРЫТ ---'); }
+                else if (game.stageIdx === 2) { soundDeal(); game.communityCards.push(game.deck.pop()); addLog('--- ТЁРН ОТКРЫТ ---'); }
+                else if (game.stageIdx === 3) { soundDeal(); game.communityCards.push(game.deck.pop()); addLog('--- РИВЕР ОТКРЫТ ---'); }
                 else { handleShowdown(); return; }
 
                 game.turnIdx = (game.dealerIdx + 1) % game.players.length;
                 let active = game.players.filter(p => !p.folded && !p.allIn);
                 
-                if (active.length <= 1) { setTimeout(nextStage, 800); }
+                if (active.length <= 1) { setTimeout(nextStage, 900); }
                 else { updateUI(); processTurn(); }
             }
 
@@ -792,7 +792,7 @@
                 nonFolded.forEach(p => {
                     let r = getHandRank([...p.cards, ...game.communityCards]);
                     p.finalHandName = r.name;
-                    addLog(`${p.name}: ${r.name}`);
+                    addLog(`${p.name} открывает карты: ${r.name}`);
                     if (r.score > bestScore) { bestScore = r.score; winners = [p]; }
                     else if (r.score === bestScore) { winners.push(p); }
                 });
@@ -813,13 +813,13 @@
                     statusMsg.textContent = `🎉 ВЫ ВЫИГРАЛИ ${formatNumber(winAmount)} ₽!`;
                     statusMsg.className = 'status-bar win';
                     sendResultSync('win', initialBuyIn, winAmount);
-                    setTimeout(() => ModalController.show('ПОБЕДА!', `Вы сорвали банк: <span style="color:var(--accent-green);">${formatNumber(winAmount)} ₽</span>`, true), 1400);
+                    setTimeout(() => ModalController.show('ПОБЕДА!', `Вы сорвали банк: <span style="color:var(--accent-green);">${formatNumber(winAmount)} ₽</span>`, true), 1500);
                 } else {
                     soundLose(); vibrate('error');
                     statusMsg.textContent = `❌ Победил: ${winner.name} (${winner.finalHandName})`;
                     statusMsg.className = 'status-bar lose';
                     sendResultSync('lose', initialBuyIn, 0);
-                    setTimeout(() => ModalController.show('ПРОИГРЫШ', `Банк забрал ${winner.name}.<br>В следующий раз повезёт!`, false), 1800);
+                    setTimeout(() => ModalController.show('ПРОИГРЫШ', `Банк забрал ${winner.name}.<br>Удачи в следующий раз!`, false), 1800);
                 }
             }
 
@@ -829,14 +829,14 @@
                 if (type === 'fold') {
                     hero.folded = true; hero.status = 'FOLD'; addLog('Вы сбросили карты');
                 } else if (type === 'check') {
-                    placeBet(0, 0, 'CHECK'); addLog('Вы чекнули');
+                    placeBet(0, 0, 'CHECK'); addLog('Вы сыграли чек');
                 } else if (type === 'call') {
                     let callAmt = game.currentBet - hero.currentBet;
-                    placeBet(0, callAmt, 'CALL'); addLog(`Колл ${formatNumber(callAmt)}`);
+                    placeBet(0, callAmt, 'CALL'); addLog(`Вы заколлировали ${formatNumber(callAmt)} ₽`);
                 } else if (type === 'raise' || type === 'allin') {
                     let raiseAmt = (type === 'allin') ? hero.stack : amount;
                     placeBet(0, raiseAmt, type==='allin' ? 'ALLIN' : 'RAISE'); 
-                    addLog(`Вы ${type==='allin' ? 'пошли All-In' : 'рейз до '+formatNumber(raiseAmt)}`);
+                    addLog(`Вы ${type==='allin' ? 'пошли All-In' : 'подняли до '+formatNumber(raiseAmt)+' ₽'}`);
                 }
                 checkNextTurn();
             }
