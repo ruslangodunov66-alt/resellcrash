@@ -328,6 +328,40 @@
         }
         @keyframes spin { to { transform: translate(-50%, -50%) rotate(360deg); } }
 
+        /* Стиль для бонуса скина (добавлен) */
+        .skin-bonus {
+            background: linear-gradient(135deg, #2a1a3a, #4a2a5a);
+            border: 2px solid #e74c3c;
+            border-radius: 16px;
+            padding: 12px 16px;
+            margin: 12px 0;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            box-shadow: 0 0 30px rgba(231, 76, 60, 0.5);
+            text-align: left;
+            width: 100%;
+            max-width: 320px;
+        }
+        .skin-bonus img {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            border: 2px solid #e74c3c;
+            background: #222;
+            object-fit: cover;
+            flex-shrink: 0;
+        }
+        .skin-bonus .info .name {
+            color: #e74c3c;
+            font-weight: 900;
+            font-size: 18px;
+            text-shadow: 0 0 10px rgba(231, 76, 60, 0.6);
+        }
+        .skin-bonus .info .desc {
+            color: #ccc;
+            font-size: 13px;
+        }
     </style>
 </head>
 <body>
@@ -490,7 +524,22 @@
         return { ...CASE_ITEMS[4], value: 1000, name: '💰 1 000 ₽', displayName: '💰 ДЕНЬГИ', type: 'money' }; // Фолбэк
     }
 
-    // AUDIO & VIBRATION
+    // ============================================================
+    // ИСПРАВЛЕННАЯ ФУНКЦИЯ ВИБРАЦИИ
+    // ============================================================
+    function vibrate(style = 'light') {
+        if (!window.Telegram?.WebApp?.HapticFeedback) return;
+        const haptic = window.Telegram.WebApp.HapticFeedback;
+        // Для уведомлений используем notificationOccurred
+        if (style === 'success' || style === 'error' || style === 'warning') {
+            try { haptic.notificationOccurred(style); } catch(e) {}
+        } else {
+            // impactOccurred принимает: 'light', 'medium', 'heavy', 'rigid', 'soft'
+            try { haptic.impactOccurred(style); } catch(e) {}
+        }
+    }
+
+    // AUDIO (без изменений)
     let audioCtx = null;
     function initAudio() { if (!audioCtx && window.AudioContext) { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } }
     function playTone(freq, dur, vol = 0.08, type = 'sine') {
@@ -502,7 +551,6 @@
             osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + dur);
         } catch(e) {}
     }
-    function vibrate(style='light') { if(window.Telegram?.WebApp?.HapticFeedback) window.Telegram.WebApp.HapticFeedback.impactOccurred(style); }
     
     const sfx = {
         spin: () => { initAudio(); playTone(400, 0.05, 0.05, 'triangle'); },
@@ -647,7 +695,7 @@
         }, durationSec * 1000);
     }
 
-    // ИСКРЫ СКОРОСТИ
+    // ИСКРЫ СКОРОСТИ (замедление синхронизировано с лентой через общий таймер)
     function startSlotSparks(canvas) {
         canvas.style.opacity = '1';
         const ctx = canvas.getContext('2d');
@@ -670,14 +718,27 @@
         draw();
     }
 
-    // ПОКАЗ ВЫИГРЫША
+    // ПОКАЗ ВЫИГРЫША (с обработкой скина)
     function showResult(winItem) {
         const resDisplay = document.getElementById('resultDisplay');
+        let extraHtml = '';
+        if (winItem.type === 'skin' || winItem.type === 'car') {
+            extraHtml = `
+                <div class="skin-bonus">
+                    <img src="${winItem.image}" alt="${winItem.name}" onerror="this.style.display='none'">
+                    <div class="info">
+                        <div class="name">${winItem.name}</div>
+                        <div class="desc">${winItem.type === 'skin' ? 'Мифический скин' : 'Эксклюзивный автомобиль'} выдан!</div>
+                    </div>
+                </div>
+            `;
+        }
         resDisplay.innerHTML = `
             <div class="result-item" style="color: ${winItem.rarityColor}">
                 <div class="result-item-img-wrap"><img src="${winItem.image}" alt=""></div>
                 <div class="result-name">${winItem.name}</div>
                 <div class="result-rarity">${winItem.rarity}</div>
+                ${extraHtml}
                 <button class="btn-claim" id="claimRewardBtn">ЗАБРАТЬ В ИНВЕНТАРЬ</button>
             </div>
         `;
