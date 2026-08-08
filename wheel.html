@@ -623,17 +623,22 @@
 
     const API_BASE = 'https://resellgame.bothost.tech';
 
-    // ДАННЫЕ КЕЙСА
+    // ============================================================
+    //  ИЗМЕНЕНИЕ 1: В CASE_ITEMS добавлено поле type
+    // ============================================================
     const CASE_ITEMS = [
-        { id: 'skin_henri', name: 'Анри Жерар', rarity: 'мифическая', rarityColor: '#e74c3c', image: 'case/photo_2026-07-20_19-21-45.jpg', value: 0 },
-        { id: 'brabus', name: 'Гелик Мансури', rarity: 'мифическая', rarityColor: '#e74c3c', image: 'case/photo_2026-07-20_19-22-03.jpg', value: 0 },
-        { id: 'money_legend', name: 'Деньги (легенд.)', rarity: 'легендарная', rarityColor: '#f39c12', image: 'case/photo_2026-07-20_19-22-10.jpg', value: 0 },
-        { id: 'money_rare', name: 'Деньги (редкие)', rarity: 'редкая', rarityColor: '#2980b9', image: 'case/photo_2026-07-20_19-22-14.jpg', value: 0 },
-        { id: 'money_common', name: 'Деньги (обычные)', rarity: 'обычная', rarityColor: '#95a5a6', image: 'case/photo_2026-07-20_19-22-17.jpg', value: 0 }
+        { id: 'henri', name: 'Анри Жерар', rarity: 'мифическая', rarityColor: '#e74c3c', image: 'case/photo_2026-07-20_19-21-45.jpg', value: 0, type: 'skin' },
+        { id: 'brabus', name: 'Гелик Мансури', rarity: 'мифическая', rarityColor: '#e74c3c', image: 'case/photo_2026-07-20_19-22-03.jpg', value: 0, type: 'car' },
+        { id: 'money_legend', name: 'Деньги (легенд.)', rarity: 'легендарная', rarityColor: '#f39c12', image: 'case/photo_2026-07-20_19-22-10.jpg', value: 0, type: 'money' },
+        { id: 'money_rare', name: 'Деньги (редкие)', rarity: 'редкая', rarityColor: '#2980b9', image: 'case/photo_2026-07-20_19-22-14.jpg', value: 0, type: 'money' },
+        { id: 'money_common', name: 'Деньги (обычные)', rarity: 'обычная', rarityColor: '#95a5a6', image: 'case/photo_2026-07-20_19-22-17.jpg', value: 0, type: 'money' }
     ];
 
+    // ============================================================
+    //  ИЗМЕНЕНИЕ 2: обновлены вероятности с новыми id
+    // ============================================================
     const itemProbabilities = {
-        'skin_henri': 0.005,
+        'henri': 0.005,
         'brabus': 0.005,
         'money_legend': 0.04,
         'money_rare': 0.15,
@@ -774,7 +779,7 @@
     }
 
     // ============================================================
-    // ВЫИГРЫШ В КЕЙСЕ
+    // ВЫИГРЫШ В КЕЙСЕ (деньги)
     // ============================================================
     async function claimCaseWin(winAmount) {
         const currentUserId = new URLSearchParams(window.location.search).get('userId');
@@ -789,6 +794,23 @@
         }, 15000);
         if (!data.success) {
             throw new Error(data.error || 'Не удалось получить выигрыш');
+        }
+        return data;
+    }
+
+    // ============================================================
+    //  ИЗМЕНЕНИЕ 3: НОВАЯ ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ СКИНА/МАШИНЫ
+    // ============================================================
+    async function claimReward(type, id) {
+        const currentUserId = new URLSearchParams(window.location.search).get('userId');
+        if (!currentUserId) throw new Error('Нет userId');
+        const data = await apiFetch(`${API_BASE}/claim-reward`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: currentUserId, type: type, id: id })
+        }, 15000);
+        if (!data.success) {
+            throw new Error(data.error || 'Не удалось получить награду');
         }
         return data;
     }
@@ -810,17 +832,21 @@
                 if (item.id === 'money_legend') {
                     result.value = getRandomInt(250000, 750000);
                     result.name = `💰 ${result.value.toLocaleString()} ₽`;
-                    result.displayName = '💰 Деньги'; // для трека
+                    result.displayName = '💰 Деньги';
+                    result.type = 'money';
                 } else if (item.id === 'money_rare') {
                     result.value = getRandomInt(25000, 250000);
                     result.name = `💰 ${result.value.toLocaleString()} ₽`;
                     result.displayName = '💰 Деньги';
+                    result.type = 'money';
                 } else if (item.id === 'money_common') {
                     result.value = getRandomInt(100, 25000);
                     result.name = `💰 ${result.value.toLocaleString()} ₽`;
                     result.displayName = '💰 Деньги';
+                    result.type = 'money';
                 } else {
-                    result.displayName = result.name; // для скинов имя без изменений
+                    result.displayName = result.name;
+                    // type уже есть из item
                 }
                 return result;
             }
@@ -829,6 +855,7 @@
         fallback.value = getRandomInt(100, 25000);
         fallback.name = `💰 ${fallback.value.toLocaleString()} ₽`;
         fallback.displayName = '💰 Деньги';
+        fallback.type = 'money';
         return fallback;
     }
 
@@ -1126,8 +1153,13 @@
         const claimBtn = document.createElement('button');
         claimBtn.className = 'btn-claim';
         claimBtn.textContent = 'ЗАБРАТЬ';
+
+        // ============================================================
+        //  ИЗМЕНЕНИЕ 4: ОБРАБОТКА КНОПКИ «ЗАБРАТЬ» С УЧЁТОМ ТИПА
+        // ============================================================
         claimBtn.addEventListener('click', async () => {
-            if (winItem.value && winItem.value > 0) {
+            if (winItem.type === 'money') {
+                // Деньги
                 try {
                     const result = await claimCaseWin(winItem.value);
                     if (result.new_casino_balance !== undefined) {
@@ -1145,10 +1177,22 @@
                     alert('❌ Ошибка получения выигрыша: ' + e.message);
                     return;
                 }
+            } else if (winItem.type === 'skin' || winItem.type === 'car') {
+                // Скин или машина
+                try {
+                    await claimReward(winItem.type, winItem.id);
+                    // Обновляем баланс (на всякий случай)
+                    await loadBalance();
+                    soundWin();
+                } catch (e) {
+                    alert('❌ Ошибка получения награды: ' + e.message);
+                    return;
+                }
             } else {
                 soundLose();
             }
 
+            // Добавляем в историю
             history.unshift({
                 name: winItem.name,
                 rarity: winItem.rarity,
@@ -1160,6 +1204,7 @@
             localStorage.setItem('case_history', JSON.stringify(history));
             renderHistoryVertical();
 
+            // Закрываем оверлей
             overlay.classList.remove('active');
             isOpening = false;
             animContainer.innerHTML = '';
