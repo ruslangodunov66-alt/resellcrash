@@ -328,7 +328,7 @@
         }
         @keyframes spin { to { transform: translate(-50%, -50%) rotate(360deg); } }
 
-        /* Стиль для бонуса скина (добавлен) */
+        /* Стиль для бонуса скина */
         .skin-bonus {
             background: linear-gradient(135deg, #2a1a3a, #4a2a5a);
             border: 2px solid #e74c3c;
@@ -530,16 +530,14 @@
     function vibrate(style = 'light') {
         if (!window.Telegram?.WebApp?.HapticFeedback) return;
         const haptic = window.Telegram.WebApp.HapticFeedback;
-        // Для уведомлений используем notificationOccurred
         if (style === 'success' || style === 'error' || style === 'warning') {
             try { haptic.notificationOccurred(style); } catch(e) {}
         } else {
-            // impactOccurred принимает: 'light', 'medium', 'heavy', 'rigid', 'soft'
             try { haptic.impactOccurred(style); } catch(e) {}
         }
     }
 
-    // AUDIO (без изменений)
+    // АУДИО (с дополнительными звуками)
     let audioCtx = null;
     function initAudio() { if (!audioCtx && window.AudioContext) { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } }
     function playTone(freq, dur, vol = 0.08, type = 'sine') {
@@ -552,6 +550,11 @@
         } catch(e) {}
     }
     
+    // Звук "щелчок" при прохождении границы
+    function soundTick() { initAudio(); playTone(700, 0.03, 0.06, 'sine'); }
+    // Звук "стук" при фиксации выигрыша
+    function soundHit() { initAudio(); playTone(200, 0.12, 0.15, 'square'); setTimeout(()=>playTone(150, 0.1, 0.1, 'square'), 80); }
+
     const sfx = {
         spin: () => { initAudio(); playTone(400, 0.05, 0.05, 'triangle'); },
         stop: () => { initAudio(); playTone(800, 0.1, 0.1, 'sine'); },
@@ -598,7 +601,7 @@
         }, 800);
     });
 
-    // РУЛЕТКА
+    // РУЛЕТКА (с синхронизацией частиц и звуков)
     let spinSparkAnimFrame;
     function startSlotMachine(winItem) {
         animContainer.innerHTML = `
@@ -616,20 +619,14 @@
         const winPos = 60;
 
         // ЛОГИКА АЗАРТА: Байт (Лега/Мифик рядом) срабатывает не каждый раз!
-        // Шанс байта ~35%. В остальных случаях вокруг генерируется обычный дроп.
         const doBait = Math.random() < 0.35; 
         const baitPool = CASE_ITEMS.filter(i => i.rarity === 'мифическая' || i.rarity === 'легендарная');
 
         for (let i = 0; i < totalItems; i++) {
             if (i === winPos) { trackItems.push({ ...winItem }); continue; }
-            
-            // Если включен байт и позиция рядом с выигрышем (±1)
             if (doBait && (i === winPos - 1 || i === winPos + 1) && baitPool.length > 0) {
-                // Ставим крутую шмотку с вероятностью 50% только с одной стороны, чтоб не было перебора
                 if(Math.random() > 0.5) { trackItems.push({...baitPool[Math.floor(Math.random()*baitPool.length)]}); continue; }
             }
-
-            // Обычная генерация (в основном мусор)
             const r = Math.random(); let cum = 0; let chosen = CASE_ITEMS[0];
             for (const item of CASE_ITEMS) {
                 cum += itemProbabilities[item.id] || 0;
@@ -650,72 +647,126 @@
             slotTrack.appendChild(div);
         });
 
-        // Расчет прокрутки
         const itemWidth = 160;
         const containerWidth = document.getElementById('slotContainer').offsetWidth;
         const centerOffset = (containerWidth / 2) - (itemWidth / 2);
         let targetPx = (winPos * itemWidth) - centerOffset;
 
-        // Сдвиг внутри выигрышного слота
         let randomShift;
         if (doBait) {
-            // Если был байт, останавливаемся ОЧЕНЬ близко к краю (эффект "чуть не докатилось")
             const dir = Math.random() > 0.5 ? 1 : -1;
             randomShift = dir * (itemWidth * 0.4); 
         } else {
-            // Иначе останавливаемся ближе к центру
             randomShift = (Math.random() - 0.5) * (itemWidth * 0.5);
         }
         targetPx += randomShift;
         
-        // Старт анимации
         const durationSec = 6.5 + Math.random();
+        const durationMs = durationSec * 1000;
+        const startTime = performance.now();
+
         slotTrack.style.transition = `transform ${durationSec}s cubic-bezier(0.1, 0.9, 0.2, 1)`;
         slotTrack.style.transform = `translateX(-${targetPx}px)`;
 
-        // Частицы скорости
-        startSlotSparks(slotCanvas);
-
-        // Звуки тиков (имитация)
-        let ticks = 0;
-        let tickInterval = setInterval(() => { ticks++; if(ticks < 40) sfx.spin(); else clearInterval(tickInterval); }, 150);
-
-        setTimeout(() => {
-            clearInterval(tickInterval);
-            slotCanvas.style.opacity = '0'; // гасим искры
-            cancelAnimationFrame(spinSparkAnimFrame);
-            sfx.stop(); vibrate('medium');
-            
-            // Микро-отскок в конце
-            const finalPx = targetPx - (randomShift > 0 ? 5 : -5);
-            slotTrack.style.transition = `transform 0.4s cubic-bezier(0.2, 0.9, 0.4, 1.2)`;
-            slotTrack.style.transform = `translateX(-${finalPx}px)`;
-            
-            setTimeout(() => showResult(winItem), 600);
-        }, durationSec * 1000);
-    }
-
-    // ИСКРЫ СКОРОСТИ (замедление синхронизировано с лентой через общий таймер)
-    function startSlotSparks(canvas) {
-        canvas.style.opacity = '1';
-        const ctx = canvas.getContext('2d');
-        canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight;
+        // Запускаем искры (частицы)
         let lines = [];
-        for(let i=0; i<30; i++) {
-            lines.push({ x: Math.random()*canvas.width, y: Math.random()*canvas.height, len: 20+Math.random()*80, speed: 15+Math.random()*20, alpha: Math.random() });
+        function initSparks() {
+            const ctx = slotCanvas.getContext('2d');
+            slotCanvas.width = slotCanvas.offsetWidth;
+            slotCanvas.height = slotCanvas.offsetHeight;
+            lines = [];
+            for(let i=0; i<30; i++) {
+                lines.push({
+                    x: Math.random() * slotCanvas.width,
+                    y: Math.random() * slotCanvas.height,
+                    len: 20 + Math.random() * 80,
+                    speed: 15 + Math.random() * 20,
+                    alpha: Math.random()
+                });
+            }
+            return ctx;
         }
-        function draw() {
-            ctx.clearRect(0,0, canvas.width, canvas.height);
-            ctx.fillStyle = '#1882ff';
+        const ctx = initSparks();
+        slotCanvas.style.opacity = '1';
+
+        // Переменные для отслеживания индекса указателя
+        let prevIndex = -1;
+        let hitSoundPlayed = false; // чтобы не дублировать финальный стук
+
+        function updateSlot() {
+            const now = performance.now();
+            const elapsed = now - startTime;
+            const progress = Math.min(elapsed / durationMs, 1);
+            
+            // Читаем текущее смещение из CSS
+            const style = getComputedStyle(slotTrack);
+            const transform = style.transform;
+            let currentPx = 0;
+            if (transform && transform !== 'none') {
+                const matrix = transform.match(/matrix.*\((.+)\)/);
+                if (matrix) {
+                    const values = matrix[1].split(/, /).map(Number);
+                    currentPx = values[4] || 0; // translateX
+                }
+            }
+            // currentPx отрицательное, так как сдвиг влево
+            const absPx = Math.abs(currentPx);
+            // Позиция указателя относительно ленты: указатель на 50% ширины контейнера
+            const pointerPos = containerWidth / 2;
+            // Индекс элемента под указателем
+            const index = Math.floor((absPx + pointerPos - centerOffset) / itemWidth);
+            const clampedIndex = Math.min(index, totalItems - 1);
+            
+            // Проверяем, изменился ли индекс (переход через границу)
+            if (clampedIndex !== prevIndex && clampedIndex >= 0 && clampedIndex < totalItems) {
+                prevIndex = clampedIndex;
+                // Звук щелчка, если анимация ещё не закончилась
+                if (progress < 1) {
+                    soundTick();
+                    vibrate('light');
+                }
+            }
+
+            // Обновляем частицы: скорость замедляется пропорционально оставшемуся времени
+            // Используем прогресс для плавного замедления (от 1 до 0.05)
+            const speedFactor = 1 - progress * 0.95;
+            // Также уменьшаем длину линий для эффекта затухания
+            ctx.clearRect(0, 0, slotCanvas.width, slotCanvas.height);
             lines.forEach(l => {
-                ctx.globalAlpha = l.alpha;
-                ctx.fillRect(l.x, l.y, l.len, 2);
-                l.x -= l.speed;
-                if(l.x < -l.len) { l.x = canvas.width; l.y = Math.random()*canvas.height; }
+                ctx.globalAlpha = l.alpha * (1 - progress * 0.7);
+                const currentLen = l.len * (0.5 + 0.5 * (1 - progress));
+                ctx.fillStyle = '#1882ff';
+                ctx.fillRect(l.x, l.y, currentLen, 2);
+                l.x -= l.speed * speedFactor;
+                if (l.x < -currentLen) {
+                    l.x = slotCanvas.width;
+                    l.y = Math.random() * slotCanvas.height;
+                }
             });
-            spinSparkAnimFrame = requestAnimationFrame(draw);
+
+            // Если анимация завершена (progress >= 1) – запускаем финал
+            if (progress >= 1) {
+                // Финальный стук и вибрация (один раз)
+                if (!hitSoundPlayed) {
+                    hitSoundPlayed = true;
+                    soundHit();
+                    vibrate('heavy');
+                }
+                slotCanvas.style.opacity = '0';
+                cancelAnimationFrame(spinSparkAnimFrame);
+                // Показываем результат через небольшую задержку
+                setTimeout(() => showResult(winItem), 400);
+                return;
+            }
+
+            spinSparkAnimFrame = requestAnimationFrame(updateSlot);
         }
-        draw();
+
+        // Стартуем цикл обновления
+        updateSlot();
+
+        // Звуки тиков (имитация) – больше не нужны, т.к. теперь звук привязан к переходу через границу
+        // Удаляем старый setInterval
     }
 
     // ПОКАЗ ВЫИГРЫША (с обработкой скина)
