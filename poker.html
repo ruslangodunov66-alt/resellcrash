@@ -90,18 +90,20 @@
 
         .header-controls { display: flex; align-items: center; gap: 6px; }
 
-        .music-toggle-btn {
+        .icon-btn {
             background: var(--panel-bg); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;
             padding: 6px 10px; color: var(--accent-gold); font-size: 13px; cursor: pointer;
             box-shadow: 0 4px 12px rgba(0,0,0,0.3); transition: all 0.2s; font-weight: 800; white-space: nowrap;
+            display: flex; align-items: center; justify-content: center;
         }
-        .music-toggle-btn:active { transform: scale(0.95); }
+        .icon-btn:active { transform: scale(0.95); }
+        .icon-btn.question { color: var(--accent-blue); border-color: rgba(24, 130, 255, 0.3); width: 32px; height: 32px; padding: 0; font-size: 16px; border-radius: 10px; }
 
         .info-card {
             background: var(--panel-bg); border-radius: 12px; padding: 6px 12px; font-weight: 700;
             font-size: 12px; color: var(--text-muted); border: 1px solid rgba(255,255,255,0.04);
             display: flex; align-items: center; gap: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            white-space: nowrap; /* Идеальная защита от съезжания баланса */
+            white-space: nowrap;
         }
         .info-card span { color: var(--text-main); font-size: 14px; font-weight: 800; white-space: nowrap; }
 
@@ -170,7 +172,6 @@
         }
         .btn-start:active:not(:disabled) { box-shadow: 0 1px 0 #0f5bb8; }
         
-        /* Кнопка "В меню" в лобби */
         .btn-lobby-menu {
             width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); 
             height: 50px; color: var(--text-muted); font-size: 15px; margin-top: -6px;
@@ -339,7 +340,9 @@
 
         .btn-menu { width: 100%; background: var(--panel-bg); box-shadow: 0 3px 0 var(--bg-dark); padding: 11px; font-size: 12px; font-weight: 800; color: var(--text-muted); border-radius: 12px; margin-top: 2px; }
 
-        /* MODAL */
+        /* ==========================================================================
+           6. MODALS & OVERLAYS
+           ========================================================================== */
         .modal-overlay {
             position: fixed; inset: 0; background: rgba(10, 15, 22, 0.9); backdrop-filter: blur(10px);
             display: flex; align-items: center; justify-content: center; z-index: 100; opacity: 0; pointer-events: none; transition: opacity 0.3s;
@@ -355,6 +358,25 @@
         .modal-title.lose { color: var(--accent-red); }
         .modal-desc { font-size: 16px; font-weight: 700; margin-bottom: 24px; line-height: 1.4; color: #fff; }
 
+        /* RULES MODAL SPECIFIC */
+        .rules-box {
+            background: var(--container-bg); border: 1px solid rgba(24, 130, 255, 0.3); border-radius: 24px;
+            padding: 20px; width: 95%; max-width: 400px; max-height: 85vh; overflow-y: auto; text-align: left;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.9), inset 0 0 20px rgba(24, 130, 255, 0.1);
+            transform: translateY(20px); transition: transform 0.3s ease;
+        }
+        .modal-overlay.active .rules-box { transform: translateY(0); }
+        .rules-title { font-family: 'Montserrat', sans-serif; font-size: 22px; font-weight: 900; color: var(--accent-blue); text-align: center; margin-bottom: 15px; text-transform: uppercase; }
+        .rules-text { font-size: 13px; color: var(--text-main); margin-bottom: 15px; line-height: 1.5; font-weight: 600; text-align: center;}
+        
+        .combo-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+        .combo-item { background: var(--panel-bg); padding: 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); }
+        .combo-name { font-weight: 800; font-size: 14px; color: var(--accent-gold); margin-bottom: 5px; text-transform: uppercase;}
+        .combo-desc { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; line-height: 1.3;}
+        .mini-cards { display: flex; gap: 4px; }
+        .mc { width: 22px; height: 30px; background: white; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 900; color: black; box-shadow: 1px 1px 3px rgba(0,0,0,0.5); font-family: 'Nunito', sans-serif;}
+        .mc.r { color: var(--accent-red); }
+
         .confetti { position: absolute; width: 10px; height: 10px; background: var(--accent-gold); opacity: 0; }
         @keyframes confettiFall { 0% { transform: translateY(-100vh) rotate(0deg); opacity: 1; } 100% { transform: translateY(100vh) rotate(360deg); opacity: 0; } }
     </style>
@@ -366,7 +388,8 @@
         <div class="header">
             <div class="brand">R-<span>POKER</span></div>
             <div class="header-controls">
-                <button class="music-toggle-btn" id="musicToggleBtn" title="Вкл/Выкл музыку">🎵 ВКЛ</button>
+                <button class="icon-btn question" id="rulesBtn" title="Правила игры">?</button>
+                <button class="icon-btn" id="musicToggleBtn" title="Вкл/Выкл музыку">🎵 ВКЛ</button>
                 <div class="info-card">Баланс: <span id="balanceDisplay">0 ₽</span></div>
             </div>
         </div>
@@ -443,12 +466,89 @@
         </div>
     </div>
 
-    <!-- MODAL -->
+    <!-- MODAL RESULTS -->
     <div class="modal-overlay" id="modalOverlay">
         <div class="modal-box">
             <div class="modal-title" id="modalTitle">ПОБЕДА!</div>
             <div class="modal-desc" id="modalText">Вы выиграли 0 ₽</div>
             <button class="btn-start" id="modalBtnPrimary">В ЛОББИ</button>
+        </div>
+    </div>
+
+    <!-- MODAL RULES -->
+    <div class="modal-overlay" id="rulesModal">
+        <div class="rules-box">
+            <div class="rules-title">Как играть?</div>
+            <div class="rules-text">
+                Техасский холдем: соберите лучшую комбинацию из 5 карт (ваши 2 + 5 на столе).<br>
+                <b>ЧЕК</b> - пропустить ход, <b>ФОЛД</b> - сдаться, <b>РЕЙЗ</b> - повысить ставку, <b>КОЛЛ</b> - уравнять.
+            </div>
+            <div class="combo-list">
+                <div class="combo-item">
+                    <div class="combo-name">Роял Флеш (Royal Flush)</div>
+                    <div class="combo-desc">5 старших карт одной масти. Самая сильная рука.</div>
+                    <div class="mini-cards">
+                        <div class="mc r">A♥</div><div class="mc r">K♥</div><div class="mc r">Q♥</div><div class="mc r">J♥</div><div class="mc r">10♥</div>
+                    </div>
+                </div>
+                <div class="combo-item">
+                    <div class="combo-name">Стрит Флеш (Straight Flush)</div>
+                    <div class="combo-desc">5 карт одной масти по порядку.</div>
+                    <div class="mini-cards">
+                        <div class="mc">9♠</div><div class="mc">8♠</div><div class="mc">7♠</div><div class="mc">6♠</div><div class="mc">5♠</div>
+                    </div>
+                </div>
+                <div class="combo-item">
+                    <div class="combo-name">Каре (Four of a Kind)</div>
+                    <div class="combo-desc">4 карты одного достоинства.</div>
+                    <div class="mini-cards">
+                        <div class="mc">Q♣</div><div class="mc">Q♠</div><div class="mc r">Q♥</div><div class="mc r">Q♦</div><div class="mc">2♠</div>
+                    </div>
+                </div>
+                <div class="combo-item">
+                    <div class="combo-name">Фулл Хаус (Full House)</div>
+                    <div class="combo-desc">3 одинаковые + 2 одинаковые (Сет + Пара).</div>
+                    <div class="mini-cards">
+                        <div class="mc r">K♥</div><div class="mc">K♠</div><div class="mc">K♣</div><div class="mc r">8♦</div><div class="mc">8♠</div>
+                    </div>
+                </div>
+                <div class="combo-item">
+                    <div class="combo-name">Флеш (Flush)</div>
+                    <div class="combo-desc">5 любых карт одной масти.</div>
+                    <div class="mini-cards">
+                        <div class="mc r">A♦</div><div class="mc r">J♦</div><div class="mc r">8♦</div><div class="mc r">4♦</div><div class="mc r">2♦</div>
+                    </div>
+                </div>
+                <div class="combo-item">
+                    <div class="combo-name">Стрит (Straight)</div>
+                    <div class="combo-desc">5 карт по порядку (любых мастей).</div>
+                    <div class="mini-cards">
+                        <div class="mc">7♣</div><div class="mc r">6♥</div><div class="mc r">5♦</div><div class="mc">4♠</div><div class="mc r">3♥</div>
+                    </div>
+                </div>
+                <div class="combo-item">
+                    <div class="combo-name">Сет / Тройка (Three of a Kind)</div>
+                    <div class="combo-desc">3 карты одного достоинства.</div>
+                    <div class="mini-cards">
+                        <div class="mc r">10♥</div><div class="mc r">10♦</div><div class="mc">10♣</div><div class="mc">K♠</div><div class="mc r">4♦</div>
+                    </div>
+                </div>
+                <div class="combo-item">
+                    <div class="combo-name">Две пары (Two Pair)</div>
+                    <div class="combo-desc">Две карты одного достоинства и две другого.</div>
+                    <div class="mini-cards">
+                        <div class="mc">J♠</div><div class="mc r">J♥</div><div class="mc">9♣</div><div class="mc r">9♦</div><div class="mc">A♠</div>
+                    </div>
+                </div>
+                <div class="combo-item">
+                    <div class="combo-name">Пара (Pair)</div>
+                    <div class="combo-desc">Две одинаковые карты.</div>
+                    <div class="mini-cards">
+                        <div class="mc r">A♥</div><div class="mc">A♣</div><div class="mc r">Q♦</div><div class="mc">8♠</div><div class="mc">2♣</div>
+                    </div>
+                </div>
+            </div>
+            <button class="btn-start" id="closeRulesBtn">ПОНЯЛ, СПАСИБО</button>
         </div>
     </div>
 
@@ -496,6 +596,11 @@
             const modalBtnPrimary = document.getElementById('modalBtnPrimary');
             const musicToggleBtn = document.getElementById('musicToggleBtn');
             const bgMusic = document.getElementById('bgMusic');
+            
+            // Rules elements
+            const rulesModal = document.getElementById('rulesModal');
+            const rulesBtn = document.getElementById('rulesBtn');
+            const closeRulesBtn = document.getElementById('closeRulesBtn');
 
             let casinoBalance = 0;
             let initialBuyIn = 50000;
@@ -555,6 +660,19 @@
             function formatNumber(n) { return (n || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' '); }
             function parseNumber(s) { return parseInt(s.toString().replace(/\s/g, '')) || 0; }
 
+            // RULES MODAL LOGIC
+            function checkFirstLaunch() {
+                if (!localStorage.getItem('rgame_poker_rules_seen')) {
+                    rulesModal.classList.add('active');
+                }
+            }
+            rulesBtn.addEventListener('click', () => { initAudio(); soundClick(); vibrate('light'); rulesModal.classList.add('active'); });
+            closeRulesBtn.addEventListener('click', () => { 
+                initAudio(); soundClick(); vibrate('light'); 
+                rulesModal.classList.remove('active'); 
+                localStorage.setItem('rgame_poker_rules_seen', 'true');
+            });
+
             // MODAL CONTROLLER
             const ModalController = {
                 show(title, desc, isWin = true) {
@@ -607,7 +725,7 @@
                 });
             }
 
-            // TEXAS HOLD'EM ENGINE (КЛАССИЧЕСКИЕ ПРАВИЛА)
+            // TEXAS HOLD'EM ENGINE
             const STAGES = ['preflop', 'flop', 'turn', 'river', 'showdown'];
             let game = {
                 active: false, stageIdx: 0, pot: 0, deck: [],
@@ -665,18 +783,16 @@
                 game.dealerIdx = Math.floor(Math.random() * ps.length);
                 let sbIdx, bbIdx;
                 
-                // Правила Heads Up (1 на 1) отличаются от стола >2
                 if (ps.length === 2) {
                     sbIdx = game.dealerIdx;
                     bbIdx = (game.dealerIdx + 1) % ps.length;
-                    game.turnIdx = sbIdx; // На префлопе дилер(СБ) ходит первым
+                    game.turnIdx = sbIdx;
                 } else {
                     sbIdx = (game.dealerIdx + 1) % ps.length;
                     bbIdx = (game.dealerIdx + 2) % ps.length;
-                    game.turnIdx = (bbIdx + 1) % ps.length; // На префлопе следующий после ББ ходит первым (UTG)
+                    game.turnIdx = (bbIdx + 1) % ps.length;
                 }
                 
-                // Блайнды ставятся, но игроки еще НЕ приняли решение (actedThisRound = false)
                 let sbBet = Math.min(game.blinds.small, ps[sbIdx].stack);
                 ps[sbIdx].stack -= sbBet; ps[sbIdx].currentBet += sbBet; ps[sbIdx].totalInvested += sbBet; ps[sbIdx].status = 'BLIND';
                 if(ps[sbIdx].stack===0) ps[sbIdx].allIn = true;
@@ -689,7 +805,9 @@
                 
                 updateUI();
                 setStatus(`Раздача началась. Блайнды: ${formatNumber(game.blinds.small)}/${formatNumber(game.blinds.big)}`, 'info');
-                processTurn();
+                
+                // Небольшая задержка перед ходом для реализма
+                setTimeout(processTurn, 1000);
             }
 
             function setStatus(msg, type = '') {
@@ -707,24 +825,22 @@
                 return game.pot + currentBetsSum;
             }
 
-            // ПРАВИЛЬНАЯ ЛОГИКА СТАВОК (Сброс actedThisRound при рейзе)
             function placeBet(pIdx, amount, statusStr) {
                 let p = game.players[pIdx];
                 let actualBet = Math.min(amount, p.stack);
                 p.stack -= actualBet;
                 p.currentBet += actualBet;
                 p.totalInvested += actualBet;
-                p.actedThisRound = true; // Игрок сказал свое слово
+                p.actedThisRound = true;
 
                 p.status = actualBet === p.stack && actualBet > 0 ? 'ALLIN' : statusStr;
                 if (p.stack === 0) p.allIn = true;
                 
                 if (p.currentBet > game.currentBet) {
                     let raiseAmt = p.currentBet - game.currentBet;
-                    if(raiseAmt > game.minRaise) game.minRaise = raiseAmt; // Новый порог мин. рейза
+                    if(raiseAmt > game.minRaise) game.minRaise = raiseAmt; 
                     game.currentBet = p.currentBet;
                     
-                    // Если кто-то сделал рейз, ВСЕМ остальным активным игрокам придется отвечать заново
                     game.players.forEach((otherP, idx) => {
                         if (idx !== pIdx && !otherP.folded && !otherP.allIn) {
                             otherP.actedThisRound = false;
@@ -735,7 +851,7 @@
                 updateUI();
             }
 
-            // ИДЕАЛЬНЫЙ 7-КАРТОЧНЫЙ ОЦЕНЩИК РУК (Техасский Холдем)
+            // ОЦЕНЩИК РУК
             function getCombinations(arr, k) {
                 if (k > arr.length || k <= 0) return [];
                 if (k === arr.length) return [arr];
@@ -804,6 +920,17 @@
                 return {score: bestScore, name: bestName};
             }
 
+            // УЛУЧШЕННЫЙ ИИ
+            function evaluateHoleCards(cards) {
+                let score = cards[0].value + cards[1].value;
+                if (cards[0].value === cards[1].value) score += 20; // пара
+                if (cards[0].suit === cards[1].suit) score += 5; // одномастные
+                let gap = Math.abs(cards[0].value - cards[1].value);
+                if (gap === 1) score += 4; // коннекторы
+                else if (gap === 2) score += 2;
+                return score;
+            }
+
             async function processTurn() {
                 if (!game.active) return;
                 
@@ -812,7 +939,6 @@
                 
                 if (notFolded.length === 1) { endGame(notFolded[0]); return; }
                 
-                // Проверка: завершен ли круг торговли?
                 let roundComplete = true;
                 for(let p of game.players) {
                     if (!p.folded && !p.allIn) {
@@ -824,10 +950,10 @@
                 
                 if (roundComplete) {
                     if (active.length <= 1) { 
-                        setTimeout(nextStage, 800); // Все All-in, крутим дальше
+                        setTimeout(nextStage, 1000); 
                         return; 
                     } else { 
-                        nextStage(); return; 
+                        setTimeout(nextStage, 500); return; 
                     }
                 }
 
@@ -846,7 +972,8 @@
 
                 updateUI();
                 setStatus(`Бот ${cp.name} думает...`);
-                await new Promise(r => setTimeout(r, 1500 + Math.random()*1000));
+                // Увеличенная задержка для реализма
+                await new Promise(r => setTimeout(r, 1800 + Math.random()*1500));
 
                 let callAmount = game.currentBet - cp.currentBet;
                 let evalResult = evaluate7Cards(cp.cards, game.communityCards);
@@ -854,41 +981,60 @@
                 let rand = Math.random();
                 let isPreflop = game.stageIdx === 0;
 
-                // БОТ ИНТЕЛЛЕКТ (Основан на реальных силах рук: 10M - Пара, 20M - Две пары и тд)
+                let holeScore = evaluateHoleCards(cp.cards);
+
                 if (callAmount === 0) { 
-                    if (strength >= 10000000 && rand > 0.6) { // Пара или лучше -> иногда рейзит
-                        let r = Math.min(cp.stack, game.minRaise * 2);
-                        placeBet(game.turnIdx, r, 'RAISE'); setStatus(`${cp.name} рейз ${formatNumber(r)} ₽`);
+                    // Никто не ставил
+                    if (isPreflop) {
+                        if (holeScore >= 25 && rand > 0.4) {
+                            let r = Math.min(cp.stack, game.minRaise * 2);
+                            placeBet(game.turnIdx, r, 'RAISE'); setStatus(`${cp.name} рейз`);
+                        } else {
+                            placeBet(game.turnIdx, 0, 'CHECK'); setStatus(`${cp.name} чек`);
+                        }
                     } else {
-                        placeBet(game.turnIdx, 0, 'CHECK'); setStatus(`${cp.name} чек`);
+                        if (strength >= 10000000 && rand > 0.6) { 
+                            let r = Math.min(cp.stack, game.minRaise * 2);
+                            placeBet(game.turnIdx, r, 'RAISE'); setStatus(`${cp.name} ставит`);
+                        } else {
+                            placeBet(game.turnIdx, 0, 'CHECK'); setStatus(`${cp.name} чек`);
+                        }
                     }
                 } else { 
-                    let betPercent = callAmount / (cp.stack + cp.currentBet); // Сколько % от стека надо отдать
+                    // Нужно отвечать на ставку
+                    let betPercent = callAmount / (cp.stack + cp.currentBet); 
                     
                     if (isPreflop) {
-                        if (callAmount <= game.blinds.big && rand > 0.1) { // Доставить блайнд
+                        if (callAmount <= game.blinds.big && holeScore >= 12) { // колл блайнда
                             placeBet(game.turnIdx, callAmount, 'CALL'); setStatus(`${cp.name} колл`);
-                        } else if (strength >= 10000000 || rand > 0.6) { // Карманная пара или блеф
-                            placeBet(game.turnIdx, callAmount, 'CALL'); setStatus(`${cp.name} колл`);
+                        } else if (holeScore >= 25 || (holeScore >= 18 && rand > 0.4)) { // хорошая рука
+                            if (holeScore > 35 && rand > 0.3) {
+                                let r = Math.min(cp.stack, callAmount + game.minRaise * 2);
+                                placeBet(game.turnIdx, r, 'RAISE'); setStatus(`${cp.name} рейз`);
+                            } else {
+                                placeBet(game.turnIdx, callAmount, 'CALL'); setStatus(`${cp.name} колл`);
+                            }
                         } else {
+                            // Мусор - бот пасует (увеличивает реализм)
                             cp.folded = true; cp.status = 'FOLD'; setStatus(`${cp.name} фолд`);
                         }
                     } else {
-                        if (strength >= 20000000) { // Две пары и выше (Очень сильно)
+                        // Постфлоп
+                        if (strength >= 20000000) { 
                             if (rand > 0.4 && cp.stack > callAmount) {
                                 let r = Math.min(cp.stack, callAmount + game.minRaise);
                                 placeBet(game.turnIdx, r, 'RAISE'); setStatus(`${cp.name} рейз`);
                             } else {
                                 placeBet(game.turnIdx, callAmount, 'CALL'); setStatus(`${cp.name} колл`);
                             }
-                        } else if (strength >= 10000000) { // Просто Пара
-                            if (betPercent > 0.4 && rand > 0.2) { // Слишком дорого для одной пары
+                        } else if (strength >= 10000000) { 
+                            if (betPercent > 0.3 && rand > 0.3) { 
                                 cp.folded = true; cp.status = 'FOLD'; setStatus(`${cp.name} фолд`);
                             } else {
                                 placeBet(game.turnIdx, callAmount, 'CALL'); setStatus(`${cp.name} колл`);
                             }
-                        } else { // Мусор
-                            if (betPercent < 0.1 && rand > 0.5) { // Очень дешево, можно посмотреть
+                        } else { 
+                            if (betPercent < 0.1 && rand > 0.5) { 
                                 placeBet(game.turnIdx, callAmount, 'CALL'); setStatus(`${cp.name} колл`);
                             } else {
                                 cp.folded = true; cp.status = 'FOLD'; setStatus(`${cp.name} фолд`);
@@ -898,11 +1044,10 @@
                 }
 
                 game.turnIdx = (game.turnIdx + 1) % game.players.length;
-                checkNextTurn();
+                setTimeout(checkNextTurn, 600); // пауза перед передачей хода
             }
 
             function checkNextTurn() {
-                // Если мы попали сюда после хода бота, запускаем цикл дальше
                 processTurn();
             }
 
@@ -910,11 +1055,11 @@
                 game.players.forEach(p => { 
                     game.pot += p.currentBet; 
                     p.currentBet = 0; 
-                    p.actedThisRound = false; // Новый раунд - все еще не ходили
+                    p.actedThisRound = false; 
                     p.status = p.allIn ? 'ALLIN' : ''; 
                 });
                 game.currentBet = 0; 
-                game.minRaise = game.blinds.big; // Сброс минимального рейза до ББ
+                game.minRaise = game.blinds.big; 
                 pulsePot();
                 
                 game.stageIdx++;
@@ -923,11 +1068,10 @@
                 else if (game.stageIdx === 3) { soundDeal(); game.communityCards.push(game.deck.pop()); setStatus('РИВЕР'); }
                 else { handleShowdown(); return; }
 
-                // Пост-флоп первым ходит всегда игрок после дилера (даже в HU)
                 game.turnIdx = (game.dealerIdx + 1) % game.players.length;
                 
                 let active = game.players.filter(p => !p.folded && !p.allIn);
-                if (active.length <= 1) { setTimeout(nextStage, 1000); }
+                if (active.length <= 1) { setTimeout(nextStage, 1200); } // Крутим пустые столы чуть медленнее
                 else { updateUI(); processTurn(); }
             }
 
@@ -1001,7 +1145,6 @@
                     let callAmt = game.currentBet - hero.currentBet;
                     placeBet(0, callAmt, 'CALL'); setStatus(`Колл ${formatNumber(callAmt)} ₽`);
                 } else if (type === 'raise' || type === 'allin') {
-                    // Если All-in - ставим весь стек. Иначе то, что на слайдере + наша текущая ставка
                     let raiseTotal = (type === 'allin') ? hero.stack : (amount - hero.currentBet); 
                     placeBet(0, raiseTotal, type==='allin' ? 'ALLIN' : 'RAISE'); 
                     setStatus(`Вы ${type==='allin' ? 'пошли All-In' : 'рейз до '+formatNumber(hero.currentBet)+' ₽'}`);
@@ -1036,6 +1179,7 @@
                 const totalBots = botCount;
                 let avatarSize = 48;
 
+                // Пересчитанные координаты ботов (подняты ВЫШЕ, чтобы не закрывать стол)
                 for (let i=1; i<=totalBots; i++) {
                     let bot = game.players[i];
                     if(!bot) continue;
@@ -1044,26 +1188,26 @@
                     
                     let left = 50, top = 10; 
                     if (totalBots === 2) { 
-                        if(i===1){ left=20; top=25; } 
-                        if(i===2){ left=80; top=25; } 
+                        if(i===1){ left=20; top=15; } 
+                        if(i===2){ left=80; top=15; } 
                     }
                     else if (totalBots === 3) { 
-                        if(i===1){ left=12; top=40; } 
-                        if(i===2){ left=50; top=8; }  
-                        if(i===3){ left=88; top=40; } 
+                        if(i===1){ left=15; top=25; } 
+                        if(i===2){ left=50; top=-2; }  
+                        if(i===3){ left=85; top=25; } 
                     }
                     else if (totalBots === 4) { 
-                        if(i===1){ left=10; top=50; } 
-                        if(i===2){ left=25; top=12; } 
-                        if(i===3){ left=75; top=12; } 
-                        if(i===4){ left=90; top=50; } 
+                        if(i===1){ left=10; top=30; } 
+                        if(i===2){ left=30; top=0; } 
+                        if(i===3){ left=70; top=0; } 
+                        if(i===4){ left=90; top=30; } 
                     }
                     else if (totalBots >= 5) { 
-                        if(i===1){ left=8; top=60; } 
-                        if(i===2){ left=20; top=15; } 
-                        if(i===3){ left=50; top=8; } 
-                        if(i===4){ left=80; top=15; } 
-                        if(i===5){ left=92; top=60; } 
+                        if(i===1){ left=5; top=35; } 
+                        if(i===2){ left=25; top=5; } 
+                        if(i===3){ left=50; top=-8; } 
+                        if(i===4){ left=75; top=5; } 
+                        if(i===5){ left=95; top=35; } 
                     }
                     
                     div.style.left = `${left}%`; div.style.top = `${top}%`;
@@ -1176,7 +1320,6 @@
                 window.location.href = 'casino.html?userId=' + encodeURIComponent(userId || '');
             }
 
-            // Новая кнопка "В меню" из Лобби
             lobbyMenuBtn.addEventListener('click', () => {
                 initAudio(); soundClick(); vibrate('light');
                 window.location.href = 'casino.html?userId=' + encodeURIComponent(userId || '');
@@ -1193,6 +1336,9 @@
             // LOAD
             loadBalanceFromServer();
             lobby.style.display = 'flex'; tableArea.classList.remove('active');
+            
+            // Check rules launch
+            checkFirstLaunch();
 
         })();
     </script>
