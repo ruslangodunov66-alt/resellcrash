@@ -560,7 +560,7 @@
         return div;
     }
 
-    function updateUI() {
+    function updateUI(showDealerCard = false) {
         playerCardsDiv.innerHTML = '';
         playerHand.forEach(c => playerCardsDiv.appendChild(renderCard(c)));
         const pTotal = handTotal(playerHand);
@@ -571,7 +571,7 @@
         }
 
         dealerCardsDiv.innerHTML = '';
-        if (gameActive && dealerHand.length === 2) {
+        if (!showDealerCard && gameActive && dealerHand.length === 2) {
             dealerCardsDiv.appendChild(renderCard(dealerHand[0]));
             dealerCardsDiv.appendChild(renderCard(null, true));
             dealerValueSpan.innerText = '?';
@@ -623,7 +623,7 @@
         startBtn.disabled = true;
         betInput.disabled = true;
 
-        updateUI();
+        updateUI(false);
         setStatus(`🎲 ВАШ ХОД | Ставка ${formatNumber(currentBet)} ₽`);
 
         if (isBlackjackHand(playerHand)) {
@@ -635,14 +635,10 @@
     }
 
     async function finishRound(result, winAmount = 0) {
-        if (!gameActive && result !== 'tie' && result !== 'blackjack_win') return;
-
         gameActive = false;
         hitBtn.disabled = true;
         standBtn.disabled = true;
         doubleBtn.disabled = true;
-        startBtn.disabled = true;
-        betInput.disabled = true;
 
         if (result === 'win') {
             casinoBalance += winAmount;
@@ -683,7 +679,7 @@
         } finally {
             startBtn.disabled = false;
             betInput.disabled = false;
-            updateUI();
+            updateUI(true);
         }
     }
 
@@ -703,9 +699,11 @@
         currentBet *= 2;
 
         playerHand.push(popCard());
-        updateUI();
+        updateUI(false);
 
-        if (handTotal(playerHand) > 21) {
+        const total = handTotal(playerHand);
+        if (total > 21) {
+            updateUI(true);
             finishRound('lose');
         } else {
             stand();
@@ -719,13 +717,13 @@
         doubleBtn.disabled = true;
 
         playerHand.push(popCard());
-        updateUI(); // мгновенный пересчет суммы очков
+        updateUI(false);
 
         const total = handTotal(playerHand);
         if (total > 21) {
+            updateUI(true);
             finishRound('lose');
         } else if (total === 21) {
-            // Если ровно 21, автоматически завершаем ход игрока
             stand();
         }
     }
@@ -737,17 +735,18 @@
         hitBtn.disabled = true;
         standBtn.disabled = true;
         doubleBtn.disabled = true;
+        
         dealerTurn();
     }
 
     async function dealerTurn() {
-        updateUI();
+        updateUI(true);
 
         while (handTotal(dealerHand) < 17) {
             dealerHand.push(popCard());
-            updateUI();
+            updateUI(true);
             vibrate('light');
-            await new Promise(r => setTimeout(r, 400));
+            await new Promise(r => setTimeout(r, 500));
         }
 
         const playerTotal = handTotal(playerHand);
@@ -820,7 +819,7 @@
     betInput.value = formatNumber(1000);
 
     loadBalanceFromServer();
-    updateUI();
+    updateUI(false);
     setStatus('Сделайте ставку и нажмите ИГРАТЬ');
 </script>
 </body>
