@@ -178,7 +178,7 @@ input[type=number]{appearance:textfield}
     sumHigh:$('#sumHigh'),sumLow:$('#sumLow'),sumVol:$('#sumVol'),mid:$('#obMidPrice'),chartTag:$('#chartSymbolTag')
   };
 
-  let casinoBalance=0,currentPair='BTCUSDTT',currentInterval='5m',realPrice=0,activeTrades=[],tradeHistory=[],wsKline=null,wsDepth=null,reconnectTimer=null,depthTimer=null,stats=null;
+  let casinoBalance=0,currentPair='BTCUSDT',currentInterval='5m',realPrice=0,activeTrades=[],tradeHistory=[],wsKline=null,wsDepth=null,reconnectTimer=null,depthTimer=null,stats=null;
   const STORAGE_STATS='rtrade_stats_v3', STORAGE_HISTORY='rtrade_history_v3';
 
   function fmt(n){return Math.round(Number(n)||0).toLocaleString('ru-RU');}
@@ -222,12 +222,17 @@ input[type=number]{appearance:textfield}
 
   /* REAL MARKET DATA */
   const chartContainer=$('#tvchart');
-  const chart=LightweightCharts.createChart(chartContainer,{layout:{background:{type:'solid',color:'#0b0e14'},textColor:'#848e9c'},grid:{vertLines:{color:'rgba(255,255,255,0.025)'},horzLines:{color:'rgba(255,255,255,0.025)'}},crosshair:{mode:LightweightCharts.CrosshairMode.Normal},rightPriceScale:{borderVisible:false,scaleMargins:{top:.08,bottom:.12}},timeScale:{borderVisible:false,timeVisible:true,secondsVisible:false},handleScroll:{mouseWheel:false,pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:false},handleScale:{mouseWheel:false,pinch:true,axisPressedMouseMove:true}});
-  const candleSeries=chart.addCandlestickSeries({upColor:'#0ead69',downColor:'#fa4d56',borderVisible:false,wickUpColor:'#0ead69',wickDownColor:'#fa4d56',priceLineVisible:true,lastValueVisible:true});
-  const resize=()=>{try{chart.resize(chartContainer.clientWidth,chartContainer.clientHeight)}catch(_){}};addEventListener('resize',resize,{passive:true});
+  let chart, candleSeries;
+  if(window.LightweightCharts){
+    chart=LightweightCharts.createChart(chartContainer,{layout:{background:{type:'solid',color:'#0b0e14'},textColor:'#848e9c'},grid:{vertLines:{color:'rgba(255,255,255,0.025)'},horzLines:{color:'rgba(255,255,255,0.025)'}},crosshair:{mode:LightweightCharts.CrosshairMode.Normal},rightPriceScale:{borderVisible:false,scaleMargins:{top:.08,bottom:.12}},timeScale:{borderVisible:false,timeVisible:true,secondsVisible:false},handleScroll:{mouseWheel:false,pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:false},handleScale:{mouseWheel:false,pinch:true,axisPressedMouseMove:true}});
+    candleSeries=chart.addCandlestickSeries({upColor:'#0ead69',downColor:'#fa4d56',borderVisible:false,wickUpColor:'#0ead69',wickDownColor:'#fa4d56',priceLineVisible:true,lastValueVisible:true});
+  }else{
+    chartContainer.innerHTML='<div style="height:100%;display:flex;align-items:center;justify-content:center;color:#848e9c;font:800 11px Montserrat,sans-serif">График временно недоступен</div>';
+  }
+  const resize=()=>{try{if(chart)chart.resize(chartContainer.clientWidth,chartContainer.clientHeight)}catch(_){}};addEventListener('resize',resize,{passive:true});
 
   async function fetchKlines(){
-    try{const data=await fetchJSON(`https://api.binance.com/api/v3/klines?symbol=${currentPair}&interval=${currentInterval}&limit=200`);const rows=data.map(d=>({time:Math.floor(d[0]/1000),open:+d[1],high:+d[2],low:+d[3],close:+d[4]}));candleSeries.setData(rows);if(rows.length){realPrice=rows.at(-1).close;el.price.textContent=priceText(realPrice);el.mid.textContent=priceText(realPrice)};resize();await fetch24h();}
+    try{const data=await fetchJSON(`https://api.binance.com/api/v3/klines?symbol=${currentPair}&interval=${currentInterval}&limit=200`);const rows=data.map(d=>({time:Math.floor(d[0]/1000),open:+d[1],high:+d[2],low:+d[3],close:+d[4]}));if(!candleSeries) throw new Error('Chart library unavailable'); candleSeries.setData(rows);if(rows.length){realPrice=rows.at(-1).close;el.price.textContent=priceText(realPrice);el.mid.textContent=priceText(realPrice)};resize();await fetch24h();}
     catch(e){
       console.error('Binance market load error',e);
       setConnection(false);
@@ -251,7 +256,7 @@ input[type=number]{appearance:textfield}
     closeSocket(wsKline);closeSocket(wsDepth);clearTimeout(reconnectTimer);clearInterval(depthTimer);
     const safePair=/^[A-Z0-9]+$/.test(currentPair)?currentPair:'BTCUSDT';
     const stream=safePair.toLowerCase()+'@kline_'+currentInterval;
-    try{wsKline=new WebSocket(`wss://stream.binance.com:9443/ws/${stream}`);wsKline.onopen=()=>setConnection(true);wsKline.onmessage=e=>{try{const m=JSON.parse(e.data);if(m.e==='kline'){const k=m.k;const row={time:Math.floor(k.t/1000),open:+k.o,high:+k.h,low:+k.l,close:+k.c};candleSeries.update(row);realPrice=+k.c;updateTicker(realPrice, null);renderActiveTrades();renderPositions();}}catch(_){}};wsKline.onerror=()=>setConnection(false);wsKline.onclose=()=>{setConnection(false);clearTimeout(reconnectTimer);reconnectTimer=setTimeout(connectMarketSockets,5000)}}catch(_){setConnection(false)}
+    try{wsKline=new WebSocket(`wss://stream.binance.com:9443/ws/${stream}`);wsKline.onopen=()=>setConnection(true);wsKline.onmessage=e=>{try{const m=JSON.parse(e.data);if(m.e==='kline'){const k=m.k;const row={time:Math.floor(k.t/1000),open:+k.o,high:+k.h,low:+k.l,close:+k.c};if(candleSeries)candleSeries.update(row);realPrice=+k.c;updateTicker(realPrice, null);renderActiveTrades();renderPositions();}}catch(_){}};wsKline.onerror=()=>setConnection(false);wsKline.onclose=()=>{setConnection(false);clearTimeout(reconnectTimer);reconnectTimer=setTimeout(connectMarketSockets,5000)}}catch(_){setConnection(false)}
     try{wsDepth=new WebSocket(`wss://stream.binance.com:9443/ws/${safePair.toLowerCase()}@depth5@100ms`);wsDepth.onmessage=e=>{try{const d=JSON.parse(e.data);renderOrderBook((d.asks||[]).map(x=>[+x[0],+x[1]]),(d.bids||[]).map(x=>[+x[0],+x[1]]))}catch(_){}};wsDepth.onclose=()=>{};}catch(_){ }
     fetchDepthFallback();depthTimer=setInterval(fetchDepthFallback,3500);
   }
