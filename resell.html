@@ -779,17 +779,17 @@ body::before{
         <div>
           <div class="farm-kicker">R-GAME · FARM</div>
           <div class="farm-title">ЗАЖМИ R</div>
-          <div class="farm-sub">Держи R 30 секунд. Коины появляются во время удержания, а итоговая награда сразу уходит в RESSELL POINTS.</div>
+          <div class="farm-sub">Держи R 30 секунд. Награда накапливается во время удержания и после завершения сразу уходит в RESSELL POINTS.</div>
         </div>
         <div class="farm-total" id="farmTotal">100–150k ₽</div>
       </div>
       <div class="farm-stage">
-        <div class="farm-ring" id="farmRing"><div class="farm-glow"></div><div class="farm-r" id="farmR">R</div><div class="farm-timer" id="farmTimer">1:00</div></div>
+        <div class="farm-ring" id="farmRing"><div class="farm-glow"></div><div class="farm-r" id="farmR">R</div><div class="farm-timer" id="farmTimer">0:30</div></div>
         <div class="farm-coins" id="farmCoins" aria-hidden="true"></div>
       </div>
       <div class="farm-progress"><div class="farm-progress-fill" id="farmProgressFill"></div></div>
       <div class="farm-status" id="farmStatus">Нажми и удерживай R. Одна попытка приносит от 100 000 до 150 000 ₽.</div>
-      <div class="farm-meta"><span>КД: 6 часов</span><span id="farmClaimCount">Собрано: 0</span></div>
+      <div class="farm-meta"><span>КД: 3 часа</span><span id="farmClaimCount">Собрано: 0</span></div>
     </div>
   </section>
 
@@ -1617,111 +1617,186 @@ body::before{
   }
 
   // =========================
-  // Standalone R-Farm — stable 30s version
-  // One owner for progress, one pointer state, safe async start.
-  let holdState=null, holdTimer=null, holdPointerActive=false, holdPointerId=null;
-  let holdStartPromise=null, holdReleaseQueued=false, farmTargetReward=0, farmTickRaf=0;
+  // Standalone R-Farm — 30s / 3h
+  // Server-authoritative reward. The browser only animates the session.
+  // This block is intentionally self-contained so old hold-state responses
+  // cannot break the button on iOS Telegram WebView.
+  const FARM_DURATION = 30;
+  const FARM_COOLDOWN = 3 * 60 * 60;
+  const FARM_MIN_REWARD = 100000;
+  const FARM_MAX_REWARD = 150000;
+
+  let holdState = null;
+  let holdTimer = null;
+  let holdPointerActive = false;
+  let holdPointerId = null;
+  let holdStartPromise = null;
+  let holdReleaseQueued = false;
+  let farmTargetReward = 0;
+  let farmCompleting = false;
+  let farmCompleted = false;
+  let farmInitPromise = null;
+  let farmLastSync = 0;
 
   function formatClock(seconds){
-    seconds=Math.max(0,Math.ceil(Number(seconds)||0));
-    const m=Math.floor(seconds/60), s=seconds%60;
+    seconds = Math.max(0, Math.ceil(Number(seconds) || 0));
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    if(h) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
     return `${m}:${String(s).padStart(2,'0')}`;
+  }
+
+  function normalizeHoldState(raw){
+    const d = raw || {};
+    const now = Math.floor(Date.now()/1000);
+    const cooldownUntil = Number(d.cooldown_until ?? d.cooldownUntil ?? 0) || 0;
+    const serverCooldown = Number(d.cooldown_remaining ?? d.cooldownRemaining ?? 0) || 0;
+    const derivedCooldown = cooldownUntil > now ? cooldownUntil - now : 0;
+    const cooldownRemaining = Math.max(0, serverCooldown, derivedCooldown);
+    const sessionId = d.session_id || d.sessionId || null;
+    const serverDuration = Number(d.duration ?? 0) || 0;
+    const duration = serverDuration > 0 ? Math.min(FARM_DURATION, serverDuration) : FARM_DURATION;
+    const explicitReady = d.ready;
+    const ready = explicitReady !== undefined
+      ? Boolean(explicitReady) && !sessionId && cooldownRemaining <= 0
+      : !sessionId && cooldownRemaining <= 0;
+    return {
+      ...d,
+      session_id: sessionId,
+      cooldown_until: cooldownUntil,
+      cooldown_remaining: cooldownRemaining,
+      duration,
+      ready
+    };
   }
 
   async function fetchHoldStatus(){
     if(!userId) return null;
-    const resp=await fetch(`${API_BASE}/hold/status/${encodeURIComponent(userId)}`,{cache:'no-store'});
-    if(!resp.ok) throw new Error('Не удалось получить статус фарма');
-    holdState=await resp.json();
+    const resp = await fetch(`${API_BASE}/hold/status/${encodeURIComponent(userId)}`, {
+      cache:'no-store',
+      headers:{'Accept':'application/json'}
+    });
+    let payload = null;
+    try{ payload = await resp.json(); }catch(_){ payload = null; }
+    if(!resp.ok) throw new Error(payload?.error || `Не удалось получить статус фарма (HTTP ${resp.status})`);
+    holdState = normalizeHoldState(payload);
+    farmLastSync = Date.now();
     return holdState;
   }
 
   function updateFarmVisuals(remaining){
-    const t=$('#farmTimer'), f=$('#farmProgressFill'), p=$('#farmPanel');
-    if(!t||!f) return;
-    const d=Math.max(1,Number(holdState?.duration||30));
-    const rem=Math.max(0,Math.min(d,Number(remaining)||0));
-    const pr=Math.min(100,Math.max(0,(d-rem)/d*100));
-    t.textContent=formatClock(rem);
-    f.style.width=`${pr}%`;
-    p?.classList.toggle('cooldown',
-      !holdState?.ready&&!holdState?.session_id&&Number(holdState?.cooldown_remaining||0)>0
-    );
+    const t = $('#farmTimer');
+    const f = $('#farmProgressFill');
+    const p = $('#farmPanel');
+    if(!t || !f) return;
+    const d = FARM_DURATION;
+    const rem = Math.max(0, Math.min(d, Number(remaining) || 0));
+    const pr = Math.min(100, Math.max(0, ((d - rem) / d) * 100));
+    t.textContent = formatClock(rem);
+    f.style.width = `${pr}%`;
+    p?.classList.toggle('cooldown', !holdState?.ready && !holdState?.session_id && Number(holdState?.cooldown_remaining || 0) > 0);
   }
 
   function renderFarmReward(progress){
-    const el=$('#farmTotal');
+    const el = $('#farmTotal');
     if(!el) return;
-    const reward=Math.floor(farmTargetReward*Math.min(1,Math.max(0,progress)));
-    const next=`+${reward.toLocaleString('ru-RU')} ₽`;
-    // Avoid needless DOM writes that cause text flicker on iOS WebView.
-    if(el.textContent!==next) el.textContent=next;
+    const reward = Math.floor(farmTargetReward * Math.min(1, Math.max(0, progress)));
+    el.textContent = `+${reward.toLocaleString('ru-RU')} ₽`;
   }
 
   function stopFarmAnimation(){
-    if(farmTickRaf){cancelAnimationFrame(farmTickRaf);farmTickRaf=0}
+    if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
   }
 
   function runFarmAnimation(){
     stopFarmAnimation();
-    let lastPaint=0;
-    const tick=(now)=>{
-      if(!holdPointerActive || !holdState?.session_id){farmTickRaf=0;return}
-      const duration=Math.max(1,Number(holdState.duration||30));
-      const startedMs=Number(holdState.started_at||0)*1000;
-      // Server timestamp is authoritative; local clock is only the visual interpolator.
-      const elapsed=Math.max(0,Math.min(duration*1000,Date.now()-startedMs));
-      const progress=elapsed/(duration*1000);
-      if(now-lastPaint>=33){
-        updateFarmVisuals(duration-elapsed/1000);
-        renderFarmReward(progress);
-        lastPaint=now;
+    const tick = () => {
+      if(!holdPointerActive || !holdState?.session_id || farmCompleting || farmCompleted){
+        holdTimer = null;
+        return;
       }
-      if(progress>=1){
-        farmTickRaf=0;
+      const started = Number(holdState.started_at || holdState.startedAt || 0) * 1000;
+      const duration = FARM_DURATION * 1000;
+      const elapsed = started > 0
+        ? Math.max(0, Math.min(duration, Date.now() - started))
+        : 0;
+      const progress = elapsed / duration;
+      updateFarmVisuals(FARM_DURATION - elapsed / 1000);
+      renderFarmReward(progress);
+      if(Math.random() < 0.22) spawnFarmSpark();
+      if(progress >= 1){
         completeStandaloneFarm();
         return;
       }
-      farmTickRaf=requestAnimationFrame(tick);
+      holdTimer = setTimeout(tick, 80);
     };
-    farmTickRaf=requestAnimationFrame(tick);
+    tick();
   }
 
   async function startStandaloneFarm(){
-    if(holdStartPromise || holdState?.session_id || !holdState?.ready) return;
-    holdPointerActive=true;
-    holdReleaseQueued=false;
-    $('#farmRing')?.classList.add('holding');
-    const st=$('#farmStatus');
-    if(st) st.textContent='Не отпускай R. Награда накапливается…';
+    if(farmCompleting || holdStartPromise || holdState?.session_id || holdPointerActive) return;
+    if(!userId){
+      $('#farmStatus').textContent = 'Открой Resell через Telegram.';
+      showToast('Не найден Telegram ID пользователя');
+      return;
+    }
 
-    holdStartPromise=(async()=>{
+    // Normalize an old backend response before trusting the button state.
+    if(!holdState) {
+      try{ await fetchHoldStatus(); }
+      catch(err){
+        $('#farmStatus').textContent = err.message || 'Фарм временно недоступен';
+        showToast(err.message || 'Фарм временно недоступен');
+        return;
+      }
+    }
+    const cooldown = Number(holdState?.cooldown_remaining || 0);
+    if(!holdState?.ready && cooldown > 0){
+      showToast(`Фарм снова будет доступен через ${formatClock(cooldown)}`);
+      $('#farmStatus').textContent = `Фарм снова будет доступен через ${formatClock(cooldown)}.`;
+      return;
+    }
+
+    farmCompleted = false;
+    holdPointerActive = true;
+    holdReleaseQueued = false;
+    $('#farmRing')?.classList.add('holding');
+    $('#farmTotal').textContent = '+0 ₽';
+    const st = $('#farmStatus');
+    if(st) st.textContent = 'Не отпускай R. Осталось 30 секунд.';
+
+    holdStartPromise = (async()=>{
       try{
-        const resp=await fetch(`${API_BASE}/hold/start/${encodeURIComponent(userId)}`,{
+        const resp = await fetch(`${API_BASE}/hold/start/${encodeURIComponent(userId)}`, {
           method:'POST',
           cache:'no-store',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({duration:30})
+          headers:{'Content-Type':'application/json','Accept':'application/json'},
+          body:JSON.stringify({duration:FARM_DURATION})
         });
-        const payload=await resp.json();
-        if(!resp.ok||!payload.success) throw new Error(payload.error||'Фарм недоступен');
+        let payload = null;
+        try{ payload = await resp.json(); }catch(_){ payload = null; }
+        if(!resp.ok || !payload?.success){
+          throw new Error(payload?.error || `Не удалось начать фарм (HTTP ${resp.status})`);
+        }
+        const sessionId = payload.session_id || payload.sessionId;
+        if(!sessionId) throw new Error('Сервер не выдал session_id для фарма');
 
-        holdState={
+        // The configured client session is 30 seconds. If an old backend
+        // returns a longer duration, do not silently expose a 60-second UI.
+        holdState = normalizeHoldState({
           ...holdState,
           ...payload,
-          session_id:payload.session_id,
-          started_at:Number(payload.started_at)||Math.floor(Date.now()/1000),
-          duration:30,
+          session_id: sessionId,
+          started_at: Number(payload.started_at || payload.startedAt) || Math.floor(Date.now()/1000),
+          duration: FARM_DURATION,
           ready:false
-        };
-
-        farmTargetReward=Math.max(
-          100000,
-          Math.min(150000,Number(payload.target_reward||payload.base_reward||125000))
+        });
+        farmTargetReward = Math.max(
+          FARM_MIN_REWARD,
+          Math.min(FARM_MAX_REWARD, Number(payload.target_reward || payload.base_reward || 125000))
         );
-        $('#farmTotal').textContent='+0 ₽';
 
-        // If the finger was released while /hold/start was pending, cancel now.
         if(holdReleaseQueued || !holdPointerActive){
           await cancelStandaloneFarm();
           return;
@@ -1730,12 +1805,13 @@ body::before{
         runFarmAnimation();
         haptic('medium');
       }catch(err){
-        holdPointerActive=false;
-        holdReleaseQueued=false;
+        holdPointerActive = false;
+        holdReleaseQueued = false;
         $('#farmRing')?.classList.remove('holding');
-        if(st) st.textContent=err.message||'Не удалось начать фарм';
+        if(st) st.textContent = err.message || 'Не удалось начать фарм';
+        showToast(err.message || 'Не удалось начать фарм');
       }finally{
-        holdStartPromise=null;
+        holdStartPromise = null;
       }
     })();
 
@@ -1743,124 +1819,138 @@ body::before{
   }
 
   async function completeStandaloneFarm(){
-    if(!holdState?.session_id || !holdPointerActive) return;
-    const sessionId=holdState.session_id;
+    if(farmCompleting || farmCompleted || !holdState?.session_id) return;
+    farmCompleting = true;
+    const sessionId = holdState.session_id;
     try{
-      const resp=await fetch(`${API_BASE}/hold/complete/${encodeURIComponent(userId)}`,{
+      const resp = await fetch(`${API_BASE}/hold/complete/${encodeURIComponent(userId)}`, {
         method:'POST',
         cache:'no-store',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({session_id:sessionId,duration:30})
+        headers:{'Content-Type':'application/json','Accept':'application/json'},
+        body:JSON.stringify({session_id:sessionId,duration:FARM_DURATION})
       });
-      const payload=await resp.json();
-      if(!resp.ok||!payload.success) throw new Error(payload.error||'Не удалось завершить фарм');
+      let payload = null;
+      try{ payload = await resp.json(); }catch(_){ payload = null; }
+      if(!resp.ok || !payload?.success){
+        throw new Error(payload?.error || `Не удалось зачислить награду (HTTP ${resp.status})`);
+      }
 
-      profileData=profileData||{};
-      profileData.balance=Number(payload.balance||profileData.balance||0);
-      setBalance(profileData.balance);
+      farmCompleted = true;
+      const reward = Number(payload.reward || farmTargetReward || 0);
+      const now = Math.floor(Date.now()/1000);
+      const serverCooldown = Number(payload.cooldown_remaining ?? payload.cooldown ?? 0) || 0;
+      const cooldown = serverCooldown > 0 ? serverCooldown : FARM_COOLDOWN;
+      const balance = payload.balance !== undefined
+        ? Number(payload.balance)
+        : Number(profileData?.balance || 0) + reward;
 
-      holdState={
+      profileData = profileData || {};
+      profileData.balance = balance;
+      setBalance(balance);
+
+      holdState = normalizeHoldState({
         ...holdState,
+        ...payload,
         session_id:null,
         ready:false,
-        cooldown_until:Math.floor(Date.now()/1000)+21600,
-        cooldown_remaining:21600,
-        last_completed_at:Math.floor(Date.now()/1000),
-        claims:Number(holdState.claims||0)+1
-      };
+        cooldown_until:Number(payload.cooldown_until) || now + cooldown,
+        cooldown_remaining:cooldown,
+        last_completed_at:now,
+        claims:Number(holdState.claims || 0) + 1
+      });
 
-      holdPointerActive=false;
-      holdReleaseQueued=false;
+      holdPointerActive = false;
+      holdReleaseQueued = false;
+      holdPointerId = null;
       stopFarmAnimation();
       $('#farmRing')?.classList.remove('holding');
-      $('#farmTimer').textContent='0:00';
-      $('#farmProgressFill').style.width='100%';
-      $('#farmTotal').textContent=`+${Number(payload.reward||farmTargetReward).toLocaleString('ru-RU')} ₽`;
-      $('#farmStatus').textContent=`Готово! +${Number(payload.reward||farmTargetReward).toLocaleString('ru-RU')} ₽ уже на главном балансе.`;
-      $('#farmClaimCount').textContent=`Собрано: ${holdState.claims}`;
-      spawnFarmSpark();
-      spawnFarmSpark();
-      showToast(`+${number(payload.reward||farmTargetReward)} ₽ зачислено`);
+      updateFarmVisuals(cooldown);
+      $('#farmTotal').textContent = `+${reward.toLocaleString('ru-RU')} ₽`;
+      $('#farmStatus').textContent = `Готово! +${reward.toLocaleString('ru-RU')} ₽ уже на главном балансе.`;
+      $('#farmClaimCount').textContent = `Собрано: ${holdState.claims}`;
+      for(let i=0;i<8;i++) spawnFarmSpark();
+      showToast(`+${number(reward)} ₽ зачислено`);
       haptic('heavy');
-      try{await loadProfile()}catch(_){}
+      try{ await loadProfile(); }catch(_){ }
     }catch(err){
-      // A stale session can happen after WebView suspension. Refresh state instead
-      // of leaving the UI in a fake "holding" state.
+      farmCompleted = false;
+      // A WebView/network hiccup must never leave a fake active session.
       try{
         await fetchHoldStatus();
-        if(holdState?.ready){
-          holdPointerActive=false;
-          holdReleaseQueued=false;
+        if(!holdState?.session_id){
+          holdPointerActive = false;
+          holdReleaseQueued = false;
           stopFarmAnimation();
           $('#farmRing')?.classList.remove('holding');
-          updateFarmVisuals(30);
-          $('#farmStatus').textContent='Сессия обновлена. Нажми R ещё раз.';
-          showToast('Сессия обновлена');
-          return;
         }
-      }catch(_){}
-      holdPointerActive=false;
-      holdReleaseQueued=false;
-      stopFarmAnimation();
-      $('#farmRing')?.classList.remove('holding');
-      showToast(err.message||'Не удалось получить награду');
+      }catch(_){
+        holdPointerActive = false;
+        holdReleaseQueued = false;
+        stopFarmAnimation();
+        $('#farmRing')?.classList.remove('holding');
+      }
+      $('#farmStatus').textContent = err.message || 'Награда не зачислена';
+      showToast(err.message || 'Награда не зачислена');
+    }finally{
+      farmCompleting = false;
     }
   }
 
   async function cancelStandaloneFarm(){
-    holdReleaseQueued=true;
-    holdPointerActive=false;
+    if(farmCompleting || farmCompleted) return;
+    holdReleaseQueued = true;
+    holdPointerActive = false;
     stopFarmAnimation();
     $('#farmRing')?.classList.remove('holding');
 
-    // If start is still in flight, startStandaloneFarm() will cancel
-    // immediately after it receives the session id.
     if(holdStartPromise) return;
-
-    const sessionId=holdState?.session_id;
-    if(!sessionId) return;
+    const sessionId = holdState?.session_id;
+    if(!sessionId){
+      holdReleaseQueued = false;
+      updateFarmVisuals(FARM_DURATION);
+      $('#farmTotal').textContent = '100–150k ₽';
+      $('#farmStatus').textContent = 'Отпустил раньше времени. Награда не засчитана.';
+      return;
+    }
 
     try{
-      await fetch(`${API_BASE}/hold/cancel/${encodeURIComponent(userId)}`,{
+      await fetch(`${API_BASE}/hold/cancel/${encodeURIComponent(userId)}`, {
         method:'POST',cache:'no-store',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({session_id:sessionId})
       });
-    }catch(_){}
+    }catch(_){ }
 
-    if(holdState) {
-      holdState.session_id=null;
-      holdState.started_at=0;
-      holdState.ready=false;
-    }
-    updateFarmVisuals(30);
-    $('#farmTotal').textContent='100–150k ₽';
-    $('#farmStatus').textContent='Отпустил раньше времени. Награда не засчитана.';
+    holdState = normalizeHoldState({...holdState,session_id:null,started_at:0,ready:false});
+    holdReleaseQueued = false;
+    updateFarmVisuals(FARM_DURATION);
+    $('#farmTotal').textContent = '100–150k ₽';
+    $('#farmStatus').textContent = 'Отпустил раньше времени. Награда не засчитана.';
   }
 
   function bindFarmButton(){
-    const r=$('#farmRing');
-    if(!r||r.dataset.bound==='1') return;
-    r.dataset.bound='1';
+    const r = $('#farmRing');
+    if(!r || r.dataset.bound === '1') return;
+    r.dataset.bound = '1';
 
-    r.onpointerdown=e=>{
+    r.onpointerdown = e => {
       e.preventDefault();
-      holdPointerId=e.pointerId;
-      try{r.setPointerCapture?.(e.pointerId)}catch(_){}
-      if(!holdPointerActive) startStandaloneFarm();
+      holdPointerId = e.pointerId;
+      try{ r.setPointerCapture?.(e.pointerId); }catch(_){ }
+      startStandaloneFarm();
     };
 
-    r.onpointerup=e=>{
+    r.onpointerup = e => {
       e.preventDefault();
-      if(holdPointerId!==null && e.pointerId!==holdPointerId) return;
-      holdPointerId=null;
-
-      // Do not check session_id here: /hold/start may still be pending.
-      if(holdPointerActive || holdStartPromise) {
-        const started=Number(holdState?.started_at||0);
-        const duration=Number(holdState?.duration||30);
-        const elapsed=started ? Date.now()-started*1000 : 0;
-        if(holdState?.session_id && elapsed>=duration*1000){
+      if(holdPointerId !== null && e.pointerId !== holdPointerId) return;
+      holdPointerId = null;
+      // At 30s the animation already calls completeStandaloneFarm().
+      // Never cancel a completed/finishing session because iOS releases capture.
+      if(farmCompleting || farmCompleted) return;
+      if(holdPointerActive || holdStartPromise){
+        const started = Number(holdState?.started_at || 0);
+        const elapsed = started ? Date.now() - started * 1000 : 0;
+        if(holdState?.session_id && elapsed >= FARM_DURATION * 1000){
           completeStandaloneFarm();
         }else{
           cancelStandaloneFarm();
@@ -1868,56 +1958,79 @@ body::before{
       }
     };
 
-    r.onpointercancel=()=>{holdPointerId=null;cancelStandaloneFarm()};
-    r.onlostpointercapture=()=>{if(holdPointerActive) cancelStandaloneFarm()};
+    r.onpointercancel = () => {
+      holdPointerId = null;
+      if(!farmCompleting && !farmCompleted) cancelStandaloneFarm();
+    };
+
+    r.onlostpointercapture = () => {
+      if(holdPointerActive && !farmCompleting && !farmCompleted) cancelStandaloneFarm();
+    };
   }
 
   function spawnFarmSpark(){
-    const box=$('#farmCoins'); if(!box) return;
-    const el=document.createElement('i');
-    el.className='farm-spark';
-    el.style.left=(43+Math.random()*14)+'%';
-    el.style.top=(38+Math.random()*22)+'%';
-    el.style.setProperty('--sx',((Math.random()-.5)*70)+'px');
-    el.style.setProperty('--sy',(-20-Math.random()*55)+'px');
+    const box = $('#farmCoins'); if(!box) return;
+    const el = document.createElement('i');
+    el.className = 'farm-spark';
+    el.style.left = (38 + Math.random()*24) + '%';
+    el.style.top = (34 + Math.random()*32) + '%';
+    el.style.setProperty('--sx',((Math.random()-.5)*120)+'px');
+    el.style.setProperty('--sy',(-25-Math.random()*90)+'px');
     box.appendChild(el);
-    setTimeout(()=>el.remove(),1000);
+    setTimeout(()=>el.remove(),1250);
   }
 
   async function initFarm(){
-    try{
-      await fetchHoldStatus();
-      const ready=Boolean(holdState?.ready);
-      const left=Number(holdState?.cooldown_remaining||0);
-      const duration=Number(holdState?.duration||30);
-      updateFarmVisuals(ready?duration:left);
-      $('#farmStatus').textContent=ready
-        ? 'Нажми и удерживай R. Одна попытка приносит от 100 000 до 150 000 ₽.'
-        : `Фарм снова будет доступен через ${formatClock(left)}.`;
-      $('#farmTotal').textContent=ready?'100–150k ₽':'КД';
-      $('#farmClaimCount').textContent=`Собрано: ${Number(holdState?.claims||0)}`;
-      bindFarmButton();
-    }catch(_){
-      $('#farmStatus').textContent='Фарм временно недоступен';
-    }
+    if(farmInitPromise) return farmInitPromise;
+    farmInitPromise = (async()=>{
+      try{
+        await fetchHoldStatus();
+        const ready = Boolean(holdState?.ready);
+        const left = Number(holdState?.cooldown_remaining || 0);
+        updateFarmVisuals(ready ? FARM_DURATION : left);
+        $('#farmStatus').textContent = ready
+          ? 'Нажми и удерживай R 30 секунд. Награда: 100 000–150 000 ₽.'
+          : `Фарм снова будет доступен через ${formatClock(left)}.`;
+        $('#farmTotal').textContent = ready ? '100–150k ₽' : 'КД';
+        $('#farmClaimCount').textContent = `Собрано: ${Number(holdState?.claims || 0)}`;
+        bindFarmButton();
+      }catch(err){
+        $('#farmStatus').textContent = err.message || 'Фарм временно недоступен';
+      }finally{
+        farmInitPromise = null;
+      }
+    })();
+    return farmInitPromise;
   }
 
-  // Background timer is only for cooldown/status. It NEVER touches the active progress bar.
-  holdTimer=setInterval(()=>{
-    if(!holdState || holdPointerActive || holdStartPromise) return;
-    const now=Math.floor(Date.now()/1000);
-    if(Number(holdState.cooldown_until||0)>now){
-      const left=Number(holdState.cooldown_until)-now;
+  // Cooldown clock + recovery after Telegram WebView suspension/backgrounding.
+  setInterval(()=>{
+    if(!holdState || holdPointerActive || holdStartPromise || farmCompleting) return;
+    const now = Math.floor(Date.now()/1000);
+    const until = Number(holdState.cooldown_until || 0);
+    if(until > now){
+      const left = until - now;
+      holdState.cooldown_remaining = left;
+      holdState.ready = false;
       updateFarmVisuals(left);
-      $('#farmStatus').textContent=`Фарм снова будет доступен через ${formatClock(left)}.`;
+      $('#farmStatus').textContent = `Фарм снова будет доступен через ${formatClock(left)}.`;
+      $('#farmTotal').textContent = 'КД';
     }else if(!holdState.session_id){
-      holdState.ready=true;
-      updateFarmVisuals(Number(holdState.duration||30));
-      $('#farmStatus').textContent='Нажми и удерживай R. Одна попытка приносит от 100 000 до 150 000 ₽.';
-      $('#farmTotal').textContent='100–150k ₽';
+      holdState.ready = true;
+      holdState.cooldown_remaining = 0;
+      updateFarmVisuals(FARM_DURATION);
+      $('#farmStatus').textContent = 'Нажми и удерживай R 30 секунд. Награда: 100 000–150 000 ₽.';
+      $('#farmTotal').textContent = '100–150k ₽';
     }
   },1000);
 
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState === 'visible' && !holdPointerActive && !farmCompleting){
+      // Re-sync after iOS suspends JavaScript timers/network requests.
+      initFarm();
+    }
+  });
+  window.addEventListener('pageshow',()=>{ if(!holdPointerActive && !farmCompleting) initFarm(); });
   document.addEventListener('DOMContentLoaded',initFarm);
 
   // =========================
