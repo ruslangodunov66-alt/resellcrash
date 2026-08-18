@@ -730,6 +730,49 @@ body::before{
   -webkit-backface-visibility:hidden;
 }
 
+
+/* === R-FARM FINAL 30S UX PATCH === */
+#farmSection .farm-header{align-items:flex-start}
+#farmSection .farm-total{
+  flex:0 0 132px;
+  width:132px;
+  min-width:132px;
+  max-width:132px;
+  text-align:right;
+  white-space:nowrap;
+  overflow:hidden;
+  font-variant-numeric:tabular-nums;
+  line-height:1.05;
+}
+#farmSection .farm-stage{
+  position:relative;
+  cursor:pointer;
+  touch-action:none;
+  -webkit-tap-highlight-color:transparent;
+  user-select:none;
+  -webkit-user-select:none;
+  -webkit-touch-callout:none;
+}
+#farmSection .farm-ring,
+#farmSection .farm-ring *{pointer-events:none}
+#farmSection .farm-status{
+  min-height:34px;
+  height:34px;
+  max-width:100%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  overflow:hidden;
+}
+#farmSection .farm-status span{display:block}
+#farmSection .farm-r{will-change:transform;color:#fff}
+#farmSection .farm-ring.holding .farm-r{animation:none!important}
+#farmSection .farm-ring.holding{transform:scale(.985)}
+#farmSection .farm-progress-fill{transition:width .08s linear!important}
+#farmSection .farm-stage.farm-disabled{cursor:not-allowed}
+#farmSection .farm-stage.farm-active .farm-ring{border-color:rgba(183,255,106,.58);box-shadow:0 0 0 12px rgba(183,255,106,.035),0 0 90px rgba(183,255,106,.18),inset 0 0 60px rgba(183,255,106,.10)}
+
 </style>
 </head>
 <body>
@@ -1701,8 +1744,9 @@ body::before{
   function renderFarmReward(progress){
     const el = $('#farmTotal');
     if(!el) return;
-    const reward = Math.floor(farmTargetReward * Math.min(1, Math.max(0, progress)));
-    el.textContent = `+${reward.toLocaleString('ru-RU')} ₽`;
+    const p = Math.min(1, Math.max(0, Number(progress) || 0));
+    const reward = Math.floor(farmTargetReward * p);
+    el.textContent = p <= 0 ? '100–150k ₽' : `+${reward.toLocaleString('ru-RU')} ₽`;
   }
 
   function stopFarmAnimation(){
@@ -1832,7 +1876,9 @@ body::before{
       let payload = null;
       try{ payload = await resp.json(); }catch(_){ payload = null; }
       if(!resp.ok || !payload?.success){
-        throw new Error(payload?.error || `Не удалось зачислить награду (HTTP ${resp.status})`);
+        throw new Error((payload?.error && !/полную минуту|минуту|60\s*сек/i.test(String(payload.error)))
+          ? payload.error
+          : 'Сервер фарма пока требует 60 секунд. Нужна синхронизация backend с режимом 30 секунд.');
       }
 
       farmCompleted = true;
@@ -1864,6 +1910,7 @@ body::before{
       holdPointerId = null;
       stopFarmAnimation();
       $('#farmRing')?.classList.remove('holding');
+      document.querySelector('#farmSection .farm-stage')?.classList.remove('farm-active');
       updateFarmVisuals(cooldown);
       $('#farmTotal').textContent = `+${reward.toLocaleString('ru-RU')} ₽`;
       $('#farmStatus').textContent = `Готово! +${reward.toLocaleString('ru-RU')} ₽ уже на главном балансе.`;
@@ -1902,6 +1949,7 @@ body::before{
     holdPointerActive = false;
     stopFarmAnimation();
     $('#farmRing')?.classList.remove('holding');
+    document.querySelector('#farmSection .farm-stage')?.classList.remove('farm-active');
 
     if(holdStartPromise) return;
     const sessionId = holdState?.session_id;
@@ -1929,23 +1977,24 @@ body::before{
   }
 
   function bindFarmButton(){
-    const r = $('#farmRing');
-    if(!r || r.dataset.bound === '1') return;
-    r.dataset.bound = '1';
+    const stage = document.querySelector('#farmSection .farm-stage');
+    if(!stage || stage.dataset.bound === '1') return;
+    stage.dataset.bound = '1';
 
-    r.onpointerdown = e => {
-      e.preventDefault();
-      holdPointerId = e.pointerId;
-      try{ r.setPointerCapture?.(e.pointerId); }catch(_){ }
+    const begin = (e) => {
+      if(e && e.button !== undefined && e.button !== 0) return;
+      e?.preventDefault?.();
+      if(holdPointerId === null && e?.pointerId != null) holdPointerId = e.pointerId;
+      try{ if(e?.pointerId != null) stage.setPointerCapture?.(e.pointerId); }catch(_){ }
+      stage.classList.add('farm-active');
       startStandaloneFarm();
     };
 
-    r.onpointerup = e => {
-      e.preventDefault();
-      if(holdPointerId !== null && e.pointerId !== holdPointerId) return;
+    const end = (e) => {
+      e?.preventDefault?.();
+      if(e?.pointerId != null && holdPointerId !== null && e.pointerId !== holdPointerId) return;
       holdPointerId = null;
-      // At 30s the animation already calls completeStandaloneFarm().
-      // Never cancel a completed/finishing session because iOS releases capture.
+      stage.classList.remove('farm-active');
       if(farmCompleting || farmCompleted) return;
       if(holdPointerActive || holdStartPromise){
         const started = Number(holdState?.started_at || 0);
@@ -1958,14 +2007,22 @@ body::before{
       }
     };
 
-    r.onpointercancel = () => {
-      holdPointerId = null;
-      if(!farmCompleting && !farmCompleted) cancelStandaloneFarm();
-    };
+    stage.addEventListener('pointerdown', begin, {passive:false});
+    stage.addEventListener('pointerup', end, {passive:false});
+    stage.addEventListener('pointercancel', end, {passive:false});
+    stage.addEventListener('lostpointercapture', () => {
+      stage.classList.remove('farm-active');
+      if(holdPointerActive && !farmCompleting && !farmCompleted){
+        // If the 30 seconds have already elapsed, finish instead of cancelling.
+        const started = Number(holdState?.started_at || 0);
+        const elapsed = started ? Date.now() - started * 1000 : 0;
+        if(holdState?.session_id && elapsed >= FARM_DURATION * 1000) completeStandaloneFarm();
+        else cancelStandaloneFarm();
+      }
+    });
 
-    r.onlostpointercapture = () => {
-      if(holdPointerActive && !farmCompleting && !farmCompleted) cancelStandaloneFarm();
-    };
+    // Extra iOS fallback: tapping anywhere in the stage is treated as the same R target.
+    stage.addEventListener('touchstart', e => e.preventDefault(), {passive:false});
   }
 
   function spawnFarmSpark(){
@@ -1992,6 +2049,7 @@ body::before{
           ? 'Нажми и удерживай R 30 секунд. Награда: 100 000–150 000 ₽.'
           : `Фарм снова будет доступен через ${formatClock(left)}.`;
         $('#farmTotal').textContent = ready ? '100–150k ₽' : 'КД';
+        document.querySelector('#farmSection .farm-stage')?.classList.toggle('farm-disabled', !ready);
         $('#farmClaimCount').textContent = `Собрано: ${Number(holdState?.claims || 0)}`;
         bindFarmButton();
       }catch(err){
