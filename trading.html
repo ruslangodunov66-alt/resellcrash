@@ -115,7 +115,7 @@ input[type=number]{appearance:textfield}
 
   <div id="viewTrade" class="view-section active">
     <div class="pair-chips" id="pairChips">
-      <div class="chip active" data-pair="BTCUSDTT">BTC/USDT</div><div class="chip" data-pair="ETHUSDT">ETH/USDT</div><div class="chip" data-pair="SOLUSDT">SOL/USDT</div><div class="chip" data-pair="TONUSDT">TON/USDT</div>
+      <div class="chip active" data-pair="BTCUSDT">BTC/USDT</div><div class="chip" data-pair="ETHUSDT">ETH/USDT</div><div class="chip" data-pair="SOLUSDT">SOL/USDT</div><div class="chip" data-pair="TONUSDT">TON/USDT</div>
     </div>
     <div class="ticker-bar">
       <div class="pair-info"><span class="pair-symbol" id="pairSymbolDisplay">BTC/USDT</span><div class="market-meta"><span class="pair-price" id="priceDisplay">—</span><span class="pair-extra" id="marketExtra">BINANCE SPOT · USDT</span></div></div>
@@ -228,7 +228,12 @@ input[type=number]{appearance:textfield}
 
   async function fetchKlines(){
     try{const data=await fetchJSON(`https://api.binance.com/api/v3/klines?symbol=${currentPair}&interval=${currentInterval}&limit=200`);const rows=data.map(d=>({time:Math.floor(d[0]/1000),open:+d[1],high:+d[2],low:+d[3],close:+d[4]}));candleSeries.setData(rows);if(rows.length){realPrice=rows.at(-1).close;el.price.textContent=priceText(realPrice);el.mid.textContent=priceText(realPrice)};resize();await fetch24h();}
-    catch(e){showToast('Не удалось загрузить рынок');}
+    catch(e){
+      console.error('Binance market load error',e);
+      setConnection(false);
+      showToast('Binance не отвечает — повторная попытка…');
+      setTimeout(()=>{fetchKlines();connectMarketSockets()},1800);
+    }
   }
   function priceText(n){const v=Number(n)||0;return v>=1000?v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):v>=1?v.toFixed(4):v.toFixed(6)}
   async function fetch24h(){try{const d=await fetchJSON(`https://api.binance.com/api/v3/ticker/24hr?symbol=${currentPair}`);updateTicker(Number(d.lastPrice),Number(d.priceChangePercent));el.sumHigh.textContent=priceText(d.highPrice);el.sumLow.textContent=priceText(d.lowPrice);el.sumVol.textContent=Number(d.quoteVolume).toLocaleString('en-US',{notation:'compact',maximumFractionDigits:2})+' USDT';el.extra.textContent=`24h vol ${Number(d.quoteVolume).toLocaleString('en-US',{notation:'compact',maximumFractionDigits:1})} · Binance`;}catch(_){} }
@@ -245,9 +250,10 @@ input[type=number]{appearance:textfield}
   function closeSocket(s){try{s?.close()}catch(_){} }
   function connectMarketSockets(){
     closeSocket(wsKline);closeSocket(wsDepth);clearTimeout(reconnectTimer);clearInterval(depthTimer);
-    const stream=currentPair.toLowerCase()+'@kline_'+currentInterval;
+    const safePair=/^[A-Z0-9]+$/.test(currentPair)?currentPair:'BTCUSDT';
+    const stream=safePair.toLowerCase()+'@kline_'+currentInterval;
     try{wsKline=new WebSocket(`wss://stream.binance.com:9443/ws/${stream}`);wsKline.onopen=()=>setConnection(true);wsKline.onmessage=e=>{try{const m=JSON.parse(e.data);if(m.e==='kline'){const k=m.k;const row={time:Math.floor(k.t/1000),open:+k.o,high:+k.h,low:+k.l,close:+k.c};candleSeries.update(row);realPrice=+k.c;updateTicker(realPrice, null);renderActiveTrades();renderPositions();}}catch(_){}};wsKline.onerror=()=>setConnection(false);wsKline.onclose=()=>{setConnection(false);reconnectTimer=setTimeout(connectMarketSockets,2500)}}catch(_){setConnection(false)}
-    try{wsDepth=new WebSocket(`wss://stream.binance.com:9443/ws/${currentPair.toLowerCase()}@depth5@100ms`);wsDepth.onmessage=e=>{try{const d=JSON.parse(e.data);renderOrderBook((d.asks||[]).map(x=>[+x[0],+x[1]]),(d.bids||[]).map(x=>[+x[0],+x[1]]))}catch(_){}};wsDepth.onclose=()=>{};}catch(_){ }
+    try{wsDepth=new WebSocket(`wss://stream.binance.com:9443/ws/${safePair.toLowerCase()}@depth5@100ms`);wsDepth.onmessage=e=>{try{const d=JSON.parse(e.data);renderOrderBook((d.asks||[]).map(x=>[+x[0],+x[1]]),(d.bids||[]).map(x=>[+x[0],+x[1]]))}catch(_){}};wsDepth.onclose=()=>{};}catch(_){ }
     fetchDepthFallback();depthTimer=setInterval(fetchDepthFallback,3500);
   }
   function setConnection(online){el.dot.classList.toggle('online',online);el.pill.classList.toggle('online',online);el.connection.textContent=online?'LIVE':'RECONNECTING'}
