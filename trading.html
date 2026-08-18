@@ -122,7 +122,7 @@ input[type=number]{appearance:textfield}
       <div class="ticker-right"><span class="pair-change" id="changeDisplay">+0.00%</span></div>
     </div>
     <div class="tf-bar" id="tfBar">
-      <button class="tf-btn" data-tf="1m">1m</button><button class="tf-btn active" data-tf="5m">5m</button><button class="tf-btn" data-tf="15m">15m</button><button class="tf-btn" data-tf="1h">1H</button><button class="tf-btn" data-tf="4h">4H</button><div class="market-pill" id="marketPill"><span class="market-dot"></span><span id="statusText">LIVE</span></div>
+      <button class="tf-btn" data-tf="1m">1m</button><button class="tf-btn active" data-tf="5m">5m</button><button class="tf-btn" data-tf="15m">15m</button><button class="tf-btn" data-tf="1h">1H</button><button class="tf-btn" data-tf="4h">4H</button><div class="market-pill" id="marketPill"><span class="market-dot"></span><span id="statusText">LIVE</span></div><button id="reconnectMarketBtn" style="border:0;background:transparent;color:#848e9c;font:800 9px Montserrat,sans-serif;padding:4px 2px">↻</button>
     </div>
     <div class="chart-box">
       <div class="chart-toolbar"><span class="chart-tag">Real market</span><span class="chart-tag" id="chartSymbolTag">BTCUSDTT</span></div>
@@ -231,8 +231,7 @@ input[type=number]{appearance:textfield}
     catch(e){
       console.error('Binance market load error',e);
       setConnection(false);
-      showToast('Binance не отвечает — повторная попытка…');
-      setTimeout(()=>{fetchKlines();connectMarketSockets()},1800);
+      showToast('Не удалось подключиться к Binance');
     }
   }
   function priceText(n){const v=Number(n)||0;return v>=1000?v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):v>=1?v.toFixed(4):v.toFixed(6)}
@@ -252,10 +251,11 @@ input[type=number]{appearance:textfield}
     closeSocket(wsKline);closeSocket(wsDepth);clearTimeout(reconnectTimer);clearInterval(depthTimer);
     const safePair=/^[A-Z0-9]+$/.test(currentPair)?currentPair:'BTCUSDT';
     const stream=safePair.toLowerCase()+'@kline_'+currentInterval;
-    try{wsKline=new WebSocket(`wss://stream.binance.com:9443/ws/${stream}`);wsKline.onopen=()=>setConnection(true);wsKline.onmessage=e=>{try{const m=JSON.parse(e.data);if(m.e==='kline'){const k=m.k;const row={time:Math.floor(k.t/1000),open:+k.o,high:+k.h,low:+k.l,close:+k.c};candleSeries.update(row);realPrice=+k.c;updateTicker(realPrice, null);renderActiveTrades();renderPositions();}}catch(_){}};wsKline.onerror=()=>setConnection(false);wsKline.onclose=()=>{setConnection(false);reconnectTimer=setTimeout(connectMarketSockets,2500)}}catch(_){setConnection(false)}
+    try{wsKline=new WebSocket(`wss://stream.binance.com:9443/ws/${stream}`);wsKline.onopen=()=>setConnection(true);wsKline.onmessage=e=>{try{const m=JSON.parse(e.data);if(m.e==='kline'){const k=m.k;const row={time:Math.floor(k.t/1000),open:+k.o,high:+k.h,low:+k.l,close:+k.c};candleSeries.update(row);realPrice=+k.c;updateTicker(realPrice, null);renderActiveTrades();renderPositions();}}catch(_){}};wsKline.onerror=()=>setConnection(false);wsKline.onclose=()=>{setConnection(false);clearTimeout(reconnectTimer);reconnectTimer=setTimeout(connectMarketSockets,5000)}}catch(_){setConnection(false)}
     try{wsDepth=new WebSocket(`wss://stream.binance.com:9443/ws/${safePair.toLowerCase()}@depth5@100ms`);wsDepth.onmessage=e=>{try{const d=JSON.parse(e.data);renderOrderBook((d.asks||[]).map(x=>[+x[0],+x[1]]),(d.bids||[]).map(x=>[+x[0],+x[1]]))}catch(_){}};wsDepth.onclose=()=>{};}catch(_){ }
     fetchDepthFallback();depthTimer=setInterval(fetchDepthFallback,3500);
   }
+  document.getElementById('reconnectMarketBtn')?.addEventListener('click',()=>{clearTimeout(reconnectTimer);fetchKlines();connectMarketSockets();showToast('Подключение к Binance…')});
   function setConnection(online){el.dot.classList.toggle('online',online);el.pill.classList.toggle('online',online);el.connection.textContent=online?'LIVE':'RECONNECTING'}
   async function fetchDepthFallback(){try{const d=await fetchJSON(`https://api.binance.com/api/v3/depth?symbol=${currentPair}&limit=5`);renderOrderBook((d.asks||[]).map(x=>[+x[0],+x[1]]),(d.bids||[]).map(x=>[+x[0],+x[1]]))}catch(_){} }
   function renderOrderBook(asks,bids){
@@ -324,7 +324,8 @@ input[type=number]{appearance:textfield}
 
   function switchView(target){$$('.nav-tab').forEach(t=>t.classList.toggle('active',t.dataset.target===target));$$('.view-section').forEach(v=>v.classList.toggle('active',v.id===target));if(target==='viewTrade')setTimeout(resize,20);if(target==='viewProfile'){el.profileBalance.textContent=money(casinoBalance);updateStatsUI()}}
   $$('.nav-tab').forEach(tab=>tab.addEventListener('click',()=>{audio();beep(420,.05);haptic('light');switchView(tab.dataset.target)}));
-  $$('#pairChips .chip').forEach(chip=>chip.addEventListener('click',async()=>{audio();beep(500,.05);haptic('light');$$('#pairChips .chip').forEach(c=>c.classList.remove('active'));chip.classList.add('active');currentPair=chip.dataset.pair;el.pair.textContent=chip.textContent;el.chartTag.textContent=currentPair;await fetchKlines();connectMarketSockets();showToast(`Переключено на ${pairLabel(currentPair)}`)}));
+  $$('#pairChips .chip').forEach(chip=>chip.addEventListener('click',async()=>{audio();beep(500,.05);haptic('light');$$('#pairChips .chip').forEach(c=>c.classList.remove('active'));chip.classList.add('active');currentPair=chip.dataset.pair;el.pair.textContent=chip.textContent;el.chartTag.textContent=currentPair;await fetchKlines();
+  connectMarketSockets();showToast(`Переключено на ${pairLabel(currentPair)}`)}));
   $$('#tfBar .tf-btn').forEach(btn=>btn.addEventListener('click',async()=>{audio();beep(460,.05);haptic('light');$$('#tfBar .tf-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');currentInterval=btn.dataset.tf;await fetchKlines();connectMarketSockets()}));
   $$('.qb-btn').forEach(btn=>btn.addEventListener('click',()=>{const pct=Number(btn.dataset.pct)||0;setBet(casinoBalance*pct/100);audio();beep(400,.04);haptic('light')}));
   $('#tradeAmount').addEventListener('input',()=>setBet(parseMoney($('#tradeAmount').value)));
