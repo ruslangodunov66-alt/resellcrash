@@ -336,6 +336,7 @@ body::before{
   background:linear-gradient(180deg,#171717,#0a0a0a);border:1px solid rgba(255,255,255,.10);
   box-shadow:0 -30px 100px rgba(0,0,0,.65);padding:19px 16px calc(18px + env(safe-area-inset-bottom));
 }
+.registration-card{display:grid;gap:12px}.registration-lead{color:#858585;font-size:11px;line-height:1.45;font-weight:800}.registration-field{display:grid;gap:7px}.registration-label{font:900 9px/1 "Montserrat",sans-serif;color:#777;letter-spacing:1px;text-transform:uppercase}.registration-input{width:100%;box-sizing:border-box;border:1px solid var(--line);background:rgba(255,255,255,.045);color:#f4f4f4;border-radius:15px;padding:13px 14px;outline:none;font:800 13px/1.1 "Montserrat",sans-serif}.registration-input:focus{border-color:rgba(183,255,106,.55);box-shadow:0 0 0 3px rgba(183,255,106,.07)}.registration-submit{width:100%;min-height:48px;border:1px solid #fff;border-radius:16px;background:#fff;color:#000;font:900 11px/1 "Montserrat",sans-serif;letter-spacing:.8px}.registration-error{min-height:14px;color:#ff7777;font-size:10px;font-weight:800}.registration-note{color:#626262;font-size:9px;line-height:1.4;font-weight:800}
 .sheet-handle{width:38px;height:4px;border-radius:99px;background:#363636;margin:0 auto 18px}
 .sheet-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
 .sheet-title{font:900 19px/1 "Montserrat",sans-serif}
@@ -1080,6 +1081,7 @@ body::before{
   const progressCollected = $('#progressCollected');
   const toast = $('#toast');
   const modal = $('#modal');
+  const modalClose = $('#modalClose');
   const modalTitle = $('#modalTitle');
   const modalBody = $('#modalBody');
 
@@ -1131,6 +1133,58 @@ body::before{
   function closeModal(){
     modal.classList.remove('open');
     document.body.style.overflow = '';
+  }
+
+  let registrationRequired = false;
+
+  function referralRegistrationToken(){
+    const incoming = cleanReferralCode(getReferralParam());
+    return incoming && incoming !== String(userId) ? incoming : '';
+  }
+
+  function openRegistration(){
+    registrationRequired = true;
+    if (modalClose) modalClose.style.display = 'none';
+    const tgUser = tg?.initDataUnsafe?.user || {};
+    const suggested = tgUser?.first_name ? String(tgUser.first_name).slice(0,20) : '';
+    openModal('Регистрация RESSELL', `
+      <div class="registration-card">
+        <div class="registration-lead">Один аккаунт для Mini App и текстового бота. Заполни данные один раз — они будут доступны в обоих интерфейсах.</div>
+        <div class="registration-field"><label class="registration-label" for="regNickname">Никнейм</label><input class="registration-input" id="regNickname" maxlength="20" minlength="2" autocomplete="nickname" placeholder="Например, Roman" value="${esc(suggested)}"></div>
+        <div class="registration-field"><label class="registration-label" for="regShopName">Название магазина</label><input class="registration-input" id="regShopName" maxlength="30" minlength="2" autocomplete="organization" placeholder="Например, R-STORE"></div>
+        <div class="registration-error" id="registrationError"></div>
+        <button class="registration-submit" id="registrationSubmit" type="button">СОЗДАТЬ АККАУНТ</button>
+        <div class="registration-note">Никнейм: 2–20 символов. Название магазина: 2–30 символов.</div>
+      </div>`);
+    $('#registrationSubmit')?.addEventListener('click', submitRegistration);
+  }
+
+  async function submitRegistration(){
+    const btn = $('#registrationSubmit');
+    const error = $('#registrationError');
+    const nickname = String($('#regNickname')?.value || '').trim();
+    const shopName = String($('#regShopName')?.value || '').trim();
+    if (nickname.length < 2 || nickname.length > 20){ error.textContent='Никнейм должен быть от 2 до 20 символов'; return; }
+    if (shopName.length < 2 || shopName.length > 30){ error.textContent='Название магазина должно быть от 2 до 30 символов'; return; }
+    if (!userId){ error.textContent='Открой RESSELL внутри Telegram'; return; }
+    btn.disabled=true; btn.textContent='СОЗДАНИЕ…'; error.textContent='';
+    try{
+      const resp = await fetch(`${API_BASE}/register/${encodeURIComponent(userId)}`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({nickname,shop_name:shopName,referrer_id:referralRegistrationToken()})});
+      const payload = await resp.json().catch(()=>({}));
+      if(!resp.ok || !payload.success) throw new Error(payload.error || 'Не удалось создать аккаунт');
+      registrationRequired=false;
+      if (modalClose) modalClose.style.display='';
+      closeModal();
+      showToast('Аккаунт RESSELL создан');
+      profileData = await loadProfile();
+      await attachIncomingReferral();
+      referralData = await fetchReferralData();
+      updateReferralCard();
+      maybeShowIntro();
+    }catch(err){
+      error.textContent=err.message || 'Ошибка регистрации';
+      btn.disabled=false; btn.textContent='СОЗДАТЬ АККАУНТ';
+    }
   }
 
   function primaryBalance(data){
@@ -1264,6 +1318,14 @@ body::before{
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json();
       profileData = data;
+
+      if (data.registration_complete === false || data.registration_complete === 0 || data.registration_required === true){
+        setBalance(primaryBalance(data));
+        setProgress(0);
+        statusText.textContent = 'Требуется регистрация';
+        if (!registrationRequired) openRegistration();
+        return data;
+      }
 
       const bal = primaryBalance(data);
       setBalance(bal);
@@ -1542,12 +1604,12 @@ body::before{
   function referralInviteLink(){
     const bot = 'buygame61_bot';
     const code = userId ? `ref_${userId}` : 'ref_user';
-    return `https://t.me/${bot}?startapp=${encodeURIComponent(code)}`;
+    return `https://t.me/${bot}?startapp=${encodeURIComponent(code)}`; // Telegram Main Mini App deep-link: opens RESSELL directly with the referral token
   }
 
   function referralShareLink(){
     const url = referralInviteLink();
-    const text = 'Залетай в RESSELL: я получу +250 000 ₽ за твою активацию, а активные друзья разгоняют мой доход множителем. Заходи:';
+    const text = 'Залетай в RESSELL — за твою активацию я получу +250 000 ₽, а каждый активный друг будет разгонять мой доход множителем. Чем больше активных друзей, тем выше мой буст.\n\nЗаходи:';
     return `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
   }
 
@@ -2512,7 +2574,7 @@ body::before{
 
   $('#claimEpochBtn').addEventListener('click', claimEpochReward);
 
-  $('#modalClose').addEventListener('click', closeModal);
+  $('#modalClose').addEventListener('click', () => { if (!registrationRequired) closeModal(); });
   modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
 
   $$('.nav-item').forEach(item => {
@@ -2607,8 +2669,7 @@ body::before{
   drawParticles();
 
   // Initial load + conservative polling.
-  loadProfile().then(async () => { await attachIncomingReferral(); referralData = await fetchReferralData(); updateReferralCard(); maybeShowIntro(); });
-  maybeShowIntro();
+  loadProfile().then(async (data) => { if (data?.registration_complete === false || data?.registration_required === true) return; await attachIncomingReferral(); referralData = await fetchReferralData(); updateReferralCard(); maybeShowIntro(); });
   setInterval(() => { if (document.visibilityState === 'visible') loadProfile(); }, 60000);
 
 })();
