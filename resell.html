@@ -778,6 +778,12 @@ body::before{
 #farmSection .farm-stage.farm-disabled{cursor:not-allowed}
 #farmSection .farm-stage.farm-active .farm-ring{border-color:rgba(183,255,106,.58);box-shadow:0 0 0 12px rgba(183,255,106,.035),0 0 90px rgba(183,255,106,.18),inset 0 0 60px rgba(183,255,106,.10)}
 
+
+.registration-step{font:900 9px/1 Montserrat,sans-serif;letter-spacing:1.8px;color:#8e8e8e;margin-bottom:9px}
+.registration-title{font:900 21px/1 Montserrat,sans-serif;letter-spacing:-.5px;margin-bottom:8px}
+.registration-confirm{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:0 0 12px;padding:11px 12px;border:1px solid var(--line-soft);border-radius:12px;background:rgba(255,255,255,.035)}
+.registration-confirm span{font:800 8px/1 Montserrat,sans-serif;color:#6f6f6f;letter-spacing:1px}.registration-confirm b{font:900 11px/1 Nunito,sans-serif;color:#fff}
+.registration-actions{display:grid;grid-template-columns:92px 1fr;gap:7px}.registration-back{border:1px solid var(--line);border-radius:12px;color:#999;background:rgba(255,255,255,.035);font:900 9px Montserrat,sans-serif}.registration-back:active,.registration-submit:active{transform:scale(.985)}
 </style>
 </head>
 <body>
@@ -1142,49 +1148,75 @@ body::before{
     return incoming && incoming !== String(userId) ? incoming : '';
   }
 
+  let registrationDraft={nickname:"",shopName:""};
+
   function openRegistration(){
-    registrationRequired = true;
-    if (modalClose) modalClose.style.display = 'none';
-    const tgUser = tg?.initDataUnsafe?.user || {};
-    const suggested = tgUser?.first_name ? String(tgUser.first_name).slice(0,20) : '';
-    openModal('Регистрация RESSELL', `
-      <div class="registration-card">
-        <div class="registration-lead">Один аккаунт для Mini App и текстового бота. Заполни данные один раз — они будут доступны в обоих интерфейсах.</div>
-        <div class="registration-field"><label class="registration-label" for="regNickname">Никнейм</label><input class="registration-input" id="regNickname" maxlength="20" minlength="2" autocomplete="nickname" placeholder="Например, Roman" value="${esc(suggested)}"></div>
-        <div class="registration-field"><label class="registration-label" for="regShopName">Название магазина</label><input class="registration-input" id="regShopName" maxlength="30" minlength="2" autocomplete="organization" placeholder="Например, R-STORE"></div>
+    registrationRequired=true;
+    if(modalClose) modalClose.style.display='none';
+    registrationDraft={nickname:"",shopName:""};
+    renderRegistrationStep(1);
+  }
+
+  function renderRegistrationStep(step){
+    const tgUser=tg?.initDataUnsafe?.user||{};
+    const suggested=tgUser?.first_name ? String(tgUser.first_name).slice(0,20) : '';
+    if(step===1){
+      openModal('Регистрация RESSELL',`
+        <div class="registration-card registration-step-card">
+          <div class="registration-step">ШАГ 1 / 2</div>
+          <div class="registration-title">ТВОЙ НИКНЕЙМ</div>
+          <div class="registration-lead">Придумай имя, которое будет отображаться в RESSELL. Его можно изменить позже.</div>
+          <div class="registration-field"><label class="registration-label" for="regNickname">Никнейм</label><input class="registration-input" id="regNickname" maxlength="20" minlength="2" autocomplete="nickname" placeholder="Например, Roman" value="${esc(registrationDraft.nickname||suggested)}"></div>
+          <div class="registration-error" id="registrationError"></div>
+          <button class="registration-submit" id="registrationNext" type="button">ДАЛЕЕ</button>
+          <div class="registration-note">От 2 до 20 символов.</div>
+        </div>`);
+      $('#registrationNext')?.addEventListener('click',()=>{
+        const value=String($('#regNickname')?.value||'').trim();
+        const error=$('#registrationError');
+        if(value.length<2){error.textContent='❌ Минимум 2 символа!';return;}
+        if(value.length>20){error.textContent='❌ Максимум 20 символов!';return;}
+        registrationDraft.nickname=value;
+        renderRegistrationStep(2);
+      });
+      $('#regNickname')?.addEventListener('keydown',e=>{if(e.key==='Enter') $('#registrationNext')?.click()});
+      return;
+    }
+
+    openModal('Регистрация RESSELL',`
+      <div class="registration-card registration-step-card">
+        <div class="registration-step">ШАГ 2 / 2</div>
+        <div class="registration-title">НАЗВАНИЕ МАГАЗИНА</div>
+        <div class="registration-lead">Придумай название для своего магазина. Именно его увидят другие пользователи.</div>
+        <div class="registration-confirm"><span>НИКНЕЙМ</span><b>${esc(registrationDraft.nickname)}</b></div>
+        <div class="registration-field"><label class="registration-label" for="regShopName">Название магазина</label><input class="registration-input" id="regShopName" maxlength="30" minlength="2" autocomplete="organization" placeholder="Например, R-STORE" value="${esc(registrationDraft.shopName)}"></div>
         <div class="registration-error" id="registrationError"></div>
-        <button class="registration-submit" id="registrationSubmit" type="button">СОЗДАТЬ АККАУНТ</button>
-        <div class="registration-note">Никнейм: 2–20 символов. Название магазина: 2–30 символов.</div>
+        <div class="registration-actions"><button class="registration-back" id="registrationBack" type="button">НАЗАД</button><button class="registration-submit" id="registrationSubmit" type="button">СОЗДАТЬ АККАУНТ</button></div>
+        <div class="registration-note">От 2 до 30 символов.</div>
       </div>`);
-    $('#registrationSubmit')?.addEventListener('click', submitRegistration);
+    $('#registrationBack')?.addEventListener('click',()=>{registrationDraft.shopName=String($('#regShopName')?.value||'').trim();renderRegistrationStep(1)});
+    $('#registrationSubmit')?.addEventListener('click',submitRegistration);
+    $('#regShopName')?.addEventListener('keydown',e=>{if(e.key==='Enter') $('#registrationSubmit')?.click()});
   }
 
   async function submitRegistration(){
-    const btn = $('#registrationSubmit');
-    const error = $('#registrationError');
-    const nickname = String($('#regNickname')?.value || '').trim();
-    const shopName = String($('#regShopName')?.value || '').trim();
-    if (nickname.length < 2 || nickname.length > 20){ error.textContent='Никнейм должен быть от 2 до 20 символов'; return; }
-    if (shopName.length < 2 || shopName.length > 30){ error.textContent='Название магазина должно быть от 2 до 30 символов'; return; }
-    if (!userId){ error.textContent='Открой RESSELL внутри Telegram'; return; }
-    btn.disabled=true; btn.textContent='СОЗДАНИЕ…'; error.textContent='';
+    const btn=$('#registrationSubmit'), error=$('#registrationError');
+    const shopName=String($('#regShopName')?.value||'').trim();
+    registrationDraft.shopName=shopName;
+    if(shopName.length<2){error.textContent='❌ Минимум 2 символа!';return;}
+    if(shopName.length>30){error.textContent='❌ Максимум 30 символов!';return;}
+    if(!userId){error.textContent='❌ Открой RESSELL внутри Telegram';return;}
+    btn.disabled=true;btn.textContent='СОЗДАНИЕ…';error.textContent='';
     try{
-      const resp = await fetch(`${API_BASE}/register/${encodeURIComponent(userId)}`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({nickname,shop_name:shopName,referrer_id:referralRegistrationToken()})});
-      const payload = await resp.json().catch(()=>({}));
-      if(!resp.ok || !payload.success) throw new Error(payload.error || 'Не удалось создать аккаунт');
-      registrationRequired=false;
-      if (modalClose) modalClose.style.display='';
-      closeModal();
+      const resp=await fetch(`${API_BASE}/register/${encodeURIComponent(userId)}`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({nickname:registrationDraft.nickname,shop_name:shopName,referrer_id:referralRegistrationToken()})});
+      const payload=await resp.json().catch(()=>({}));
+      if(!resp.ok||!payload.success) throw new Error(payload.error||'Не удалось создать аккаунт');
+      registrationRequired=false;if(modalClose) modalClose.style.display='';closeModal();
       showToast('Аккаунт RESSELL создан');
-      profileData = await loadProfile();
+      profileData=await loadProfile();
       await attachIncomingReferral();
-      referralData = await fetchReferralData();
-      updateReferralCard();
-      maybeShowIntro();
-    }catch(err){
-      error.textContent=err.message || 'Ошибка регистрации';
-      btn.disabled=false; btn.textContent='СОЗДАТЬ АККАУНТ';
-    }
+      referralData=await fetchReferralData();updateReferralCard();maybeShowIntro();
+    }catch(err){error.textContent=err.message||'Ошибка регистрации';btn.disabled=false;btn.textContent='СОЗДАТЬ АККАУНТ';}
   }
 
   function primaryBalance(data){
@@ -1607,24 +1639,13 @@ body::before{
   }
 
   function referralInviteLink(){
-    const code = userId ? `ref_${userId}` : 'ref_user';
-    // Use the actual RESSELL page URL so referral clicks cannot be routed
-    // through the bot's currently configured legacy app (casino/text bot).
-    // Keep only the referral token and preserve the current deployment host/path.
-    try {
-      const url = new URL(location.href);
-      url.search = '';
-      url.hash = '';
-      url.searchParams.set('ref', code);
-      return url.toString();
-    } catch(_) {
-      return `${location.origin}${location.pathname}?ref=${encodeURIComponent(code)}`;
-    }
+    const code=userId ? `ref_${userId}` : 'ref_user';
+    return `https://t.me/buygame61_bot?startapp=${encodeURIComponent(code)}`;
   }
 
   function referralShareLink(){
-    const url = referralInviteLink();
-    const text = 'Залетай в RESSELL — за твою активацию я получу +250 000 ₽, а каждый активный друг будет разгонять мой доход множителем. Чем больше активных друзей, тем выше мой буст.\n\nЗаходи:';
+    const url=referralInviteLink();
+    const text='Залетай в RESSELL — за твою активацию я получу +250 000 ₽. А ты сразу попадёшь в приложение, где сможешь создать свой аккаунт и начать с нуля.';
     return `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
   }
 
@@ -1690,7 +1711,7 @@ body::before{
       invitedBy,
       active,total,earned,pending,directReward,passivePercent,passiveDays,boostMultiplier,inviteeBonus,referralTitle,streak,nextTarget,
       milestones: apiMilestones,
-      inviteLink: base.invite_link || base.link || referralInviteLink()
+      inviteLink: referralInviteLink()
     };
   }
 
