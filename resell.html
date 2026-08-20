@@ -1363,66 +1363,39 @@ body::before{
     claimBtn.textContent = 'Получить награду';
   }
 
-  async function loadProfile(){
-    if (!userId){
-      setBalance(0);
-      setProgress(0);
-      statusText.textContent = 'Открой проект через Telegram';
-      return;
-    }
-
-    statusText.textContent = 'Обновление данных…';
-
-    try{
-      const resp = await fetch(`${API_BASE}/profile/${encodeURIComponent(userId)}`, {
-        method:'GET',
-        cache:'no-store',
-        headers:{'Accept':'application/json'}
-      });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
-      profileData = data;
-
-      if (data.registration_complete === false || data.registration_complete === 0 || data.registration_required === true){
-        setBalance(primaryBalance(data));
-        setProgress(0);
-        statusText.textContent = 'Требуется регистрация';
-        if (!registrationRequired) openRegistration();
-        return data;
-      }
-
-      const bal = primaryBalance(data);
-      setBalance(bal);
-
-      epochData = data.epoch || null;
-      const p = Number(data.epoch_progress ?? epochData?.progress ?? 0);
-      setProgress(p);
-
-      statusText.textContent = 'Баланс синхронизирован';
-      $('.status-dot').style.background = 'var(--success)';
-
-      return data;
-    }catch(err){
-      console.warn('Profile load failed:', err);
-      // Один повтор: WebView иногда даёт краткий network error сразу после открытия.
-      if(profileData){
-        setBalance(primaryBalance(profileData));
-        statusText.textContent = 'Данные сохранены';
-        return profileData;
-      }
+  async function apiFetch(url, options={}, attempts=3){
+    let lastError=null;
+    for(let i=0;i<attempts;i++){
+      const controller=new AbortController();
+      const timer=setTimeout(()=>controller.abort(),9000);
       try{
-        await new Promise(r=>setTimeout(r,450));
-        const retry=await fetch(`${API_BASE}/profile/${encodeURIComponent(userId)}?retry=${Date.now()}`,{cache:'no-store',headers:{'Accept':'application/json','Cache-Control':'no-cache'}});
-        if(!retry.ok) throw new Error(`HTTP ${retry.status}`);
-        const retryData=await retry.json(); profileData=retryData; setBalance(primaryBalance(retryData));
-        statusText.textContent='Баланс синхронизирован';
-        return retryData;
-      }catch(retryErr){
-        statusText.textContent = 'Данные временно не обновлены';
-        showToast('Связь с сервером временно нестабильна');
-        return profileData;
+        const resp=await fetch(url,{cache:'no-store',...options,signal:controller.signal,headers:{'Accept':'application/json','Cache-Control':'no-cache',...(options.headers||{})}});
+        clearTimeout(timer);
+        if(!resp.ok){let p={};try{p=await resp.json();}catch(_){} const e=new Error(p?.error||`HTTP ${resp.status}`);e.status=resp.status;throw e;}
+        return resp;
+      }catch(e){
+        clearTimeout(timer); lastError=e?.name==='AbortError'?new Error('Сервер не ответил вовремя'):e;
+        if(i<attempts-1) await new Promise(r=>setTimeout(r,500*(i+1)));
       }
     }
+    throw lastError||new Error('Сервер временно недоступен');
+  }
+
+  async function loadProfile(){
+    if(!userId){ setBalance(0); setProgress(0); statusText.textContent='Открой проект через Telegram'; return null; }
+    statusText.textContent='Синхронизация…';
+    let lastError=null;
+    for(let attempt=0;attempt<3;attempt++){
+      try{
+        const resp=await apiFetch(`${API_BASE}/profile/${encodeURIComponent(userId)}?t=${Date.now()}`,{method:'GET'},1);
+        const data=await resp.json(); profileData=data;
+        if(data.registration_complete===false||data.registration_complete===0||data.registration_required===true){setBalance(primaryBalance(data));setProgress(0);statusText.textContent='Требуется регистрация';if(!registrationRequired)openRegistration();return data;}
+        setBalance(primaryBalance(data)); epochData=data.epoch||null; setProgress(Number(data.epoch_progress??epochData?.progress??0)); statusText.textContent='Баланс синхронизирован'; $('.status-dot').style.background='var(--success)'; return data;
+      }catch(e){lastError=e;if(attempt<2)await new Promise(r=>setTimeout(r,600*(attempt+1)));}
+    }
+    console.warn('Profile load failed:',lastError);
+    if(profileData){setBalance(primaryBalance(profileData));statusText.textContent='Офлайн · показаны последние данные';return profileData;}
+    statusText.textContent='Сервер временно недоступен'; $('.status-dot').style.background='#777'; showToast('Сервер RESSELL временно не отвечает. Попробуй обновить через несколько секунд.'); return null;
   }
 
   function navigate(url){
@@ -1868,11 +1841,11 @@ body::before{
   }
 
   // =========================
-  // Standalone R-Farm — 30s / 3h
+  // Standalone R-Farm — 30s / 6h
   // Server-authoritative reward + resilient cooldown/session recovery.
   // =========================
   const FARM_DURATION = 30;
-  const FARM_COOLDOWN = 3 * 60 * 60;
+  const FARM_COOLDOWN = 6 * 60 * 60;
   const FARM_MIN_REWARD = 100000;
   const FARM_MAX_REWARD = 150000;
   const FARM_LOCAL_LAST_COMPLETED_KEY = 'resell_farm_last_completed_at_v3';
@@ -1942,45 +1915,19 @@ body::before{
     const d = raw || {};
     const now = farmNow();
     const sessionId = d.session_id || d.sessionId || null;
-    const lastCompletedAt = getLastCompletedAt(d);
-    const localLastCompleted = farmReadLocalNumber(FARM_LOCAL_LAST_COMPLETED_KEY);
-    const localCooldownUntil = farmReadLocalNumber(FARM_LOCAL_COOLDOWN_KEY);
-
-    const explicitUntil = farmEpochSeconds(d.cooldown_until ?? d.cooldownUntil ?? 0);
-    const serverCooldown = Math.max(0, farmDurationSeconds(d.cooldown_remaining ?? d.cooldownRemaining ?? 0));
-    const derivedFromServerUntil = explicitUntil > now ? explicitUntil - now : 0;
-    const effectiveCompletedAt = Math.max(lastCompletedAt, localLastCompleted);
-    const derivedFromCompletedAt = effectiveCompletedAt > 0
-      ? Math.max(0, FARM_COOLDOWN - (now - effectiveCompletedAt))
-      : 0;
-    const derivedFromLocalUntil = localCooldownUntil > now ? localCooldownUntil - now : 0;
-
-    // Important: an old backend can keep returning a stale cooldown_remaining.
-    // A real completion timestamp is more reliable because it ages naturally.
-    let cooldownRemaining = Math.max(derivedFromServerUntil, derivedFromCompletedAt, derivedFromLocalUntil);
-    if(!effectiveCompletedAt && !explicitUntil) cooldownRemaining = Math.max(cooldownRemaining, serverCooldown);
-
-    // If a timestamp proves that the 3h window has already expired, do not let
-    // a stale cached `cooldown_remaining` keep the UI locked forever.
-    if(effectiveCompletedAt > 0 && now >= effectiveCompletedAt + FARM_COOLDOWN){
-      cooldownRemaining = 0;
-      farmClearLocalCooldown();
-    }
-
-    const serverDuration = Number(d.duration ?? 0) || 0;
-    const duration = Math.max(1, Math.min(FARM_DURATION, serverDuration || FARM_DURATION));
-    const explicitReady = d.ready;
-    const ready = !sessionId && cooldownRemaining <= 0;
-
-    return {
-      ...d,
-      session_id: sessionId,
-      last_completed_at: effectiveCompletedAt || undefined,
-      cooldown_until: Math.max(explicitUntil, localCooldownUntil),
-      cooldown_remaining: cooldownRemaining,
-      duration,
-      ready
-    };
+    const startedAt = farmEpochSeconds(d.started_at || d.startedAt || 0);
+    const lastCompletedAt = farmEpochSeconds(d.last_completed_at || d.lastCompletedAt || 0);
+    const explicitUntil = farmEpochSeconds(d.cooldown_until || d.cooldownUntil || 0);
+    const serverRemaining = Math.max(0, Number(d.cooldown_remaining ?? d.cooldownRemaining ?? 0));
+    let cooldownUntil = explicitUntil;
+    if(!cooldownUntil && lastCompletedAt > 0) cooldownUntil = lastCompletedAt + FARM_COOLDOWN;
+    let cooldownRemaining = cooldownUntil > now ? cooldownUntil - now : 0;
+    // Only fall back to server's remaining seconds when it did not provide a timestamp.
+    if(!explicitUntil && !lastCompletedAt && cooldownRemaining <= 0) cooldownRemaining = serverRemaining;
+    if(cooldownRemaining <= 0){ cooldownRemaining = 0; cooldownUntil = 0; farmClearLocalCooldown(); }
+    const serverDuration = Number(d.duration ?? 0) || FARM_DURATION;
+    const duration = Math.max(1, Math.min(FARM_DURATION, serverDuration));
+    return {...d, session_id:sessionId, started_at:startedAt, last_completed_at:lastCompletedAt || undefined, cooldown_until:cooldownUntil, cooldown_remaining:cooldownRemaining, duration, ready:!sessionId && cooldownRemaining<=0};
   }
 
   async function fetchHoldStatus({silent=false} = {}){
