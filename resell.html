@@ -1218,13 +1218,17 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
 
   const tg = window.Telegram?.WebApp || null;
   if (tg) {
+    try { tg.ready(); } catch(_) {}
     try { tg.expand(); } catch(_) {}
     try { tg.setHeaderColor('#050505'); } catch(_) {}
     try { tg.setBackgroundColor('#050505'); } catch(_) {}
   }
 
   const params = new URLSearchParams(location.search);
-  const userId = params.get('userId') || tg?.initDataUnsafe?.user?.id || '';
+  const userId = tg?.initDataUnsafe?.user?.id || params.get('userId') || '';
+  function getTelegramInitData(){
+    try { return String(tg?.initData || '').trim(); } catch(_) { return ''; }
+  }
   const ADMIN_OWNER_ID = '1475910449';
   let isAdmin = String(userId) === ADMIN_OWNER_ID;
   const isOwner = String(userId) === ADMIN_OWNER_ID;
@@ -2669,9 +2673,29 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   const BANK_IMG='AgACAgIAAxkBAAIb4GoYdcW3grQ8bIlyZ5foSK885TJ_AAIZHGsbVcfBSPPaBe8AATcM_gEAAwIAA3kAAzsE';
   const MINING_IMG='AgACAgIAAxkBAAIb02oYdOPrg50NLjYRHS8cINlbD3b2AAIXHGsbVcfBSMqZednvkdzBAQADAgADdwADOwQ';
   async function tycoonFetch(path,opts={}){
-    const r=await fetch(`${API_BASE}${path}`,{cache:'no-store',headers:{'Accept':'application/json','Content-Type':'application/json','X-Telegram-Init-Data':(tg?.initData||''),...(opts.headers||{})},...opts});
-    const p=await r.json().catch(()=>({}));
-    if(!r.ok||p.success===false) throw new Error(p.error||p.message||'Операция не выполнена');
+    const baseHeaders={
+      'Accept':'application/json',
+      'Content-Type':'application/json',
+      'X-Telegram-Init-Data':getTelegramInitData()
+    };
+    const requestOptions={...opts,cache:'no-store',headers:{...baseHeaders,...(opts.headers||{})}};
+    let r=await fetch(`${API_BASE}${path}`,requestOptions);
+    let p=await r.json().catch(()=>({}));
+    // Telegram WebView can finish initialisation one tick after the page script.
+    // Refresh the signed payload once before reporting a session error.
+    if(r.status===401 && tg){
+      try{ tg.ready(); }catch(_){}
+      const fresh=getTelegramInitData();
+      if(fresh && fresh!==requestOptions.headers['X-Telegram-Init-Data']){
+        requestOptions.headers={...requestOptions.headers,'X-Telegram-Init-Data':fresh};
+        r=await fetch(`${API_BASE}${path}`,requestOptions);
+        p=await r.json().catch(()=>({}));
+      }
+    }
+    if(!r.ok||p.success===false){
+      const msg=p.error||p.message||(r.status===401?'Недействительная сессия Telegram. Открой RESSELL из Telegram.':'Операция не выполнена');
+      throw new Error(msg);
+    }
     return p;
   }
   function tycoonTabs(){
