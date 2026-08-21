@@ -1316,13 +1316,13 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     if(step===1){
       openModal('Регистрация RESSELL',`
         <div class="registration-card registration-step-card">
-          <div class="registration-step">ШАГ 1 / 2</div>
+          <div class="registration-step">ШАГ 1 / 2 · ОБЯЗАТЕЛЬНО</div>
           <div class="registration-title">ТВОЙ НИКНЕЙМ</div>
           <div class="registration-lead">Придумай имя, которое будет отображаться в RESSELL. Его можно изменить позже.</div>
           <div class="registration-field"><label class="registration-label" for="regNickname">Никнейм</label><input class="registration-input" id="regNickname" maxlength="20" minlength="2" autocomplete="nickname" placeholder="Например, Roman" value="${esc(registrationDraft.nickname||suggested)}"></div>
           <div class="registration-error" id="registrationError"></div>
           <button class="registration-submit" id="registrationNext" type="button">ДАЛЕЕ</button>
-          <div class="registration-note">От 2 до 20 символов.</div>
+          <div class="registration-note">Регистрация обязательна при первом входе. Закрыть окно до создания аккаунта нельзя.</div>
         </div>`);
       $('#registrationNext')?.addEventListener('click',()=>{
         const value=String($('#regNickname')?.value||'').trim();
@@ -1338,14 +1338,14 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
 
     openModal('Регистрация RESSELL',`
       <div class="registration-card registration-step-card">
-        <div class="registration-step">ШАГ 2 / 2</div>
+        <div class="registration-step">ШАГ 2 / 2 · ОБЯЗАТЕЛЬНО</div>
         <div class="registration-title">НАЗВАНИЕ МАГАЗИНА</div>
         <div class="registration-lead">Придумай название для своего магазина. Именно его увидят другие пользователи.</div>
         <div class="registration-confirm"><span>НИКНЕЙМ</span><b>${esc(registrationDraft.nickname)}</b></div>
         <div class="registration-field"><label class="registration-label" for="regShopName">Название магазина</label><input class="registration-input" id="regShopName" maxlength="30" minlength="2" autocomplete="organization" placeholder="Например, R-STORE" value="${esc(registrationDraft.shopName)}"></div>
         <div class="registration-error" id="registrationError"></div>
         <div class="registration-actions"><button class="registration-back" id="registrationBack" type="button">НАЗАД</button><button class="registration-submit" id="registrationSubmit" type="button">СОЗДАТЬ АККАУНТ</button></div>
-        <div class="registration-note">От 2 до 30 символов.</div>
+        <div class="registration-note">Регистрация обязательна при первом входе. После создания аккаунта откроется весь интерфейс.</div>
       </div>`);
     $('#registrationBack')?.addEventListener('click',()=>{registrationDraft.shopName=String($('#regShopName')?.value||'').trim();renderRegistrationStep(1)});
     $('#registrationSubmit')?.addEventListener('click',submitRegistration);
@@ -1361,7 +1361,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     if(!userId){error.textContent='❌ Открой RESSELL внутри Telegram';return;}
     btn.disabled=true;btn.textContent='СОЗДАНИЕ…';error.textContent='';
     try{
-      const resp=await fetch(`${API_BASE}/register/${encodeURIComponent(userId)}`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({nickname:registrationDraft.nickname,shop_name:shopName,referrer_id:referralRegistrationToken()})});
+      const resp=await fetch(`${API_BASE}/register/${encodeURIComponent(userId)}`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'application/json','X-Telegram-Init-Data':(tg?.initData||'')},body:JSON.stringify({nickname:registrationDraft.nickname,shop_name:shopName,referrer_id:referralRegistrationToken()})});
       const payload=await resp.json().catch(()=>({}));
       if(!resp.ok||!payload.success) throw new Error(payload.error||'Не удалось создать аккаунт');
       registrationRequired=false;if(modalClose) modalClose.style.display='';closeModal();
@@ -3145,7 +3145,8 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   $('#claimEpochBtn').addEventListener('click', claimEpochReward);
 
   $('#modalClose').addEventListener('click', () => { if (!registrationRequired) closeModal(); });
-  modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+  modal.addEventListener('click', (e) => { if (e.target === modal && !registrationRequired) closeModal(); });
+  addEventListener('keydown', (e) => { if (registrationRequired && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); } }, true);
 
   $$('.nav-item').forEach(item => {
     item.addEventListener('click', () => {
