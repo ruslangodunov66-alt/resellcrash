@@ -2673,28 +2673,18 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   const BANK_IMG='AgACAgIAAxkBAAIb4GoYdcW3grQ8bIlyZ5foSK885TJ_AAIZHGsbVcfBSPPaBe8AATcM_gEAAwIAA3kAAzsE';
   const MINING_IMG='AgACAgIAAxkBAAIb02oYdOPrg50NLjYRHS8cINlbD3b2AAIXHGsbVcfBSMqZednvkdzBAQADAgADdwADOwQ';
   async function tycoonFetch(path,opts={}){
-    const baseHeaders={
+    // Keep Tycoon API compatible with the original RESSELL Mini App contract:
+    // the Telegram user id is part of the route and the backend resolves the player by tg_id.
+    // No WebApp signature is required here.
+    const headers={
       'Accept':'application/json',
       'Content-Type':'application/json',
-      'X-Telegram-Init-Data':getTelegramInitData()
+      ...(opts.headers||{})
     };
-    const requestOptions={...opts,cache:'no-store',headers:{...baseHeaders,...(opts.headers||{})}};
-    let r=await fetch(`${API_BASE}${path}`,requestOptions);
-    let p=await r.json().catch(()=>({}));
-    // Telegram WebView can finish initialisation one tick after the page script.
-    // Refresh the signed payload once before reporting a session error.
-    if(r.status===401 && tg){
-      try{ tg.ready(); }catch(_){}
-      const fresh=getTelegramInitData();
-      if(fresh && fresh!==requestOptions.headers['X-Telegram-Init-Data']){
-        requestOptions.headers={...requestOptions.headers,'X-Telegram-Init-Data':fresh};
-        r=await fetch(`${API_BASE}${path}`,requestOptions);
-        p=await r.json().catch(()=>({}));
-      }
-    }
+    const r=await fetch(`${API_BASE}${path}`,{...opts,cache:'no-store',headers});
+    const p=await r.json().catch(()=>({}));
     if(!r.ok||p.success===false){
-      const msg=p.error||p.message||(r.status===401?'Сервер не подтвердил сессию. Повтори открытие раздела.':'Операция не выполнена');
-      throw new Error(msg);
+      throw new Error(p.error||p.message||'Операция не выполнена');
     }
     return p;
   }
