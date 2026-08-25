@@ -2180,8 +2180,6 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
 
   let holdState = null;
   let holdTimer = null;
-  let holdHeartbeatTimer = null;
-  let holdHeartbeatBusy = false;
   let holdPointerActive = false;
   let holdPointerId = null;
   let holdStartPromise = null;
@@ -2311,41 +2309,6 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
   }
 
-  function stopHoldHeartbeat(){
-    if(holdHeartbeatTimer){ clearInterval(holdHeartbeatTimer); holdHeartbeatTimer = null; }
-    holdHeartbeatBusy = false;
-  }
-
-  async function sendHoldHeartbeat(){
-    if(!userId || !holdState?.session_id || !holdPointerActive || holdHeartbeatBusy) return false;
-    holdHeartbeatBusy = true;
-    try{
-      const resp = await fetch(`${API_BASE}/hold/heartbeat/${encodeURIComponent(userId)}`, {
-        method:'POST', cache:'no-store', headers:{'Content-Type':'application/json','Accept':'application/json'},
-        body:JSON.stringify({session_id:holdState.session_id})
-      });
-      let payload=null; try{ payload=await resp.json(); }catch(_){}
-      if(!resp.ok || !payload?.success) throw new Error(payload?.error || `Сессия удержания недоступна (HTTP ${resp.status})`);
-      return true;
-    }catch(err){
-      // If the server stops seeing heartbeats, do not let a stale session pay out later.
-      if(holdPointerActive && !farmCompleting && !farmCompleted){
-        $('#farmStatus').textContent = 'Связь с фармом потеряна. Попробуй ещё раз.';
-        await cancelStandaloneFarm();
-      }
-      return false;
-    }finally{
-      holdHeartbeatBusy = false;
-    }
-  }
-
-  function startHoldHeartbeat(){
-    stopHoldHeartbeat();
-    if(!holdState?.session_id) return;
-    sendHoldHeartbeat();
-    holdHeartbeatTimer = setInterval(()=>{ sendHoldHeartbeat(); }, 2000);
-  }
-
   function runFarmAnimation(){
     stopFarmAnimation();
     const tick = () => {
@@ -2378,20 +2341,13 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
 
   async function recoverStaleSession(){
     if(!holdState?.session_id) return false;
-    // Never auto-complete a session merely because the app was reopened.
-    // A real hold must have an active pointer/key and fresh heartbeats.
-    holdPointerActive = false;
-    holdReleaseQueued = true;
-    stopHoldHeartbeat();
-    try{
-      await fetch(`${API_BASE}/hold/cancel/${encodeURIComponent(userId)}`, {
-        method:'POST', cache:'no-store', keepalive:true,
-        headers:{'Content-Type':'application/json','Accept':'application/json'},
-        body:JSON.stringify({session_id:holdState.session_id})
-      });
-    }catch(_){}
-    holdState = normalizeHoldState({...holdState,session_id:null,started_at:0,last_heartbeat_at:0,ready:true,cooldown_remaining:0,cooldown_until:0});
-    holdReleaseQueued = false;
+    const elapsed = farmSessionElapsedMs();
+    if(elapsed < FARM_DURATION * 1000) return false;
+
+    // A session survived a Telegram WebView suspension. Try to finish it once.
+    holdPointerActive = true;
+    farmCompleted = false;
+    await completeStandaloneFarm();
     return true;
   }
 
@@ -2467,22 +2423,9 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         );
 
         if(holdReleaseQueued || !holdPointerActive){
-          // Pointer/key was released while /hold/start was still in flight.
-          // Do not call cancelStandaloneFarm here because holdStartPromise is still
-          // non-null; cancel the newly-created server session directly.
-          try{
-            await fetch(`${API_BASE}/hold/cancel/${encodeURIComponent(userId)}`, {
-              method:'POST', cache:'no-store', keepalive:true,
-              headers:{'Content-Type':'application/json','Accept':'application/json'},
-              body:JSON.stringify({session_id:sessionId})
-            });
-          }catch(_){}
-          holdState = normalizeHoldState({...holdState,session_id:null,started_at:0,last_heartbeat_at:0,ready:true,cooldown_remaining:0,cooldown_until:0});
-          holdReleaseQueued = false;
-          holdPointerActive = false;
+          await cancelStandaloneFarm();
           return;
         }
-        startHoldHeartbeat();
         runFarmAnimation();
         haptic('medium');
       }catch(err){
@@ -2519,7 +2462,6 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       }
 
       farmCompleted = true;
-      stopHoldHeartbeat();
       const reward = Number(payload.reward || farmTargetReward || 0);
       const now = farmNow();
       const serverCooldown = farmDurationSeconds(payload.cooldown_remaining ?? payload.cooldown ?? 0);
@@ -2594,7 +2536,6 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     if(farmCompleting || farmCompleted) return;
     holdReleaseQueued = true;
     holdPointerActive = false;
-    stopHoldHeartbeat();
     stopFarmAnimation();
     $('#farmRing')?.classList.remove('holding');
     document.querySelector('#farmSection .farm-stage')?.classList.remove('farm-active');
@@ -2611,7 +2552,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
 
     try{
       await fetch(`${API_BASE}/hold/cancel/${encodeURIComponent(userId)}`, {
-        method:'POST',cache:'no-store',keepalive:true,
+        method:'POST',cache:'no-store',
         headers:{'Content-Type':'application/json','Accept':'application/json'},
         body:JSON.stringify({session_id:sessionId})
       });
@@ -2629,46 +2570,82 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     if(!stage || stage.dataset.bound === '1') return;
     stage.dataset.bound = '1';
 
-    const begin = (e) => {
-      if(e && e.button !== undefined && e.button !== 0) return;
-      e?.preventDefault?.();
-      if(e?.pointerId != null){
-        holdPointerId = e.pointerId;
-        try{ stage.setPointerCapture?.(e.pointerId); }catch(_){ }
+    // Telegram/iOS WebView can emit lostpointercapture/pointercancel while
+    // the finger is still physically down. The old handler treated that as
+    // a release, so the farm stopped after ~1 second with "Не отпускай R".
+    // We now keep the server session alive until a real pointer/touch end.
+    let activeInput = false;
+    let activePointerId = null;
+    let ending = false;
+
+    const finishHold = (e, forceCancel=false) => {
+      if(ending || !activeInput) return;
+      if(e?.pointerId != null && activePointerId != null && e.pointerId !== activePointerId) return;
+      ending = true;
+      activeInput = false;
+      activePointerId = null;
+      holdPointerId = null;
+      stage.classList.remove('farm-active');
+
+      if(farmCompleting || farmCompleted){ ending=false; return; }
+      const elapsed = farmSessionElapsedMs();
+      if(!forceCancel && holdState?.session_id && elapsed >= FARM_DURATION * 1000){
+        completeStandaloneFarm();
+      }else if(holdPointerActive || holdStartPromise || holdState?.session_id){
+        cancelStandaloneFarm();
       }
+      setTimeout(()=>{ ending=false; },0);
+    };
+
+    const begin = (e) => {
+      if(e?.pointerType === 'mouse' && e.button !== 0) return;
+      if(activeInput) return;
+      e?.preventDefault?.();
+      activeInput = true;
+      activePointerId = e?.pointerId ?? null;
+      holdPointerId = activePointerId;
       stage.classList.add('farm-active');
       startStandaloneFarm();
     };
 
-    const end = (e) => {
-      e?.preventDefault?.();
-      if(e?.pointerId != null && holdPointerId !== null && e.pointerId !== holdPointerId) return;
-      holdPointerId = null;
-      stage.classList.remove('farm-active');
-      if(farmCompleting || farmCompleted) return;
-      if(holdPointerActive || holdStartPromise){
-        const elapsed = farmSessionElapsedMs();
-        if(holdState?.session_id && elapsed >= FARM_DURATION * 1000){
-          completeStandaloneFarm();
-        }else{
-          cancelStandaloneFarm();
-        }
-      }
+    const onPointerUp = (e) => finishHold(e, false);
+    const onPointerCancel = (e) => {
+      // Do not cancel merely because pointer capture changed. A genuine
+      // touch cancel is still handled, but only after an active input exists.
+      if(activeInput) finishHold(e, true);
     };
 
     stage.addEventListener('pointerdown', begin, {passive:false});
-    stage.addEventListener('pointerup', end, {passive:false});
-    stage.addEventListener('pointercancel', end, {passive:false});
-    stage.addEventListener('lostpointercapture', () => {
-      stage.classList.remove('farm-active');
-      if(holdPointerActive && !farmCompleting && !farmCompleted){
-        const elapsed = farmSessionElapsedMs();
-        if(holdState?.session_id && elapsed >= FARM_DURATION * 1000) completeStandaloneFarm();
-        else cancelStandaloneFarm();
-      }
-    });
+    window.addEventListener('pointerup', onPointerUp, {passive:false});
+    window.addEventListener('pointercancel', onPointerCancel, {passive:false});
+
+    // iOS WebView fallback: some versions expose touch events independently
+    // of pointer events. Prevent scrolling and end only on touchend/cancel.
+    stage.addEventListener('touchstart', e => {
+      if(activeInput) return;
+      e.preventDefault();
+      activeInput = true;
+      activePointerId = 'touch';
+      holdPointerId = 'touch';
+      stage.classList.add('farm-active');
+      startStandaloneFarm();
+    }, {passive:false});
+    window.addEventListener('touchend', e => {
+      if(!activeInput || activePointerId !== 'touch') return;
+      e.preventDefault();
+      finishHold(null, false);
+    }, {passive:false});
+    window.addEventListener('touchcancel', e => {
+      if(!activeInput || activePointerId !== 'touch') return;
+      e.preventDefault();
+      finishHold(null, true);
+    }, {passive:false});
+
     stage.addEventListener('contextmenu', e => e.preventDefault());
-    stage.addEventListener('touchstart', e => e.preventDefault(), {passive:false});
+    stage.addEventListener('dragstart', e => e.preventDefault());
+
+    // Intentionally NO lostpointercapture cancellation here.
+    // iOS can fire it during a perfectly valid long press.
   }
 
   function spawnFarmSpark(){
@@ -2691,10 +2668,15 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         bindFarmButton();
 
         if(holdState?.session_id){
-          await recoverStaleSession();
-          await refreshHoldStatusWithRetry();
-        }
-        {
+          const recovered = await recoverStaleSession();
+          if(recovered) return;
+          const elapsed = farmSessionElapsedMs();
+          if(elapsed > 0){
+            holdPointerActive = false;
+            updateFarmVisuals(Math.max(0, FARM_DURATION - elapsed/1000));
+            $('#farmStatus').textContent = 'Незавершённый фарм найден. Удерживай R, чтобы продолжить.';
+          }
+        }else{
           const ready = Boolean(holdState?.ready);
           const left = Number(holdState?.cooldown_remaining || 0);
           updateFarmVisuals(ready ? FARM_DURATION : left);
@@ -2750,39 +2732,12 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   },1000);
 
   document.addEventListener('visibilitychange', async()=>{
-    if(document.visibilityState === 'hidden'){
-      if(holdPointerActive || holdState?.session_id) cancelStandaloneFarm();
-      return;
-    }
     if(document.visibilityState === 'visible' && !holdPointerActive && !farmCompleting){
       try{ await initFarm(); }catch(_){ }
     }
   });
-  window.addEventListener('pagehide',()=>{
-    if(holdPointerActive || holdState?.session_id) cancelStandaloneFarm();
-  });
   window.addEventListener('pageshow',()=>{ if(!holdPointerActive && !farmCompleting) initFarm(); });
   window.addEventListener('online',()=>{ if(!holdPointerActive && !farmCompleting) initFarm(); });
-
-  // Desktop fallback: the same R-Farm can be controlled with the physical R key.
-  let farmKeyboardActive=false;
-  window.addEventListener('keydown',e=>{
-    if(String(e.key||'').toLowerCase()!=='r' || e.repeat) return;
-    const tag=String(e.target?.tagName||'').toLowerCase();
-    if(tag==='input' || tag==='textarea' || tag==='select' || e.target?.isContentEditable) return;
-    if(!document.querySelector('#farmSection')) return;
-    e.preventDefault();
-    farmKeyboardActive=true;
-    startStandaloneFarm();
-  },{passive:false});
-  window.addEventListener('keyup',e=>{
-    if(String(e.key||'').toLowerCase()!=='r') return;
-    if(!farmKeyboardActive) return;
-    e.preventDefault();
-    farmKeyboardActive=false;
-    if(!farmCompleting && !farmCompleted) cancelStandaloneFarm();
-  },{passive:false});
-
   document.addEventListener('DOMContentLoaded',initFarm);
 
   // =========================
