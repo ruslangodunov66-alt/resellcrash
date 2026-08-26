@@ -1154,7 +1154,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         <div>
           <div class="farm-kicker">R-GAME · FARM</div>
           <div class="farm-title">ЗАЖМИ R</div>
-          <div class="farm-sub">Держи R 30 секунд. Награда формируется на сервере и начисляется один раз после полного удержания 30 секунд.</div>
+          <div class="farm-sub">Держи R — сумма растёт каждую секунду. В случайный момент фарм остановится, и ты заберёшь накопленное.</div>
         </div>
         <div class="farm-total" id="farmTotal">10–50k ₽</div>
       </div>
@@ -2177,7 +2177,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   // Standalone R-Farm — 30s / 1 day
   // Server-authoritative reward + resilient cooldown/session recovery.
   // =========================
-  const FARM_MIN_DURATION = 10;
+  const FARM_MIN_DURATION = 1;
   const FARM_MAX_DURATION = 30;
   const FARM_DURATION = 30;
   const FARM_COOLDOWN = 24 * 60 * 60;
@@ -2314,12 +2314,12 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     const el = $('#farmTotal');
     if(!el) return;
     const p = Math.min(1, Math.max(0, Number(progress) || 0));
-    if(p <= 0){ el.textContent = '10–50k ₽'; return; }
-    // Visual decoy: the client never reveals the real server reward before completion.
-    // The number climbs toward 50k, then the server-authoritative reward is revealed.
-    const eased = 1 - Math.pow(1 - p, 2.2);
-    const decoy = Math.min(49999, Math.max(0, Math.floor(50000 * eased)));
-    const next = `+${decoy.toLocaleString('ru-RU')} ₽`;
+    if(p <= 0){ el.textContent = '+0 ₽'; return; }
+    // The displayed amount is the amount actually being farmed: 50,000 ₽
+    // corresponds to a full 30-second hold. The server calculates the same
+    // amount from the real elapsed duration when the random stop is reached.
+    const amount = Math.min(50000, Math.floor(50000 * p));
+    const next = `+${amount.toLocaleString('ru-RU')} ₽`;
     if(el.textContent !== next) el.textContent = next;
   }
 
@@ -2339,9 +2339,12 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       const elapsed = started > 0
         ? Math.max(0, Math.min(duration, Date.now() - started))
         : 0;
+      // The random stop controls WHEN the farm ends, but the amount grows
+      // against the full 30-second scale. So 9 seconds = about 15,000 ₽.
       const progress = elapsed / duration;
+      const earningProgress = elapsed / (FARM_MAX_DURATION * 1000);
       updateFarmVisuals(getActiveFarmDuration() - elapsed / 1000);
-      renderFarmReward(progress);
+      renderFarmReward(earningProgress);
       if(Math.random() < 0.16) spawnFarmSpark();
       if(progress >= 1){
         completeStandaloneFarm();
@@ -2413,7 +2416,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     document.querySelector('#farmSection .farm-stage')?.classList.add('farm-active');
     $('#farmTotal').textContent = '+0 ₽';
     const st = $('#farmStatus');
-    if(st) st.textContent = `Не отпускай R. Осталось ${FARM_MAX_DURATION} секунд.`;
+    if(st) st.textContent = `Не отпускай R. Сумма продолжает расти.`;
 
     holdStartPromise = (async()=>{
       try{
@@ -2442,10 +2445,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
           duration: Math.max(FARM_MIN_DURATION, Math.min(FARM_MAX_DURATION, Number(payload.duration || FARM_DURATION))),
           ready:false
         });
-        farmTargetReward = Math.max(
-          FARM_MIN_REWARD,
-          Math.min(FARM_MAX_REWARD, Number(payload.target_reward || payload.base_reward || 30000))
-        );
+        farmTargetReward = 0;
 
         if(holdReleaseQueued || !holdPointerActive){
           await cancelStandaloneFarm();
@@ -2487,7 +2487,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       }
 
       farmCompleted = true;
-      const reward = Number(payload.reward || farmTargetReward || 0);
+      const reward = Number(payload.reward || 0);
       const now = farmNow();
       const serverCooldown = farmDurationSeconds(payload.cooldown_remaining ?? payload.cooldown ?? 0);
       const serverUntil = farmEpochSeconds(payload.cooldown_until ?? payload.cooldownUntil ?? 0);
@@ -2570,7 +2570,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     if(!sessionId){
       holdReleaseQueued = false;
       updateFarmVisuals(FARM_DURATION);
-      $('#farmTotal').textContent = '10–50k ₽';
+      $('#farmTotal').textContent = '+0 ₽';
       $('#farmStatus').textContent = 'Отпустил раньше времени. Награда не засчитана.';
       return;
     }
@@ -2586,7 +2586,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     holdState = normalizeHoldState({...holdState,session_id:null,started_at:0,ready:false});
     holdReleaseQueued = false;
     updateFarmVisuals(Number(holdState.cooldown_remaining || FARM_DURATION));
-    $('#farmTotal').textContent = '10–50k ₽';
+    $('#farmTotal').textContent = '+0 ₽';
     $('#farmStatus').textContent = 'Отпустил раньше времени. Награда не засчитана.';
   }
 
@@ -2698,15 +2698,15 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
           await recoverStaleSession();
           holdState = normalizeHoldState({...holdState,session_id:null,started_at:0,ready:true,cooldown_remaining:0,cooldown_until:0});
           updateFarmVisuals(FARM_DURATION);
-          $('#farmStatus').textContent = `Нажми и удерживай R до ${FARM_MAX_DURATION} секунд. Награда: 10 000–50 000 ₽.`;
-          $('#farmTotal').textContent = '10–50k ₽';
+          $('#farmStatus').textContent = `Нажми и удерживай R. Сумма растёт до 50 000 ₽.`;
+          $('#farmTotal').textContent = '+0 ₽';
           document.querySelector('#farmSection .farm-stage')?.classList.remove('farm-disabled');
         }else{
           const ready = Boolean(holdState?.ready);
           const left = Number(holdState?.cooldown_remaining || 0);
           updateFarmVisuals(ready ? FARM_DURATION : left);
           $('#farmStatus').textContent = ready
-            ? `Нажми и удерживай R до ${FARM_MAX_DURATION} секунд. Награда: 10 000–50 000 ₽.`
+            ? `Нажми и удерживай R. Сумма растёт до 50 000 ₽.`
             : `Фарм снова будет доступен через ${formatClock(left)}.`;
           $('#farmTotal').textContent = ready ? '10–50k ₽' : 'КД';
           document.querySelector('#farmSection .farm-stage')?.classList.toggle('farm-disabled', !ready);
@@ -2750,8 +2750,8 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       holdState.cooldown_remaining = 0;
       holdState.cooldown_until = 0;
       updateFarmVisuals(FARM_DURATION);
-      $('#farmStatus').textContent = `Нажми и удерживай R до ${FARM_MAX_DURATION} секунд. Награда: 10 000–50 000 ₽.`;
-      $('#farmTotal').textContent = '10–50k ₽';
+      $('#farmStatus').textContent = `Нажми и удерживай R. Сумма растёт до 50 000 ₽.`;
+      $('#farmTotal').textContent = '+0 ₽';
       document.querySelector('#farmSection .farm-stage')?.classList.remove('farm-disabled');
     }
   },1000);
