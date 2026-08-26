@@ -2174,7 +2174,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   }
 
   // =========================
-  // Standalone R-Farm — 30s / 1 day
+  // Standalone R-Farm — 10–30s / 1 day
   // Server-authoritative reward + resilient cooldown/session recovery.
   // =========================
   const FARM_DURATION = 30;
@@ -2251,16 +2251,27 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     const startedAt = farmEpochSeconds(d.started_at || d.startedAt || 0);
     const lastCompletedAt = farmEpochSeconds(d.last_completed_at || d.lastCompletedAt || 0);
     const explicitUntil = farmEpochSeconds(d.cooldown_until || d.cooldownUntil || 0);
-    const serverRemaining = Math.max(0, Number(d.cooldown_remaining ?? d.cooldownRemaining ?? 0));
+    const serverRemaining = farmDurationSeconds(d.cooldown_remaining ?? d.cooldownRemaining ?? 0);
     let cooldownUntil = explicitUntil;
     if(!cooldownUntil && lastCompletedAt > 0) cooldownUntil = lastCompletedAt + FARM_COOLDOWN;
     let cooldownRemaining = cooldownUntil > now ? cooldownUntil - now : 0;
-    // Only fall back to server's remaining seconds when it did not provide a timestamp.
-    if(!explicitUntil && !lastCompletedAt && cooldownRemaining <= 0) cooldownRemaining = serverRemaining;
+    if(!explicitUntil && !lastCompletedAt && serverRemaining > 0){
+      cooldownRemaining = serverRemaining;
+      cooldownUntil = now + serverRemaining;
+    }
     if(cooldownRemaining <= 0){ cooldownRemaining = 0; cooldownUntil = 0; farmClearLocalCooldown(); }
-    const serverDuration = Number(d.duration ?? 0) || FARM_DURATION;
-    const duration = Math.max(1, Math.min(FARM_DURATION, serverDuration));
-    return {...d, session_id:sessionId, started_at:startedAt, last_completed_at:lastCompletedAt || undefined, cooldown_until:cooldownUntil, cooldown_remaining:cooldownRemaining, duration, ready:!sessionId && cooldownRemaining<=0};
+    const serverDuration = Number(d.duration ?? d.target_duration ?? 0) || FARM_DURATION;
+    const duration = Math.max(FARM_MIN_DURATION, Math.min(FARM_DURATION, serverDuration));
+    return {
+      ...d,
+      session_id:sessionId,
+      started_at:startedAt,
+      last_completed_at:lastCompletedAt || undefined,
+      cooldown_until:cooldownUntil,
+      cooldown_remaining:cooldownRemaining,
+      duration,
+      ready:!sessionId && cooldownRemaining<=0
+    };
   }
 
   async function fetchHoldStatus({silent=false} = {}){
@@ -2295,9 +2306,12 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     const f = $('#farmProgressFill');
     const p = $('#farmPanel');
     if(!t || !f) return;
-    const d = FARM_DURATION;
+    const isActive = Boolean(holdState?.session_id);
+    const d = isActive
+      ? Math.max(FARM_MIN_DURATION, Math.min(FARM_DURATION, Number(holdState?.duration || FARM_DURATION)))
+      : FARM_COOLDOWN;
     const rem = Math.max(0, Math.min(d, Number(remaining) || 0));
-    const pr = Math.min(100, Math.max(0, ((d - rem) / d) * 100));
+    const pr = isActive ? Math.min(100, Math.max(0, ((d - rem) / d) * 100)) : 0;
     t.textContent = formatClock(rem);
     f.style.width = `${pr}%`;
     p?.classList.toggle('cooldown', !holdState?.ready && !holdState?.session_id && Number(holdState?.cooldown_remaining || 0) > 0);
@@ -2307,8 +2321,48 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     const el = $('#farmTotal');
     if(!el) return;
     const p = Math.min(1, Math.max(0, Number(progress) || 0));
-    const next = p <= 0 ? '10–50k ₽' : `+${Math.floor(farmTargetReward * p).toLocaleString('ru-RU')} ₽`;
-    if(el.textContent !== next) el.textContent = next;
+
+    // До самого выпадения сумма скрыта: визуально кажется, что шкала
+    // почти дошла до 50 000 ₽, но реальная награда остаётся на сервере.
+    if(p <= 0){
+      el.textContent = '10–50k ₽';
+      return;
+    }
+    if(p < 0.78){
+      const apparent = Math.min(50000, Math.floor(50000 * Math.min(1, p / 0.78)));
+      el.textContent = `+${apparent.toLocaleString('ru-RU')} ₽`;
+      return;
+    }
+    const wobble = Math.max(0, 50000 - Math.floor(Math.random() * 7000));
+    el.textContent = `+${wobble.toLocaleString('ru-RU')} ₽`;
+  }
+
+  function playFarmRevealEffect(reward){
+    const panel = $('#farmPanel');
+    const ring = $('#farmRing');
+    const total = $('#farmTotal');
+    const status = $('#farmStatus');
+    if(!panel || !ring) return;
+
+    stopFarmAnimation();
+    ring.classList.remove('holding');
+    panel.classList.add('farm-reveal');
+    ring.classList.add('farm-pop');
+
+    if(total){
+      total.classList.add('farm-reward-reveal');
+      total.textContent = `+${Number(reward || 0).toLocaleString('ru-RU')} ₽`;
+    }
+    if(status) status.textContent = `ВЫПАЛО · +${Number(reward || 0).toLocaleString('ru-RU')} ₽`;
+
+    for(let i=0;i<18;i++) spawnFarmSpark();
+    haptic('heavy');
+
+    setTimeout(()=>{
+      panel.classList.remove('farm-reveal');
+      ring.classList.remove('farm-pop');
+      total?.classList.remove('farm-reward-reveal');
+    },1200);
   }
 
   function stopFarmAnimation(){
@@ -2322,15 +2376,17 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         holdTimer = null;
         return;
       }
+      const duration = Math.max(FARM_MIN_DURATION, Math.min(FARM_DURATION, Number(holdState.duration || FARM_DURATION))) * 1000;
       const started = Number(holdState.started_at || holdState.startedAt || 0) * 1000;
-      const duration = FARM_DURATION * 1000;
       const elapsed = started > 0
         ? Math.max(0, Math.min(duration, Date.now() - started))
         : 0;
       const progress = elapsed / duration;
-      updateFarmVisuals(FARM_DURATION - elapsed / 1000);
+      updateFarmVisuals(Math.max(0, duration / 1000 - elapsed / 1000));
       renderFarmReward(progress);
+
       if(Math.random() < 0.16) spawnFarmSpark();
+
       if(progress >= 1){
         completeStandaloneFarm();
         return;
@@ -2357,7 +2413,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         body:JSON.stringify({session_id:holdState.session_id, reason:'reopen'})
       });
     }catch(_){ }
-    holdState = normalizeHoldState({...holdState,session_id:null,started_at:0,ready:false,cooldown_remaining:0,cooldown_until:0});
+    holdState = normalizeHoldState({...holdState,session_id:null,started_at:0,ready:false,cooldown_remaining:0,cooldown_until:0,duration:FARM_DURATION});
     holdPointerActive = false;
     holdReleaseQueued = false;
     farmCompleted = false;
@@ -2401,7 +2457,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     document.querySelector('#farmSection .farm-stage')?.classList.add('farm-active');
     $('#farmTotal').textContent = '+0 ₽';
     const st = $('#farmStatus');
-    if(st) st.textContent = 'Не отпускай R. Осталось 30 секунд.';
+    if(st) st.textContent = 'Не отпускай R. Сумма выпадет неожиданно.';
 
     holdStartPromise = (async()=>{
       try{
@@ -2466,7 +2522,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         method:'POST',
         cache:'no-store',
         headers:{'Content-Type':'application/json','Accept':'application/json','Cache-Control':'no-cache'},
-        body:JSON.stringify({session_id:sessionId,duration:FARM_DURATION})
+        body:JSON.stringify({session_id:sessionId})
       });
       let payload = null;
       try{ payload = await resp.json(); }catch(_){ payload = null; }
@@ -2606,7 +2662,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
 
       if(farmCompleting || farmCompleted){ ending=false; return; }
       const elapsed = farmSessionElapsedMs();
-      if(!forceCancel && holdState?.session_id && elapsed >= FARM_DURATION * 1000){
+      if(!forceCancel && holdState?.session_id && elapsed >= Math.max(FARM_MIN_DURATION, Math.min(FARM_DURATION, Number(holdState.duration || FARM_DURATION))) * 1000){
         await completeStandaloneFarm();
       }else if(holdPointerActive || holdStartPromise || holdState?.session_id){
         await cancelStandaloneFarm();
@@ -2968,7 +3024,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     return p;
   }
   function tycoonTabs(){
-    const tabs=[['home','Обзор'],['bank','Банк'],['assets','Активы'],['cars','Авто'],['taxi','Таксопарк']];
+    const tabs=[['bank','Банк'],['assets','Активы'],['cars','Авто'],['taxi','Таксопарк']];
     return `<div class="tycoon-tabs">${tabs.map(([id,label])=>`<button class="tycoon-tab ${tycoonTab===id?'active':''}" data-tycoon-tab="${id}">${label}</button>`).join('')}</div>`;
   }
   async function renderTycoon(){
@@ -2993,7 +3049,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         <div class="tycoon-bank-hero"><img src="${TYCOON_MEDIA(BANK_IMG)}" alt=""><div class="tycoon-hero-copy"><div class="tycoon-kicker">RESSELL BANK</div><div class="hero-title">Ваш капитал работает</div><div class="hero-text">Открывайте депозиты, получайте проценты и используйте кредитный лимит.</div></div></div>
         <div class="tycoon-stat-grid"><div class="tycoon-stat"><b>${number(d.balance)} ₽</b><span>Доступный баланс</span></div><div class="tycoon-stat"><b>${number(d.max_loan)} ₽</b><span>Кредитный лимит</span></div></div>
         <div class="tycoon-card tycoon-deposit-card"><div class="tycoon-title">Новый депозит</div><div class="tycoon-meta">Минимум 10 000 ₽ · максимум 10 000 000 ₽</div><div class="tycoon-rate-row"><div class="tycoon-rate"><b>2%</b><span>1 ДЕНЬ</span></div><div class="tycoon-rate"><b>5%</b><span>3 ДНЯ</span></div><div class="tycoon-rate"><b>10%</b><span>7 ДНЕЙ</span></div></div><select class="tycoon-select" id="tycoonDepDays"><option value="1">1 день · 2%</option><option value="3">3 дня · 5%</option><option value="7">7 дней · 10%</option></select><input class="tycoon-input" id="tycoonDepAmount" type="number" inputmode="numeric" placeholder="Сумма депозита"><button class="tycoon-btn primary" id="tycoonOpenDeposit">ОТКРЫТЬ ДЕПОЗИТ</button></div>
-        <div class="tycoon-card"><div class="tycoon-title">Кредит</div><div class="tycoon-meta">До ${number(d.max_loan)} ₽ · 5% · срок 2 дня. Один активный кредит одновременно.</div><div class="tycoon-form"><input class="tycoon-input" id="tycoonLoanAmount" type="number" inputmode="numeric" placeholder="Сумма"><button class="tycoon-btn primary" id="tycoonTakeLoan">ВЗЯТЬ</button></div></div>
+        <div class="tycoon-card"><div class="tycoon-title">Кредит</div>${loans.some(x=>x.status==='active')?'<div class="tycoon-meta">Активный кредит уже оформлен. Сначала погаси его.</div><div class="tycoon-form"><input class="tycoon-input" id="tycoonLoanAmount" type="number" inputmode="numeric" placeholder="Кредит уже активен" disabled><button class="tycoon-btn primary" id="tycoonTakeLoan" disabled>КРЕДИТ УЖЕ ВЗЯТ</button></div>':`<div class="tycoon-meta">До ${number(d.max_loan)} ₽ · 5% · срок 2 дня. Один активный кредит одновременно.</div><div class="tycoon-form"><input class="tycoon-input" id="tycoonLoanAmount" type="number" inputmode="numeric" placeholder="Сумма"><button class="tycoon-btn primary" id="tycoonTakeLoan">ВЗЯТЬ</button></div>`}</div>
         <div class="tycoon-section"><div class="tycoon-label">Мои депозиты</div>${deps.length?deps.map(x=>{const total=Math.max(1,x.duration_days*86400);const progress=Math.min(100,Math.max(0,100-(Number(x.remaining_seconds||0)/total*100)));return `<div class="tycoon-record"><div class="tycoon-record-top"><div class="tycoon-record-amount">${number(x.amount)} ₽</div><div class="tycoon-record-status">${x.ready?'ГОТОВ':'АКТИВЕН'}</div></div><div class="tycoon-meta">${x.duration_days} дн. · ${x.interest_rate}% · к получению ${number(x.return_amount)} ₽</div><div class="tycoon-progress"><i style="width:${progress}%"></i></div><div class="tycoon-meta">${x.ready?'Можно дождаться автоматического зачисления.':formatClock(x.remaining_seconds)}</div></div>`}).join(''):'<div class="tycoon-empty">Депозитов пока нет.</div>'}</div>
         <div class="tycoon-section"><div class="tycoon-label">Мои кредиты</div>${loans.length?loans.map(x=>`<div class="tycoon-record"><div class="tycoon-record-top"><div class="tycoon-record-amount">${number(x.amount)} ₽</div><div class="tycoon-record-status">${x.status==='active'?'АКТИВЕН':'ЗАКРЫТ'}</div></div><div class="tycoon-meta">К возврату ${number(x.return_amount)} ₽ · ${x.status==='active'?formatClock(x.remaining_seconds):'погашен'}</div>${x.status==='active'?`<div class="tycoon-form"><input class="tycoon-input" id="repay_${x.id}" type="number" inputmode="numeric" placeholder="Сумма ${number(x.return_amount)} ₽"><button class="tycoon-btn" data-repay-loan="${x.id}">ПОГАСИТЬ</button></div>`:''}</div>`).join(''):'<div class="tycoon-empty">Кредитов нет.</div>'}</div>
       </div>`;
