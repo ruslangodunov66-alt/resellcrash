@@ -1092,6 +1092,24 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
 
 .avx-market-event.cold{background:linear-gradient(145deg,rgba(103,167,255,.11),rgba(103,167,255,.03));border-color:rgba(103,167,255,.18)}.avx-market-event.cold .avx-market-event-icon{background:rgba(103,167,255,.12)}.avx-market-event.cold b{color:#a7ceff}.avx-market-event.hot{background:linear-gradient(145deg,rgba(255,164,74,.11),rgba(255,164,74,.03));border-color:rgba(255,164,74,.18)}.avx-market-event.hot .avx-market-event-icon{background:rgba(255,164,74,.12)}.avx-market-event.hot b{color:#ffd2a1}.avx-market-event.wet{background:linear-gradient(145deg,rgba(79,144,178,.11),rgba(79,144,178,.03));border-color:rgba(79,144,178,.18)}.avx-market-event.wet .avx-market-event-icon{background:rgba(79,144,178,.12)}.avx-market-event.wet b{color:#a9d8ea}.avx-market-event.wind{background:linear-gradient(145deg,rgba(163,174,187,.10),rgba(163,174,187,.03));border-color:rgba(163,174,187,.15)}.avx-market-event.wind .avx-market-event-icon{background:rgba(163,174,187,.10)}.avx-market-event.wind b{color:#ced6dd}
 </style>
+
+<style id="resell-language-style">
+#resellLanguageOverlay{position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:22px;font-family:Montserrat,sans-serif}
+#resellLanguageCard{width:min(390px,100%);background:#101010;border:1px solid rgba(255,255,255,.1);border-radius:26px;padding:24px;box-shadow:0 24px 70px rgba(0,0,0,.5)}
+#resellLanguageCard h2{margin:0 0 7px;font-size:22px;color:#fff}#resellLanguageCard p{margin:0 0 18px;color:#888;font-size:12px;line-height:1.5}
+.resell-lang-btn{width:100%;display:flex;align-items:center;gap:12px;padding:14px;margin:8px 0;border:1px solid rgba(255,255,255,.08);border-radius:15px;background:#181818;color:#fff;font:900 12px Montserrat,sans-serif;text-align:left}.resell-lang-btn:hover{background:#222}
+</style>
+<script>
+(function(){
+ const KEY='resell_language_v1';
+ const langs={ru:{flag:'🇷🇺',name:'Русский'},en:{flag:'🇬🇧',name:'English'}};
+ window.resellLanguage=localStorage.getItem(KEY)||'';
+ async function saveLang(lang){window.resellLanguage=lang;localStorage.setItem(KEY,lang);try{const uid=window.userId||new URLSearchParams(location.search).get('userId')||window.Telegram?.WebApp?.initDataUnsafe?.user?.id;if(uid) await fetch((window.API_BASE||'')+'/profile/'+encodeURIComponent(uid)+'/language',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({language:lang})});}catch(_){}
+ document.getElementById('resellLanguageOverlay')?.remove();window.dispatchEvent(new CustomEvent('resell-language-changed',{detail:lang}));}
+ function show(){if(localStorage.getItem(KEY))return;const o=document.createElement('div');o.id='resellLanguageOverlay';o.innerHTML='<div id="resellLanguageCard"><h2>Choose language</h2><p>Select the language for RESSELL. You can change it later.</p>'+Object.entries(langs).map(([k,v])=>`<button class="resell-lang-btn" data-lang="${k}"><span style="font-size:24px">${v.flag}</span><span>${v.name}</span></button>`).join('')+'</div>';document.body.appendChild(o);o.querySelectorAll('[data-lang]').forEach(b=>b.addEventListener('click',()=>saveLang(b.dataset.lang)));}
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',show);else show();
+})();
+</script>
 </head>
 <body>
 <div class="noise"></div>
@@ -1154,7 +1172,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         <div>
           <div class="farm-kicker">R-GAME · FARM</div>
           <div class="farm-title">ЗАЖМИ R</div>
-          <div class="farm-sub">Держи R — сумма растёт каждую секунду. В случайный момент фарм остановится, и ты заберёшь накопленное.</div>
+          <div class="farm-sub">Держи R 30 секунд.  и начисляется один раз после полного удержания 30 секунд.</div>
         </div>
         <div class="farm-total" id="farmTotal">10–50k ₽</div>
       </div>
@@ -2177,8 +2195,6 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   // Standalone R-Farm — 30s / 1 day
   // Server-authoritative reward + resilient cooldown/session recovery.
   // =========================
-  const FARM_MIN_DURATION = 1;
-  const FARM_MAX_DURATION = 30;
   const FARM_DURATION = 30;
   const FARM_COOLDOWN = 24 * 60 * 60;
   const FARM_MIN_REWARD = 10000;
@@ -2292,17 +2308,12 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     throw lastError || new Error('Фарм временно недоступен');
   }
 
-  function getActiveFarmDuration(){
-    const d = Number(holdState?.duration || FARM_DURATION);
-    return Math.max(FARM_MIN_DURATION, Math.min(FARM_MAX_DURATION, d || FARM_DURATION));
-  }
-
   function updateFarmVisuals(remaining){
     const t = $('#farmTimer');
     const f = $('#farmProgressFill');
     const p = $('#farmPanel');
     if(!t || !f) return;
-    const d = getActiveFarmDuration();
+    const d = FARM_DURATION;
     const rem = Math.max(0, Math.min(d, Number(remaining) || 0));
     const pr = Math.min(100, Math.max(0, ((d - rem) / d) * 100));
     t.textContent = formatClock(rem);
@@ -2314,12 +2325,8 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     const el = $('#farmTotal');
     if(!el) return;
     const p = Math.min(1, Math.max(0, Number(progress) || 0));
-    if(p <= 0){ el.textContent = '+0 ₽'; return; }
-    // The displayed amount is the amount actually being farmed: 50,000 ₽
-    // corresponds to a full 30-second hold. The server calculates the same
-    // amount from the real elapsed duration when the random stop is reached.
-    const amount = Math.min(50000, Math.floor(50000 * p));
-    const next = `+${amount.toLocaleString('ru-RU')} ₽`;
+    const liveMax = FARM_MAX_REWARD;
+     const next = p <= 0 ? '0 ₽' : `+${Math.floor(liveMax * p).toLocaleString('ru-RU')} ₽`;
     if(el.textContent !== next) el.textContent = next;
   }
 
@@ -2335,16 +2342,13 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         return;
       }
       const started = Number(holdState.started_at || holdState.startedAt || 0) * 1000;
-      const duration = getActiveFarmDuration() * 1000;
+      const duration = Math.max(FARM_MIN_DURATION, Number(holdState?.duration || FARM_DURATION)) * 1000;
       const elapsed = started > 0
         ? Math.max(0, Math.min(duration, Date.now() - started))
         : 0;
-      // The random stop controls WHEN the farm ends, but the amount grows
-      // against the full 30-second scale. So 9 seconds = about 15,000 ₽.
       const progress = elapsed / duration;
-      const earningProgress = elapsed / (FARM_MAX_DURATION * 1000);
-      updateFarmVisuals(getActiveFarmDuration() - elapsed / 1000);
-      renderFarmReward(earningProgress);
+      updateFarmVisuals(FARM_DURATION - elapsed / 1000);
+      renderFarmReward(progress);
       if(Math.random() < 0.16) spawnFarmSpark();
       if(progress >= 1){
         completeStandaloneFarm();
@@ -2416,7 +2420,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     document.querySelector('#farmSection .farm-stage')?.classList.add('farm-active');
     $('#farmTotal').textContent = '+0 ₽';
     const st = $('#farmStatus');
-    if(st) st.textContent = `Не отпускай R. Сумма продолжает расти.`;
+    if(st) st.textContent = 'Не отпускай R. Сумма растёт, пока ты держишь R.';
 
     holdStartPromise = (async()=>{
       try{
@@ -2424,7 +2428,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
           method:'POST',
           cache:'no-store',
           headers:{'Content-Type':'application/json','Accept':'application/json','Cache-Control':'no-cache'},
-          body:JSON.stringify({duration:FARM_DURATION,min_duration:FARM_MIN_DURATION,max_duration:FARM_MAX_DURATION})
+          body:JSON.stringify({min_duration:FARM_MIN_DURATION,max_duration:FARM_MAX_DURATION})
         });
         let payload = null;
         try{ payload = await resp.json(); }catch(_){ payload = null; }
@@ -2442,10 +2446,13 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
           ...payload,
           session_id: sessionId,
           started_at: farmEpochSeconds(payload.started_at || payload.startedAt) || farmNow(),
-          duration: Math.max(FARM_MIN_DURATION, Math.min(FARM_MAX_DURATION, Number(payload.duration || FARM_DURATION))),
+          duration: FARM_DURATION,
           ready:false
         });
-        farmTargetReward = 0;
+        farmTargetReward = Math.max(
+          FARM_MIN_REWARD,
+          Math.min(FARM_MAX_REWARD, Number(payload.target_reward || payload.base_reward || 30000))
+        );
 
         if(holdReleaseQueued || !holdPointerActive){
           await cancelStandaloneFarm();
@@ -2478,7 +2485,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         method:'POST',
         cache:'no-store',
         headers:{'Content-Type':'application/json','Accept':'application/json','Cache-Control':'no-cache'},
-        body:JSON.stringify({session_id:sessionId,duration:getActiveFarmDuration()})
+        body:JSON.stringify({session_id:sessionId})
       });
       let payload = null;
       try{ payload = await resp.json(); }catch(_){ payload = null; }
@@ -2487,7 +2494,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       }
 
       farmCompleted = true;
-      const reward = Number(payload.reward || 0);
+      const reward = Number(payload.reward || farmTargetReward || 0);
       const now = farmNow();
       const serverCooldown = farmDurationSeconds(payload.cooldown_remaining ?? payload.cooldown ?? 0);
       const serverUntil = farmEpochSeconds(payload.cooldown_until ?? payload.cooldownUntil ?? 0);
@@ -2570,7 +2577,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     if(!sessionId){
       holdReleaseQueued = false;
       updateFarmVisuals(FARM_DURATION);
-      $('#farmTotal').textContent = '+0 ₽';
+      $('#farmTotal').textContent = '0 ₽';
       $('#farmStatus').textContent = 'Отпустил раньше времени. Награда не засчитана.';
       return;
     }
@@ -2586,7 +2593,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     holdState = normalizeHoldState({...holdState,session_id:null,started_at:0,ready:false});
     holdReleaseQueued = false;
     updateFarmVisuals(Number(holdState.cooldown_remaining || FARM_DURATION));
-    $('#farmTotal').textContent = '+0 ₽';
+    $('#farmTotal').textContent = '0 ₽';
     $('#farmStatus').textContent = 'Отпустил раньше времени. Награда не засчитана.';
   }
 
@@ -2618,7 +2625,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
 
       if(farmCompleting || farmCompleted){ ending=false; return; }
       const elapsed = farmSessionElapsedMs();
-      if(!forceCancel && holdState?.session_id && elapsed >= getActiveFarmDuration() * 1000){
+      if(!forceCancel && holdState?.session_id && elapsed >= Math.max(FARM_MIN_DURATION, Number(holdState?.duration || FARM_DURATION)) * 1000){
         await completeStandaloneFarm();
       }else if(holdPointerActive || holdStartPromise || holdState?.session_id){
         await cancelStandaloneFarm();
@@ -2698,15 +2705,15 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
           await recoverStaleSession();
           holdState = normalizeHoldState({...holdState,session_id:null,started_at:0,ready:true,cooldown_remaining:0,cooldown_until:0});
           updateFarmVisuals(FARM_DURATION);
-          $('#farmStatus').textContent = `Нажми и удерживай R. Сумма растёт до 50 000 ₽.`;
-          $('#farmTotal').textContent = '+0 ₽';
+          $('#farmStatus').textContent = 'Нажми и удерживай R 30 секунд. Награда: 10 000–50 000 ₽.';
+          $('#farmTotal').textContent = '0 ₽';
           document.querySelector('#farmSection .farm-stage')?.classList.remove('farm-disabled');
         }else{
           const ready = Boolean(holdState?.ready);
           const left = Number(holdState?.cooldown_remaining || 0);
           updateFarmVisuals(ready ? FARM_DURATION : left);
           $('#farmStatus').textContent = ready
-            ? `Нажми и удерживай R. Сумма растёт до 50 000 ₽.`
+            ? 'Нажми и удерживай R 30 секунд. Награда: 10 000–50 000 ₽.'
             : `Фарм снова будет доступен через ${formatClock(left)}.`;
           $('#farmTotal').textContent = ready ? '10–50k ₽' : 'КД';
           document.querySelector('#farmSection .farm-stage')?.classList.toggle('farm-disabled', !ready);
@@ -2750,8 +2757,8 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       holdState.cooldown_remaining = 0;
       holdState.cooldown_until = 0;
       updateFarmVisuals(FARM_DURATION);
-      $('#farmStatus').textContent = `Нажми и удерживай R. Сумма растёт до 50 000 ₽.`;
-      $('#farmTotal').textContent = '+0 ₽';
+      $('#farmStatus').textContent = 'Нажми и удерживай R 30 секунд. Награда: 10 000–50 000 ₽.';
+      $('#farmTotal').textContent = '0 ₽';
       document.querySelector('#farmSection .farm-stage')?.classList.remove('farm-disabled');
     }
   },1000);
@@ -3048,8 +3055,8 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       }
     } else if(tycoonTab==='taxi') {
       const d=await tycoonFetch(`/tycoon/taxopark/${encodeURIComponent(userId)}`); const tax=d.taxopark||{level:'none',cars:[]}; const lvl=d.level||{}; const levels=d.levels||[]; const garage=Array.isArray(d.garage)?d.garage:[]; const inPark=Array.isArray(tax.car_instance_indices)?tax.car_instance_indices.map(Number):[]; const parkSet=new Set(inPark);
-      const parkCars=garage.filter(c=>c.in_taxopark); const needsService=parkCars.some(c=>Number(c.wear||0)>0); const repairCost=parkCars.reduce((a,c)=>{const w=Number(c.wear||0);return a+(w>0?Math.max(500,Math.round(Number(c.price||0)*0.025*w/100)):0)},0);
-      body=`<div class="tycoon-shell"><div class="taxi-hero"><div class="taxi-kicker">TAXI OPERATIONS</div><div class="taxi-title">Таксопарк</div><div class="taxi-sub">Линия, автомобили и обслуживание по фактическому износу.</div></div>${lvl.id==='none'?`<div class="tycoon-section"><div class="tycoon-label">Купить таксопарк</div><div class="taxi-list">${levels.filter(x=>x.id!=='none').map(x=>`<div class="taxi-row"><div><div class="taxi-row-name">${esc(x.name)}</div><div class="taxi-row-meta">${number(x.price)} ₽ · ${number(x.slots)} машин · +${number(x.income_per_car)} ₽/ч</div></div><button class="tycoon-btn primary" data-buy-taxi="${esc(x.id)}">КУПИТЬ</button></div>`).join('')}</div></div>`:`<div class="taxi-stats"><div class="taxi-card"><div class="taxi-label">Линия</div><div class="taxi-value">${parkCars.length}/${number(lvl.slots||0)}</div><div class="tycoon-meta">машин в работе</div></div><div class="taxi-card"><div class="taxi-label">Доход / час</div><div class="taxi-value">+${number((lvl.income_per_car||0)*parkCars.length)} ₽</div><div class="tycoon-meta">за текущую линию</div></div></div><div class="tycoon-section"><div class="tycoon-section-head"><div><div class="tycoon-label">Обслуживание машин</div><div class="tycoon-section-note">Цена зависит только от износа</div></div><div class="taxi-current">${needsService?`${number(repairCost)} ₽`:'ВСЁ ИСПРАВНО'}</div></div><button class="tycoon-btn primary" id="tycoonTaxiMaintenance" style="width:100%;min-height:52px" ${needsService?'':'disabled'}>${needsService?`ОБСЛУЖИТЬ МАШИНЫ · ${number(repairCost)} ₽`:'МАШИНЫ ИСПРАВНЫ'}</button><div class="tycoon-meta" style="margin-top:8px">Если машины с износом не обслуживать 14 дней, таксопарк изымается, а автомобили остаются в гараже.</div></div><div class="tycoon-section"><div class="tycoon-label">Автомобили</div><div class="taxi-list">${garage.length?garage.map(c=>{const wear=Math.max(0,Math.min(100,Number(c.wear||0)));return `<div class="taxi-car-card"><div class="taxi-car-top"><div><div class="taxi-car-title">${esc((c.name||c.id).replace(/^[^А-ЯA-Za-z]+/,'').trim())}</div><div class="taxi-car-sub">${c.in_taxopark?'НА ЛИНИИ':'В ГАРАЖ'} · ${number(c.mileage||0)} км · ${number(c.total_income||0)} ₽ заработано</div></div><span class="taxi-current">${c.in_taxopark?'В РАБОТЕ':'ГОТОВА'}</span></div><div class="taxi-meter"><div class="taxi-meter-head"><span>ИЗНОС</span><b>${wear.toFixed(0)}%</b></div><div class="taxi-meter-track"><div class="taxi-meter-fill" style="width:${wear}%"></div></div></div><div class="taxi-actions">${c.in_taxopark?`<button class="tycoon-btn" data-remove-taxi="${esc(c.id)}" data-taxi-instance="${c.instance_index}">СНЯТЬ С ЛИНИИ</button>`:`<button class="tycoon-btn primary" data-add-taxi="${esc(c.id)}" data-taxi-instance="${c.instance_index}" ${parkCars.length>=Number(lvl.slots||0)?'disabled':''}>НА ЛИНИЮ</button>`}<span class="tycoon-meta">+${number(c.income_per_hour||0)} ₽/ч</span></div></div>`}).join(''):'<div class="tycoon-empty">В гараже пока нет машин.</div>'}</div></div></div>`}`;
+      const parkCars=garage.filter(c=>c.in_taxopark); const pendingTaxi=Number(d.pending_collect||0); const needsService=parkCars.some(c=>Number(c.wear||0)>0); const repairCost=parkCars.reduce((a,c)=>{const w=Number(c.wear||0);return a+(w>0?Math.max(500,Math.round(Number(c.price||0)*0.025*w/100)):0)},0);
+      body=`<div class="tycoon-shell"><div class="taxi-hero"><div class="taxi-kicker">TAXI OPERATIONS</div><div class="taxi-title">Таксопарк</div><div class="taxi-sub">Линия, автомобили и обслуживание по фактическому износу.</div></div>${lvl.id==='none'?`<div class="tycoon-section"><div class="tycoon-label">Купить таксопарк</div><div class="taxi-list">${levels.filter(x=>x.id!=='none').map(x=>`<div class="taxi-row"><div><div class="taxi-row-name">${esc(x.name)}</div><div class="taxi-row-meta">${number(x.price)} ₽ · ${number(x.slots)} машин · +${number(x.income_per_car)} ₽/ч</div></div><button class="tycoon-btn primary" data-buy-taxi="${esc(x.id)}">КУПИТЬ</button></div>`).join('')}</div></div>`:`<div class="taxi-stats"><div class="taxi-card"><div class="taxi-label">Линия</div><div class="taxi-value">${parkCars.length}/${number(lvl.slots||0)}</div><div class="tycoon-meta">машин в работе</div></div><div class="taxi-card"><div class="taxi-label">Доход / час</div><div class="taxi-value">+${number((lvl.income_per_car||0)*parkCars.length)} ₽</div><div class="tycoon-meta">за текущую линию</div></div></div><div class="tycoon-section" style="margin-top:10px"><div class="tycoon-section-head"><div><div class="tycoon-label">Прибыль таксопарка</div><div class="tycoon-section-note">Доход накапливается, пока ты офлайн</div></div><div class="taxi-current">+${number(pendingTaxi)} ₽</div></div><button class="tycoon-btn primary" id="tycoonTaxiCollect" style="width:100%;min-height:52px" ${pendingTaxi<=0?'disabled':''}>${pendingTaxi>0?`ЗАБРАТЬ +${number(pendingTaxi)} ₽`:'НАКОПЛЕНИЙ НЕТ'}</button></div><div class="tycoon-section"><div class="tycoon-section-head"><div><div class="tycoon-label">Обслуживание машин</div><div class="tycoon-section-note">Цена зависит только от износа</div></div><div class="taxi-current">${needsService?`${number(repairCost)} ₽`:'ВСЁ ИСПРАВНО'}</div></div><button class="tycoon-btn primary" id="tycoonTaxiMaintenance" style="width:100%;min-height:52px" ${needsService?'':'disabled'}>${needsService?`ОБСЛУЖИТЬ МАШИНЫ · ${number(repairCost)} ₽`:'МАШИНЫ ИСПРАВНЫ'}</button><div class="tycoon-meta" style="margin-top:8px">Если машины с износом не обслуживать 14 дней, таксопарк изымается, а автомобили остаются в гараже.</div></div><div class="tycoon-section"><div class="tycoon-label">Автомобили</div><div class="taxi-list">${garage.length?garage.map(c=>{const wear=Math.max(0,Math.min(100,Number(c.wear||0)));return `<div class="taxi-car-card"><div class="taxi-car-top"><div><div class="taxi-car-title">${esc((c.name||c.id).replace(/^[^А-ЯA-Za-z]+/,'').trim())}</div><div class="taxi-car-sub">${c.in_taxopark?'НА ЛИНИИ':'В ГАРАЖ'} · ${number(c.mileage||0)} км · ${number(c.total_income||0)} ₽ заработано</div></div><span class="taxi-current">${c.in_taxopark?'В РАБОТЕ':'ГОТОВА'}</span></div><div class="taxi-meter"><div class="taxi-meter-head"><span>ИЗНОС</span><b>${wear.toFixed(0)}%</b></div><div class="taxi-meter-track"><div class="taxi-meter-fill" style="width:${wear}%"></div></div></div><div class="taxi-actions">${c.in_taxopark?`<button class="tycoon-btn" data-remove-taxi="${esc(c.id)}" data-taxi-instance="${c.instance_index}">СНЯТЬ С ЛИНИИ</button>`:`<button class="tycoon-btn primary" data-add-taxi="${esc(c.id)}" data-taxi-instance="${c.instance_index}" ${parkCars.length>=Number(lvl.slots||0)?'disabled':''}>НА ЛИНИЮ</button>`}<span class="tycoon-meta">+${number(c.income_per_hour||0)} ₽/ч</span></div></div>`}).join(''):'<div class="tycoon-empty">В гараже пока нет машин.</div>'}</div></div></div>`}`;
     }
     modalBody.innerHTML=`<div class="tycoon-wrap">${tycoonTabs()}${body}</div>`;
     $$('.tycoon-tab,[data-tycoon-tab]').forEach(b=>b.addEventListener('click',async()=>{tycoonTab=b.dataset.tycoonTab;await renderTycoon().catch(e=>showToast(e.message))}));
@@ -3207,8 +3214,8 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         <div class="business-total-v4">${number(totalDay)} <span>₽ / ДЕНЬ</span></div>
         <div class="business-balance-v4">Баланс: <b>${number(balance)} ₽</b> · ${number(totalHour)} ₽ / час</div>
         <div class="business-actions-v4">
-          <button class="business-action-v4 primary" id="businessCollectBtn" ${pending<=0?'disabled':''}>${pending>0?`ЗАБРАТЬ +${number(pending)} ₽`:'НАКОПЛЕНИЙ НЕТ'}</button>
-          <button class="business-action-v4" id="businessRefreshBtn">ОБНОВИТЬ</button>
+          <button class="tycoon-btn primary" id="businessCollectBtn" style="min-height:48px" ${pending<=0?'disabled':''}>${pending>0?`ЗАБРАТЬ +${number(pending)} ₽`:'НАКОПЛЕНИЙ НЕТ'}</button>
+          <button class="tycoon-btn" id="businessRefreshBtn" style="min-height:48px">ОБНОВИТЬ</button>
         </div>
         ${debt>0?`<div class="business-debt-v4">Обслуживание: долг ${number(debt)} ₽ <button class="business-mini-btn-v4" id="businessMaintenanceBtn">ОПЛАТИТЬ</button></div>`:''}
       </div>
@@ -3441,6 +3448,15 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         profileData=profileData||{}; profileData.balance=p.balance??profileData.balance; setBalance(profileData.balance);
         showToast(p.message||'Таксопарк куплен'); await renderTycoon();
       }catch(err){showToast(err.message||'Не удалось купить таксопарк');buyTaxi.disabled=false;buyTaxi.textContent=oldText;}
+      return;
+    }
+    if(e.target.closest('#tycoonTaxiCollect')){
+      const btn=e.target.closest('#tycoonTaxiCollect'); btn.disabled=true; const oldText=btn.textContent; btn.textContent='СБОР…';
+      try{
+        const p=await tycoonFetch(`/tycoon/taxopark/${encodeURIComponent(userId)}/collect`,{method:'POST',body:JSON.stringify({})});
+        profileData=profileData||{}; profileData.balance=p.balance??profileData.balance; setBalance(profileData.balance);
+        showToast(p.collected>0?`Зачислено +${number(p.collected)} ₽`:'Пока нечего забирать'); await renderTycoon();
+      }catch(err){showToast(err.message||'Не удалось забрать прибыль');btn.disabled=false;btn.textContent=oldText;}
       return;
     }
     if(e.target.closest('#tycoonTaxiMaintenance')){
