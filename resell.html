@@ -1469,17 +1469,23 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     for(const k of keys){ if(s.includes(k)) s=s.split(k).join(LANG_MAP[k]); }
     return s;
   }
-  const LANG_ORIGINAL_ATTR = 'data-resell-original-text';
+  // Text nodes do not support DOM attributes. The previous version tried to
+  // store the original Russian text on Text nodes, so EN mode silently did
+  // nothing. Keep originals in a WeakMap instead.
+  const LANG_ORIGINAL_TEXT = new WeakMap();
   let languageApplying = false;
   function translateTextNode(node){
-    if(!node.nodeValue) return;
+    if(!node || !node.nodeValue || !node.parentElement) return;
+    if(node.parentElement.closest?.('#langBtn')) return;
     if(appLang==='en'){
-      if(!node.hasAttribute?.(LANG_ORIGINAL_ATTR) && /[А-Яа-яЁё]/.test(node.nodeValue)) node.setAttribute(LANG_ORIGINAL_ATTR,node.nodeValue);
-      const original=node.getAttribute?.(LANG_ORIGINAL_ATTR);
-      if(original) node.nodeValue=translateString(original);
-    } else if(node.hasAttribute?.(LANG_ORIGINAL_ATTR)){
-      node.nodeValue=node.getAttribute(LANG_ORIGINAL_ATTR);
-      node.removeAttribute(LANG_ORIGINAL_ATTR);
+      if(!LANG_ORIGINAL_TEXT.has(node) && /[А-Яа-яЁё]/.test(node.nodeValue)){
+        LANG_ORIGINAL_TEXT.set(node,node.nodeValue);
+      }
+      const original=LANG_ORIGINAL_TEXT.get(node);
+      if(original!=null) node.nodeValue=translateString(original);
+    } else {
+      const original=LANG_ORIGINAL_TEXT.get(node);
+      if(original!=null){ node.nodeValue=original; LANG_ORIGINAL_TEXT.delete(node); }
     }
   }
   function applyLanguage(){
@@ -1511,13 +1517,16 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   }
   function toggleLanguage(){
     appLang=appLang==='ru'?'en':'ru';
-    localStorage.setItem('resell_lang',appLang);
+    try{ localStorage.setItem('resell_lang',appLang); }catch(_){}
     applyLanguage();
   }
-  document.addEventListener('DOMContentLoaded',()=>{
-    document.getElementById('langBtn')?.addEventListener('click',toggleLanguage);
-    applyLanguage();
-  });
+  // Delegated listener is intentionally used: parts of the UI are re-rendered
+  // dynamically, and the language button must keep working after every render.
+  document.addEventListener('click',(e)=>{
+    const b=e.target?.closest?.('#langBtn');
+    if(b){ e.preventDefault(); e.stopPropagation(); toggleLanguage(); }
+  },true);
+  document.addEventListener('DOMContentLoaded',()=>applyLanguage());
   const langObserver=new MutationObserver(()=>{
     if(languageApplying) return;
     if(appLang==='en'){
