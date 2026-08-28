@@ -1469,25 +1469,63 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     for(const k of keys){ if(s.includes(k)) s=s.split(k).join(LANG_MAP[k]); }
     return s;
   }
+  const LANG_ORIGINAL_ATTR = 'data-resell-original-text';
+  let languageApplying = false;
   function translateTextNode(node){
-    if(!node.nodeValue || !/[А-Яа-яЁё]/.test(node.nodeValue)) return;
-    node.nodeValue=translateString(node.nodeValue);
-  }
-  function applyLanguage(){
-    document.documentElement.lang=appLang;
-    const btn=document.getElementById('langBtn'); if(btn){btn.textContent=appLang==='ru'?'RU':'EN';btn.title=appLang==='ru'?'Switch to English':'Переключить на русский';}
-    const modalTitleEl=document.getElementById('modalTitle'); if(modalTitleEl && modalTitleEl.dataset.ruTitle){modalTitleEl.textContent=appLang==='en'?(LANG_MAP[modalTitleEl.dataset.ruTitle]||modalTitleEl.dataset.ruTitle):modalTitleEl.dataset.ruTitle;}
-    if(appLang==='ru') location.reload();
+    if(!node.nodeValue) return;
     if(appLang==='en'){
-      const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT); const nodes=[]; while(walker.nextNode()) nodes.push(walker.currentNode); nodes.forEach(translateTextNode);
-      document.querySelectorAll('input[placeholder],textarea[placeholder],button[aria-label],img[alt]').forEach(el=>{
-        ['placeholder','aria-label','alt'].forEach(a=>{const v=el.getAttribute(a);if(v&&LANG_MAP[v])el.setAttribute(a,LANG_MAP[v]);});
-      });
+      if(!node.hasAttribute?.(LANG_ORIGINAL_ATTR) && /[А-Яа-яЁё]/.test(node.nodeValue)) node.setAttribute(LANG_ORIGINAL_ATTR,node.nodeValue);
+      const original=node.getAttribute?.(LANG_ORIGINAL_ATTR);
+      if(original) node.nodeValue=translateString(original);
+    } else if(node.hasAttribute?.(LANG_ORIGINAL_ATTR)){
+      node.nodeValue=node.getAttribute(LANG_ORIGINAL_ATTR);
+      node.removeAttribute(LANG_ORIGINAL_ATTR);
     }
   }
-  function toggleLanguage(){appLang=appLang==='ru'?'en':'ru';localStorage.setItem('resell_lang',appLang);if(appLang==='ru') location.reload(); else applyLanguage();}
-  document.addEventListener('DOMContentLoaded',()=>{document.getElementById('langBtn')?.addEventListener('click',toggleLanguage);applyLanguage();});
-  const langObserver=new MutationObserver(()=>{if(appLang==='en'){const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);const ns=[];while(walker.nextNode())ns.push(walker.currentNode);ns.forEach(translateTextNode);}});
+  function applyLanguage(){
+    if(languageApplying) return;
+    languageApplying=true;
+    try{
+      document.documentElement.lang=appLang;
+      const btn=document.getElementById('langBtn');
+      if(btn){btn.textContent=appLang==='ru'?'RU':'EN';btn.title=appLang==='ru'?'Switch to English':'Переключить на русский';}
+      const modalTitleEl=document.getElementById('modalTitle');
+      if(modalTitleEl && modalTitleEl.dataset.ruTitle) modalTitleEl.textContent=appLang==='en'?(LANG_MAP[modalTitleEl.dataset.ruTitle]||modalTitleEl.dataset.ruTitle):modalTitleEl.dataset.ruTitle;
+      const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
+      const nodes=[];
+      while(walker.nextNode()) nodes.push(walker.currentNode);
+      nodes.forEach(translateTextNode);
+      document.querySelectorAll('input[placeholder],textarea[placeholder],button[aria-label],img[alt]').forEach(el=>{
+        ['placeholder','aria-label','alt'].forEach(a=>{
+          const current=el.getAttribute(a);
+          if(appLang==='en'){
+            if(current && !el.dataset[`resellOriginal${a}`]) el.dataset[`resellOriginal${a}`]=current;
+            const original=el.dataset[`resellOriginal${a}`];
+            if(original && LANG_MAP[original]) el.setAttribute(a,LANG_MAP[original]);
+          } else if(el.dataset[`resellOriginal${a}`]) {
+            el.setAttribute(a,el.dataset[`resellOriginal${a}`]);
+          }
+        });
+      });
+    } finally { languageApplying=false; }
+  }
+  function toggleLanguage(){
+    appLang=appLang==='ru'?'en':'ru';
+    localStorage.setItem('resell_lang',appLang);
+    applyLanguage();
+  }
+  document.addEventListener('DOMContentLoaded',()=>{
+    document.getElementById('langBtn')?.addEventListener('click',toggleLanguage);
+    applyLanguage();
+  });
+  const langObserver=new MutationObserver(()=>{
+    if(languageApplying) return;
+    if(appLang==='en'){
+      const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
+      const ns=[]; while(walker.nextNode()) ns.push(walker.currentNode);
+      ns.forEach(translateTextNode);
+    }
+  });
   langObserver.observe(document.body,{childList:true,subtree:true});
 
   const $ = (s) => document.querySelector(s);
