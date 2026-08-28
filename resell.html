@@ -1101,13 +1101,42 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
 </style>
 <script>
 (function(){
- const KEY='resell_language_v1';
+ const KEY='resell_language_v3';
  const langs={ru:{flag:'🇷🇺',name:'Русский'},en:{flag:'🇬🇧',name:'English'}};
  window.resellLanguage=localStorage.getItem(KEY)||'';
  async function saveLang(lang){window.resellLanguage=lang;localStorage.setItem(KEY,lang);try{const uid=window.userId||new URLSearchParams(location.search).get('userId')||window.Telegram?.WebApp?.initDataUnsafe?.user?.id;if(uid) await fetch((window.API_BASE||'')+'/profile/'+encodeURIComponent(uid)+'/language',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({language:lang})});}catch(_){}
- document.getElementById('resellLanguageOverlay')?.remove();window.dispatchEvent(new CustomEvent('resell-language-changed',{detail:lang}));}
+ document.getElementById('resellLanguageOverlay')?.remove();window.dispatchEvent(new CustomEvent('resell-language-changed',{detail:lang}));window.applyResellLanguage?.(lang);setTimeout(()=>location.reload(),80);}
  function show(){if(localStorage.getItem(KEY))return;const o=document.createElement('div');o.id='resellLanguageOverlay';o.innerHTML='<div id="resellLanguageCard"><h2>Choose language</h2><p>Select the language for RESSELL. You can change it later.</p>'+Object.entries(langs).map(([k,v])=>`<button class="resell-lang-btn" data-lang="${k}"><span style="font-size:24px">${v.flag}</span><span>${v.name}</span></button>`).join('')+'</div>';document.body.appendChild(o);o.querySelectorAll('[data-lang]').forEach(b=>b.addEventListener('click',()=>saveLang(b.dataset.lang)));}
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',show);else show();
+})();
+</script>
+<script id="resell-language-engine">
+(function(){
+  const KEY='resell_language_v3';
+  const T={
+    ru:{'Refresh':'Обновить','Language':'Язык','Settings':'Настройки','Home':'Главная','Profile':'Профиль','Referrals':'Рефералы','Bank':'Банк','Mining':'Майнинг','Property':'Недвижимость','Cars':'Авто','Taxopark':'Таксопарк','Business':'Бизнес','Collect':'ЗАБРАТЬ','Buy':'КУПИТЬ','Sell':'ПРОДАТЬ','Repair':'ПОЧИНИТЬ','English':'English','Russian':'Русский','Choose language':'Выбор языка','Select language':'Выбери язык'},
+    en:{'Обновить':'Refresh','Язык':'Language','Настройки':'Settings','Главная':'Home','Профиль':'Profile','Рефералы':'Referrals','Банк':'Bank','Майнинг':'Mining','Недвижимость':'Property','Авто':'Cars','Таксопарк':'Taxopark','Бизнес':'Business','ЗАБРАТЬ':'COLLECT','КУПИТЬ':'BUY','ПРОДАТЬ':'SELL','ПОЧИНИТЬ':'REPAIR','Русский':'Русский','Выбор языка':'Choose language','Выбери язык':'Choose language','Пассивный доход':'Passive income','Доход / час':'Income / hour','Прибыль таксопарка':'Taxopark profit','Обслуживание машин':'Vehicle maintenance','Автомобили':'Vehicles','НА ЛИНИИ':'ON LINE','В ГАРАЖ':'IN GARAGE','СОБРАНО':'COLLECTED'}
+  };
+  function lang(){const v=localStorage.getItem(KEY);return v==='en'?'en':'ru';}
+  function translateRoot(root){
+    const map=T[lang()];
+    const walker=document.createTreeWalker(root||document.body,NodeFilter.SHOW_TEXT);
+    const nodes=[];let n;while(n=walker.nextNode()) nodes.push(n);
+    for(const text of nodes){
+      if(!text.nodeValue.trim() || text.parentElement?.closest('script,style,textarea,input')) continue;
+      let v=text.nodeValue;
+      for(const [a,b] of Object.entries(map)) v=v.split(a).join(b);
+      if(v!==text.nodeValue) text.nodeValue=v;
+    }
+    document.documentElement.lang=lang();
+  }
+  window.applyResellLanguage=function(l){localStorage.setItem(KEY,l==='en'?'en':'ru');translateRoot(document.body);};
+  document.addEventListener('DOMContentLoaded',()=>{
+    translateRoot(document.body);
+    const mo=new MutationObserver(m=>{for(const x of m){for(const n of x.addedNodes){if(n.nodeType===1) translateRoot(n);}}});
+    mo.observe(document.body,{childList:true,subtree:true});
+  });
+  window.resellSetLanguage=function(l){window.applyResellLanguage(l);setTimeout(()=>location.reload(),50);};
 })();
 </script>
 </head>
@@ -1122,6 +1151,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       <div>RE<span class="accent">SELL</span></div>
     </div>
     <div class="header-actions">
+      <button class="icon-btn" id="languageBtn" aria-label="Язык" title="Язык">🌐</button>
       <button class="icon-btn" id="refreshBtn" aria-label="Обновить">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 11a8 8 0 0 0-14.9-4M4 4v5h5"/><path d="M4 13a8 8 0 0 0 14.9 4M20 20v-5h-5"/></svg>
       </button>
@@ -1535,7 +1565,14 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     registrationRequired=true;
     if(modalClose) modalClose.style.display='none';
     registrationDraft={nickname:"",shopName:""};
-    renderRegistrationStep(1);
+    const saved=localStorage.getItem('resell_language_v3');
+    if(saved==='ru'||saved==='en'){ window.resellLanguage=saved; renderRegistrationStep(1); }
+    else renderRegistrationLanguage();
+  }
+
+  function renderRegistrationLanguage(){
+    openModal('Выбор языка',`<div class="registration-card registration-step-card"><div class="registration-step">ПЕРВЫЙ ВХОД</div><div class="registration-title">ВЫБЕРИ ЯЗЫК</div><div class="registration-lead">Язык можно изменить позже в настройках.</div><div style="display:grid;gap:10px;margin-top:18px"><button class="registration-submit" type="button" data-reg-lang="ru">🇷🇺 Русский</button><button class="registration-submit" type="button" data-reg-lang="en">🇬🇧 English</button></div></div>`);
+    $$('#modalBody [data-reg-lang]').forEach(btn=>btn.addEventListener('click',async()=>{const lang=btn.dataset.regLang;localStorage.setItem('resell_language_v3',lang);window.resellLanguage=lang;try{if(userId)await fetch(`${API_BASE}/profile/${encodeURIComponent(userId)}/language`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({language:lang})});}catch(_){}renderRegistrationStep(1);}));
   }
 
   function renderRegistrationStep(step){
@@ -1739,7 +1776,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     for(let attempt=0;attempt<3;attempt++){
       try{
         const resp=await apiFetch(`${API_BASE}/profile/${encodeURIComponent(userId)}?t=${Date.now()}`,{method:'GET'},1);
-        const data=await resp.json(); profileData=data;
+        const data=await resp.json(); profileData=data; if(data.language){localStorage.setItem('resell_language_v3',data.language);window.resellLanguage=data.language;window.applyResellLanguage?.(data.language);}
         if(data.registration_complete===false||data.registration_complete===0||data.registration_required===true){setBalance(primaryBalance(data));setProgress(0);statusText.textContent='Требуется регистрация';if(!registrationRequired)openRegistration();return data;}
         setBalance(primaryBalance(data)); epochData=data.epoch||null; setProgress(Number(data.epoch_progress??epochData?.progress??0)); statusText.textContent='Баланс синхронизирован'; $('.status-dot').style.background='var(--success)'; return data;
       }catch(e){lastError=e;if(attempt<2)await new Promise(r=>setTimeout(r,600*(attempt+1)));}
@@ -2193,10 +2230,12 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
 
   // =========================
   // Standalone R-Farm — 30s / 1 day
-  // Server-authoritative reward + resilient cooldown/session recovery.
+  //  + resilient cooldown/session recovery.
   // =========================
   const FARM_DURATION = 30;
-  const FARM_COOLDOWN = 24 * 60 * 60;
+  const RFARM_MIN_SECONDS = 1;
+  const RFARM_MAX_SECONDS = 30;
+  const FARM_COOLDOWN = 12 * 60 * 60;
   const FARM_MIN_REWARD = 10000;
   const FARM_MAX_REWARD = 50000;
   const FARM_LOCAL_LAST_COMPLETED_KEY = 'resell_farm_last_completed_at_v5';
@@ -2225,6 +2264,16 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   }
 
   function farmNow(){ return Math.floor(Date.now() / 1000); }
+  function rfarmNextNoonMsk(lastCompleted, nowSec){
+    const last=Number(lastCompleted)||0; if(!last) return 0;
+    const now=Number(nowSec)||Math.floor(Date.now()/1000);
+    const MSK=3*60*60*1000;
+    const local=new Date(last*1000+MSK);
+    local.setUTCHours(12,0,0,0);
+    let reset=Math.floor((local.getTime()-MSK)/1000);
+    if(now>=reset) reset+=86400;
+    return reset;
+  }
 
   function farmEpochSeconds(value){
     const n = Number(value) || 0;
@@ -2271,13 +2320,13 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     const explicitUntil = farmEpochSeconds(d.cooldown_until || d.cooldownUntil || 0);
     const serverRemaining = Math.max(0, Number(d.cooldown_remaining ?? d.cooldownRemaining ?? 0));
     let cooldownUntil = explicitUntil;
-    if(!cooldownUntil && lastCompletedAt > 0) cooldownUntil = lastCompletedAt + FARM_COOLDOWN;
+    if(!cooldownUntil && lastCompletedAt > 0) cooldownUntil = rfarmNextNoonMsk(lastCompletedAt, now);
     let cooldownRemaining = cooldownUntil > now ? cooldownUntil - now : 0;
     // Only fall back to server's remaining seconds when it did not provide a timestamp.
     if(!explicitUntil && !lastCompletedAt && cooldownRemaining <= 0) cooldownRemaining = serverRemaining;
     if(cooldownRemaining <= 0){ cooldownRemaining = 0; cooldownUntil = 0; farmClearLocalCooldown(); }
     const serverDuration = Number(d.duration ?? 0) || FARM_DURATION;
-    const duration = Math.max(FARM_MIN_DURATION, Math.min(FARM_MAX_DURATION, serverDuration));
+    const duration = Math.max(RFARM_MIN_SECONDS, Math.min(RFARM_MAX_SECONDS, serverDuration));
     return {...d, session_id:sessionId, started_at:startedAt, last_completed_at:lastCompletedAt || undefined, cooldown_until:cooldownUntil, cooldown_remaining:cooldownRemaining, duration, ready:!sessionId && cooldownRemaining<=0};
   }
 
@@ -2313,7 +2362,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     const f = $('#farmProgressFill');
     const p = $('#farmPanel');
     if(!t || !f) return;
-    const d = FARM_DURATION;
+    const d = Number(holdState?.session_id && holdState?.duration ? holdState.duration : FARM_DURATION);
     const rem = Math.max(0, Math.min(d, Number(remaining) || 0));
     const pr = Math.min(100, Math.max(0, ((d - rem) / d) * 100));
     t.textContent = formatClock(rem);
@@ -2342,12 +2391,12 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         return;
       }
       const started = Number(holdState.started_at || holdState.startedAt || 0) * 1000;
-      const duration = Math.max(FARM_MIN_DURATION, Number(holdState?.duration || FARM_DURATION)) * 1000;
+      const duration = Math.max(RFARM_MIN_SECONDS, Number(holdState?.duration || FARM_DURATION)) * 1000;
       const elapsed = started > 0
         ? Math.max(0, Math.min(duration, Date.now() - started))
         : 0;
       const progress = elapsed / duration;
-      updateFarmVisuals(FARM_DURATION - elapsed / 1000);
+      updateFarmVisuals(duration / 1000 - elapsed / 1000);
       renderFarmReward(progress);
       if(Math.random() < 0.16) spawnFarmSpark();
       if(progress >= 1){
@@ -2428,7 +2477,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
           method:'POST',
           cache:'no-store',
           headers:{'Content-Type':'application/json','Accept':'application/json','Cache-Control':'no-cache'},
-          body:JSON.stringify({min_duration:FARM_MIN_DURATION,max_duration:FARM_MAX_DURATION})
+          body:JSON.stringify({min_duration:RFARM_MIN_SECONDS,max_duration:RFARM_MAX_SECONDS})
         });
         let payload = null;
         try{ payload = await resp.json(); }catch(_){ payload = null; }
@@ -2446,13 +2495,10 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
           ...payload,
           session_id: sessionId,
           started_at: farmEpochSeconds(payload.started_at || payload.startedAt) || farmNow(),
-          duration: FARM_DURATION,
+          duration: Math.max(RFARM_MIN_SECONDS, Math.min(RFARM_MAX_SECONDS, Number(payload.duration || FARM_DURATION))),
           ready:false
         });
-        farmTargetReward = Math.max(
-          FARM_MIN_REWARD,
-          Math.min(FARM_MAX_REWARD, Number(payload.target_reward || payload.base_reward || 30000))
-        );
+        farmTargetReward = FARM_MAX_REWARD;
 
         if(holdReleaseQueued || !holdPointerActive){
           await cancelStandaloneFarm();
@@ -2499,7 +2545,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       const serverCooldown = farmDurationSeconds(payload.cooldown_remaining ?? payload.cooldown ?? 0);
       const serverUntil = farmEpochSeconds(payload.cooldown_until ?? payload.cooldownUntil ?? 0);
       const cooldown = serverCooldown > 0 ? Math.min(serverCooldown, FARM_COOLDOWN) : FARM_COOLDOWN;
-      const cooldownUntil = serverUntil > now ? Math.min(serverUntil, now + FARM_COOLDOWN) : now + FARM_COOLDOWN;
+      const cooldownUntil = serverUntil > now ? serverUntil : rfarmNextNoonMsk(now, now);
       const balance = payload.balance !== undefined
         ? Number(payload.balance)
         : Number(profileData?.balance || 0) + reward;
@@ -2625,7 +2671,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
 
       if(farmCompleting || farmCompleted){ ending=false; return; }
       const elapsed = farmSessionElapsedMs();
-      if(!forceCancel && holdState?.session_id && elapsed >= Math.max(FARM_MIN_DURATION, Number(holdState?.duration || FARM_DURATION)) * 1000){
+      if(!forceCancel && holdState?.session_id && elapsed >= Math.max(RFARM_MIN_SECONDS, Number(holdState?.duration || FARM_DURATION)) * 1000){
         await completeStandaloneFarm();
       }else if(holdPointerActive || holdStartPromise || holdState?.session_id){
         await cancelStandaloneFarm();
@@ -2705,7 +2751,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
           await recoverStaleSession();
           holdState = normalizeHoldState({...holdState,session_id:null,started_at:0,ready:true,cooldown_remaining:0,cooldown_until:0});
           updateFarmVisuals(FARM_DURATION);
-          $('#farmStatus').textContent = 'Нажми и удерживай R 30 секунд. Награда: 10 000–50 000 ₽.';
+          $('#farmStatus').textContent = 'Нажми и удерживай R. Время и сумма определяются во время попытки.';
           $('#farmTotal').textContent = '0 ₽';
           document.querySelector('#farmSection .farm-stage')?.classList.remove('farm-disabled');
         }else{
@@ -2713,9 +2759,9 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
           const left = Number(holdState?.cooldown_remaining || 0);
           updateFarmVisuals(ready ? FARM_DURATION : left);
           $('#farmStatus').textContent = ready
-            ? 'Нажми и удерживай R 30 секунд. Награда: 10 000–50 000 ₽.'
+            ? 'Нажми и удерживай R. Время и сумма определяются во время попытки.'
             : `Фарм снова будет доступен через ${formatClock(left)}.`;
-          $('#farmTotal').textContent = ready ? '10–50k ₽' : 'КД';
+          $('#farmTotal').textContent = ready ? '0 ₽' : 'КД';
           document.querySelector('#farmSection .farm-stage')?.classList.toggle('farm-disabled', !ready);
         }
 
@@ -2757,7 +2803,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       holdState.cooldown_remaining = 0;
       holdState.cooldown_until = 0;
       updateFarmVisuals(FARM_DURATION);
-      $('#farmStatus').textContent = 'Нажми и удерживай R 30 секунд. Награда: 10 000–50 000 ₽.';
+      $('#farmStatus').textContent = 'Нажми и удерживай R. Время и сумма определяются во время попытки.';
       $('#farmTotal').textContent = '0 ₽';
       document.querySelector('#farmSection .farm-stage')?.classList.remove('farm-disabled');
     }
@@ -2987,7 +3033,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     return p;
   }
   function tycoonTabs(){
-    const tabs=[['home','Обзор'],['bank','Банк'],['assets','Активы'],['cars','Авто'],['taxi','Таксопарк']];
+    const tabs=[['bank','Банк'],['assets','Активы'],['cars','Авто'],['taxi','Таксопарк']];
     return `<div class="tycoon-tabs">${tabs.map(([id,label])=>`<button class="tycoon-tab ${tycoonTab===id?'active':''}" data-tycoon-tab="${id}">${label}</button>`).join('')}</div>`;
   }
   async function renderTycoon(){
@@ -3697,6 +3743,16 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   setInterval(() => { if (document.visibilityState === 'visible') loadProfile(); }, 60000);
 
 })();
+</script>
+<script>
+document.addEventListener('DOMContentLoaded',()=>{
+ const b=document.getElementById('languageBtn'); if(!b || b.dataset.bound) return; b.dataset.bound='1';
+ b.addEventListener('click',()=>{
+   const cur=localStorage.getItem('resell_language_v3')==='en'?'en':'ru';
+   openModal(cur==='en'?'Language':'Язык',`<div class="registration-card"><button class="registration-submit" data-set-lang="ru">🇷🇺 Русский</button><button class="registration-submit" data-set-lang="en">🇬🇧 English</button></div>`);
+   $$('#modalBody [data-set-lang]').forEach(x=>x.addEventListener('click',()=>window.resellSetLanguage(x.dataset.setLang)));
+ });
+});
 </script>
 </body>
 </html>
