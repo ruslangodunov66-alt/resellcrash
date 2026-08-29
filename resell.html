@@ -2491,7 +2491,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       const resp=await fetch(`${API_BASE}/hold/complete/${encodeURIComponent(userId)}`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'application/json','Cache-Control':'no-cache'},body:JSON.stringify({session_id:sessionId})});
       let payload=null;try{payload=await resp.json()}catch(_){ }
       if(!resp.ok||!payload?.success)throw new Error(payload?.error||`Не удалось получить награду (HTTP ${resp.status})`);
-      farmCompleted=true; const reward=Math.max(FARM_MIN_REWARD,Math.min(FARM_MAX_REWARD,Number(payload.reward||0)));
+      farmCompleted=true; const reward=Math.max(0,Math.min(FARM_MAX_REWARD,Number(payload.reward||0)));
       profileData=profileData||{};profileData.balance=Number(payload.balance??profileData.balance??0);setBalance(profileData.balance);
       holdState=normalizeHoldState({...holdState,...payload,session_id:null,ready:false,current_reward:reward});
       holdPointerActive=false;holdReleaseQueued=false;holdPointerId=null;stopFarmAnimation();
@@ -2500,7 +2500,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       $('#farmStatus').textContent=`Готово! +${reward.toLocaleString('ru-RU')} ₽ зачислено.`;$('#farmClaimCount').textContent=`Собрано: ${holdState.claims||''}`;
       for(let i=0;i<8;i++)spawnFarmSpark();showToast(`+${number(reward)} ₽ зачислено`);haptic('heavy');try{await loadProfile()}catch(_){ }
     }catch(err){
-      farmCompleted=false;$('#farmStatus').textContent=err.message||'Награда не зачислена';showToast(err.message||'Награда не зачислена');
+      farmCompleted=false;if(err?.message?.includes('хотя бы 1 секунду')){ holdState=normalizeHoldState({...holdState,session_id:null,started_at:0,current_reward:0,ready:true}); holdPointerActive=false; holdReleaseQueued=false; stopFarmAnimation(); renderFarmReward(0); updateFarmVisuals(0); $('#farmRing')?.classList.remove('holding'); $('#farmStatus').textContent='Удерживай R дольше 1 секунды, чтобы начать накопление.'; } else { $('#farmStatus').textContent=err.message||'Награда не зачислена'; showToast(err.message||'Награда не зачислена'); }
       try{await refreshHoldStatusWithRetry()}catch(_){ }
     }finally{farmCompleting=false}
   }
