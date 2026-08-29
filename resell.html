@@ -2521,6 +2521,16 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       if(e?.pointerId!=null&&activePointerId!=null&&activePointerId!=='touch'&&e.pointerId!==activePointerId)return;
       ending=true;activeInput=false;activePointerId=null;holdPointerId=null;stage.classList.remove('farm-active');
       if(farmCompleting||farmCompleted){ending=false;return}
+      const startedAt=Number(holdState?.started_at||0);
+      const heldMs=startedAt ? Math.max(0,Date.now()-startedAt*1000) : 0;
+      // Ignore accidental Telegram/WebView taps shorter than 1 second.
+      if(heldMs<1000 && holdState?.session_id){
+        try{await fetch(`${API_BASE}/hold/cancel/${encodeURIComponent(userId)}`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({session_id:holdState.session_id,reason:'tap'})}); }catch(_){}
+        holdState=normalizeHoldState({...holdState,session_id:null,started_at:0,current_reward:0,ready:true,cooldown_remaining:0,cooldown_until:0});
+        holdPointerActive=false;holdReleaseQueued=false;holdPointerId=null;stopFarmAnimation();$('#farmRing')?.classList.remove('holding');
+        updateFarmVisuals(0);renderFarmReward(0);$('#farmStatus').textContent='Удерживай R, чтобы накопить награду.';
+        ending=false; return;
+      }
       if(holdState?.session_id){await completeStandaloneFarm()}
       else if(holdStartPromise){holdReleaseQueued=true;holdPointerActive=false}
       else {holdPointerActive=false;holdReleaseQueued=false;$('#farmRing')?.classList.remove('holding');}
