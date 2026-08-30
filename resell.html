@@ -2934,6 +2934,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   // ==================== TYCOON CENTER — PREMIUM ====================
   let tycoonTab='home';
   let carView='dealer';
+  let taxiView='fleet';
   const TYCOON_MEDIA=id=>`${API_BASE}/tycoon/media/${encodeURIComponent(id)}`;
   // Five Tycoon cover images supplied by the user: mining, bank, property, auto, taxi.
   const TYCOON_HOME_COVER_IMAGES = [
@@ -3006,7 +3007,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     return p;
   }
   function tycoonTabs(){
-    const tabs=[['home','Обзор'],['bank','Банк'],['assets','Активы'],['cars','Авто'],['taxi','Таксопарк']];
+    const tabs=[['bank','Банк'],['assets','Активы'],['cars','Авто'],['taxi','Таксопарк']];
     return `<div class="tycoon-tabs">${tabs.map(([id,label])=>`<button class="tycoon-tab ${tycoonTab===id?'active':''}" data-tycoon-tab="${id}">${label}</button>`).join('')}</div>`;
   }
   async function renderTycoon(){
@@ -3073,9 +3074,96 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         body=`<div class="tycoon-shell"><div class="tycoon-top"><div class="tycoon-kicker">AUTO CENTER</div><div class="tycoon-balance">Автосалон</div><div class="tycoon-sub">Покупай любые модели без ограничений. Гараж — рядом, одной кнопкой.</div></div><div class="tycoon-toggle"><button class="tycoon-toggle-btn active" data-car-view="dealer">АВТОСАЛОН</button><button class="tycoon-toggle-btn" data-car-view="garage">ГАРАЖ · ${garage.length}</button></div><div class="tycoon-section"><div class="tycoon-section-head"><div class="tycoon-label">Текущий автомобиль</div><div class="tycoon-section-note">Активная машина</div></div><div class="tycoon-card">${current?`<div class="tycoon-title">${esc(current.name.replace(/^[^А-ЯA-Za-z]+/,'').trim())}</div><div class="tycoon-meta">${number(current.price)} ₽ · +${number(current.income_per_hour)} ₽/час · скорость +${number(current.speed_bonus)}</div>`:'<div class="tycoon-empty">Купи машину, чтобы назначить текущую.</div>'}</div></div><div class="tycoon-grid">${catalog.map((c,i)=>{const owned=ownedIds.has(c.id),isCurrent=current?.id===c.id;const image=c.image_url?TYCOON_MEDIA(c.image_url):(TYCOON_CAR_IMAGES[i]||'');const clean=(c.name||'Автомобиль').replace(/^[^А-ЯA-Za-z]+/,'').trim();return `<div class="tycoon-card tycoon-car"><div class="tycoon-car-media">${image?`<img src="${image}" loading="lazy" alt="${esc(clean)}">`:''}<span class="tycoon-car-media-tag">${esc(c.rarity||'АВТО')}</span><div class="tycoon-car-media-title">${esc(clean)}</div></div><div class="tycoon-car-copy"><div class="tycoon-car-stats"><div class="tycoon-car-stat">ЦЕНА<b>${number(c.price)} ₽</b></div><div class="tycoon-car-stat">ДОХОД / Ч<b>+${number(c.income_per_hour)} ₽</b></div><div class="tycoon-car-stat">СКОРОСТЬ<b>+${number(c.speed_bonus)}</b></div></div><div class="tycoon-car-actions"><button class="tycoon-btn primary" data-buy-car="${esc(c.id)}">ПРИОБРЕСТИ</button>${owned&&!isCurrent?`<button class="tycoon-btn" data-set-car="${esc(c.id)}">СДЕЛАТЬ ТЕКУЩЕЙ</button>`:isCurrent?'<span class="tycoon-current">ТЕКУЩАЯ</span>':''}</div></div></div>`}).join('')}</div></div>`;
       }
     } else if(tycoonTab==='taxi') {
-      const d=await tycoonFetch(`/tycoon/taxopark/${encodeURIComponent(userId)}`); const tax=d.taxopark||{level:'none',cars:[]}; const lvl=d.level||{}; const levels=d.levels||[]; const garage=Array.isArray(d.garage)?d.garage:[]; const inPark=Array.isArray(tax.car_instance_indices)?tax.car_instance_indices.map(Number):[]; const parkSet=new Set(inPark);
-      const parkCars=garage.filter(c=>c.in_taxopark); const needsService=parkCars.some(c=>Number(c.wear||0)>0); const repairCost=parkCars.reduce((a,c)=>{const w=Number(c.wear||0);return a+(w>0?Math.max(500,Math.round(Number(c.price||0)*0.025*w/100)):0)},0);
-      body=`<div class="tycoon-shell"><div class="taxi-hero"><div class="taxi-kicker">TAXI OPERATIONS</div><div class="taxi-title">Таксопарк</div><div class="taxi-sub">Линия, автомобили и обслуживание по фактическому износу.</div></div>${lvl.id==='none'?`<div class="tycoon-section"><div class="tycoon-label">Купить таксопарк</div><div class="taxi-list">${levels.filter(x=>x.id!=='none').map(x=>`<div class="taxi-row"><div><div class="taxi-row-name">${esc(x.name)}</div><div class="taxi-row-meta">${number(x.price)} ₽ · ${number(x.slots)} машин · +${number(x.income_per_car)} ₽/ч</div></div><button class="tycoon-btn primary" data-buy-taxi="${esc(x.id)}">КУПИТЬ</button></div>`).join('')}</div></div>`:`<div class="taxi-stats"><div class="taxi-card"><div class="taxi-label">Линия</div><div class="taxi-value">${parkCars.length}/${number(lvl.slots||0)}</div><div class="tycoon-meta">машин в работе</div></div><div class="taxi-card"><div class="taxi-label">Доход / час</div><div class="taxi-value">+${number((lvl.income_per_car||0)*parkCars.length)} ₽</div><div class="tycoon-meta">за текущую линию</div></div></div><div class="tycoon-section"><div class="tycoon-section-head"><div><div class="tycoon-label">Улучшения таксопарка</div><div class="tycoon-section-note">Пассивные бонусы работают постоянно</div></div><div class="taxi-current">×${Number(d.multiplier||1).toFixed(2)}</div></div><div class="taxi-list">${Object.entries(d.upgrade_config||{}).map(([key,cfg])=>{const lv=Number((d.upgrades||{})[key]||0);const max=Number(cfg.max||5);const cost=lv<max?Number(cfg.costs?.[lv]||0):0;const titles={drivers:'Водители',advertising:'Реклама',dispatch:'Диспетчеризация'};const desc={drivers:'+8% к доходу за уровень',advertising:'+6% к доходу за уровень',dispatch:'+4% к доходу за уровень'};return `<div class="taxi-row"><div><div class="taxi-row-name">${titles[key]||esc(cfg.title||key)}</div><div class="taxi-row-meta">${desc[key]||''} · уровень ${lv}/${max}</div></div>${lv<max?`<button class="tycoon-btn primary" data-taxi-upgrade="${key}">${number(cost)} ₽</button>`:'<span class="tycoon-current">МАКСИМУМ</span>'}</div>`}).join('')}</div></div><div class="tycoon-section"><div class="tycoon-section-head"><div><div class="tycoon-label">Обслуживание машин</div><div class="tycoon-section-note">Цена зависит только от износа</div></div><div class="taxi-current">${needsService?`${number(repairCost)} ₽`:'ВСЁ ИСПРАВНО'}</div></div><button class="tycoon-btn primary" id="tycoonTaxiMaintenance" style="width:100%;min-height:52px" ${needsService?'':'disabled'}>${needsService?`ОБСЛУЖИТЬ МАШИНЫ · ${number(repairCost)} ₽`:'МАШИНЫ ИСПРАВНЫ'}</button><div class="tycoon-meta" style="margin-top:8px">Если машины с износом не обслуживать 14 дней, таксопарк изымается, а автомобили остаются в гараже.</div></div><div class="tycoon-section"><div class="tycoon-label">На линии · ${parkCars.length}/${number(lvl.slots||0)}</div><div class="taxi-list">${parkCars.length?parkCars.map(c=>{const wear=Math.max(0,Math.min(100,Number(c.wear||0)));return `<div class="taxi-car-card"><div class="taxi-car-top"><div><div class="taxi-car-title">${esc((c.name||c.id).replace(/^[^А-ЯA-Za-z]+/,'').trim())}</div><div class="taxi-car-sub">В РАБОТЕ · ${number(c.mileage||0)} км · ${number(c.total_income||0)} ₽ заработано · износ ${wear.toFixed(1)}%</div></div><span class="taxi-current">НА ЛИНИИ</span></div><div class="taxi-meter"><div class="taxi-meter-head"><span>ИЗНОС</span><b>${wear.toFixed(1)}%</b></div><div class="taxi-meter-track"><div class="taxi-meter-fill" style="width:${wear}%"></div></div></div><div class="taxi-actions"><button class="tycoon-btn" data-remove-taxi="${esc(c.id)}" data-taxi-instance="${c.instance_index}">СНЯТЬ С ЛИНИИ</button><span class="tycoon-meta">+${number(c.income_per_hour||0)} ₽/ч</span></div></div>`}).join(''):'<div class="tycoon-empty">На линии пока нет машин. Добавь автомобиль из гаража ниже.</div>'}</div></div><div class="tycoon-section"><div class="tycoon-section-head"><div><div class="tycoon-label">Гараж · доступно для линии</div><div class="tycoon-section-note">Автомобили на линии здесь не отображаются</div></div></div><div class="taxi-list">${garage.filter(c=>!c.in_taxopark).length?garage.filter(c=>!c.in_taxopark).map(c=>{const wear=Math.max(0,Math.min(100,Number(c.wear||0)));return `<div class="taxi-car-card"><div class="taxi-car-top"><div><div class="taxi-car-title">${esc((c.name||c.id).replace(/^[^А-ЯA-Za-z]+/,'').trim())}</div><div class="taxi-car-sub">В ГАРАЖ · ${number(c.mileage||0)} км · износ ${wear.toFixed(1)}%</div></div><span class="taxi-current">ГОТОВА</span></div><div class="taxi-meter"><div class="taxi-meter-head"><span>ИЗНОС</span><b>${wear.toFixed(1)}%</b></div><div class="taxi-meter-track"><div class="taxi-meter-fill" style="width:${wear}%"></div></div></div><div class="taxi-actions"><button class="tycoon-btn primary" data-add-taxi="${esc(c.id)}" data-taxi-instance="${c.instance_index}" ${parkCars.length>=Number(lvl.slots||0)?'disabled':''}>ДОБАВИТЬ НА ЛИНИЮ</button><span class="tycoon-meta">+${number(c.income_per_hour||0)} ₽/ч</span></div></div>`}).join(''):'<div class="tycoon-empty">Все автомобили уже работают на линии или гараж пуст.</div>'}</div></div></div>`}`;
+      const d=await tycoonFetch(`/tycoon/taxopark/${encodeURIComponent(userId)}`);
+      const tax=d.taxopark||{level:'none',cars:[]};
+      const lvl=d.level||{};
+      const levels=Array.isArray(d.levels)?d.levels:[];
+      const garage=Array.isArray(d.garage)?d.garage:[];
+      const parkCars=garage.filter(c=>c.in_taxopark);
+      const garageCars=garage.filter(c=>!c.in_taxopark);
+      const slots=Number(lvl.slots||0);
+      const multiplier=Number(d.multiplier||1);
+      const taxiHourly=Number(d.hourly_profit||0);
+      const taxiPending=Number(d.taxi_pending_collect||0);
+      const brokenCount=Number(d.broken_cars||0);
+      const lineCount=Number(d.line_cars||parkCars.length);
+      const brokenRatio=Number(d.broken_ratio||0);
+      const totalRepairCost=parkCars.reduce((sum,c)=>{
+        const w=Math.max(0,Math.min(100,Number(c.wear||0)));
+        return sum+(w>0?Math.max(250,Math.round(Number(c.price||0)*0.0125*w/100)):0);
+      },0);
+      const carTitle=c=>esc((c.name||c.id||'Автомобиль').replace(/^[^А-ЯA-Za-z]+/,'').trim());
+      const carImage=c=>c.image_url?TYCOON_MEDIA(c.image_url):'';
+      const wearOf=c=>Math.max(0,Math.min(100,Number(c.wear||0)));
+      const wearTone=w=>w>=100?'broken':w>=75?'warn':'';
+      const serviceButton=taxPending>0?`<button class="tycoon-btn primary taxi-profit-btn" data-taxi-collect>ЗАБРАТЬ ПРИБЫЛЬ · ${number(taxiPending)} ₽</button>`:`<button class="tycoon-btn taxi-profit-btn" data-taxi-collect disabled>НАКОПЛЕНИЙ НЕТ</button>`;
+      body=`<div class="tycoon-shell">
+        <div class="taxi-hero taxi-hero-v2">
+          <div class="taxi-kicker">TAXI OPERATIONS</div>
+          <div class="taxi-title">Таксопарк</div>
+          <div class="taxi-sub">Автомобили на линии изнашиваются автоматически. Чем дороже машина, тем медленнее износ.</div>
+        </div>
+        ${lvl.id==='none'?`
+          <div class="tycoon-section">
+            <div class="tycoon-section-head"><div><div class="tycoon-label">Купить таксопарк</div><div class="tycoon-section-note">После покупки добавляй машины из гаража в «Управлении».</div></div></div>
+            <div class="taxi-list">${levels.filter(x=>x.id!=='none').map(x=>`<div class="taxi-row"><div><div class="taxi-row-name">${esc(x.name)}</div><div class="taxi-row-meta">${number(x.price)} ₽ · ${number(x.slots)} машин · до +${number(x.income_per_car)} ₽/ч на автомобиль</div></div><button class="tycoon-btn primary" data-buy-taxi="${esc(x.id)}">КУПИТЬ</button></div>`).join('')}</div>
+          </div>`:
+          `<div class="taxi-summary-v2">
+            <div class="taxi-summary-card"><span>НА ЛИНИИ</span><b>${parkCars.length}/${slots}</b><small>${brokenCount?`${brokenCount} сломано`:'машины работают'}</small></div>
+            <div class="taxi-summary-card"><span>ДОХОД / ЧАС</span><b>+${number(taxiHourly)} ₽</b><small>с учётом улучшений</small></div>
+            <div class="taxi-summary-card"><span>НАКОПЛЕНО</span><b>${number(taxiPending)} ₽</b><small>в общем бизнесе</small></div>
+          </div>
+          <div class="taxi-profit-panel">
+            <div><div class="tycoon-label">Прибыль таксопарка</div><div class="tycoon-meta">Собирается вместе с остальным пассивным доходом бизнеса.</div></div>
+            ${serviceButton}
+          </div>
+          <div class="taxi-health-row">
+            <span>Состояние парка</span><b>${brokenCount}/${lineCount} сломано · ${(brokenRatio*100).toFixed(0)}%</b>
+          </div>
+          <div class="taxi-view-tabs">
+            <button class="taxi-view-tab ${taxiView==='fleet'?'active':''}" data-taxi-view="fleet"><b>АВТОПАРК</b><span>на линии · износ</span></button>
+            <button class="taxi-view-tab ${taxiView==='manage'?'active':''}" data-taxi-view="manage"><b>УПРАВЛЕНИЕ</b><span>гараж · ремонт</span></button>
+          </div>
+          ${taxiView==='fleet'?`
+            <div class="tycoon-section">
+              <div class="tycoon-section-head"><div><div class="tycoon-label">Автопарк · ${parkCars.length}/${slots}</div><div class="tycoon-section-note">Здесь только машины, которые сейчас стоят на линии.</div></div><div class="taxi-current">×${multiplier.toFixed(2)}</div></div>
+              <div class="taxi-fleet-list">${parkCars.length?parkCars.map(c=>{const w=wearOf(c);const broken=w>=100;const img=carImage(c);return `<div class="taxi-fleet-card ${wearTone(w)}">
+                <div class="taxi-fleet-head">
+                  <div class="taxi-car-thumb">${img?`<img src="${esc(img)}" loading="lazy" alt="${carTitle(c)}">`:'<span>🚕</span>'}</div>
+                  <div class="taxi-fleet-main"><div class="taxi-car-title">${carTitle(c)}</div><div class="taxi-car-sub">${broken?'МАШИНА СЛОМАНА':'НА ЛИНИИ'} · +${number(c.income_per_hour||0)} ₽/ч · ${number(c.mileage||0)} км</div></div>
+                  <span class="taxi-status-badge ${broken?'broken':''}">${broken?'СЛОМАНА':'РАБОТАЕТ'}</span>
+                </div>
+                <div class="taxi-wear-block"><div class="taxi-meter-head"><span>ИЗНОС</span><b>${w.toFixed(1)}%</b></div><div class="taxi-meter-track"><div class="taxi-meter-fill ${broken?'broken':w>=75?'warn':''}" style="width:${w}%"></div></div><div class="taxi-wear-note">${broken?'До ремонта доход не начисляется.':`При текущем темпе до полного износа ещё примерно ${number(Math.max(0,Math.ceil((100-w)/(33.3333*Math.pow(22500/Math.max(1,Number(c.price||0)),0.25)))))} ч.`}</div></div>
+                <div class="taxi-fleet-actions"><span class="taxi-fleet-income">+${number((broken?0:Number(c.income_per_hour||0)))} ₽/ч</span><button class="tycoon-btn" data-remove-taxi="${esc(c.id)}" data-taxi-instance="${c.instance_index}">СНЯТЬ С ЛИНИИ</button></div>
+              </div>`}).join(''):'<div class="tycoon-empty">На линии пока нет машин. Открой «Управление» и добавь автомобиль из гаража.</div>'}</div>
+            </div>`:
+            `<div class="tycoon-section">
+              <div class="tycoon-section-head"><div><div class="tycoon-label">Гараж · ${garageCars.length}</div><div class="tycoon-section-note">Здесь только машины, которые не стоят на линии. Их можно чинить по одной и выводить в работу.</div></div></div>
+              <div class="taxi-fleet-list">${garageCars.length?garageCars.map(c=>{const w=wearOf(c);const img=carImage(c);const cost=w>0?Math.max(250,Math.round(Number(c.price||0)*0.0125*w/100)):0;return `<div class="taxi-fleet-card ${wearTone(w)}">
+                <div class="taxi-fleet-head">
+                  <div class="taxi-car-thumb">${img?`<img src="${esc(img)}" loading="lazy" alt="${carTitle(c)}">`:'<span>🚕</span>'}</div>
+                  <div class="taxi-fleet-main"><div class="taxi-car-title">${carTitle(c)}</div><div class="taxi-car-sub">В ГАРАЖ · ${number(c.mileage||0)} км · +${number(c.income_per_hour||0)} ₽/ч</div></div>
+                  <span class="taxi-status-badge ${w>=100?'broken':''}">${w>=100?'СЛОМАНА':'ГОТОВА'}</span>
+                </div>
+                <div class="taxi-wear-block"><div class="taxi-meter-head"><span>ИЗНОС</span><b>${w.toFixed(1)}%</b></div><div class="taxi-meter-track"><div class="taxi-meter-fill ${w>=100?'broken':w>=75?'warn':''}" style="width:${w}%"></div></div><div class="taxi-wear-note">${w>0?`Ремонт сейчас: ${number(cost)} ₽.`:'Автомобиль исправен.'}</div></div>
+                <div class="taxi-fleet-actions">
+                  <button class="tycoon-btn ${w>0?'primary':''}" data-repair-car="${c.instance_index}" ${w<=0?'disabled':''}>${w>0?`ПОЧИНИТЬ · ${number(cost)} ₽`:'ИСПРАВНА'}</button>
+                  <button class="tycoon-btn primary" data-add-taxi="${esc(c.id)}" data-taxi-instance="${c.instance_index}" ${parkCars.length>=slots?'disabled':''}>ВЫВЕСТИ НА ЛИНИЮ</button>
+                </div>
+              </div>`}).join(''):'<div class="tycoon-empty">Гараж пуст. Купи автомобиль в разделе «Авто».</div>'}</div>
+            </div>
+            <div class="tycoon-section">
+              <div class="tycoon-section-head"><div><div class="tycoon-label">Обслуживание автопарка</div><div class="tycoon-section-note">Одна кнопка чинит все автомобили, которые сейчас стоят на линии.</div></div><div class="taxi-current">${totalRepairCost?`${number(totalRepairCost)} ₽`:'ВСЁ ИСПРАВНО'}</div></div>
+              <button class="tycoon-btn primary" id="tycoonTaxiMaintenance" style="width:100%;min-height:52px" ${totalRepairCost?'':'disabled'}>${totalRepairCost?`ОБСЛУЖИТЬ ЛИНИЮ · ${number(totalRepairCost)} ₽`:'МАШИНЫ НА ЛИНИИ ИСПРАВНЫ'}</button>
+              <div class="tycoon-meta" style="margin-top:8px">Если 95% или больше машин на линии достигли 100% износа, таксопарк изымается государством, а автомобили возвращаются в гараж.</div>
+            </div>
+            <div class="tycoon-section">
+              <div class="tycoon-section-head"><div><div class="tycoon-label">Улучшения</div><div class="tycoon-section-note">Улучшения увеличивают доход таксопарка.</div></div><div class="taxi-current">×${multiplier.toFixed(2)}</div></div>
+              <div class="taxi-list">${Object.entries(d.upgrade_config||{}).map(([key,cfg])=>{const lv=Number((d.upgrades||{})[key]||0);const max=Number(cfg.max||5);const cost=lv<max?Number(cfg.costs?.[lv]||0):0;const titles={drivers:'Водители',advertising:'Реклама',dispatch:'Диспетчеризация'};const desc={drivers:'+8% к доходу за уровень',advertising:'+6% к доходу за уровень',dispatch:'+4% к доходу за уровень'};return `<div class="taxi-row"><div><div class="taxi-row-name">${titles[key]||esc(cfg.title||key)}</div><div class="taxi-row-meta">${desc[key]||''} · уровень ${lv}/${max}</div></div>${lv<max?`<button class="tycoon-btn primary" data-taxi-upgrade="${key}">${number(cost)} ₽</button>`:'<span class="taxi-current">МАКСИМУМ</span>'}</div>`}).join('')}</div>
+            </div>`}`
+          }
+          <div class="taxi-info-note">Прибыль таксопарка уже входит в общий пассивный доход бизнеса. Кнопка «ЗАБРАТЬ ПРИБЫЛЬ» забирает весь накопленный доход одной операцией.</div>
+        </div>`;
     }
     modalBody.innerHTML=`<div class="tycoon-wrap">${tycoonTabs()}${body}</div>`;
     $$('.tycoon-tab,[data-tycoon-tab]').forEach(b=>b.addEventListener('click',async()=>{tycoonTab=b.dataset.tycoonTab;await renderTycoon().catch(e=>showToast(e.message))}));
@@ -3236,6 +3324,10 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     const balance=Number(d.balance ?? profileData?.balance ?? 0);
     const totalHour=Number(d.total_per_hour||0);
     const totalDay=Number(d.total_per_day||totalHour*24);
+    const taxiBusiness=d.taxi_business||{};
+    const taxiHour=Number(taxiBusiness.hourly_income ?? d.hourly_breakdown?.taxopark ?? 0);
+    const taxiPending=Number(taxiBusiness.pending_collect ?? d.pending_breakdown?.taxopark ?? 0);
+    const taxiDay=taxiHour*24;
     return `<div class="business-control-v4">
       <div class="business-hero-v4">
         <div class="business-kicker-v4">BUSINESS CONTROL · RESSELL</div>
@@ -3248,6 +3340,12 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         ${debt>0?`<div class="business-debt-v4">Обслуживание: долг ${number(debt)} ₽ <button class="business-mini-btn-v4" id="businessMaintenanceBtn">ОПЛАТИТЬ</button></div>`:''}
       </div>
 
+      <div class="business-section-title-v4">Активы · доход</div>
+      ${taxiHour>0 || taxiPending>0 ? `<div class="business-item-v4 business-item-taxi-v4">
+        <div class="business-item-head-v4"><div class="business-item-name-v4">🚕 Таксопарк</div><div class="business-item-income-v4">+${number(taxiHour)} ₽/ч</div></div>
+        <div class="business-item-meta-v4"><span>+${number(taxiDay)} ₽/день</span><span>Накоплено: ${number(taxiPending)} ₽</span><span>${taxiPending>0?'Готово к сбору':'В работе'}</span></div>
+        <div class="business-item-actions-v4"><button class="business-mini-btn-v4" data-business-taxi-open>ОТКРЫТЬ ТАКСОПАРК</button></div>
+      </div>`:''}
       <div class="business-section-title-v4">Твои бизнесы · ${businesses.length}</div>
       <div class="business-list-v4">
         ${businesses.length?businesses.map(b=>`<div class="business-item-v4">
@@ -3571,12 +3669,23 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     if(target && e.target.closest('#adminToggleRole')){
       try{const d=await adminFetch(`/admin/me/${ADMIN_OWNER_ID}`); const has=Array.isArray(d.admins)&&d.admins.some(x=>String(x.tg_id)===String(target)&&Number(x.active)===1); await adminFetch(`/admin/player/${ADMIN_OWNER_ID}/${target}/admin`,{method:'POST',body:JSON.stringify({enabled:!has})});showToast(has?'Админка снята':'Админка выдана');}catch(err){showToast(err.message||'Ошибка управления админкой');} return;
     }
+    const taxiViewBtn=e.target.closest('[data-taxi-view]');
+    if(taxiViewBtn){ taxiView=taxiViewBtn.dataset.taxiView||'fleet'; await renderTycoon().catch(err=>showToast(err.message||'Не удалось открыть раздел')); return; }
+    if(e.target.closest('[data-taxi-collect]')){
+      const btn=e.target.closest('[data-taxi-collect]'); if(btn.disabled) return; btn.disabled=true;
+      try{
+        const d=await businessAction(`/business/${encodeURIComponent(userId)}/collect`,{},'Вся накопленная прибыль добавлена в общий баланс');
+        await renderTycoon();
+      }catch(_){ btn.disabled=false; }
+      return;
+    }
     const buy=e.target.closest('[data-business-buy]');
     if(buy){
       const id=buy.dataset.businessBuy; buy.disabled=true; buy.textContent='ПОКУПКА…';
       try{ await businessAction(`/business/${encodeURIComponent(userId)}/buy`,{shop_id:id},'Бизнес куплен и добавлен в активы'); }catch(_){ buy.disabled=false; buy.textContent='КУПИТЬ'; }
       return;
     }
+    if(e.target.closest('[data-business-taxi-open]')){ closeModal(); tycoonTab='taxi'; taxiView='fleet'; setTimeout(()=>renderTycoon().catch(err=>showToast(err.message||'Не удалось открыть таксопарк')),0); return; }
     const sell=e.target.closest('[data-business-sell]');
     if(sell){
       const id=sell.dataset.businessSell;
@@ -3727,5 +3836,51 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
 
 })();
 </script>
+<style id="taxi-ux-fixes">
+  .tycoon-tabs{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .taxi-summary-v2{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0}
+  .taxi-summary-card{padding:12px;border:1px solid rgba(255,255,255,.06);border-radius:16px;background:linear-gradient(180deg,#141414,#0e0e0e);min-width:0}
+  .taxi-summary-card span{display:block;color:#606060;font:900 7px/1 "Montserrat",sans-serif;letter-spacing:.8px;text-transform:uppercase}
+  .taxi-summary-card b{display:block;margin-top:7px;font:900 15px/1 "Montserrat",sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .taxi-summary-card small{display:block;margin-top:5px;color:#555;font-size:8px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .taxi-profit-panel{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px;border-radius:17px;border:1px solid rgba(183,255,106,.10);background:linear-gradient(145deg,rgba(183,255,106,.055),rgba(255,255,255,.025));margin-bottom:9px}
+  .taxi-profit-btn{flex:none;min-width:180px}
+  .taxi-health-row{display:flex;justify-content:space-between;gap:10px;padding:8px 3px;color:#666;font-size:8px;font-weight:800}
+  .taxi-health-row b{color:#aaa;font-weight:900}
+  .taxi-view-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:11px 0 12px;padding:4px;border:1px solid rgba(255,255,255,.06);border-radius:17px;background:#0b0b0b}
+  .taxi-view-tab{padding:11px;border-radius:13px;color:#676767;text-align:left;border:1px solid transparent}
+  .taxi-view-tab.active{color:#fff;background:rgba(255,255,255,.075);border-color:rgba(255,255,255,.08);box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
+  .taxi-view-tab b{display:block;font:900 8px/1 "Montserrat",sans-serif;letter-spacing:.7px}
+  .taxi-view-tab span{display:block;margin-top:5px;color:#555;font-size:7.5px;font-weight:800}
+  .taxi-view-tab.active span{color:#777}
+  .taxi-fleet-list{display:grid;gap:9px}
+  .taxi-fleet-card{padding:12px;border-radius:18px;background:linear-gradient(145deg,#151515,#0b0b0b);border:1px solid rgba(255,255,255,.065);box-shadow:0 15px 34px rgba(0,0,0,.28)}
+  .taxi-fleet-card.warn{border-color:rgba(255,200,90,.18)}
+  .taxi-fleet-card.broken{border-color:rgba(255,100,100,.22);box-shadow:inset 0 0 0 1px rgba(255,100,100,.02)}
+  .taxi-fleet-head{display:grid;grid-template-columns:52px 1fr auto;gap:10px;align-items:center}
+  .taxi-car-thumb{width:52px;height:44px;border-radius:12px;overflow:hidden;display:grid;place-items:center;background:#0a0a0a;border:1px solid rgba(255,255,255,.07);font-size:20px}
+  .taxi-car-thumb img{width:100%;height:100%;object-fit:cover;filter:saturate(.75) contrast(1.06) brightness(.82)}
+  .taxi-fleet-main{min-width:0}
+  .taxi-car-sub{margin-top:5px;color:#666;font-size:8px;font-weight:800;line-height:1.25}
+  .taxi-status-badge{padding:5px 7px;border-radius:999px;background:rgba(183,255,106,.07);border:1px solid rgba(183,255,106,.12);color:#a6cf78;font:900 7px/1 "Montserrat",sans-serif;letter-spacing:.55px;white-space:nowrap}
+  .taxi-status-badge.broken{background:rgba(255,90,90,.07);border-color:rgba(255,90,90,.14);color:#ff8f8f}
+  .taxi-wear-block{margin-top:10px}
+  .taxi-meter-track{height:7px;border-radius:99px;background:#090909;border:1px solid rgba(255,255,255,.055);overflow:hidden}
+  .taxi-meter-fill{height:100%;border-radius:inherit;background:linear-gradient(90deg,#8fdc58,#e1ffbd);box-shadow:0 0 14px rgba(183,255,106,.22)}
+  .taxi-meter-fill.warn{background:linear-gradient(90deg,#c6a95d,#ffdc89);box-shadow:0 0 14px rgba(255,210,100,.16)}
+  .taxi-meter-fill.broken{background:linear-gradient(90deg,#bd5b5b,#ff8e8e);box-shadow:0 0 14px rgba(255,90,90,.15)}
+  .taxi-wear-note{margin-top:6px;color:#555;font-size:7.5px;font-weight:800;line-height:1.3}
+  .taxi-fleet-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px}
+  .taxi-fleet-actions .tycoon-btn{flex:1}
+  .taxi-fleet-income{color:#b7ff6a;font:900 9px/1 "Montserrat",sans-serif;white-space:nowrap}
+  .business-item-taxi-v4{border-color:rgba(183,255,106,.10);background:linear-gradient(145deg,rgba(183,255,106,.055),rgba(255,255,255,.022))}
+  .business-item-taxi-v4 .business-item-name-v4{color:#e8f6d9}
+  @media (max-width:460px){
+    .taxi-summary-v2{grid-template-columns:1fr 1fr}.taxi-summary-card:last-child{grid-column:1/-1}
+    .taxi-profit-panel{align-items:stretch;flex-direction:column}.taxi-profit-btn{width:100%;min-width:0}
+    .taxi-fleet-head{grid-template-columns:46px 1fr}.taxi-status-badge{grid-column:2;justify-self:start}
+    .taxi-car-thumb{width:46px;height:40px}.taxi-fleet-actions{flex-direction:column;align-items:stretch}.taxi-fleet-income{order:-1}
+  }
+</style>
 </body>
 </html>
