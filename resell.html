@@ -3085,6 +3085,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       const multiplier=Number(d.multiplier||1);
       const taxiHourly=Number(d.hourly_profit||0);
       const taxiPending=Number(d.taxi_pending_collect||0);
+      window.__taxiPendingBase=taxiPending; window.__taxiPendingAt=Number(d.server_time||Math.floor(Date.now()/1000)); window.__taxiHourly=taxiHourly;
       const brokenCount=Number(d.broken_cars||0);
       const lineCount=Number(d.line_cars||parkCars.length);
       const brokenRatio=Number(d.broken_ratio||0);
@@ -3096,7 +3097,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       const carImage=c=>c.image_url?TYCOON_MEDIA(c.image_url):'';
       const wearOf=c=>Math.max(0,Math.min(100,Number(c.wear||0)));
       const wearTone=w=>w>=100?'broken':w>=75?'warn':'';
-      const serviceButton=taxiPending>0?`<button class="tycoon-btn primary taxi-profit-btn" data-taxi-collect>ЗАБРАТЬ ПРИБЫЛЬ · ${number(taxiPending)} ₽</button>`:`<button class="tycoon-btn taxi-profit-btn" data-taxi-collect disabled>НАКОПЛЕНИЙ НЕТ</button>`;
+      const serviceButton=taxiPending>0?`<button class="tycoon-btn primary taxi-profit-btn" data-taxi-collect data-taxi-collect-label>ЗАБРАТЬ ПРИБЫЛЬ · ${number(taxiPending)} ₽</button>`:`<button class="tycoon-btn taxi-profit-btn" data-taxi-collect data-taxi-collect-label disabled>НАКОПЛЕНИЙ НЕТ</button>`;
       body=`<div class="tycoon-shell">
         <div class="taxi-hero taxi-hero-v2">
           <div class="taxi-kicker">TAXI OPERATIONS</div>
@@ -3111,7 +3112,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
           `<div class="taxi-summary-v2">
             <div class="taxi-summary-card"><span>НА ЛИНИИ</span><b>${parkCars.length}/${slots}</b><small>${brokenCount?`${brokenCount} сломано`:'машины работают'}</small></div>
             <div class="taxi-summary-card"><span>ДОХОД / ЧАС</span><b>+${number(taxiHourly)} ₽</b><small>с учётом улучшений</small></div>
-            <div class="taxi-summary-card"><span>НАКОПЛЕНО</span><b>${number(taxiPending)} ₽</b><small>в общем бизнесе</small></div>
+            <div class="taxi-summary-card"><span>НАКОПЛЕНО</span><b data-taxi-pending-live>${number(taxiPending)} ₽</b><small>можно забрать сразу</small></div>
           </div>
           <div class="taxi-profit-panel">
             <div><div class="tycoon-label">Прибыль таксопарка</div><div class="tycoon-meta">Собирается вместе с остальным пассивным доходом бизнеса.</div></div>
@@ -3127,14 +3128,14 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
           ${taxiView==='fleet'?`
             <div class="tycoon-section">
               <div class="tycoon-section-head"><div><div class="tycoon-label">Автопарк · ${parkCars.length}/${slots}</div><div class="tycoon-section-note">Здесь только машины, которые сейчас стоят на линии.</div></div><div class="taxi-current">×${multiplier.toFixed(2)}</div></div>
-              <div class="taxi-fleet-list">${parkCars.length?parkCars.map(c=>{const w=wearOf(c);const broken=w>=100;const img=carImage(c);return `<div class="taxi-fleet-card ${wearTone(w)}">
+              <div class="taxi-fleet-list">${parkCars.length?parkCars.map(c=>{const w=wearOf(c);const broken=w>=100;const img=carImage(c);return `<div class="taxi-fleet-card ${wearTone(w)}" data-taxi-realtime data-line-started="${Number(c.line_started_at||0)}" data-wear-before="${Number(c.wear_before??w)}" data-mileage-before="${Number(c.mileage_before ?? c.mileage ?? 0)}" data-wear-rate="${Number(c.wear_rate_per_hour||0)}" data-hourly="${Number(c.income_per_hour||0)}">
                 <div class="taxi-fleet-head">
                   <div class="taxi-car-thumb">${img?`<img src="${esc(img)}" loading="lazy" alt="${carTitle(c)}">`:'<span>🚕</span>'}</div>
-                  <div class="taxi-fleet-main"><div class="taxi-car-title">${carTitle(c)}</div><div class="taxi-car-sub">${broken?'МАШИНА СЛОМАНА':'НА ЛИНИИ'} · +${number(c.income_per_hour||0)} ₽/ч · ${number(c.mileage||0)} км</div></div>
-                  <span class="taxi-status-badge ${broken?'broken':''}">${broken?'СЛОМАНА':'РАБОТАЕТ'}</span>
+                  <div class="taxi-fleet-main"><div class="taxi-car-title">${carTitle(c)}</div><div class="taxi-car-sub"><span data-taxi-status-text>${broken?'МАШИНА СЛОМАНА':'НА ЛИНИИ'}</span> · +${number(c.income_per_hour||0)} ₽/ч · <span data-taxi-mileage>${Math.floor(Number(c.mileage||0)).toLocaleString('ru-RU')} км</span></div></div>
+                  <span class="taxi-status-badge ${broken?'broken':''}" data-taxi-status>${broken?'СЛОМАНА':'РАБОТАЕТ'}</span>
                 </div>
-                <div class="taxi-wear-block"><div class="taxi-meter-head"><span>ИЗНОС</span><b>${w.toFixed(1)}%</b></div><div class="taxi-meter-track"><div class="taxi-meter-fill ${broken?'broken':w>=75?'warn':''}" style="width:${w}%"></div></div><div class="taxi-wear-note">${broken?'До ремонта доход не начисляется.':`При текущем темпе до полного износа ещё примерно ${number(Math.max(0,Math.ceil((100-w)/(33.3333*Math.pow(22500/Math.max(1,Number(c.price||0)),0.25)))))} ч.`}</div></div>
-                <div class="taxi-fleet-actions"><span class="taxi-fleet-income">+${number((broken?0:Number(c.income_per_hour||0)))} ₽/ч</span><button class="tycoon-btn" data-remove-taxi="${esc(c.id)}" data-taxi-instance="${c.instance_index}">СНЯТЬ С ЛИНИИ</button></div>
+                <div class="taxi-wear-block"><div class="taxi-meter-head"><span>ИЗНОС</span><b data-taxi-wear-value>${w.toFixed(1)}%</b></div><div class="taxi-meter-track"><div class="taxi-meter-fill ${broken?'broken':w>=75?'warn':''}" data-taxi-wear-fill style="width:${w}%"></div></div><div class="taxi-wear-note" data-taxi-wear-note>${broken?'Износ 100%. Машина остановлена до ремонта.':'Износ растёт автоматически, пока машина на линии.'}</div></div>
+                <div class="taxi-fleet-actions"><span class="taxi-fleet-income" data-taxi-income>+${number((broken?0:Number(c.income_per_hour||0)))} ₽/ч</span><button class="tycoon-btn" data-remove-taxi="${esc(c.id)}" data-taxi-instance="${c.instance_index}">СНЯТЬ С ЛИНИИ</button></div>
               </div>`}).join(''):'<div class="tycoon-empty">На линии пока нет машин. Открой «Управление» и добавь автомобиль из гаража.</div>'}</div>
             </div>`:
             `<div class="tycoon-section">
@@ -3167,16 +3168,90 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     }
     modalBody.innerHTML=`<div class="tycoon-wrap">${tycoonTabs()}${body}</div>`;
     $$('.tycoon-tab,[data-tycoon-tab]').forEach(b=>b.addEventListener('click',async()=>{tycoonTab=b.dataset.tycoonTab;await renderTycoon().catch(e=>showToast(e.message))}));
+    if(tycoonTab==='taxi' && lvl.id!=='none') setTimeout(()=>maybeStartTaxiTutorial(),80);
   }
 
-  // Keep taxi wear/income visibly fresh while the taxi screen is open.
-  if(!window.__resellTaxiRefreshTimer){
-    window.__resellTaxiRefreshTimer=setInterval(()=>{
-      if(typeof tycoonTab!=='undefined' && tycoonTab==='taxi' && !document.hidden && document.querySelector('.tycoon-wrap')){
-        renderTycoon().catch(()=>{});
-      }
-    },15000);
+  const TAXI_TUTORIAL_KEY='resell_taxi_tutorial_v1';
+  let taxiTutorial=null; let taxiTutorialStarting=false;
+  function taxiTutorialTarget(selector){ const el=document.querySelector(selector); if(!el) return null; const r=el.getBoundingClientRect(); return {el,r}; }
+  async function maybeStartTaxiTutorial(){
+    if(taxiTutorialStarting || taxiTutorial || tycoonTab!=='taxi' || !document.querySelector('.taxi-hero')) return;
+    const key=`${TAXI_TUTORIAL_KEY}_${userId||'guest'}`;
+    if(localStorage.getItem(key)==='1') return;
+    taxiTutorialStarting=true; taxiView='fleet';
+    await renderTycoon();
+    taxiTutorialStarting=false;
+    const steps=[
+      {title:'Таксопарк работает сам',text:'Машина на линии приносит деньги каждый час. Износ и пробег растут прямо во время работы.',target:'.taxi-profit-panel',view:'fleet'},
+      {title:'Следи за износом',text:'Зелёная шкала движется в реальном времени. Чем дороже машина, тем медленнее она изнашивается.',target:'.taxi-fleet-card',view:'fleet'},
+      {title:'Управление — твой гараж',text:'Здесь находятся машины вне линии. Их можно починить и снова вывести на работу.',target:'.taxi-view-tab[data-taxi-view="manage"]',view:'manage'},
+      {title:'Не доводи до 100%',text:'На 100% машина ломается и перестаёт приносить доход. Почини её в управлении или обслужи линию.',target:'#tycoonTaxiMaintenance',view:'manage'}
+    ];
+    taxiTutorial={key,steps,index:0};
+    await renderTaxiTutorialStep();
   }
+  async function renderTaxiTutorialStep(){
+    if(!taxiTutorial) return;
+    const step=taxiTutorial.steps[taxiTutorial.index];
+    if(step.view && taxiView!==step.view){ taxiView=step.view; await renderTycoon(); }
+    let target=taxiTutorialTarget(step.target);
+    if(!target && step.index===3) target=taxiTutorialTarget('.taxi-view-tab[data-taxi-view="manage"]');
+    const old=document.getElementById('taxiTutorialOverlay'); if(old) old.remove();
+    const overlay=document.createElement('div'); overlay.id='taxiTutorialOverlay'; overlay.innerHTML=`<div class="taxi-tutorial-backdrop"></div><div class="taxi-tutorial-spotlight"></div><div class="taxi-tutorial-card"><div class="taxi-tutorial-step">Шаг ${taxiTutorial.index+1} из ${taxiTutorial.steps.length}</div><div class="taxi-tutorial-title">${esc(step.title)}</div><div class="taxi-tutorial-text">${esc(step.text)}</div><div class="taxi-tutorial-actions"><button class="taxi-tutorial-btn" data-taxi-tutorial-skip>ПРОПУСТИТЬ</button><button class="taxi-tutorial-btn primary" data-taxi-tutorial-next>${taxiTutorial.index===taxiTutorial.steps.length-1?'ГОТОВО':'ДАЛЕЕ'}</button></div></div>`; document.body.appendChild(overlay);
+    const spot=overlay.querySelector('.taxi-tutorial-spotlight');
+    const place=()=>{ if(!target?.el?.isConnected){target=taxiTutorialTarget(step.target);} if(!target)return; const r=target.r||target.el.getBoundingClientRect(); spot.style.left=Math.max(6,r.left-5)+'px';spot.style.top=Math.max(6,r.top-5)+'px';spot.style.width=Math.max(10,r.width+10)+'px';spot.style.height=Math.max(10,r.height+10)+'px'; };
+    place(); requestAnimationFrame(place); window.addEventListener('resize',place,{once:false});
+    overlay.addEventListener('click',async e=>{
+      if(e.target.closest('[data-taxi-tutorial-skip]')){localStorage.setItem(taxiTutorial.key,'1');overlay.remove();taxiTutorial=null;return;}
+      if(e.target.closest('[data-taxi-tutorial-next]')){ if(taxiTutorial.index>=taxiTutorial.steps.length-1){localStorage.setItem(taxiTutorial.key,'1');overlay.remove();taxiTutorial=null;return;} taxiTutorial.index++; await renderTaxiTutorialStep(); }
+    });
+  }
+
+  // Realtime taxi display: interpolate the server snapshot every 250ms so wear
+  // and mileage move visibly like passive business income. Server remains authoritative.
+  function updateTaxiRealtime(){
+    if(typeof tycoonTab==='undefined' || tycoonTab!=='taxi' || document.hidden) return;
+    const cards=[...document.querySelectorAll('.taxi-fleet-card[data-taxi-realtime]')];
+    if(!cards.length) return;
+    const now=(Date.now()/1000);
+    cards.forEach(card=>{
+      const start=Number(card.dataset.lineStarted||0);
+      const baseWear=Number(card.dataset.wearBefore||0);
+      const baseMileage=Number(card.dataset.mileageBefore||0);
+      const rate=Number(card.dataset.wearRate||0);
+      const brokenAt=start>0 && rate>0 ? start + Math.max(0,(100-baseWear)/rate)*3600 : Infinity;
+      const end=Math.min(now,brokenAt);
+      const hours=Math.max(0,start>0?(end-start)/3600:0);
+      const wear=Math.min(100,Math.max(0,baseWear+hours*rate));
+      const mileage=Math.max(0,baseMileage+hours*22);
+      const wearEl=card.querySelector('[data-taxi-wear-value]');
+      const mileageEl=card.querySelector('[data-taxi-mileage]');
+      const fill=card.querySelector('[data-taxi-wear-fill]');
+      const status=card.querySelector('[data-taxi-status]'); const statusText=card.querySelector('[data-taxi-status-text]');
+      const income=card.querySelector('[data-taxi-income]');
+      const broken=wear>=99.999;
+      if(wearEl) wearEl.textContent=wear.toFixed(1)+'%';
+      if(mileageEl) mileageEl.textContent=Math.floor(mileage).toLocaleString('ru-RU')+' км';
+      if(fill){fill.style.width=wear+'%';fill.classList.toggle('broken',broken);fill.classList.toggle('warn',!broken&&wear>=75)}
+      if(status){status.textContent=broken?'СЛОМАНА':'РАБОТАЕТ';status.classList.toggle('broken',broken)} if(statusText) statusText.textContent=broken?'МАШИНА СЛОМАНА':'НА ЛИНИИ';
+      if(income) income.textContent=broken?'0 ₽/ч':'+'+Number(card.dataset.hourly||0).toLocaleString('ru-RU')+' ₽/ч';
+      card.classList.toggle('broken',broken);
+      const note=card.querySelector('[data-taxi-wear-note]');
+      if(note) note.textContent=broken?'Износ 100%. Машина остановлена до ремонта.':('Износ растёт в реальном времени · осталось ~'+Math.max(0,Math.ceil((100-wear)/Math.max(.0001,rate)))+' ч.');
+    });
+    const pendingBase=Number(window.__taxiPendingBase||0);
+    const pendingAt=Number(window.__taxiPendingAt||0);
+    const pendingHour=Number(window.__taxiHourly||0);
+    if(pendingAt>0){
+      const live=Math.max(0,pendingBase+pendingHour*Math.max(0,now-pendingAt)/3600);
+      document.querySelectorAll('[data-taxi-pending-live]').forEach(el=>el.textContent=Number(Math.floor(live)).toLocaleString('ru-RU')+' ₽');
+      document.querySelectorAll('[data-taxi-collect-label]').forEach(btn=>{ btn.disabled=live<=0; btn.textContent=live>0?'ЗАБРАТЬ ПРИБЫЛЬ · '+Number(Math.floor(live)).toLocaleString('ru-RU')+' ₽':'НАКОПЛЕНИЙ НЕТ'; });
+    }
+  }
+  if(!window.__resellTaxiRealtimeTimer) window.__resellTaxiRealtimeTimer=setInterval(updateTaxiRealtime,250);
+  if(!window.__resellTaxiServerRefreshTimer) window.__resellTaxiServerRefreshTimer=setInterval(()=>{
+    if(typeof tycoonTab!=='undefined' && tycoonTab==='taxi' && !document.hidden && document.querySelector('.tycoon-wrap')) renderTycoon().catch(()=>{});
+  },10000);
 
   // ==================== AVITO / RESELL MARKET ====================
   let avitoTab='buy'; let avitoState=null; let avitoPoller=null; let avitoEditing=false;
@@ -3315,6 +3390,25 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   // ==================== BUSINESS CONTROL CENTER ====================
   let businessState = null;
 
+  const BUSINESS_TUTORIAL_KEY='resell_business_tutorial_v1';
+  let businessTutorialActive=false;
+  function maybeStartBusinessTutorial(){
+    if(businessTutorialActive || !document.querySelector('.business-control-v4')) return;
+    const key=`${BUSINESS_TUTORIAL_KEY}_${userId||'guest'}`;
+    if(localStorage.getItem(key)==='1') return;
+    const steps=[
+      {title:'Здесь копится доход',text:'Бизнесы приносят деньги автоматически. Вверху видна общая сумма за день.',target:'.business-hero-v4'},
+      {title:'Забирай одной кнопкой',text:'Нажми «Забрать» — весь доступный пассивный доход зачислится на баланс.',target:'#businessCollectBtn'},
+      {title:'Таксопарк тоже здесь',text:'Доход таксопарка входит в общий бизнес и отображается отдельной строкой.',target:'.business-item-taxi-v4'}
+    ];
+    businessTutorialActive=true; let i=0;
+    const old=document.getElementById('businessTutorialOverlay'); if(old) old.remove();
+    const overlay=document.createElement('div'); overlay.id='businessTutorialOverlay'; overlay.innerHTML=`<div class="taxi-tutorial-backdrop"></div><div class="taxi-tutorial-spotlight"></div><div class="taxi-tutorial-card"><div class="taxi-tutorial-step" id="businessTutorialStep"></div><div class="taxi-tutorial-title" id="businessTutorialTitle"></div><div class="taxi-tutorial-text" id="businessTutorialText"></div><div class="taxi-tutorial-actions"><button class="taxi-tutorial-btn" data-business-tutorial-skip>ПРОПУСТИТЬ</button><button class="taxi-tutorial-btn primary" data-business-tutorial-next>ДАЛЕЕ</button></div></div>`; document.body.appendChild(overlay);
+    const paint=()=>{ const st=steps[i]; const t=document.querySelector(st.target)||document.querySelector('.business-hero-v4'); const r=t.getBoundingClientRect(); const spot=overlay.querySelector('.taxi-tutorial-spotlight'); spot.style.left=Math.max(6,r.left-5)+'px';spot.style.top=Math.max(6,r.top-5)+'px';spot.style.width=Math.max(10,r.width+10)+'px';spot.style.height=Math.max(10,r.height+10)+'px'; $('#businessTutorialStep').textContent=`Шаг ${i+1} из ${steps.length}`; $('#businessTutorialTitle').textContent=st.title; $('#businessTutorialText').textContent=st.text; overlay.querySelector('[data-business-tutorial-next]').textContent=i===steps.length-1?'ГОТОВО':'ДАЛЕЕ'; };
+    paint();
+    overlay.addEventListener('click',e=>{ if(e.target.closest('[data-business-tutorial-skip]') || e.target.closest('[data-business-tutorial-next]') && i>=steps.length-1){localStorage.setItem(key,'1');overlay.remove();businessTutorialActive=false;return;} if(e.target.closest('[data-business-tutorial-next]')){i++;paint();} });
+  }
+
   function renderBusinessModal(){
     const d=businessState||{};
     const businesses=Array.isArray(d.businesses)?d.businesses:[];
@@ -3374,7 +3468,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   async function openBusiness(){
     haptic('medium');
     openModal('Бизнес-империя','<div class="loading">Загрузка активов…</div>');
-    try{ await fetchBusinessState(); modalBody.innerHTML=renderBusinessModal(); }
+    try{ await fetchBusinessState(); modalBody.innerHTML=renderBusinessModal(); setTimeout(()=>maybeStartBusinessTutorial(),80); }
     catch(err){ modalBody.innerHTML=`<div class="business-empty-v4">${esc(err.message||'Не удалось загрузить бизнес')}</div>`; }
   }
 
@@ -3849,6 +3943,16 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   .taxi-profit-btn{flex:none;min-width:180px}
   .taxi-health-row{display:flex;justify-content:space-between;gap:10px;padding:8px 3px;color:#666;font-size:8px;font-weight:800}
   .taxi-health-row b{color:#aaa;font-weight:900}
+  .taxi-education{margin:12px 0 14px;padding:15px;border-radius:20px;background:linear-gradient(145deg,rgba(183,255,106,.10),rgba(255,255,255,.035));border:1px solid rgba(183,255,106,.16);box-shadow:0 16px 42px rgba(0,0,0,.28)}
+  .taxi-education-kicker{font:900 8px/1 "Montserrat",sans-serif;letter-spacing:1.3px;color:#9fc77a;text-transform:uppercase}
+  .taxi-education-title{margin-top:7px;font:900 16px/1.05 "Montserrat",sans-serif}
+  .taxi-education-copy{margin-top:6px;color:#888;font-size:10px;line-height:1.45;font-weight:800}
+  .taxi-education-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px}.taxi-education-chip{padding:7px 9px;border-radius:10px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.06);color:#d8d8d8;font:900 8px/1 "Montserrat",sans-serif}
+  .taxi-realtime{color:#b7ff6a!important}.taxi-wear-note{font-size:9px!important;color:#777!important;line-height:1.35!important}.taxi-info-note{margin-top:12px;padding:13px 14px;border-radius:15px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.06);color:#7e7e7e;font:800 10px/1.45 "Nunito",sans-serif}
+  .taxi-tutorial-backdrop{position:fixed;inset:0;z-index:240;background:rgba(0,0,0,.64);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+  .taxi-tutorial-spotlight{position:fixed;z-index:242;border:1px solid rgba(183,255,106,.75);border-radius:16px;box-shadow:0 0 0 9999px rgba(0,0,0,.56),0 0 0 5px rgba(183,255,106,.10),0 0 34px rgba(183,255,106,.22);pointer-events:none;transition:all .28s ease}
+  .taxi-tutorial-card{position:fixed;z-index:243;left:14px;right:14px;bottom:calc(14px + env(safe-area-inset-bottom));margin:auto;max-width:520px;padding:16px;border-radius:20px;background:linear-gradient(180deg,#191919,#0b0b0b);border:1px solid rgba(255,255,255,.10);box-shadow:0 25px 80px rgba(0,0,0,.68)}
+  .taxi-tutorial-step{color:#7d7d7d;font:900 8px/1 "Montserrat",sans-serif;letter-spacing:1px;text-transform:uppercase}.taxi-tutorial-title{margin-top:7px;font:950 18px/1.05 "Montserrat",sans-serif}.taxi-tutorial-text{margin-top:7px;color:#888;font-size:10px;line-height:1.45;font-weight:800}.taxi-tutorial-actions{display:flex;gap:8px;margin-top:13px}.taxi-tutorial-btn{flex:1;min-height:44px;border-radius:13px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.05);font:900 9px/1 "Montserrat",sans-serif;letter-spacing:.7px;text-transform:uppercase}.taxi-tutorial-btn.primary{background:#fff;color:#000;border-color:#fff}.taxi-tutorial-btn:active{transform:scale(.98)}
   .taxi-view-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:11px 0 12px;padding:4px;border:1px solid rgba(255,255,255,.06);border-radius:17px;background:#0b0b0b}
   .taxi-view-tab{padding:11px;border-radius:13px;color:#676767;text-align:left;border:1px solid transparent}
   .taxi-view-tab.active{color:#fff;background:rgba(255,255,255,.075);border-color:rgba(255,255,255,.08);box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
