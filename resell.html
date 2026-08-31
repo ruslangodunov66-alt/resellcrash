@@ -1184,7 +1184,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         <div>
           <div class="farm-kicker">R-GAME · FARM</div>
           <div class="farm-title">ЗАЖМИ R</div>
-          <div class="farm-sub">Удерживай R. Награда формируется скрыто на сервере и начисляется один раз за цикл.</div>
+          <div class="farm-sub">Удерживай R. Награда рассчитывается по длительности раунда и параметрам фарма и начисляется один раз за цикл.</div>
         </div>
         <div class="farm-total" id="farmTotal">10–100k ₽</div>
       </div>
@@ -3113,7 +3113,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
             <div class="taxi-list">${levels.filter(x=>x.id!=='none').map(x=>`<div class="taxi-row"><div><div class="taxi-row-name">${esc(x.name)}</div><div class="taxi-row-meta">${number(x.price)} ₽ · ${number(x.slots)} машин · до +${number(x.income_per_car)} ₽/ч на автомобиль</div></div><button class="tycoon-btn primary" data-buy-taxi="${esc(x.id)}">КУПИТЬ</button></div>`).join('')}</div>
           </div>`:
           `<div class="taxi-summary-v2">
-            <div class="taxi-summary-card"><span>НА ЛИНИИ</span><b><span data-taxi-line-live>${parkCars.length}</span>/<span data-taxi-slots-live>${slots}</span></b><small>${brokenCount?`${brokenCount} сломано`:'машины работают'}</small></div>
+            <div class="taxi-summary-card taxi-slots-card"><span>МЕСТА В ТАКСОПАРКЕ</span><b><strong data-taxi-line-live>${parkCars.length}</strong><em>/ ${slots}</em></b><div class="taxi-slots-track"><i style="width:${slots?Math.min(100,parkCars.length/slots*100):0}%"></i></div><small>${parkCars.length} занято · ${Math.max(0,slots-parkCars.length)} свободно</small></div>
             <div class="taxi-summary-card"><span>ДОХОД / ЧАС</span><b data-taxi-hourly-live>+${number(taxiHourly)} ₽</b><small>с учётом улучшений</small></div>
             <div class="taxi-summary-card"><span>НАКОПЛЕНО</span><b data-taxi-pending-live>${number(taxiPending)} ₽</b><small>можно забрать сразу</small></div>
           </div>
@@ -3210,47 +3210,9 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     });
   }
 
-  // Realtime taxi display: interpolate the server snapshot every 250ms so wear
-  // and mileage move visibly like passive business income. Server remains authoritative.
-  function updateTaxiRealtime(){
-    if(typeof tycoonTab==='undefined' || tycoonTab!=='taxi' || document.hidden) return;
-    const cards=[...document.querySelectorAll('.taxi-fleet-card[data-taxi-realtime]')];
-    if(!cards.length) return;
-    const now=(Date.now()/1000);
-    cards.forEach(card=>{
-      const start=Number(card.dataset.lineStarted||0);
-      const baseWear=Number(card.dataset.wearBefore||0);
-      const baseMileage=Number(card.dataset.mileageBefore||0);
-      const rate=Number(card.dataset.wearRate||0);
-      const brokenAt=start>0 && rate>0 ? start + Math.max(0,(100-baseWear)/rate)*3600 : Infinity;
-      const end=Math.min(now,brokenAt);
-      const hours=Math.max(0,start>0?(end-start)/3600:0);
-      const wear=Math.min(100,Math.max(0,baseWear+hours*rate));
-      const mileage=Math.max(0,baseMileage+hours*22);
-      const wearEl=card.querySelector('[data-taxi-wear-value]');
-      const mileageEl=card.querySelector('[data-taxi-mileage]');
-      const fill=card.querySelector('[data-taxi-wear-fill]');
-      const status=card.querySelector('[data-taxi-status]'); const statusText=card.querySelector('[data-taxi-status-text]');
-      const income=card.querySelector('[data-taxi-income]');
-      const broken=wear>=99.999;
-      if(wearEl) wearEl.textContent=wear.toFixed(1)+'%';
-      if(mileageEl) mileageEl.textContent=Math.floor(mileage).toLocaleString('ru-RU')+' км';
-      if(fill){fill.style.width=wear+'%';fill.classList.toggle('broken',broken);fill.classList.toggle('warn',!broken&&wear>=75)}
-      if(status){status.textContent=broken?'СЛОМАНА':'РАБОТАЕТ';status.classList.toggle('broken',broken)} if(statusText) statusText.textContent=broken?'МАШИНА СЛОМАНА':'НА ЛИНИИ';
-      if(income) income.textContent=broken?'0 ₽/ч':'+'+Number(card.dataset.hourly||0).toLocaleString('ru-RU')+' ₽/ч';
-      card.classList.toggle('broken',broken);
-      const note=card.querySelector('[data-taxi-wear-note]');
-      if(note) note.textContent=broken?'Износ 100%. Машина остановлена до ремонта.':('Износ растёт в реальном времени · осталось ~'+Math.max(0,Math.ceil((100-wear)/Math.max(.0001,rate)))+' ч.');
-    });
-    const pendingBase=Number(window.__taxiPendingBase||0);
-    const pendingAt=Number(window.__taxiPendingAt||0);
-    const pendingHour=Number(window.__taxiHourly||0);
-    if(pendingAt>0){
-      const live=Math.max(0,pendingBase+pendingHour*Math.max(0,now-pendingAt)/3600);
-      document.querySelectorAll('[data-taxi-pending-live]').forEach(el=>el.textContent=Number(Math.floor(live)).toLocaleString('ru-RU')+' ₽');
-      document.querySelectorAll('[data-taxi-collect-label]').forEach(btn=>{ btn.disabled=live<=0; btn.textContent=live>0?'ЗАБРАТЬ ПРИБЫЛЬ · '+Number(Math.floor(live)).toLocaleString('ru-RU')+' ₽':'НАКОПЛЕНИЙ НЕТ'; });
-    }
-  }
+  // Taxi income and wear are server-authoritative. The client never
+  // interpolates money or wear between snapshots.
+  function updateTaxiRealtime(){ return; }
   async function syncTaxiSnapshot(){
     if(typeof tycoonTab==='undefined' || tycoonTab!=='taxi' || document.hidden) return;
     if(!document.querySelector('.tycoon-wrap') || window.__resellTaxiSyncBusy) return;
@@ -3266,9 +3228,6 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       const brokenCount=Number(d.broken_cars||0);
       const lineCount=Number(d.line_cars||parkCars.length);
       const brokenRatio=Number(d.broken_ratio||0);
-      window.__taxiPendingBase=taxiPending;
-      window.__taxiPendingAt=Number(d.server_time||Math.floor(Date.now()/1000));
-      window.__taxiHourly=taxiHourly;
       document.querySelectorAll('[data-taxi-realtime]').forEach(card=>{
         const idx=Number(card.dataset.instanceIndex);
         const c=map.get(idx);
@@ -3287,13 +3246,15 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       document.querySelectorAll('[data-taxi-line-live]').forEach(el=>el.textContent=lineCount);
       document.querySelectorAll('[data-taxi-slots-live]').forEach(el=>el.textContent=Number(d.level?.slots||0));
       document.querySelectorAll('[data-taxi-broken-live]').forEach(el=>el.textContent=`${brokenCount}/${lineCount} сломано · ${(brokenRatio*100).toFixed(0)}%`);
+      document.querySelectorAll('[data-taxi-pending-live]').forEach(el=>el.textContent=Number(taxiPending).toLocaleString('ru-RU')+' ₽');
+      document.querySelectorAll('[data-taxi-collect-label]').forEach(btn=>{btn.disabled=taxiPending<=0;btn.textContent=taxiPending>0?'ЗАБРАТЬ ПРИБЫЛЬ · '+Number(taxiPending).toLocaleString('ru-RU')+' ₽':'НАКОПЛЕНИЙ НЕТ';});
+      const slots=Number(d.level?.slots||0); document.querySelectorAll('.taxi-slots-card').forEach(card=>{const track=card.querySelector('.taxi-slots-track i');const small=card.querySelector('small');if(track)track.style.width=(slots?Math.min(100,lineCount/slots*100):0)+'%';if(small)small.textContent=`${lineCount} занято · ${Math.max(0,slots-lineCount)} свободно`;});
     }catch(_){
       // Never replace the live DOM on a background refresh. The visible realtime state remains intact.
     }finally{
       window.__resellTaxiSyncBusy=false;
     }
   }
-  if(!window.__resellTaxiRealtimeTimer) window.__resellTaxiRealtimeTimer=setInterval(updateTaxiRealtime,250);
   if(!window.__resellTaxiServerRefreshTimer) window.__resellTaxiServerRefreshTimer=setInterval(syncTaxiSnapshot,10000);
 
   // ==================== AVITO / RESELL MARKET ====================
@@ -3980,6 +3941,12 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
 <style id="taxi-ux-fixes">
   .tycoon-tabs{grid-template-columns:repeat(4,minmax(0,1fr))}
   .taxi-summary-v2{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0}
+  .taxi-slots-card{padding:14px 14px 13px;min-height:118px;display:flex;flex-direction:column;justify-content:center}
+  .taxi-slots-card>b{display:flex;align-items:baseline;gap:4px;margin-top:8px;white-space:nowrap}
+  .taxi-slots-card>b strong{font:950 29px/1 "Montserrat",sans-serif;letter-spacing:-1px;color:#fff}
+  .taxi-slots-card>b em{font:900 14px/1 "Montserrat",sans-serif;color:#666;font-style:normal}
+  .taxi-slots-track{height:8px;margin-top:10px;border-radius:99px;background:#090909;border:1px solid rgba(255,255,255,.055);overflow:hidden}
+  .taxi-slots-track i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#8fdc58,#e1ffbd);box-shadow:0 0 14px rgba(183,255,106,.22);transition:width .35s ease}
   .taxi-summary-card{padding:12px;border:1px solid rgba(255,255,255,.06);border-radius:16px;background:linear-gradient(180deg,#141414,#0e0e0e);min-width:0}
   .taxi-summary-card span{display:block;color:#606060;font:900 7px/1 "Montserrat",sans-serif;letter-spacing:.8px;text-transform:uppercase}
   .taxi-summary-card b{display:block;margin-top:7px;font:900 15px/1 "Montserrat",sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
