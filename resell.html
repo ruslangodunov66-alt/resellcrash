@@ -1733,18 +1733,31 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     let lastError=null;
     for(let i=0;i<attempts;i++){
       const controller=new AbortController();
-      const timer=setTimeout(()=>controller.abort(),9000);
+      const timer=setTimeout(()=>controller.abort(),10000);
       try{
+        try{ tg?.ready?.(); }catch(_){}
         const initData=getTelegramInitData();
         const secureHeaders={'Accept':'application/json','Cache-Control':'no-cache',...(options.headers||{})};
         if(initData) secureHeaders['X-Telegram-Init-Data']=initData;
         const resp=await fetch(url,{cache:'no-store',...options,signal:controller.signal,headers:secureHeaders});
         clearTimeout(timer);
-        if(!resp.ok){let p={};try{p=await resp.json();}catch(_){} const e=new Error(p?.error||`HTTP ${resp.status}`);e.status=resp.status;throw e;}
+        if(!resp.ok){
+          let payload={}; try{payload=await resp.json();}catch(_){}
+          const e=new Error(payload?.error||payload?.message||
+            (resp.status===401?'Не удалось подтвердить Telegram-сессию. Открой Resell из Telegram и попробуй ещё раз.':
+             resp.status===404?'Раздел временно недоступен на сервере. Обнови приложение и попробуй ещё раз.':
+             resp.status>=500?'Сервер RESSELL временно не отвечает.':`Операция не выполнена (HTTP ${resp.status})`));
+          e.status=resp.status;
+          throw e;
+        }
         return resp;
       }catch(e){
-        clearTimeout(timer); lastError=e?.name==='AbortError'?new Error('Сервер не ответил вовремя'):e;
-        if(i<attempts-1) await new Promise(r=>setTimeout(r,500*(i+1)));
+        clearTimeout(timer);
+        lastError=e?.name==='AbortError'?new Error('Сервер не ответил вовремя'):e;
+        if(i<attempts-1){
+          if(lastError?.status===401){ try{ tg?.ready?.(); tg?.expand?.(); }catch(_){} }
+          await new Promise(r=>setTimeout(r,350*(i+1)));
+        }
       }
     }
     throw lastError||new Error('Сервер временно недоступен');
@@ -1948,7 +1961,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   async function renderLeaderboard(mode='wealth'){
     if(!userId)return '<div class="leaderboard-loading">Открой проект через Telegram, чтобы увидеть персональную позицию.</div>';
     try{
-      const resp=await fetch(`${API_BASE}/leaderboard/wealth?limit=10&mode=${encodeURIComponent(mode)}&userId=${encodeURIComponent(userId)}`,{cache:'no-store',headers:{'Accept':'application/json',...(getTelegramInitData()?{'X-Telegram-Init-Data':getTelegramInitData()}: {})}});
+      const resp=await apiFetch(`${API_BASE}/leaderboard/wealth?limit=10&mode=${encodeURIComponent(mode)}&userId=${encodeURIComponent(userId)}`,{method:'GET'},3);
       if(!resp.ok)throw new Error(`HTTP ${resp.status}`);
       const payload=await resp.json(),rows=Array.isArray(payload.leaderboard)?payload.leaderboard:[];
       const modes=[['wealth','Капитал'],['earned','Заработано'],['today','Сегодня'],['referrals','Рефералы'],['fleet','Автопарк']];
@@ -2300,13 +2313,11 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
 
   async function fetchHoldStatus({silent=false} = {}){
     if(!userId) return null;
-    const resp = await fetch(`${API_BASE}/hold/status/${encodeURIComponent(userId)}?t=${Date.now()}`, {
-      cache:'no-store',
-      headers:{'Accept':'application/json','Cache-Control':'no-cache'}
-    });
-    let payload = null;
-    try{ payload = await resp.json(); }catch(_){ payload = null; }
-    if(!resp.ok) throw new Error(payload?.error || `Не удалось получить статус фарма (HTTP ${resp.status})`);
+    const resp = await apiFetch(`${API_BASE}/hold/status/${encodeURIComponent(userId)}?t=${Date.now()}`, {
+      method:'GET', headers:{'Accept':'application/json','Cache-Control':'no-cache'}
+    }, 3);
+    const payload = await resp.json().catch(()=>({}));
+    if(payload?.success===false) throw new Error(payload?.error||'Не удалось получить статус фарма');
     holdState = normalizeHoldState(payload);
     farmLastSync = Date.now();
     farmStatusRetry = 0;
@@ -2405,8 +2416,8 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     // granted after a real, continuous 30-second hold in the current view.
     // If Telegram/WebView left an old session behind, invalidate it safely.
     try{
-      await fetch(`${API_BASE}/hold/cancel/${encodeURIComponent(userId)}`, {
-        method:'POST', cache:'no-store',
+      await apiFetch(`${API_BASE}/hold/cancel/${encodeURIComponent(userId)}`, {
+        method:'POST',
         headers:{'Content-Type':'application/json','Accept':'application/json','Cache-Control':'no-cache'},
         body:JSON.stringify({session_id:holdState.session_id, reason:'reopen'})
       });
@@ -2459,12 +2470,11 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
 
     holdStartPromise = (async()=>{
       try{
-        const resp = await fetch(`${API_BASE}/hold/start/${encodeURIComponent(userId)}`, {
-          method:'POST',
-          cache:'no-store',
+        const resp = await apiFetch(`${API_BASE}/hold/start/${encodeURIComponent(userId)}`,
+          {method:'POST',
           headers:{'Content-Type':'application/json','Accept':'application/json','Cache-Control':'no-cache'},
           body:JSON.stringify({duration:FARM_DURATION})
-        });
+        }, 3);
         let payload = null;
         try{ payload = await resp.json(); }catch(_){ payload = null; }
         if(!resp.ok || !payload?.success){
@@ -2516,12 +2526,11 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     farmCompleting = true;
     const sessionId = holdState.session_id;
     try{
-      const resp = await fetch(`${API_BASE}/hold/complete/${encodeURIComponent(userId)}`, {
+      const resp = await apiFetch(`${API_BASE}/hold/complete/${encodeURIComponent(userId)}`, {
         method:'POST',
-        cache:'no-store',
         headers:{'Content-Type':'application/json','Accept':'application/json','Cache-Control':'no-cache'},
         body:JSON.stringify({session_id:sessionId,duration:FARM_DURATION})
-      });
+      }, 3);
       let payload = null;
       try{ payload = await resp.json(); }catch(_){ payload = null; }
       if(!resp.ok || !payload?.success){
@@ -2624,11 +2633,11 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     }
 
     try{
-      await fetch(`${API_BASE}/hold/cancel/${encodeURIComponent(userId)}`, {
-        method:'POST',cache:'no-store',
-        headers:{'Content-Type':'application/json','Accept':'application/json',...(getTelegramInitData()?{'X-Telegram-Init-Data':getTelegramInitData()}: {})},
+      await apiFetch(`${API_BASE}/hold/cancel/${encodeURIComponent(userId)}`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json','Accept':'application/json'},
         body:JSON.stringify({session_id:sessionId})
-      });
+      }, 3);
     }catch(_){ }
 
     holdState = normalizeHoldState({...holdState,session_id:null,started_at:0,ready:false});
@@ -2819,7 +2828,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   let upgradesData = null;
 
   async function fetchUpgrades(){
-    const resp=await fetch(`${API_BASE}/upgrades/${encodeURIComponent(userId)}`,{cache:'no-store'});
+    const resp=await apiFetch(`${API_BASE}/upgrades/${encodeURIComponent(userId)}`,{method:'GET'},3);
     if(!resp.ok) throw new Error('Не удалось загрузить улучшения');
     upgradesData=await resp.json(); return upgradesData;
   }
@@ -2854,7 +2863,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     const btn=e.currentTarget, id=btn.dataset.upgrade;
     btn.disabled=true; btn.textContent='ПОКУПКА…';
     try{
-      const resp=await fetch(`${API_BASE}/upgrades/${encodeURIComponent(userId)}/buy`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'application/json',...(getTelegramInitData()?{'X-Telegram-Init-Data':getTelegramInitData()}: {})},body:JSON.stringify({upgrade_id:id})});
+      const resp=await apiFetch(`${API_BASE}/upgrades/${encodeURIComponent(userId)}/buy`,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({upgrade_id:id})},3);
       const payload=await resp.json();
       if(!resp.ok || !payload.success) throw new Error(payload.error||'Не удалось улучшить');
       profileData=profileData||{}; profileData.balance=Number(payload.balance||profileData.balance||0); setBalance(profileData.balance);
@@ -2995,38 +3004,10 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   const BANK_IMG='AgACAgIAAxkBAAIb4GoYdcW3grQ8bIlyZ5foSK885TJ_AAIZHGsbVcfBSPPaBe8AATcM_gEAAwIAA3kAAzsE';
   const MINING_IMG='AgACAgIAAxkBAAIb02oYdOPrg50NLjYRHS8cINlbD3b2AAIXHGsbVcfBSMqZednvkdzBAQADAgADdwADOwQ';
   async function tycoonFetch(path,opts={}){
-    const initData=getTelegramInitData();
-    const baseHeaders={
-      'Accept':'application/json',
-      'Content-Type':'application/json',
-      ...(initData ? {'X-Telegram-Init-Data':initData} : {}),
-    };
-    const makeOptions=(payload)=>({...opts,cache:'no-store',headers:{...baseHeaders,...(payload||{})}});
-    let r; let p={};
-    try {
-      r=await fetch(`${API_BASE}${path}`,makeOptions(opts.headers||{}));
-      p=await r.json().catch(()=>({}));
-    } catch(err) {
-      throw new Error('Не удалось соединиться с сервером. Проверь соединение и открой раздел ещё раз.');
-    }
-    // Telegram WebView sometimes updates initData after the first render.
-    if(r.status===401 && tg){
-      try{ tg.ready(); }catch(_){}
-      const fresh=getTelegramInitData();
-      if(fresh && fresh!==baseHeaders['X-Telegram-Init-Data']){
-        try {
-          r=await fetch(`${API_BASE}${path}`,{...makeOptions(opts.headers||{}),headers:{...baseHeaders,...(opts.headers||{}),'X-Telegram-Init-Data':fresh}});
-          p=await r.json().catch(()=>({}));
-        } catch(err) {
-          throw new Error('Не удалось повторно подтвердить сессию Telegram. Открой раздел ещё раз.');
-        }
-      }
-    }
-    if(!r.ok||p.success===false){
-      const msg=p.error||p.message||(r.status===401?'Недействительная сессия Telegram. Открой приложение из Telegram.':r.status>=500?'Сервер временно не смог обработать запрос.':'Операция не выполнена');
-      throw new Error(msg);
-    }
-    return p;
+    const resp=await apiFetch(`${API_BASE}${path}`,opts,3);
+    const payload=await resp.json().catch(()=>({}));
+    if(payload?.success===false) throw new Error(payload?.error||payload?.message||'Операция не выполнена');
+    return payload;
   }
   function tycoonTabs(){
     const tabs=[['bank','Банк'],['assets','Активы'],['cars','Авто'],['taxi','Таксопарк']];
