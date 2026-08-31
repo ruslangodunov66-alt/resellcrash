@@ -3210,20 +3210,12 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     });
   }
 
-  // Taxi income and wear are server-authoritative. The amount shown below is
-  // only a visual projection from the latest server snapshot; collection
-  // always uses the authoritative server value, just like Business income.
+  // Taxi income is rendered exactly like Business income: the displayed
+  // pending amount is the last authoritative server snapshot. The client does
+  // not create its own second-by-second counter, so it cannot drift and then
+  // snap back to zero. Reloading the page simply asks the server for the current
+  // amount computed from taxopark.last_collect_at.
   let taxiViewSnapshot={pending:0,hourly:0,serverTime:0,receivedAt:0};
-  function updateTaxiRealtime(){
-    if(typeof tycoonTab==='undefined' || tycoonTab!=='taxi' || document.hidden) return;
-    const now=Math.floor(Date.now()/1000);
-    if(!taxiViewSnapshot.receivedAt || !taxiViewSnapshot.serverTime) return;
-    const elapsed=Math.max(0,now-taxiViewSnapshot.serverTime);
-    const projected=Math.max(0,taxiViewSnapshot.pending + taxiViewSnapshot.hourly*elapsed/3600);
-    const value=Math.floor(projected);
-    document.querySelectorAll('[data-taxi-pending-live]').forEach(el=>el.textContent=value.toLocaleString('ru-RU')+' ₽');
-    document.querySelectorAll('[data-taxi-collect-label]').forEach(btn=>{btn.disabled=value<=0;btn.textContent=value>0?'ЗАБРАТЬ ПРИБЫЛЬ · '+value.toLocaleString('ru-RU')+' ₽':'НАКОПЛЕНИЙ НЕТ';});
-  }
   async function syncTaxiSnapshot(){
     if(typeof tycoonTab==='undefined' || tycoonTab!=='taxi' || document.hidden) return;
     if(!document.querySelector('.tycoon-wrap') || window.__resellTaxiSyncBusy) return;
@@ -3248,22 +3240,27 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         card.dataset.serverMileage=String(Number(c.mileage||0));
         card.dataset.serverIncome=String(Number(c.total_income||0));
       });
-      document.querySelectorAll('[data-taxi-hourly-live]').forEach(el=>el.textContent='+'+Number(taxiHourly).toLocaleString('ru-RU')+' ₽/ч');
+      document.querySelectorAll('[data-taxi-hourly-live]').forEach(el=>el.textContent='+'+taxiHourly.toLocaleString('ru-RU')+' ₽/ч');
       document.querySelectorAll('[data-taxi-multiplier-live]').forEach(el=>el.textContent='×'+multiplier.toFixed(2));
       document.querySelectorAll('[data-taxi-line-live]').forEach(el=>el.textContent=lineCount);
       document.querySelectorAll('[data-taxi-slots-live]').forEach(el=>el.textContent=Number(d.level?.slots||0));
       document.querySelectorAll('[data-taxi-broken-live]').forEach(el=>el.textContent=`${brokenCount}/${lineCount} сломано · ${(brokenRatio*100).toFixed(0)}%`);
-      document.querySelectorAll('[data-taxi-pending-live]').forEach(el=>el.textContent=Number(taxiPending).toLocaleString('ru-RU')+' ₽');
-      document.querySelectorAll('[data-taxi-collect-label]').forEach(btn=>{btn.disabled=taxiPending<=0;btn.textContent=taxiPending>0?'ЗАБРАТЬ ПРИБЫЛЬ · '+Number(taxiPending).toLocaleString('ru-RU')+' ₽':'НАКОПЛЕНИЙ НЕТ';});
-      const slots=Number(d.level?.slots||0); document.querySelectorAll('.taxi-slots-card').forEach(card=>{const track=card.querySelector('.taxi-slots-track i');const small=card.querySelector('small');if(track)track.style.width=(slots?Math.min(100,lineCount/slots*100):0)+'%';if(small)small.textContent=`${lineCount} занято · ${Math.max(0,slots-lineCount)} свободно`;});
+      document.querySelectorAll('[data-taxi-pending-live]').forEach(el=>el.textContent=taxiPending.toLocaleString('ru-RU')+' ₽');
+      document.querySelectorAll('[data-taxi-collect-label]').forEach(btn=>{btn.disabled=taxiPending<=0;btn.textContent=taxiPending>0?'ЗАБРАТЬ ПРИБЫЛЬ · '+taxiPending.toLocaleString('ru-RU')+' ₽':'НАКОПЛЕНИЙ НЕТ';});
+      const slots=Number(d.level?.slots||0);
+      document.querySelectorAll('.taxi-slots-card').forEach(card=>{
+        const track=card.querySelector('.taxi-slots-track i');
+        const small=card.querySelector('small');
+        if(track)track.style.width=(slots?Math.min(100,lineCount/slots*100):0)+'%';
+        if(small)small.textContent=`${lineCount} занято · ${Math.max(0,slots-lineCount)} свободно`;
+      });
     }catch(_){
-      // Never replace the live DOM on a background refresh. The visible realtime state remains intact.
+      // Keep last authoritative server snapshot visible on temporary refresh errors.
     }finally{
       window.__resellTaxiSyncBusy=false;
     }
   }
   if(!window.__resellTaxiServerRefreshTimer) window.__resellTaxiServerRefreshTimer=setInterval(syncTaxiSnapshot,10000);
-  if(!window.__resellTaxiVisualTimer) window.__resellTaxiVisualTimer=setInterval(updateTaxiRealtime,1000);
 
   // ==================== AVITO / RESELL MARKET ====================
   let avitoTab='buy'; let avitoState=null; let avitoPoller=null; let avitoEditing=false;
