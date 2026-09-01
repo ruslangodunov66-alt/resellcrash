@@ -1481,6 +1481,12 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     } catch(_) {}
     return '';
   }
+  function telegramAuthHeaders(extra={}){
+    const headers={'Accept':'application/json',...extra};
+    const initData=getTelegramInitData();
+    if(initData) headers['X-Telegram-Init-Data']=initData;
+    return headers;
+  }
   function getTelegramUserIdFromInitData(){
     try {
       const raw = getTelegramInitData();
@@ -1628,7 +1634,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     if(!userId){error.textContent='❌ Открой RESSELL внутри Telegram';return;}
     btn.disabled=true;btn.textContent='СОЗДАНИЕ…';error.textContent='';
     try{
-      const resp=await fetch(`${API_BASE}/register/${encodeURIComponent(userId)}`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'application/json','X-Telegram-Init-Data':(tg?.initData||'')},body:JSON.stringify({nickname:registrationDraft.nickname,shop_name:shopName,referrer_id:referralRegistrationToken()})});
+      const resp=await fetch(`${API_BASE}/register/${encodeURIComponent(userId)}`,{method:'POST',cache:'no-store',headers:telegramAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify({nickname:registrationDraft.nickname,shop_name:shopName,referrer_id:referralRegistrationToken()})});
       const payload=await resp.json().catch(()=>({}));
       if(!resp.ok||!payload.success) throw new Error(payload.error||'Не удалось создать аккаунт');
       registrationRequired=false;if(modalClose) modalClose.style.display='';closeModal();
@@ -2170,7 +2176,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     ];
     for(const [endpoint,body] of attempts){
       try{
-        const resp=await fetch(endpoint,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'application/json',...(getTelegramInitData()?{'X-Telegram-Init-Data':getTelegramInitData()}: {})},body:JSON.stringify(body)});
+        const resp=await fetch(endpoint,{method:'POST',cache:'no-store',headers:telegramAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify(body)});
         if(resp.ok){
           try{
             const payload=await resp.json();
@@ -2194,7 +2200,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     ];
     for (const endpoint of endpoints){
       try{
-        const resp = await fetch(endpoint,{cache:'no-store',headers:{'Accept':'application/json',...(getTelegramInitData()?{'X-Telegram-Init-Data':getTelegramInitData()}: {})}});
+        const resp = await fetch(endpoint,{cache:'no-store',headers:telegramAuthHeaders()});
         if (!resp.ok) continue;
         const payload = await resp.json();
         if (payload && (payload.referral || payload.referrals || payload.invite_link || payload.active !== undefined || payload.total !== undefined)){
@@ -2946,7 +2952,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       let success=false,payload=null;
       for(const endpoint of endpoints){
         try{
-          const resp=await fetch(endpoint,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'application/json',...(getTelegramInitData()?{'X-Telegram-Init-Data':getTelegramInitData()}: {})}});
+          const resp=await fetch(endpoint,{method:'POST',cache:'no-store',headers:telegramAuthHeaders({'Content-Type':'application/json'})});
           if(!resp.ok) continue;
           const data=await resp.json();
           if(data?.success){ success=true;payload=data;break; }
@@ -3561,7 +3567,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
 
   async function adminFetch(path, options={}){
     if(!isAdmin) throw new Error('Нет доступа');
-    const resp=await fetch(`${API_BASE}${path}`,{cache:'no-store',headers:{'Accept':'application/json','Content-Type':'application/json',...(options.headers||{})},...options});
+    const resp=await fetch(`${API_BASE}${path}`,{cache:'no-store',...options,headers:telegramAuthHeaders({'Content-Type':'application/json',...(options.headers||{})})});
     let data={}; try{data=await resp.json();}catch(_){data={};}
     if(!resp.ok || data.success===false) throw new Error(data.error||'Ошибка администратора');
     return data;
@@ -3624,7 +3630,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   }
 
   if(isOwner) $('#adminBtn')?.classList.add('visible');
-  (async()=>{ if(!userId || isOwner) return; try{ const r=await fetch(`${API_BASE}/admin/me/${encodeURIComponent(userId)}`,{cache:'no-store'}); if(r.ok){ const d=await r.json(); if(d.success){ isAdmin=true; $('#adminBtn')?.classList.add('visible'); } } }catch(_){} })();
+  (async()=>{ if(!userId || isOwner) return; try{ const r=await fetch(`${API_BASE}/admin/me/${encodeURIComponent(userId)}`,{cache:'no-store',headers:telegramAuthHeaders()}); if(r.ok){ const d=await r.json(); if(d.success){ isAdmin=true; $('#adminBtn')?.classList.add('visible'); } } }catch(_){} })();
   // Tycoon Center is no longer a separate entry point: its five asset cards live on Home.
   function initMainTycoonCards(){
     const map={mining:TYCOON_HOME_COVER_IMAGES[0],bank:TYCOON_HOME_COVER_IMAGES[1],property:TYCOON_HOME_COVER_IMAGES[2],cars:TYCOON_HOME_COVER_IMAGES[3],taxi:TYCOON_HOME_COVER_IMAGES[4]};
