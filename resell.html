@@ -3079,7 +3079,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         body=`<div class="tycoon-shell"><div class="tycoon-top"><div class="tycoon-kicker">AUTO CENTER</div><div class="tycoon-balance">Автосалон</div><div class="tycoon-sub">Покупай любые модели без ограничений. Гараж — рядом, одной кнопкой.</div></div><div class="tycoon-toggle"><button class="tycoon-toggle-btn active" data-car-view="dealer">АВТОСАЛОН</button><button class="tycoon-toggle-btn" data-car-view="garage">ГАРАЖ · ${garage.length}</button></div><div class="tycoon-section"><div class="tycoon-section-head"><div class="tycoon-label">Текущий автомобиль</div><div class="tycoon-section-note">Активная машина</div></div><div class="tycoon-card">${current?`<div class="tycoon-title">${esc(current.name.replace(/^[^А-ЯA-Za-z]+/,'').trim())}</div><div class="tycoon-meta">${number(current.price)} ₽ · +${number(current.income_per_hour)} ₽/час · скорость +${number(current.speed_bonus)}</div>`:'<div class="tycoon-empty">Купи машину, чтобы назначить текущую.</div>'}</div></div><div class="tycoon-grid">${catalog.map((c,i)=>{const owned=ownedIds.has(c.id),isCurrent=current?.id===c.id;const image=c.image_url?TYCOON_MEDIA(c.image_url):(TYCOON_CAR_IMAGES[i]||'');const clean=(c.name||'Автомобиль').replace(/^[^А-ЯA-Za-z]+/,'').trim();return `<div class="tycoon-card tycoon-car"><div class="tycoon-car-media">${image?`<img src="${image}" loading="lazy" alt="${esc(clean)}">`:''}<span class="tycoon-car-media-tag">${esc(c.rarity||'АВТО')}</span><div class="tycoon-car-media-title">${esc(clean)}</div></div><div class="tycoon-car-copy"><div class="tycoon-car-stats"><div class="tycoon-car-stat">ЦЕНА<b>${number(c.price)} ₽</b></div><div class="tycoon-car-stat">ДОХОД / Ч<b>+${number(c.income_per_hour)} ₽</b></div><div class="tycoon-car-stat">СКОРОСТЬ<b>+${number(c.speed_bonus)}</b></div></div><div class="tycoon-car-actions"><button class="tycoon-btn primary" data-buy-car="${esc(c.id)}">ПРИОБРЕСТИ</button>${owned&&!isCurrent?`<button class="tycoon-btn" data-set-car="${esc(c.id)}">СДЕЛАТЬ ТЕКУЩЕЙ</button>`:isCurrent?'<span class="tycoon-current">ТЕКУЩАЯ</span>':''}</div></div></div>`}).join('')}</div></div>`;
       }
     } else if(tycoonTab==='taxi') {
-      const d=await tycoonFetch(`/tycoon/taxopark/${encodeURIComponent(userId)}`);
+      const d=await tycoonFetch(`/tycoon/taxopark/${encodeURIComponent(userId)}?t=${Date.now()}`);
       const tax=d.taxopark||{level:'none',cars:[]};
       const lvl=d.level||{};
       const levels=Array.isArray(d.levels)?d.levels:[];
@@ -3090,6 +3090,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       const multiplier=Number(d.multiplier||1);
       const taxiHourly=Number(d.hourly_profit||0);
       const taxiPending=Number(d.taxi_pending_collect||0);
+      window.__taxiPendingBase=taxiPending; window.__taxiPendingAt=Number(d.server_time||Math.floor(Date.now()/1000)); window.__taxiHourly=taxiHourly;
       const brokenCount=Number(d.broken_cars||0);
       const lineCount=Number(d.line_cars||parkCars.length);
       const brokenRatio=Number(d.broken_ratio||0);
@@ -3118,7 +3119,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
             <div class="taxi-profit-main">
               <div class="tycoon-label">ПРИБЫЛЬ АВТОПАРКА</div>
               <div class="taxi-profit-amount">${number(taxiPending)} ₽</div>
-              <div class="taxi-profit-rate">+${number(taxiHourly)} ₽ / час · начисление сохраняется на сервере</div>
+              <div class="taxi-profit-rate">+${number(taxiHourly)} ₽ / час</div>
             </div>
             <div class="taxi-profit-actions">
               <button class="tycoon-btn primary taxi-profit-btn" data-taxi-collect ${taxiPending<=0?'disabled':''}>ЗАБРАТЬ ПРИБЫЛЬ</button>
@@ -3142,7 +3143,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
                   <div class="taxi-fleet-main"><div class="taxi-car-title">${carTitle(c)}</div><div class="taxi-car-sub"><span data-taxi-status-text>${broken?'МАШИНА СЛОМАНА':'НА ЛИНИИ'}</span> · +${number(c.income_per_hour||0)} ₽/ч · <span data-taxi-mileage>${Math.floor(Number(c.mileage||0)).toLocaleString('ru-RU')} км</span></div></div>
                   <span class="taxi-status-badge ${broken?'broken':''}" data-taxi-status>${broken?'СЛОМАНА':'РАБОТАЕТ'}</span>
                 </div>
-                <div class="taxi-wear-block"><div class="taxi-meter-head"><span>ИЗНОС</span><b data-taxi-wear-value>${w.toFixed(1)}%</b></div><div class="taxi-meter-track"><div class="taxi-meter-fill ${broken?'broken':w>=75?'warn':''}" data-taxi-wear-fill style="width:${w}%"></div></div><div class="taxi-wear-note" data-taxi-wear-note>${broken?'Износ 100%. Машина остановлена до ремонта.':'Износ обновляется на сервере при нажатии «ОБНОВИТЬ».'}</div></div>
+                <div class="taxi-wear-block"><div class="taxi-meter-head"><span>ИЗНОС</span><b data-taxi-wear-value>${w.toFixed(1)}%</b></div><div class="taxi-meter-track"><div class="taxi-meter-fill ${broken?'broken':w>=75?'warn':''}" data-taxi-wear-fill style="width:${w}%"></div></div><div class="taxi-wear-note" data-taxi-wear-note>${broken?'Износ 100%. Машина остановлена до ремонта.':'Износ растёт автоматически, пока машина на линии.'}</div></div>
                 <div class="taxi-fleet-actions"><span class="taxi-fleet-income" data-taxi-income>+${number((broken?0:Number(c.income_per_hour||0)))} ₽/ч</span><button class="tycoon-btn" data-remove-taxi="${esc(c.id)}" data-taxi-instance="${c.instance_index}">СНЯТЬ С ЛИНИИ</button></div>
               </div>`}).join(''):'<div class="tycoon-empty">На линии пока нет машин. Открой «Управление» и добавь автомобиль из гаража.</div>'}</div>
             </div>`:
@@ -3739,7 +3740,12 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       const btn=e.target.closest('#tycoonTaxiRefresh');
       if(btn.disabled) return;
       btn.disabled=true; const oldText=btn.textContent; btn.textContent='ОБНОВЛЕНИЕ…';
-      try{ await renderTycoon(); }catch(err){ showToast(err.message||'Не удалось обновить таксопарк'); }
+      try{
+        const d=await tycoonFetch(`/tycoon/taxopark/${encodeURIComponent(userId)}?t=${Date.now()}`);
+        profileData=profileData||{};
+        if(d.balance!==undefined){ profileData.balance=Number(d.balance)||0; setBalance(profileData.balance); }
+        await renderTycoon();
+      }catch(err){ showToast(err.message||'Не удалось обновить таксопарк'); }
       finally{ btn.disabled=false; btn.textContent=oldText; }
       return;
     }
