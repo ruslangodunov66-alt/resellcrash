@@ -2394,6 +2394,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
 
   let farmRafId = null;
   let farmStatusPollId = null;
+  let farmStatusRequestInFlight = false;
   let farmVisualReward = 0;
   let farmVisualProgress = 0;
 
@@ -2404,7 +2405,8 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   }
 
   async function syncActiveFarmSnapshot(){
-    if(!holdState?.session_id || !holdPointerActive || farmCompleting) return;
+    if(!holdState?.session_id || !holdPointerActive || farmCompleting || farmStatusRequestInFlight) return;
+    farmStatusRequestInFlight = true;
     try{
       const d=await fetchHoldStatus({silent:true});
       if(!d?.session_id){ stopFarmAnimation(); return; }
@@ -2415,6 +2417,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       farmSnapshotReward=targetReward;
       if(d.auto_complete) await completeStandaloneFarm();
     }catch(_){ }
+    finally{ farmStatusRequestInFlight = false; }
   }
 
   let farmSnapshotReward=0;
@@ -2436,7 +2439,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       renderFarmReward(farmVisualProgress, farmVisualReward);
       farmRafId=requestAnimationFrame(tick);
     };
-    farmStatusPollId=setInterval(syncActiveFarmSnapshot,250);
+    farmStatusPollId=setInterval(syncActiveFarmSnapshot,1000);
     syncActiveFarmSnapshot();
     farmRafId=requestAnimationFrame(tick);
   }
