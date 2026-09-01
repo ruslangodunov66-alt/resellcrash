@@ -3079,7 +3079,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         body=`<div class="tycoon-shell"><div class="tycoon-top"><div class="tycoon-kicker">AUTO CENTER</div><div class="tycoon-balance">Автосалон</div><div class="tycoon-sub">Покупай любые модели без ограничений. Гараж — рядом, одной кнопкой.</div></div><div class="tycoon-toggle"><button class="tycoon-toggle-btn active" data-car-view="dealer">АВТОСАЛОН</button><button class="tycoon-toggle-btn" data-car-view="garage">ГАРАЖ · ${garage.length}</button></div><div class="tycoon-section"><div class="tycoon-section-head"><div class="tycoon-label">Текущий автомобиль</div><div class="tycoon-section-note">Активная машина</div></div><div class="tycoon-card">${current?`<div class="tycoon-title">${esc(current.name.replace(/^[^А-ЯA-Za-z]+/,'').trim())}</div><div class="tycoon-meta">${number(current.price)} ₽ · +${number(current.income_per_hour)} ₽/час · скорость +${number(current.speed_bonus)}</div>`:'<div class="tycoon-empty">Купи машину, чтобы назначить текущую.</div>'}</div></div><div class="tycoon-grid">${catalog.map((c,i)=>{const owned=ownedIds.has(c.id),isCurrent=current?.id===c.id;const image=c.image_url?TYCOON_MEDIA(c.image_url):(TYCOON_CAR_IMAGES[i]||'');const clean=(c.name||'Автомобиль').replace(/^[^А-ЯA-Za-z]+/,'').trim();return `<div class="tycoon-card tycoon-car"><div class="tycoon-car-media">${image?`<img src="${image}" loading="lazy" alt="${esc(clean)}">`:''}<span class="tycoon-car-media-tag">${esc(c.rarity||'АВТО')}</span><div class="tycoon-car-media-title">${esc(clean)}</div></div><div class="tycoon-car-copy"><div class="tycoon-car-stats"><div class="tycoon-car-stat">ЦЕНА<b>${number(c.price)} ₽</b></div><div class="tycoon-car-stat">ДОХОД / Ч<b>+${number(c.income_per_hour)} ₽</b></div><div class="tycoon-car-stat">СКОРОСТЬ<b>+${number(c.speed_bonus)}</b></div></div><div class="tycoon-car-actions"><button class="tycoon-btn primary" data-buy-car="${esc(c.id)}">ПРИОБРЕСТИ</button>${owned&&!isCurrent?`<button class="tycoon-btn" data-set-car="${esc(c.id)}">СДЕЛАТЬ ТЕКУЩЕЙ</button>`:isCurrent?'<span class="tycoon-current">ТЕКУЩАЯ</span>':''}</div></div></div>`}).join('')}</div></div>`;
       }
     } else if(tycoonTab==='taxi') {
-      const d=await tycoonFetch(`/tycoon/taxopark/${encodeURIComponent(userId)}`);
+      const d=await tycoonFetch(`/tycoon/taxopark/${encodeURIComponent(userId)}?t=${Date.now()}`);
       const tax=d.taxopark||{level:'none',cars:[]};
       const lvl=d.level||{};
       const levels=Array.isArray(d.levels)?d.levels:[];
@@ -3089,8 +3089,8 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       const slots=Number(lvl.slots||0);
       const multiplier=Number(d.multiplier||1);
       const taxiHourly=Number(d.hourly_profit||0);
-      const taxiPending=Number(d.pending_profit ?? d.taxi_pending_collect ?? 0);
-      window.__taxiPendingBase=taxiPending; window.__taxiPendingAt=Number(d.server_time||Math.floor(Date.now()/1000)); window.__taxiHourly=taxiHourly;
+      const taxiPending=Number(d.taxi_pending_collect||0);
+      window.__taxiPendingBase=taxiPending; window.__taxiPendingAt=Number(d.server_time||Math.floor(Date.now()/1000)); window.__taxiHourly=taxiHourly; window.__taxiElapsed=Number(d.taxi_elapsed_seconds||0);
       const brokenCount=Number(d.broken_cars||0);
       const lineCount=Number(d.line_cars||parkCars.length);
       const brokenRatio=Number(d.broken_ratio||0);
@@ -3107,7 +3107,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         <div class="taxi-hero taxi-hero-v2">
           <div class="taxi-kicker">TAXI OPERATIONS</div>
           <div class="taxi-title">Таксопарк</div>
-          <div class="taxi-sub">Каждая машина приносит фиксированный доход в час. Как в разделе «Бизнес»: накопление считается по времени с последнего сбора, а «Обновить» показывает сумму, накопленную к текущему моменту.</div>
+          <div class="taxi-sub">Каждая машина приносит фиксированный доход в час. Накопление и износ рассчитываются по времени работы и сохраняются на сервере.</div>
         </div>
         ${lvl.id==='none'?`
           <div class="tycoon-section">
@@ -3752,7 +3752,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         showToast(d.message||'Пассивный доход зачислен');
         await loadProfile();
         await renderTycoon();
-      }catch(err){ btn.disabled=false; showToast(err.message||'Не удалось получить прибыль'); }
+      }catch(_){ btn.disabled=false; }
       return;
     }
     const buy=e.target.closest('[data-business-buy]');
