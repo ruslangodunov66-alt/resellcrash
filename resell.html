@@ -1462,10 +1462,35 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   }
 
   const params = new URLSearchParams(location.search);
-  const userId = tg?.initDataUnsafe?.user?.id || params.get('userId') || '';
   function getTelegramInitData(){
-    try { return String(tg?.initData || '').trim(); } catch(_) { return ''; }
+    try {
+      const direct = String(tg?.initData || '').trim();
+      if (direct) return direct;
+    } catch(_) {}
+    // Compatibility: Telegram can expose initData in the launch URL/hash
+    // when the page is restored or opened through a webview wrapper.
+    try {
+      const fromQuery = String(params.get('initData') || params.get('tgWebAppData') || '').trim();
+      if (fromQuery) return decodeURIComponent(fromQuery);
+    } catch(_) {}
+    try {
+      const rawHash = String(location.hash || '').replace(/^#\?/, '').replace(/^#/, '');
+      const hash = new URLSearchParams(rawHash);
+      const fromHash = String(hash.get('tgWebAppData') || hash.get('initData') || '').trim();
+      if (fromHash) return fromHash;
+    } catch(_) {}
+    return '';
   }
+  function getTelegramUserIdFromInitData(){
+    try {
+      const raw = getTelegramInitData();
+      if (!raw) return '';
+      const q = new URLSearchParams(raw);
+      const user = JSON.parse(q.get('user') || '{}');
+      return user?.id ? String(user.id) : '';
+    } catch(_) { return ''; }
+  }
+  const userId = tg?.initDataUnsafe?.user?.id || getTelegramUserIdFromInitData() || params.get('userId') || '';
   const ADMIN_OWNER_ID = '1475910449';
   let isAdmin = String(userId) === ADMIN_OWNER_ID;
   const isOwner = String(userId) === ADMIN_OWNER_ID;
@@ -1741,6 +1766,9 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         const initData=getTelegramInitData();
         const secureHeaders={'Accept':'application/json','Cache-Control':'no-cache',...(options.headers||{})};
         if(initData) secureHeaders['X-Telegram-Init-Data']=initData;
+        else if (userId && /\/(?:hold|engagement|quests|passive|tycoon|cars|garage|avito|profile|referr|bank|taxi)/i.test(url)) {
+          throw Object.assign(new Error('Открой RESSELL через Telegram — Telegram-сессия не передана'), {status:401});
+        }
         const resp=await fetch(url,{cache:'no-store',...options,signal:controller.signal,headers:secureHeaders});
         clearTimeout(timer);
         if(!resp.ok){
