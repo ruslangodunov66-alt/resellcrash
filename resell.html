@@ -3256,7 +3256,8 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   let avitoTab='buy'; let avitoState=null; let avitoPoller=null; let avitoEditing=false;
   async function fetchAvito(){ avitoState=await tycoonFetch(`/avito/${encodeURIComponent(userId)}`); const u=Number(avitoState?.unread_count||0); const b=document.getElementById("avitoEntryUnread"); if(b){b.textContent=u;b.style.display=u>0?"inline-grid":"none";} return avitoState; }
   async function refreshAvitoUnreadBadge(){ try{ if(userId && !document.hidden){ const d=await tycoonFetch(`/avito/${encodeURIComponent(userId)}`); const u=Number(d?.unread_count||0); const b=document.getElementById("avitoEntryUnread"); if(b){b.textContent=u;b.style.display=u>0?"inline-grid":"none";} } }catch(_){} }
-  setInterval(refreshAvitoUnreadBadge,5000);
+  // Avito badge is refreshed only when the user opens/refreshes Avito.
+
   function groupInventory(inv){ const groups=new Map(); for(const item of (inv||[])){ const key=[item.name||'Товар',item.rarity||'',item.buy_price||0,item.market_price||0].join('|'); if(!groups.has(key)) groups.set(key,{...item,count:0,uids:[]}); const g=groups.get(key); g.count++; if(item.uid) g.uids.push(item.uid); } return [...groups.values()]; }
   function avitoRarity(r){ const v=String(r||'').trim().toLowerCase(); if(v.includes('миф')) return 'mythic'; if(v.includes('легенд')) return 'legendary'; if(v.includes('эпич')) return 'epic'; if(v.includes('редк')) return 'rare'; return 'common'; }
   function avitoRarityLabel(r){ const v=String(r||'').trim().toLowerCase(); if(v.includes('миф')) return 'МИФИЧЕСКИЙ'; if(v.includes('легенд')) return 'ЛЕГЕНДАРНЫЙ'; if(v.includes('эпич')) return 'ЭПИЧЕСКИЙ'; if(v.includes('редк')) return 'РЕДКИЙ'; return 'ОБЫЧНЫЙ'; }
@@ -3352,7 +3353,8 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     haptic('light'); avitoTab='buy'; openModal('Avito','<div class="loading">Загрузка площадки…</div>');
     try{ await fetchAvito(); modalBody.innerHTML=renderAvito(); }catch(e){ modalBody.innerHTML=`<div class="avito-shell"><div class="avito-hero marketplace"><div class="avito-kicker">AVITO · ERROR</div><div class="avito-title">Площадка недоступна</div><div class="avito-sub">${esc(e.message||'Не удалось загрузить Avito')}</div></div></div>`; }
     clearInterval(avitoPoller);
-    avitoPoller=setInterval(async()=>{ if(avitoEditing || !modal.classList.contains('open') || !document.querySelector('.avito-shell')) return; try{ await fetchAvito(); if(avitoEditing || document.querySelector('[data-avito-chat-sheet="1"]')) return; modalBody.innerHTML=renderAvito(); }catch(_){} },3500);
+    avitoPoller=null;
+
   }
   $('#avitoBtn')?.addEventListener('click',openAvito);
   modalBody.addEventListener('click',async(e)=>{
