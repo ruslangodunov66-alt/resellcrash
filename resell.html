@@ -2394,51 +2394,34 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   }
 
   let farmRafId = null;
-  let farmStatusPollId = null;
   let farmVisualReward = 0;
   let farmVisualProgress = 0;
 
   function stopFarmAnimation(){
     if(holdTimer){ clearTimeout(holdTimer); holdTimer=null; }
     if(farmRafId){ cancelAnimationFrame(farmRafId); farmRafId=null; }
-    if(farmStatusPollId){ clearInterval(farmStatusPollId); farmStatusPollId=null; }
   }
-
-  async function syncActiveFarmSnapshot(){
-    if(!holdState?.session_id || !holdPointerActive || farmCompleting) return;
-    try{
-      const d=await fetchHoldStatus({silent:true});
-      if(!d?.session_id){ stopFarmAnimation(); return; }
-      const targetProgress=Math.max(0,Math.min(1,Number(d.progress)||0));
-      const targetReward=Math.max(0,Number(d.current_reward)||0);
-      // The hidden target never reaches the DOM; only the currently earned amount does.
-      farmSnapshotProgress=targetProgress;
-      farmSnapshotReward=targetReward;
-      if(d.auto_complete) await completeStandaloneFarm();
-    }catch(_){ }
-  }
-
-  let farmSnapshotReward=0;
-  let farmSnapshotProgress=0;
 
   function runFarmAnimation(){
     stopFarmAnimation();
-    farmVisualReward=0; farmVisualProgress=0;
-    farmSnapshotReward=0; farmSnapshotProgress=0;
+    const startedAtMs = Number(holdState?.started_at || holdState?.startedAt || 0) * 1000 || Date.now();
+    farmVisualReward=0;
+    farmVisualProgress=0;
     const tick=()=>{
       if(!holdPointerActive || !holdState?.session_id || farmCompleting || farmCompleted){ farmRafId=null; return; }
-      // Smoothly interpolate between server snapshots. This removes visible jumps
-      // while keeping the server authoritative for the actual reward.
-      farmVisualReward += (farmSnapshotReward-farmVisualReward)*0.20;
-      farmVisualProgress += (farmSnapshotProgress-farmVisualProgress)*0.20;
-      if(Math.abs(farmSnapshotReward-farmVisualReward)<0.5) farmVisualReward=farmSnapshotReward;
-      if(Math.abs(farmSnapshotProgress-farmVisualProgress)<0.0005) farmVisualProgress=farmSnapshotProgress;
-      updateFarmVisuals(FARM_DURATION*(1-farmVisualProgress));
-      renderFarmReward(farmVisualProgress, farmVisualReward);
+      // Visual-only animation. It NEVER calls the server. The actual reward remains
+      // authoritative on the server and is calculated by /hold/complete on release.
+      const elapsed=Math.max(0,Date.now()-startedAtMs);
+      const progress=Math.min(1,elapsed/(FARM_DURATION*1000));
+      farmVisualProgress=progress;
+      const minReward=Number(FARM_MIN_REWARD||10000);
+      const maxReward=Number(FARM_MAX_REWARD||100000);
+      const target=Math.max(minReward,Math.min(maxReward,Number(farmTargetReward||minReward)));
+      farmVisualReward=target*progress;
+      updateFarmVisuals(FARM_DURATION*(1-progress));
+      renderFarmReward(progress,farmVisualReward);
       farmRafId=requestAnimationFrame(tick);
     };
-    farmStatusPollId=setInterval(syncActiveFarmSnapshot,250);
-    syncActiveFarmSnapshot();
     farmRafId=requestAnimationFrame(tick);
   }
 
