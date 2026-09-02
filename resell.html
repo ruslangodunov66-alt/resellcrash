@@ -3114,6 +3114,14 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       }
     } else if(tycoonTab==='taxi') {
       const d=await tycoonFetch(`/tycoon/taxopark/${encodeURIComponent(userId)}?t=${Date.now()}`);
+      // Business is the canonical passive-income UI/ledger. Taxopark keeps
+      // its fleet data here, but its displayed income comes from the exact
+      // same /business endpoint used by the Business Control Center.
+      let businessTaxi={};
+      try{
+        const bd=await tycoonFetch(`/business/${encodeURIComponent(userId)}?t=${Date.now()}`);
+        businessTaxi=bd.taxi_business||{};
+      }catch(_){}
       const tax=d.taxopark||{level:'none',cars:[]};
       const lvl=d.level||{};
       const levels=Array.isArray(d.levels)?d.levels:[];
@@ -3122,8 +3130,8 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       const garageCars=garage.filter(c=>!c.in_taxopark);
       const slots=Number(lvl.slots||0);
       const multiplier=Number(d.multiplier||1);
-      const taxiHourly=Number(d.hourly_profit||0);
-      const taxiPending=Number(d.pending_profit ?? d.taxi_pending_collect ?? 0);
+      const taxiHourly=Number(businessTaxi.hourly_income ?? d.hourly_profit ?? 0);
+      const taxiPending=Number(businessTaxi.pending_collect ?? d.pending_profit ?? d.taxi_pending_collect ?? 0);
       window.__taxiPendingBase=taxiPending; window.__taxiPendingAt=Number(d.server_time||Math.floor(Date.now()/1000)); window.__taxiHourly=taxiHourly; window.__taxiElapsed=Number(d.taxi_elapsed_seconds||0);
       const brokenCount=Number(d.broken_cars||0);
       const lineCount=Number(d.line_cars||parkCars.length);
@@ -3781,7 +3789,8 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     if(e.target.closest('[data-taxi-collect]')){
       const btn=e.target.closest('[data-taxi-collect]'); if(btn.disabled) return; btn.disabled=true;
       try{
-        const d=await tycoonFetch(`/tycoon/taxopark/${encodeURIComponent(userId)}/collect-profit`,{method:'POST'});
+        // Exact same collector as the Business button.
+        const d=await tycoonFetch(`/business/${encodeURIComponent(userId)}/collect`,{method:'POST'});
         profileData=profileData||{}; profileData.balance=d.balance??profileData.balance; setBalance(profileData.balance);
         showToast(d.message||'Пассивный доход зачислен');
         await loadProfile();
