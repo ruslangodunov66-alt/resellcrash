@@ -3222,6 +3222,35 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     if(tycoonTab==='taxi' && document.querySelector('.taxi-hero') && !taxiTutorialStarting) setTimeout(()=>maybeStartTaxiTutorial(),80);
   }
 
+  let taxiWearRefreshBusy=false;
+  async function refreshTaxiWearOnly(){
+    if(taxiWearRefreshBusy || tycoonTab!=='taxi' || document.visibilityState!=='visible' || !document.querySelector('.taxi-fleet-card')) return;
+    taxiWearRefreshBusy=true;
+    try{
+      const d=await tycoonFetch(`/tycoon/taxopark/${encodeURIComponent(userId)}?t=${Date.now()}`);
+      const garage=Array.isArray(d.garage)?d.garage:[];
+      garage.filter(c=>c.in_taxopark).forEach(c=>{
+        const card=document.querySelector(`.taxi-fleet-card[data-instance-index="${Number(c.instance_index)}"]`);
+        if(!card) return;
+        const w=Math.max(0,Math.min(100,Number(c.wear||0)));
+        const broken=w>=100;
+        const value=card.querySelector('[data-taxi-wear-value]');
+        const fill=card.querySelector('[data-taxi-wear-fill]');
+        const note=card.querySelector('[data-taxi-wear-note]');
+        if(value) value.textContent=`${w.toFixed(1)}%`;
+        if(fill){ fill.style.width=`${w}%`; fill.classList.toggle('broken',broken); fill.classList.toggle('warn',!broken&&w>=75); }
+        card.classList.toggle('broken',broken); card.classList.toggle('warn',!broken&&w>=75);
+        if(note) note.textContent=broken?'Износ 100%. Машина остановлена до ремонта.':'Износ растёт автоматически, пока машина на линии.';
+        const income=card.querySelector('[data-taxi-fleet-income]');
+        if(income) income.textContent=broken?'ОСТАНОВЛЕНА':'РАБОТАЕТ';
+      });
+    }catch(_){ }
+    finally{taxiWearRefreshBusy=false;}
+  }
+  if(!window.__taxiWearInterval){
+    window.__taxiWearInterval=setInterval(refreshTaxiWearOnly,5000);
+  }
+
   const TAXI_TUTORIAL_KEY='resell_taxi_tutorial_v1';
   let taxiTutorial=null; let taxiTutorialStarting=false;
   function taxiTutorialTarget(selector){ const el=document.querySelector(selector); if(!el) return null; const r=el.getBoundingClientRect(); return {el,r}; }
