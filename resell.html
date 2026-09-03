@@ -3114,12 +3114,10 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       }
     } else if(tycoonTab==='taxi') {
       const d=await tycoonFetch(`/tycoon/taxopark/${encodeURIComponent(userId)}?t=${Date.now()}`);
-      // Taxopark uses the exact same Business passive-income payload.
-      // We do not maintain a second income source or second cursor in the UI.
-      let businessStateForTaxi={};
-      try{
-        businessStateForTaxi=await tycoonFetch(`/business/${encodeURIComponent(userId)}?t=${Date.now()}`);
-      }catch(_){}
+      // Taxopark is displayed from its own endpoint only.
+      // Never use the aggregate Business payload for the Taxi UI:
+      // the hourly rate must stay the fixed sum of the cars on the line,
+      // while the amount above it is only the accumulated pending profit.
       const tax=d.taxopark||{level:'none',cars:[]};
       const lvl=d.level||{};
       const levels=Array.isArray(d.levels)?d.levels:[];
@@ -3128,8 +3126,12 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       const garageCars=garage.filter(c=>!c.in_taxopark);
       const slots=Number(lvl.slots||0);
       const multiplier=Number(d.multiplier||1);
-      const taxiHourly=Number(businessStateForTaxi.hourly_breakdown?.taxopark ?? businessStateForTaxi.taxi_business?.hourly_income ?? d.hourly_profit ?? 0);
-      const taxiPending=Number(businessStateForTaxi.pending_breakdown?.taxopark ?? businessStateForTaxi.taxi_business?.pending_collect ?? d.pending_profit ?? d.taxi_pending_collect ?? 0);
+      // IMPORTANT: these are two different values.
+      // taxiHourly = fixed income per hour from all active cars.
+      // taxiPending = amount accumulated since the last collection.
+      // Pending profit must NEVER be used as the hourly rate.
+      const taxiHourly=Math.max(0,Number(d.hourly_profit||0));
+      const taxiPending=Math.max(0,Number(d.pending_profit ?? d.taxi_pending_collect ?? 0));
       window.__taxiPendingBase=taxiPending; window.__taxiPendingAt=Number(d.server_time||Math.floor(Date.now()/1000)); window.__taxiHourly=taxiHourly; window.__taxiElapsed=Number(d.taxi_elapsed_seconds||0);
       const brokenCount=Number(d.broken_cars||0);
       const lineCount=Number(d.line_cars||parkCars.length);
