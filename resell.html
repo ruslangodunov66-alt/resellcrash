@@ -3166,6 +3166,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
             <div class="taxi-profit-actions">
               <button class="tycoon-btn primary taxi-profit-btn" data-taxi-collect ${taxiPending<=0?'disabled':''}>ЗАБРАТЬ ПРИБЫЛЬ</button>
               <button class="tycoon-btn taxi-refresh-btn" id="tycoonTaxiRefresh">ОБНОВИТЬ</button>
+              <button class="tycoon-btn" id="tycoonTaxiSell" style="width:100%">ПРОДАТЬ ТАКСОПАРК · 70%</button>
             </div>
           </div>
           <div class="taxi-service-panel">
@@ -3222,35 +3223,6 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     if(tycoonTab==='taxi' && document.querySelector('.taxi-hero') && !taxiTutorialStarting) setTimeout(()=>maybeStartTaxiTutorial(),80);
   }
 
-  let taxiWearRefreshBusy=false;
-  async function refreshTaxiWearOnly(){
-    if(taxiWearRefreshBusy || tycoonTab!=='taxi' || document.visibilityState!=='visible' || !document.querySelector('.taxi-fleet-card')) return;
-    taxiWearRefreshBusy=true;
-    try{
-      const d=await tycoonFetch(`/tycoon/taxopark/${encodeURIComponent(userId)}?t=${Date.now()}`);
-      const garage=Array.isArray(d.garage)?d.garage:[];
-      garage.filter(c=>c.in_taxopark).forEach(c=>{
-        const card=document.querySelector(`.taxi-fleet-card[data-instance-index="${Number(c.instance_index)}"]`);
-        if(!card) return;
-        const w=Math.max(0,Math.min(100,Number(c.wear||0)));
-        const broken=w>=100;
-        const value=card.querySelector('[data-taxi-wear-value]');
-        const fill=card.querySelector('[data-taxi-wear-fill]');
-        const note=card.querySelector('[data-taxi-wear-note]');
-        if(value) value.textContent=`${w.toFixed(1)}%`;
-        if(fill){ fill.style.width=`${w}%`; fill.classList.toggle('broken',broken); fill.classList.toggle('warn',!broken&&w>=75); }
-        card.classList.toggle('broken',broken); card.classList.toggle('warn',!broken&&w>=75);
-        if(note) note.textContent=broken?'Износ 100%. Машина остановлена до ремонта.':'Износ растёт автоматически, пока машина на линии.';
-        const income=card.querySelector('[data-taxi-fleet-income]');
-        if(income) income.textContent=broken?'ОСТАНОВЛЕНА':'РАБОТАЕТ';
-      });
-    }catch(_){ }
-    finally{taxiWearRefreshBusy=false;}
-  }
-  if(!window.__taxiWearInterval){
-    window.__taxiWearInterval=setInterval(refreshTaxiWearOnly,5000);
-  }
-
   const TAXI_TUTORIAL_KEY='resell_taxi_tutorial_v1';
   let taxiTutorial=null; let taxiTutorialStarting=false;
   function taxiTutorialTarget(selector){ const el=document.querySelector(selector); if(!el) return null; const r=el.getBoundingClientRect(); return {el,r}; }
@@ -3294,6 +3266,28 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     try{ await renderTycoon(); return true; }
     catch(err){ showToast(err.message||'Не удалось обновить таксопарк'); return false; }
   }
+
+  let taxiWearPoller=null;
+  function startTaxiWearPoller(){
+    if(taxiWearPoller) clearInterval(taxiWearPoller);
+    taxiWearPoller=setInterval(async()=>{
+      if(typeof tycoonTab==='undefined' || tycoonTab!=='taxi' || !userId || document.hidden) return;
+      try{
+        const d=await tycoonFetch(`/tycoon/taxopark/${encodeURIComponent(userId)}?wear=${Date.now()}`);
+        for(const c of (Array.isArray(d.garage)?d.garage.filter(x=>x.in_taxopark):[])){
+          const card=document.querySelector(`.taxi-fleet-card[data-instance-index="${Number(c.instance_index)}"]`); if(!card) continue;
+          const w=Math.max(0,Math.min(100,Number(c.wear||0))), broken=w>=100;
+          const v=card.querySelector('[data-taxi-wear-value]'), f=card.querySelector('[data-taxi-wear-fill]'), st=card.querySelector('[data-taxi-status]'), stt=card.querySelector('[data-taxi-status-text]'), n=card.querySelector('[data-taxi-wear-note]');
+          if(v)v.textContent=w.toFixed(1)+'%'; if(f){f.style.width=w+'%';f.className='taxi-meter-fill '+(broken?'broken':w>=75?'warn':'');}
+          card.classList.toggle('broken',broken); card.classList.toggle('warn',!broken&&w>=75);
+          if(st){st.textContent=broken?'СЛОМАНА':'РАБОТАЕТ';st.className='taxi-status-badge '+(broken?'broken':'');}
+          if(stt)stt.textContent=broken?'МАШИНА СЛОМАНА':'НА ЛИНИИ';
+          if(n)n.textContent=broken?'Износ 100%. Машина остановлена до ремонта.':'Износ растёт автоматически, пока машина на линии.';
+        }
+      }catch(_){}
+    },1000);
+  }
+  startTaxiWearPoller();
 
   // ==================== AVITO / RESELL MARKET ====================
   let avitoTab='buy'; let avitoState=null; let avitoPoller=null; let avitoEditing=false;
@@ -3710,6 +3704,14 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         profileData=profileData||{}; profileData.balance=p.balance??profileData.balance; setBalance(profileData.balance);
         showToast(p.message||'Таксопарк куплен'); await renderTycoon();
       }catch(err){showToast(err.message||'Не удалось купить таксопарк');buyTaxi.disabled=false;buyTaxi.textContent=oldText;}
+      return;
+    }
+    if(e.target.closest('#tycoonTaxiSell')){
+      const btn=e.target.closest('#tycoonTaxiSell');
+      if(!confirm('Продать текущий таксопарк за 70% его стоимости? Машины останутся в гараже.')) return;
+      btn.disabled=true; const oldText=btn.textContent; btn.textContent='ПРОДАЖА…';
+      try{ const p=await tycoonFetch(`/tycoon/taxopark/${encodeURIComponent(userId)}/sell`,{method:'POST',body:JSON.stringify({})}); profileData=profileData||{}; profileData.balance=p.balance??profileData.balance; setBalance(profileData.balance); showToast(p.message||'Таксопарк продан'); await renderTycoon(); }
+      catch(err){showToast(err.message||'Не удалось продать таксопарк');btn.disabled=false;btn.textContent=oldText;}
       return;
     }
     const taxiUpgrade=e.target.closest('[data-taxi-upgrade]');
