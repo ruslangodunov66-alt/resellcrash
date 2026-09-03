@@ -3130,8 +3130,13 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       const multiplier=Number(d.multiplier||1);
       // Показываем именно фактический доход машин Таксопарка.
       // Не используем общий Business total: в нём есть другие источники.
-      const taxiHourly=Number(businessStateForTaxi.hourly_breakdown?.taxopark ?? d.hourly_profit ?? 0);
+      const taxiMachines=Array.isArray(businessStateForTaxi.taxi_business?.machine_breakdown)?businessStateForTaxi.taxi_business.machine_breakdown:[];
+      // Final UI value is the sum of every physical car on the Taxopark line.
+      const taxiHourly=taxiMachines.length
+        ? taxiMachines.reduce((sum,car)=>sum+Number(car.income_per_hour||0),0)
+        : Number(businessStateForTaxi.taxi_business?.hourly_income ?? businessStateForTaxi.hourly_breakdown?.taxopark ?? d.hourly_profit ?? 0);
       const taxiPending=Number(businessStateForTaxi.pending_breakdown?.taxopark ?? d.pending_profit ?? d.taxi_pending_collect ?? 0);
+      const taxiIncomeFormula=taxiMachines.length?taxiMachines.map(car=>`${number(car.income_per_hour)} ₽`).join(' + '):'';
       window.__taxiPendingBase=taxiPending; window.__taxiPendingAt=Number(d.server_time||Math.floor(Date.now()/1000)); window.__taxiHourly=taxiHourly; window.__taxiElapsed=Number(d.taxi_elapsed_seconds||0);
       const brokenCount=Number(d.broken_cars||0);
       const lineCount=Number(d.line_cars||parkCars.length);
@@ -3162,6 +3167,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
               <div class="tycoon-label">ПРИБЫЛЬ АВТОПАРКА</div>
               <div class="taxi-profit-amount">${number(taxiPending)} ₽</div>
               <div class="taxi-profit-rate">+${number(taxiHourly)} ₽ / час</div>
+              ${taxiIncomeFormula?`<div class="taxi-profit-rate" style="opacity:.72">${taxiIncomeFormula} = ${number(taxiHourly)} ₽ / час</div>`:''}
             </div>
             <div class="taxi-profit-actions">
               <button class="tycoon-btn primary taxi-profit-btn" data-taxi-collect ${taxiPending<=0?'disabled':''}>ЗАБРАТЬ ПРИБЫЛЬ</button>
