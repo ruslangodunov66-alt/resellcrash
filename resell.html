@@ -3114,13 +3114,11 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       }
     } else if(tycoonTab==='taxi') {
       const d=await tycoonFetch(`/tycoon/taxopark/${encodeURIComponent(userId)}?t=${Date.now()}`);
-      // Business is the canonical passive-income UI/ledger. Taxopark keeps
-      // its fleet data here, but its displayed income comes from the exact
-      // same /business endpoint used by the Business Control Center.
-      let businessTaxi={};
+      // Taxopark uses the exact same Business passive-income payload.
+      // We do not maintain a second income source or second cursor in the UI.
+      let businessStateForTaxi={};
       try{
-        const bd=await tycoonFetch(`/business/${encodeURIComponent(userId)}?t=${Date.now()}`);
-        businessTaxi=bd.taxi_business||{};
+        businessStateForTaxi=await tycoonFetch(`/business/${encodeURIComponent(userId)}?t=${Date.now()}`);
       }catch(_){}
       const tax=d.taxopark||{level:'none',cars:[]};
       const lvl=d.level||{};
@@ -3130,8 +3128,8 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
       const garageCars=garage.filter(c=>!c.in_taxopark);
       const slots=Number(lvl.slots||0);
       const multiplier=Number(d.multiplier||1);
-      const taxiHourly=Number(businessTaxi.hourly_income ?? d.hourly_profit ?? 0);
-      const taxiPending=Number(businessTaxi.pending_collect ?? d.pending_profit ?? d.taxi_pending_collect ?? 0);
+      const taxiHourly=Number(businessStateForTaxi.hourly_breakdown?.taxopark ?? businessStateForTaxi.taxi_business?.hourly_income ?? d.hourly_profit ?? 0);
+      const taxiPending=Number(businessStateForTaxi.pending_breakdown?.taxopark ?? businessStateForTaxi.taxi_business?.pending_collect ?? d.pending_profit ?? d.taxi_pending_collect ?? 0);
       window.__taxiPendingBase=taxiPending; window.__taxiPendingAt=Number(d.server_time||Math.floor(Date.now()/1000)); window.__taxiHourly=taxiHourly; window.__taxiElapsed=Number(d.taxi_elapsed_seconds||0);
       const brokenCount=Number(d.broken_cars||0);
       const lineCount=Number(d.line_cars||parkCars.length);
