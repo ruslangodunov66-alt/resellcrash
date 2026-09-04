@@ -113,8 +113,8 @@ button:disabled{cursor:not-allowed}
 <section class="hero">
  <div class="hero-k">RESSELL CONTAINER AUCTION</div>
  <div class="hero-title">КУПИ.<br>ОТКРОЙ. ПРОДАЙ.</div>
- <div class="hero-sub">Ты покупаешь запечатанный груз и не знаешь, что внутри. После открытия найденный лот сразу выставляется на мгновенную продажу. Твоя задача — выбить товар дороже контейнера.</div>
- <div class="hero-row"><span class="pill hot">TRADING BALANCE</span><span class="pill">LIVE SALE</span><span class="pill">RNG LOOT</span></div>
+ <div class="hero-sub">Ты покупаешь запечатанный груз и не знаешь, что внутри. Награда считается серверным алгоритмом: учитываются цена контейнера, серия результатов и текущая окупаемость.</div>
+ <div class="hero-row"><span class="pill hot">TRADING BALANCE</span><span class="pill">LIVE SALE</span><span class="pill">SMART LOOT</span><span class="pill">ANTI-LOSS</span></div>
 </section>
 
 <div class="head"><h2>КОНТЕЙНЕРЫ</h2><span>8 ПОСТАВОК</span></div>
@@ -272,19 +272,22 @@ function renderRecent(){
 }
 function render(){renderBalance();renderMarket();renderRecent()}
 
-/* Вызываем существующий серверный баланс: проигрыш списывает ставку,
-   выигрыш начисляет стоимость проданного лота. */
-async function settle(result,bet,win){
- return api('/game_result',{method:'POST',body:JSON.stringify({
-  userId:Number(tgId),game:'containers',result,bet:Math.max(0,Math.round(bet)),win:Math.max(0,Math.round(win)),request_id:rid()
+/* Контейнерная экономика теперь полностью серверная. Клиент не выбирает лут
+   и не считает выигрыш: сервер возвращает конкретный purchase_id/item_id. */
+async function containerBuyServer(id){
+ return api('/container/buy',{method:'POST',body:JSON.stringify({
+  tg_id:Number(tgId),userId:Number(tgId),container_id:String(id),request_id:rid()
  })});
 }
-function weightedLoot(id){
- const arr=loot[id]||loot.delivery_box;
- const total=arr.reduce((a,x)=>a+x[4],0);
- let r=Math.random()*total;
- for(const x of arr){r-=x[4];if(r<=0)return {rarity:x[0],name:x[1],icon:x[2],value:x[3]}}
- return {rarity:arr[0][0],name:arr[0][1],icon:arr[0][2],value:arr[0][3]};
+async function containerOpenServer(purchaseId){
+ return api('/container/open',{method:'POST',body:JSON.stringify({
+  tg_id:Number(tgId),userId:Number(tgId),purchase_id:String(purchaseId)
+ })});
+}
+async function containerSellServer(itemId){
+ return api('/container/sell',{method:'POST',body:JSON.stringify({
+  tg_id:Number(tgId),userId:Number(tgId),item_id:String(itemId),request_id:rid()
+ })});
 }
 function resetModal(c){
  $('modalTitle').textContent=c.name;
@@ -301,11 +304,11 @@ async function buyContainer(id){
  if(balance<c.price){toast('Недостаточно средств на игровом балансе');haptic('medium');return}
  const btn=document.querySelector(`[data-id="${CSS.escape(id)}"]`);if(btn)btn.disabled=true;
  try{
-  /* Списываем цену контейнера с общего игрового баланса. */
-  const d=await settle('lose',c.price,0);
-  balance=Number(d.new_balance ?? d.balance ?? (balance-c.price));
+  const d=await containerBuyServer(id);
+  balance=Number(d.balance ?? (balance-c.price));
   stats.opened++;saveStats();render();
-  openModal(c);haptic('heavy');
+  openModal(c); active.purchase_id=String(d.purchase_id);
+  haptic('heavy');
  }catch(e){if(btn)btn.disabled=false;toast(e.message);haptic('medium')}
 }
 async function startOpen(){
@@ -315,13 +318,18 @@ async function startOpen(){
  let n=0;
  const timer=setInterval(()=>{haptic(n%3===0?'medium':'light');n++;if(n>=15){clearInterval(timer);finishOpen()}},105);
 }
-function finishOpen(){
- const item=weightedLoot(active.container.id);active.item=item;
- $('ritemIcon').textContent=item.icon;$('rrarity').textContent=item.rarity;$('rrarity').style.color=rarityColor[item.rarity]||'#fff';
- $('rname').textContent=item.name;$('rvalue').textContent=fmt(item.value)+' ₽';
- $('openstage').classList.remove('shake','shake-screen');$('openstage').classList.add('reveal');
- $('openBtn').style.display='none';$('lotButton').style.display='inline-block';opening=false;
- haptic('heavy');
+async function finishOpen(){
+ if(!active?.purchase_id){opening=false;toast('Покупка контейнера не найдена');return}
+ try{
+  const d=await containerOpenServer(active.purchase_id);
+  if(!d?.success)throw new Error(d?.error||'Не удалось открыть контейнер');
+  const item=d.item||{}; active.item=item;
+  balance=Number(d.balance ?? balance);
+  $('ritemIcon').textContent=item.icon||'📦';$('rrarity').textContent=item.rarity||'COMMON';$('rrarity').style.color=rarityColor[item.rarity]||'#fff';
+  $('rname').textContent=item.name||'Предмет';$('rvalue').textContent=fmt(item.value||0)+' ₽';
+  $('openstage').classList.remove('shake','shake-screen');$('openstage').classList.add('reveal');
+  $('openBtn').style.display='none';$('lotButton').style.display='inline-block';opening=false;render();haptic('heavy');
+ }catch(e){opening=false;$('openstage').classList.remove('shake','shake-screen');$('openBtn').disabled=false;$('openBtn').textContent='ПОВТОРИТЬ ОТКРЫТИЕ';toast(e.message||'Не удалось открыть контейнер');haptic('medium')}
 }
 async function sellCurrent(){
  if(!active?.item||selling||active.sold)return;
@@ -333,23 +341,21 @@ async function completeSale(){
  $('auctionText').textContent='ЛОТ ПРОДАН';haptic('heavy');
  const item=active.item,cost=active.container.price;
  try{
-  /* Начисляем только цену проданного лота. Цена контейнера уже была списана. */
-  const d=await settle('win',0,item.value);
-  balance=Number(d.new_balance ?? d.balance ?? (balance+item.value));
-  const profit=item.value-cost;
+  const d=await containerSellServer(item.id);
+  if(!d?.success)throw new Error(d?.error||'Не удалось продать лот');
+  balance=Number(d.balance ?? balance+(Number(item.value)||0));
+  const value=Number(d.value ?? item.value ?? 0), profit=value-cost;
   active.sold=true;selling=false;
   stats.sold++;stats.profit+=profit;
-  stats.sales.unshift({name:item.name,icon:item.icon,rarity:item.rarity,cost,value:item.value,profit,ts:Date.now()});
+  stats.sales.unshift({name:item.name,icon:item.icon,rarity:item.rarity,cost,value,profit,ts:Date.now()});
   stats.sales=stats.sales.slice(0,20);saveStats();
-  $('paidPrice').textContent=fmt(cost)+' ₽';$('salePrice').textContent=fmt(item.value)+' ₽';
+  $('paidPrice').textContent=fmt(cost)+' ₽';$('salePrice').textContent=fmt(value)+' ₽';
   $('resultProfit').textContent=(profit>=0?'+':'')+fmt(profit)+' ₽';$('resultProfit').className=profit>=0?'profit':'loss';
   $('resultBalance').textContent=fmt(balance)+' ₽';$('result').classList.add('open');
   $('lotButton').style.display='none';$('actions').style.display='flex';render();
   if(profit>0){confetti();$('balanceCard').classList.add('pulse');setTimeout(()=>$('balanceCard').classList.remove('pulse'),750)}
   toast(profit>=0?'Лот продан с прибылью +'+fmt(profit)+' ₽':'Лот продан. Убыток '+fmt(Math.abs(profit))+' ₽');
- }catch(e){
-  selling=false;$('lotButton').disabled=false;$('auctionText').textContent='ОШИБКА ПРОДАЖИ';toast(e.message)
- }
+ }catch(e){selling=false;$('lotButton').disabled=false;$('auctionText').textContent='ОШИБКА ПРОДАЖИ';toast(e.message||'Не удалось продать лот');haptic('medium')}
 }
 function confetti(){
  const root=$('confetti');root.innerHTML='';
