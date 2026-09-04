@@ -29,6 +29,7 @@
   .taxi-profit-panel-v3{padding:14px 15px;margin-bottom:9px}.taxi-profit-panel-v3 .taxi-profit-rate{margin-top:5px;color:#666;font:800 9px/1 "Montserrat",sans-serif}.taxi-profit-panel-v3 .taxi-profit-actions{min-width:210px}.taxi-profit-panel-v3 .taxi-profit-btn{min-width:150px}.taxi-service-panel{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 15px;margin-bottom:10px;border-radius:17px;background:linear-gradient(180deg,#141414,#0c0c0c);border:1px solid rgba(255,255,255,.07)}.taxi-service-price{margin-top:5px;color:#858585;font:800 9px/1 "Montserrat",sans-serif}.taxi-service-panel .tycoon-btn{min-width:170px}@media(max-width:460px){.taxi-profit-panel-v3{gap:10px}.taxi-profit-panel-v3 .taxi-profit-actions{min-width:0}.taxi-service-panel{flex-direction:column;align-items:stretch}.taxi-service-panel .tycoon-btn{width:100%}}
 </style>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://unpkg.com/@tonconnect/ui@3.0.0/dist/tonconnect-ui.min.js"></script>
 <style>
 :root{
   --bg:#050505;
@@ -1139,6 +1140,21 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
 /* Asset covers: fill the whole card, never leave a black side strip. */
 .main-tycoon-card img{position:absolute!important;inset:-1px!important;width:calc(100% + 2px)!important;height:calc(100% + 2px)!important;object-fit:cover!important;object-position:center!important;display:block!important;background:transparent!important}
 .main-tycoon-card.wide img{object-fit:cover!important}
+
+/* RCOIN / TON Connect panel — testnet-ready, non-custodial UI. */
+.rcoin-panel{position:relative;display:flex!important;align-items:center;justify-content:space-between;gap:12px;margin-top:10px;padding:12px 13px;min-height:72px}
+.rcoin-panel .rcoin-main{min-width:0;display:flex;align-items:center;gap:10px}
+.rcoin-panel .rcoin-mark{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:#b7ff6a;color:#070807;font:950 12px/1 "Montserrat",sans-serif;box-shadow:0 10px 25px rgba(183,255,106,.12)}
+.rcoin-panel .rcoin-meta small{display:block;color:#6d746f;font:900 6px/1 "Montserrat",sans-serif;letter-spacing:1px}
+.rcoin-panel .rcoin-meta b{display:block;margin-top:4px;color:#fff;font:950 13px/1 "Montserrat",sans-serif}
+.rcoin-panel .rcoin-meta span{display:block;margin-top:4px;color:#626a65;font:800 6px/1 "Montserrat",sans-serif}
+.rcoin-panel .rcoin-actions{display:flex;flex-direction:column;align-items:flex-end;gap:5px;min-width:130px}
+#tonConnectButton{min-height:32px;min-width:130px;display:flex;justify-content:flex-end}
+#tonConnectButton button{border-radius:11px!important;font-family:"Montserrat",sans-serif!important;font-weight:900!important}
+.rcoin-network{padding:5px 7px;border-radius:8px;background:rgba(183,255,106,.07);border:1px solid rgba(183,255,106,.11);color:#b7ff6a;font:900 6px/1 "Montserrat",sans-serif;letter-spacing:.9px}
+.rcoin-wallet-state{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#6e7671;font:800 6px/1 "Montserrat",sans-serif}
+.rcoin-pending{margin-top:5px;color:#8c958f;font:800 6px/1 "Montserrat",sans-serif}
+@media(max-width:380px){.rcoin-panel{padding:10px}.rcoin-panel .rcoin-actions{min-width:118px}#tonConnectButton{min-width:118px}.rcoin-wallet-state{max-width:118px}}
 </style>
 </head>
 <body>
@@ -1165,7 +1181,21 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         <div class="balance-name">RESSELL POINTS</div>
         <div class="balance-value" id="balanceValue">— <span class="balance-unit">TP</span></div>
         <div class="balance-status"><span class="status-dot"></span><span id="statusText">Синхронизация с профилем</span></div>
-        <div class="token-counter" id="tokenCounter"><div><small>R-TOKEN</small><b id="tokenCount">0</b></div><span>1 TOKEN за каждый<br>1 000 000 TP</span></div>
+        <div class="token-counter rcoin-panel" id="tokenCounter">
+          <div class="rcoin-main">
+            <div class="rcoin-mark">R</div>
+            <div class="rcoin-meta">
+              <small>RCOIN · ON TON</small>
+              <b id="tokenCount">0.0 RCOIN</b>
+              <span id="rcoinAllocation">Аллокация: 1 RCOIN / 1 000 000 TP</span>
+              <span class="rcoin-pending" id="rcoinWalletState">Кошелёк не подключён</span>
+            </div>
+          </div>
+          <div class="rcoin-actions">
+            <span class="rcoin-network" id="rcoinNetworkBadge">TESTNET</span>
+            <div id="tonConnectButton"></div>
+          </div>
+        </div>
 
       </div>
     </div>
@@ -1498,6 +1528,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   'use strict';
 
   const API_BASE = 'https://resellgame.bothost.tech';
+  initRcoinTonConnect();
   const URLS = {
     trading: 'trading.html',
     containers: 'containers.html',
@@ -1704,10 +1735,74 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   function setBalance(value){
     const numericBalance = Math.max(0, Number(value) || 0);
     balanceValue.innerHTML = `${number(numericBalance)} <span class="balance-unit">TP</span>`;
-    const tokenEl=document.querySelector('#tokenCount');
-    if(tokenEl) tokenEl.textContent=(numericBalance/1000000).toLocaleString('ru-RU',{minimumFractionDigits:1,maximumFractionDigits:1});
     const bankCardValue=document.querySelector('[data-tycoon-value="bank"]');
     if(bankCardValue) bankCardValue.textContent=`${number(value)} ₽`;
+  }
+
+  // =========================
+  // RCOIN / TON CONNECT (TESTNET)
+  // =========================
+  let rcoinData=null;
+  let tonConnectUI=null;
+  const TON_CONNECT_MANIFEST_URL = `${API_BASE}/tonconnect-manifest.json`;
+
+  function formatRcoin(value){
+    const n=Number(value)||0;
+    return n.toLocaleString('ru-RU',{minimumFractionDigits:0,maximumFractionDigits:9}) + ' RCOIN';
+  }
+
+  function shortTonAddress(value){
+    const v=String(value||'');
+    return v.length>16 ? `${v.slice(0,8)}…${v.slice(-7)}` : v;
+  }
+
+  function renderRcoin(){
+    const d=rcoinData||profileData?.rcoin||{};
+    const count=$('#tokenCount');
+    if(count) count.textContent=formatRcoin(d.available_tokens||0);
+    const alloc=$('#rcoinAllocation');
+    if(alloc) alloc.textContent=`Аллокация: 1 RCOIN / ${number(d.points_per_token||1000000)} TP`;
+    const badge=$('#rcoinNetworkBadge');
+    if(badge) badge.textContent=String(d.network||'testnet').toUpperCase();
+    const ws=$('#rcoinWalletState');
+    const w=d.wallet||null;
+    if(ws) ws.textContent=w?.wallet_address ? (w.verified?'Кошелёк подтверждён':'Кошелёк подключён · ожидание верификации') : 'Кошелёк не подключён';
+  }
+
+  async function loadRcoinStatus(){
+    if(!userId) return null;
+    try{
+      const r=await apiFetch(`${API_BASE}/rcoin/status/${encodeURIComponent(userId)}?t=${Date.now()}`,{method:'GET'},2);
+      const d=await r.json();
+      if(d?.success){rcoinData=d;renderRcoin();return d;}
+    }catch(err){console.warn('RCOIN sync failed:',err)}
+    return null;
+  }
+
+  async function persistRcoinWallet(account){
+    if(!account?.address||!userId)return;
+    try{
+      const network=String(account.chain)==='-239'?'mainnet':(String(account.chain)==='-3'?'testnet':'testnet');
+      const r=await apiFetch(`${API_BASE}/rcoin/wallet/${encodeURIComponent(userId)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:account.address,network})},2);
+      const d=await r.json().catch(()=>({}));
+      if(!d?.success)throw new Error(d?.error||'Не удалось сохранить кошелёк');
+      await loadRcoinStatus();
+      showToast('TON-кошелёк подключён');
+    }catch(err){showToast(err.message||'Не удалось подключить кошелёк');console.warn('RCOIN wallet sync failed:',err)}
+  }
+
+  async function initRcoinTonConnect(){
+    if(!window.TON_CONNECT_UI?.TonConnectUI || tonConnectUI)return;
+    try{
+      tonConnectUI=new TON_CONNECT_UI.TonConnectUI({manifestUrl:TON_CONNECT_MANIFEST_URL,buttonRootId:'tonConnectButton'});
+      tonConnectUI.uiOptions={language:'ru',uiPreferences:{theme:TON_CONNECT_UI.THEME?.DARK||'DARK'}};
+      tonConnectUI.onStatusChange(async wallet=>{
+        if(wallet?.account) await persistRcoinWallet(wallet.account);
+        else { renderRcoin(); }
+      });
+      await tonConnectUI.connectionRestored;
+      if(tonConnectUI.account) await persistRcoinWallet(tonConnectUI.account);
+    }catch(err){console.warn('TON Connect init failed:',err)}
   }
 
   function setProgress(value){
@@ -1824,7 +1919,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         const initData=getTelegramInitData();
         const secureHeaders={'Accept':'application/json','Cache-Control':'no-cache',...(options.headers||{})};
         if(initData) secureHeaders['X-Telegram-Init-Data']=initData;
-        else if (userId && /\/(?:hold|engagement|quests|passive|tycoon|cars|garage|avito|profile|referr|bank|taxi)/i.test(url)) {
+        else if (userId && /\/(?:hold|engagement|quests|passive|tycoon|cars|garage|avito|profile|referr|bank|taxi|rcoin)/i.test(url)) {
           throw Object.assign(new Error('Открой RESSELL через Telegram — Telegram-сессия не передана'), {status:401});
         }
         const resp=await fetch(url,{cache:'no-store',...options,signal:controller.signal,headers:secureHeaders});
@@ -1860,7 +1955,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
         const resp=await apiFetch(`${API_BASE}/profile/${encodeURIComponent(userId)}?t=${Date.now()}`,{method:'GET'},1);
         const data=await resp.json(); profileData=data;
         if(data.registration_complete===false||data.registration_complete===0||data.registration_required===true){setBalance(primaryBalance(data));setProgress(0);statusText.textContent='Требуется регистрация';if(!registrationRequired)openRegistration();return data;}
-        setBalance(primaryBalance(data)); epochData=data.epoch||null; setProgress(Number(data.epoch_progress??epochData?.progress??0)); statusText.textContent='Баланс синхронизирован'; $('.status-dot').style.background='var(--success)'; try{if(data.engagement){engagementData=data.engagement;renderEngagement();}await loadEngagement();}catch(_){ } return data;
+        setBalance(primaryBalance(data)); epochData=data.epoch||null; setProgress(Number(data.epoch_progress??epochData?.progress??0)); rcoinData=data.rcoin||null; renderRcoin(); statusText.textContent='Баланс синхронизирован'; $('.status-dot').style.background='var(--success)'; try{if(data.engagement){engagementData=data.engagement;renderEngagement();}await loadEngagement();await loadRcoinStatus();}catch(_){ } return data;
       }catch(e){lastError=e;if(attempt<2)await new Promise(r=>setTimeout(r,600*(attempt+1)));}
     }
     console.warn('Profile load failed:',lastError);
