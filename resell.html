@@ -1149,8 +1149,11 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
 .rcoin-panel .rcoin-meta b{display:block;margin-top:4px;color:#fff;font:950 13px/1 "Montserrat",sans-serif}
 .rcoin-panel .rcoin-meta span{display:block;margin-top:4px;color:#626a65;font:800 6px/1 "Montserrat",sans-serif}
 .rcoin-panel .rcoin-actions{display:flex;flex-direction:column;align-items:flex-end;gap:5px;min-width:130px}
-#tonConnectButton{min-height:32px;min-width:130px;display:flex;justify-content:flex-end}
-#tonConnectButton button{border-radius:11px!important;font-family:"Montserrat",sans-serif!important;font-weight:900!important}
+#tonConnectButton{min-height:38px;min-width:148px;border:0;border-radius:12px;background:#fff;color:#111;padding:0 14px 0 11px;display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap;cursor:pointer;font:900 8px/1 "Montserrat",sans-serif;letter-spacing:.05px;box-shadow:0 7px 20px rgba(0,0,0,.22);transition:transform .15s ease,box-shadow .15s ease,opacity .15s ease}
+#tonConnectButton::before{content:"";width:23px;height:23px;flex:0 0 23px;border-radius:50%;background:#229ed9 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='white' d='M19.8 4.2c.3-1.2-.2-1.7-1.3-1.3L3.4 8.5c-1.1.4-1.1 1-.2 1.3l3.8 1.2 1.4 4.4c.2.6.1.9.7.9.5 0 .7-.2 1-.5l1.8-1.7 3.8 2.8c.7.4 1.2.2 1.4-.7l2.7-12zM8.1 10.6l9.2-5.8c.5-.3.9-.1.5.2l-7.5 6.8-.3 3.1-1.9-4.3z'/%3E%3C/svg%3E) center/13px no-repeat}
+#tonConnectButton:active{transform:scale(.98)}
+#tonConnectButton:hover{box-shadow:0 9px 24px rgba(0,0,0,.28)}
+#tonConnectButton:disabled{opacity:.62;cursor:default;transform:none}
 .rcoin-network{padding:5px 7px;border-radius:8px;background:rgba(183,255,106,.07);border:1px solid rgba(183,255,106,.11);color:#b7ff6a;font:900 6px/1 "Montserrat",sans-serif;letter-spacing:.9px}
 .rcoin-wallet-state{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#6e7671;font:800 6px/1 "Montserrat",sans-serif}
 .rcoin-pending{margin-top:5px;color:#8c958f;font:800 6px/1 "Montserrat",sans-serif}
@@ -1193,7 +1196,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
           </div>
           <div class="rcoin-actions">
             <span class="rcoin-network" id="rcoinNetworkBadge">TESTNET</span>
-            <div id="tonConnectButton"></div>
+            <button type="button" id="tonConnectButton" class="rcoin-connect-btn" aria-label="Подключить TON Wallet">Подключить Wallet</button>
           </div>
         </div>
 
@@ -1528,7 +1531,6 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   'use strict';
 
   const API_BASE = 'https://resellgame.bothost.tech';
-  initRcoinTonConnect();
   const URLS = {
     trading: 'trading.html',
     containers: 'containers.html',
@@ -1767,6 +1769,8 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
     const ws=$('#rcoinWalletState');
     const w=d.wallet||null;
     if(ws) ws.textContent=w?.wallet_address ? (w.verified?'Кошелёк подтверждён':'Кошелёк подключён · ожидание верификации') : 'Кошелёк не подключён';
+    const btn=$('#tonConnectButton');
+    if(btn) btn.textContent=w?.wallet_address ? 'Wallet подключён' : 'Подключить Wallet';
   }
 
   async function loadRcoinStatus(){
@@ -1792,18 +1796,35 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
   }
 
   async function initRcoinTonConnect(){
-    if(!window.TON_CONNECT_UI?.TonConnectUI || tonConnectUI)return;
+    const btn=$('#tonConnectButton');
+    if(!btn) return;
+    if(!window.TON_CONNECT_UI?.TonConnectUI){
+      btn.onclick=()=>showToast('TON Connect пока не загрузился');
+      return;
+    }
+    if(tonConnectUI){
+      btn.onclick=()=>tonConnectUI.openModal();
+      return;
+    }
     try{
-      tonConnectUI=new TON_CONNECT_UI.TonConnectUI({manifestUrl:TON_CONNECT_MANIFEST_URL,buttonRootId:'tonConnectButton'});
-      tonConnectUI.uiOptions={language:'ru',uiPreferences:{theme:TON_CONNECT_UI.THEME?.DARK||'DARK'}};
+      tonConnectUI=new TON_CONNECT_UI.TonConnectUI({manifestUrl:TON_CONNECT_MANIFEST_URL});
+      tonConnectUI.uiOptions={language:'ru',uiPreferences:{theme:'DARK'}};
+      btn.onclick=()=>tonConnectUI.openModal();
       tonConnectUI.onStatusChange(async wallet=>{
         if(wallet?.account) await persistRcoinWallet(wallet.account);
-        else { renderRcoin(); }
+        else { await loadRcoinStatus(); renderRcoin(); }
       });
       await tonConnectUI.connectionRestored;
       if(tonConnectUI.account) await persistRcoinWallet(tonConnectUI.account);
-    }catch(err){console.warn('TON Connect init failed:',err)}
+      renderRcoin();
+    }catch(err){
+      console.warn('TON Connect init failed:',err);
+      btn.onclick=()=>showToast('Не удалось открыть TON Connect');
+    }
   }
+
+  // Initialize after the RCOIN state variables have been initialized.
+  setTimeout(initRcoinTonConnect,0);
 
   function setProgress(value){
     const epoch = epochData || {};
