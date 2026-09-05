@@ -1390,7 +1390,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
         <div class="farm-total" id="farmTotal">10–100k ₽</div>
       </div>
       <div class="farm-stage">
-        <div class="farm-ring" id="farmRing"><div class="farm-glow"></div><div class="farm-r" id="farmR">R</div><div class="farm-timer" id="farmTimer" aria-hidden="true" style="display:none">0:00</div></div>
+        <div class="farm-ring" id="farmRing" aria-label="Интерактивная сфера R-Farm"><canvas class="farm-orb-canvas" id="farmOrbCanvas" aria-hidden="true"></canvas><div class="farm-glow" aria-hidden="true"></div><div class="farm-r" id="farmR" aria-hidden="true">R</div><div class="farm-timer" id="farmTimer" aria-hidden="true" style="display:none">0:00</div></div>
         <div class="farm-coins" id="farmCoins" aria-hidden="true"></div>
       </div>
       <div class="farm-progress"><div class="farm-progress-fill" id="farmProgressFill"></div></div>
@@ -4756,3 +4756,332 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
 .boot-orb-preload,.boot-vector-orb{display:none!important;}
 @media(max-width:380px){.boot-orb{width:min(88vw,355px)!important;height:min(88vw,355px)!important}.boot-orb-canvas{inset:-7%!important;width:114%!important;height:114%!important}.boot-wordmark{font-size:22px}}
 </style>
+
+<style id="resell-farm-reference-v1">
+/* ==========================================================
+   R-FARM REFERENCE ORB V1
+   Canvas-rendered monochrome glass sphere matching the supplied reference.
+   Kept inside existing farm selectors/logic; old R/CSS visuals are hidden.
+   ========================================================== */
+#farmSection .farm-panel{
+  background:
+    radial-gradient(circle at 50% 37%,rgba(255,255,255,.035),transparent 34%),
+    radial-gradient(circle at 50% 78%,rgba(255,255,255,.018),transparent 42%),
+    linear-gradient(145deg,#101010,#050505 72%);
+}
+#farmSection .farm-stage{
+  min-height:318px;
+  margin-top:0;
+  isolation:isolate;
+  overflow:visible;
+  perspective:1200px;
+}
+#farmSection .farm-ring{
+  position:relative!important;
+  width:min(82vw,314px)!important;
+  height:min(82vw,314px)!important;
+  min-width:270px;
+  min-height:270px;
+  max-width:314px;
+  max-height:314px;
+  border:0!important;
+  border-radius:50%;
+  background:transparent!important;
+  box-shadow:none!important;
+  overflow:visible;
+  transform:none!important;
+  transition:none!important;
+  display:grid;
+  place-items:center;
+  isolation:isolate;
+}
+#farmSection .farm-ring::before,
+#farmSection .farm-ring::after,
+#farmSection .farm-glow{display:none!important;}
+#farmSection .farm-orb-canvas{
+  position:absolute;
+  inset:-17%;
+  width:134%;
+  height:134%;
+  display:block;
+  pointer-events:none;
+  overflow:visible;
+  z-index:1;
+  filter:drop-shadow(0 20px 42px rgba(0,0,0,.58));
+}
+#farmSection .farm-r{
+  position:absolute!important;
+  inset:0!important;
+  display:grid!important;
+  place-items:center!important;
+  z-index:3!important;
+  font-size:0!important;
+  color:transparent!important;
+  -webkit-text-fill-color:transparent!important;
+  text-shadow:none!important;
+  opacity:0!important;
+  pointer-events:none!important;
+}
+#farmSection .farm-ring.holding{transform:none!important;}
+#farmSection .farm-ring.holding .farm-r{color:transparent!important;-webkit-text-fill-color:transparent!important;}
+#farmSection .farm-panel.parallax-active{box-shadow:0 30px 90px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.055)}
+#farmSection .farm-panel.cooldown .farm-orb-canvas{filter:grayscale(1) brightness(.72) drop-shadow(0 20px 42px rgba(0,0,0,.58));opacity:.58}
+#farmSection .farm-panel.cooldown .farm-stage{cursor:not-allowed}
+#farmSection .farm-progress{background:#080808;border-color:rgba(255,255,255,.07)}
+#farmSection .farm-progress-fill{background:linear-gradient(90deg,#d7d7d7,#fff);box-shadow:0 0 20px rgba(255,255,255,.16)}
+#farmSection .farm-status{color:#737373}
+@media(max-width:460px){
+  #farmSection .farm-stage{min-height:292px}
+  #farmSection .farm-ring{width:min(86vw,304px)!important;height:min(86vw,304px)!important;min-width:258px;min-height:258px}
+}
+@media(max-width:380px){
+  #farmSection .farm-stage{min-height:275px}
+  #farmSection .farm-ring{width:278px!important;height:278px!important;min-width:278px;min-height:278px}
+}
+@media(prefers-reduced-motion:reduce){#farmSection .farm-orb-canvas{animation:none}}
+</style>
+
+<script id="resell-farm-reference-renderer-v1">
+(function initFarmReferenceOrb(){
+  const ring=document.getElementById('farmRing');
+  const stage=document.querySelector('#farmSection .farm-stage');
+  const panel=document.getElementById('farmPanel');
+  const canvas=document.getElementById('farmOrbCanvas');
+  if(!ring||!stage||!canvas) return;
+  const ctx=canvas.getContext('2d',{alpha:true,desynchronized:true});
+  if(!ctx) return;
+
+  const TAU=Math.PI*2;
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const lerp=(a,b,t)=>a+(b-a)*t;
+  const reduced=window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+  let dpr=1,w=1,h=1,cx=0,cy=0;
+  let raf=0,last=performance.now();
+  let px=0,py=0,tpx=0,tpy=0;
+  let rotX=0,rotY=0,trotX=0,trotY=0;
+  let impact=0,holdingEnergy=0;
+  let pointerDown=false;
+  let seed=0x51e5a11;
+  const rand=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296};
+  const rnd=(a,b)=>a+(b-a)*rand();
+  const particles=[],bursts=[];
+
+  function resize(){
+    const r=canvas.getBoundingClientRect();
+    dpr=Math.min(window.devicePixelRatio||1,1.75);
+    w=Math.max(1,r.width); h=Math.max(1,r.height);
+    canvas.width=Math.max(1,Math.round(w*dpr));
+    canvas.height=Math.max(1,Math.round(h*dpr));
+    canvas.style.width=w+'px'; canvas.style.height=h+'px';
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    cx=w*.5; cy=h*.495;
+  }
+
+  function seedParticles(){
+    particles.length=0; seed=0x51e5a11;
+    const S=Math.min(w,h);
+    const zones=[
+      {a0:3.34,a1:4.98,n:230,r:.345,spread:.055},
+      {a0:.18,a1:1.67,n:230,r:.342,spread:.055},
+      {a0:4.88,a1:5.48,n:64,r:.332,spread:.040},
+      {a0:1.57,a1:2.20,n:64,r:.332,spread:.040},
+      {a0:2.58,a1:3.28,n:30,r:.370,spread:.075}
+    ];
+    for(const z of zones){
+      for(let i=0;i<z.n;i++){
+        particles.push({
+          a:rnd(z.a0,z.a1)+rnd(-z.spread,z.spread),
+          baseR:S*(z.r+rnd(-.046,.046)),
+          zBias:rnd(-1,1),
+          speed:rnd(-.012,.017),
+          size:Math.pow(rand(),2.3)*1.65+.22,
+          alpha:rnd(.16,.76),phase:rnd(0,TAU),twinkle:rnd(.65,1.65),
+          radialPhase:rnd(0,TAU),radialSpeed:rnd(.15,.38),
+          vx:0,vy:0,hot:rand()<.065
+        });
+      }
+    }
+  }
+
+  function setParallax(clientX,clientY){
+    const r=ring.getBoundingClientRect();
+    const nx=clamp((clientX-(r.left+r.width*.5))/(r.width*.5),-1,1);
+    const ny=clamp((clientY-(r.top+r.height*.5))/(r.height*.5),-1,1);
+    tpx=nx*5.4; tpy=ny*4.2;
+    trotX=-ny*2.45; trotY=nx*3.0;
+    panel?.classList.add('parallax-active');
+  }
+  function resetParallax(){tpx=0;tpy=0;trotX=0;trotY=0;panel?.classList.remove('parallax-active')}
+  function triggerBurst(clientX,clientY){
+    const r=canvas.getBoundingClientRect();
+    const tx=clientX-r.left, ty=clientY-r.top;
+    impact=1;
+    const S=Math.min(w,h);
+    for(let i=0;i<48;i++){
+      const a=rand()*TAU, speed=rnd(24,84), life=rnd(.28,.70);
+      bursts.push({x:tx,y:ty,vx:Math.cos(a)*speed,vy:Math.sin(a)*speed,life,max:life,size:rnd(.25,1.2),alpha:rnd(.24,.78)});
+    }
+  }
+
+  function angleDiff(a,b){let d=Math.abs(a-b)%TAU;return d>Math.PI?TAU-d:d}
+  function ringPoints(opts,t){
+    const count=176,pts=[];
+    const base=opts.rot+Math.sin(t*opts.turn+opts.phase)*opts.wander;
+    for(let i=0;i<count;i++){
+      const th=i/count*TAU;
+      const organic=1+
+        Math.sin(th*2+t*.19+opts.phase)*opts.warp+
+        Math.sin(th*3-t*.15+opts.phase*1.7)*opts.warp*.40+
+        Math.sin(th*5+t*.10+opts.phase*.7)*opts.warp*.18;
+      const a=th+base;
+      const z=Math.sin(th+opts.depthPhase);
+      const radialTouch=pointerDown ? (0.012*Math.sin(a*2+t*.8)) : 0;
+      const rr=organic*(1+radialTouch+holdingEnergy*opts.energyWarp);
+      pts.push({
+        x:cx+Math.cos(a)*(opts.rx*rr)*(1+z*.024),
+        y:cy+Math.sin(a)*(opts.ry*rr)*(1+z*.014),
+        z,th:a
+      });
+    }
+    return pts;
+  }
+  function path(points,from,to){
+    const p=points[from%points.length]; ctx.beginPath();ctx.moveTo(p.x,p.y);
+    for(let i=from+1;i<=to;i++){const q=points[i%points.length];ctx.lineTo(q.x,q.y)}
+  }
+  function strokeShell(points,opt,t){
+    ctx.save();ctx.globalCompositeOperation='screen';ctx.lineCap='round';ctx.lineJoin='round';
+    path(points,0,points.length);ctx.strokeStyle=`rgba(238,241,240,${opt.halo*(1+holdingEnergy*.9)})`;ctx.lineWidth=11;ctx.stroke();
+    path(points,0,points.length);ctx.strokeStyle=`rgba(220,224,223,${opt.back})`;ctx.lineWidth=1.15;ctx.stroke();
+    let active=false,start=0;
+    for(let i=0;i<=points.length;i++){
+      const q=points[i%points.length], front=q.z>opt.frontCut;
+      if(front&&!active){active=true;start=i}
+      if((!front||i===points.length)&&active){
+        path(points,start,i-1);ctx.strokeStyle=`rgba(255,255,255,${opt.frontAlpha*(1+holdingEnergy*.30)})`;ctx.lineWidth=opt.width;ctx.stroke();active=false;
+      }
+    }
+    const center=((t*opt.highlightSpeed+opt.highlightPhase)%TAU+TAU)%TAU;
+    const i0=Math.floor(center/TAU*points.length);
+    const cnt=Math.max(6,Math.floor(points.length*.052));
+    path(points,i0,i0+cnt);
+    ctx.strokeStyle=`rgba(255,255,255,${opt.highlight*(.9+holdingEnergy*.7)})`;ctx.lineWidth=opt.width*1.55;ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawCore(t){
+    const S=Math.min(w,h);
+    const breath=1+Math.sin(t*.43)*.008+holdingEnergy*.022+impact*.012;
+    const rx=S*.285*breath, ry=S*.258*breath;
+    const aura=ctx.createRadialGradient(cx-S*.11,cy-S*.12,0,cx,cy,S*.33);
+    aura.addColorStop(0,'rgba(255,255,255,.14)');
+    aura.addColorStop(.16,'rgba(124,128,127,.105)');
+    aura.addColorStop(.43,'rgba(44,46,45,.20)');
+    aura.addColorStop(.72,'rgba(5,6,6,.86)');
+    aura.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=aura;ctx.beginPath();ctx.ellipse(cx,cy,rx,ry,-.035,0,TAU);ctx.fill();
+    const sheen=ctx.createRadialGradient(cx-S*.12,cy-S*.13,0,cx-S*.02,cy-S*.03,S*.24);
+    sheen.addColorStop(0,`rgba(255,255,255,${.070+holdingEnergy*.045})`);
+    sheen.addColorStop(.52,'rgba(255,255,255,.018)');
+    sheen.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.fillStyle=sheen;ctx.beginPath();ctx.ellipse(cx,cy,rx*.96,ry*.96,-.03,0,TAU);ctx.fill();
+
+    // Subtle interior halo that keeps R integrated with the glass rather than floating above it.
+    const coreGlow=ctx.createRadialGradient(cx,cy,0,cx,cy,S*.21);
+    coreGlow.addColorStop(0,`rgba(255,255,255,${.045+holdingEnergy*.08})`);
+    coreGlow.addColorStop(.60,'rgba(255,255,255,.012)');
+    coreGlow.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.fillStyle=coreGlow;ctx.beginPath();ctx.ellipse(cx,cy,rx*.82,ry*.82,0,0,TAU);ctx.fill();
+
+    // R mark; part of the render, never visible as a separate HTML glyph.
+    ctx.save();
+    ctx.globalCompositeOperation='screen';
+    const fontSize=S*.33;
+    ctx.font=`900 italic ${fontSize}px Montserrat, Arial, sans-serif`;
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.shadowBlur=holdingEnergy>0 ? 22 : 14;
+    ctx.shadowColor=holdingEnergy>0?'rgba(255,255,255,.28)':'rgba(255,255,255,.13)';
+    ctx.fillStyle=holdingEnergy>0?'rgba(245,255,239,.98)':'rgba(246,246,246,.96)';
+    ctx.translate(-S*.006,S*.012);
+    ctx.transform(1,0,-.035,1,0,0);
+    ctx.fillText('R',cx,cy+fontSize*.02);
+    ctx.restore();
+  }
+
+  function drawParticles(t,dt){
+    ctx.save();ctx.globalCompositeOperation='screen';
+    for(const p of particles){
+      p.a += p.speed*dt*(reduced?0.24:1)*(1+holdingEnergy*.55);
+      const rr=p.baseR+Math.sin(t*p.radialSpeed+p.radialPhase)*2.15;
+      let x=cx+Math.cos(p.a)*rr;
+      let y=cy+Math.sin(p.a)*rr*.90;
+      p.vx*=Math.pow(.11,dt/60);p.vy*=Math.pow(.11,dt/60);
+      x+=p.vx*dt;y+=p.vy*dt;
+      if(impact){
+        const dx=x-cx,dy=y-cy,d=Math.hypot(dx,dy)||1;
+        x+=(dx/d)*12*impact;y+=(dy/d)*12*impact;
+      }
+      const tw=.69+.31*Math.sin(t*p.twinkle+p.phase);
+      const alpha=clamp(p.alpha*tw*(1+impact*.22+holdingEnergy*.30),.018,.84);
+      const size=p.size*(.92+.14*Math.sin(t*.58+p.phase));
+      ctx.globalAlpha=alpha;ctx.fillStyle='#f4f5f4';ctx.beginPath();ctx.arc(x,y,Math.max(.22,size),0,TAU);ctx.fill();
+      if(p.hot&&size>.82){ctx.globalAlpha=alpha*.12;ctx.beginPath();ctx.arc(x,y,size*3.2,0,TAU);ctx.fill()}
+    }
+    ctx.restore();
+  }
+
+  function drawBursts(dt){
+    ctx.save();ctx.globalCompositeOperation='screen';
+    for(let i=bursts.length-1;i>=0;i--){
+      const b=bursts[i];b.life-=dt/1000;b.vx*=.985;b.vy*=.985;b.x+=b.vx*dt;b.y+=b.vy*dt;
+      if(b.life<=0){bursts.splice(i,1);continue}
+      ctx.globalAlpha=(b.life/b.max)*b.alpha;ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(b.x,b.y,b.size*(.6+b.life/b.max),0,TAU);ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function draw(now){
+    const dt=Math.min(24,Math.max(8,now-last));last=now;
+    const t=now/1000;
+    holdingEnergy=lerp(holdingEnergy,ring.classList.contains('holding')?1:0,reduced?.08:.055);
+    impact=Math.max(0,impact-dt/620);
+    px=lerp(px,tpx,.075);py=lerp(py,tpy,.075);rotX=lerp(rotX,trotX,.075);rotY=lerp(rotY,trotY,.075);
+    stage.style.setProperty('--orb-px',px.toFixed(2)+'px');
+    stage.style.setProperty('--orb-py',py.toFixed(2)+'px');
+    stage.style.setProperty('--orb-rx',rotX.toFixed(2)+'deg');
+    stage.style.setProperty('--orb-ry',rotY.toFixed(2)+'deg');
+    ctx.clearRect(0,0,w,h);
+
+    const S=Math.min(w,h);
+    const field=ctx.createRadialGradient(cx,cy,0,cx,cy,S*.49);
+    field.addColorStop(0,`rgba(255,255,255,${.060+holdingEnergy*.055})`);
+    field.addColorStop(.35,'rgba(255,255,255,.018)');
+    field.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.fillStyle=field;ctx.beginPath();ctx.ellipse(cx,cy,S*.39,S*.36,0,0,TAU);ctx.fill();
+
+    drawCore(t);
+    const outer=ringPoints({rx:S*.385,ry:S*.351,rot:-.11,wander:.050,turn:.085,warp:.010,depthPhase:1.65,phase:1.1,frontCut:-.06,energyWarp:.006},t);
+    const inner=ringPoints({rx:S*.305,ry:S*.284,rot:.055,wander:.063,turn:.118,warp:.008,depthPhase:-.55,phase:2.8,frontCut:-.10,energyWarp:.010},t);
+    strokeShell(outer,{halo:.048,back:.135,frontAlpha:.82,width:1.95,frontCut:-.06,highlightSpeed:.22,highlightPhase:2.35,highlight:.46},t);
+    drawParticles(t,dt);
+    strokeShell(inner,{halo:.058,back:.16,frontAlpha:.93,width:2.25,frontCut:-.10,highlightSpeed:-.15,highlightPhase:.55,highlight:.62},t);
+    drawBursts(dt);
+
+    if(!reduced) raf=requestAnimationFrame(draw);
+  }
+
+  stage.addEventListener('pointermove',e=>setParallax(e.clientX,e.clientY),{passive:true});
+  stage.addEventListener('pointerleave',resetParallax,{passive:true});
+  stage.addEventListener('pointercancel',resetParallax,{passive:true});
+  stage.addEventListener('pointerdown',e=>{pointerDown=true;setParallax(e.clientX,e.clientY);triggerBurst(e.clientX,e.clientY)},{passive:true});
+  window.addEventListener('pointerup',()=>{pointerDown=false},{passive:true});
+  window.addEventListener('resize',()=>{resize();seedParticles()},{passive:true});
+  document.addEventListener('visibilitychange',()=>{last=performance.now();if(document.visibilityState==='visible'&&!reduced&&!raf) raf=requestAnimationFrame(draw)},{passive:true});
+
+  resize();
+  seedParticles();
+  // Synchronous first paint: full object + R already exist in the first render.
+  draw(performance.now());
+  if(!reduced) raf=requestAnimationFrame(draw);
+})();
+</script>
