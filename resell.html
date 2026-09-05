@@ -1710,7 +1710,11 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   function telegramAuthHeaders(extra={}){
     const headers={'Accept':'application/json',...extra};
     const initData=getTelegramInitData();
-    if(initData) headers['X-Telegram-Init-Data']=initData;
+    if(initData){
+      headers['X-Telegram-Init-Data']=initData;
+      // Compatibility with reverse proxies that drop custom X-* headers.
+      headers['Authorization']='tma '+initData;
+    }
     return headers;
   }
   function getTelegramUserIdFromInitData(){
@@ -2157,8 +2161,11 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
         try{ tg?.ready?.(); }catch(_){}
         const initData=getTelegramInitData();
         const secureHeaders={'Accept':'application/json','Cache-Control':'no-cache',...(options.headers||{})};
-        if(initData) secureHeaders['X-Telegram-Init-Data']=initData;
-        else if (userId && /\/(?:hold|engagement|quests|passive|tycoon|cars|garage|avito|profile|referr|bank|taxi|rcoin)/i.test(url)) {
+        if(initData){
+          secureHeaders['X-Telegram-Init-Data']=initData;
+          // Same signed initData in Authorization for proxy compatibility.
+          secureHeaders['Authorization']='tma '+initData;
+        } else if (userId && /\/(?:hold|engagement|quests|passive|tycoon|cars|garage|avito|profile|referr|bank|taxi|rcoin)/i.test(url)) {
           throw Object.assign(new Error('Открой RESSELL через Telegram — Telegram-сессия не передана'), {status:401});
         }
         const resp=await fetch(url,{cache:'no-store',...options,signal:controller.signal,headers:secureHeaders});
@@ -2167,7 +2174,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
           let payload={}; try{payload=await resp.json();}catch(_){}
           if(resp.status===403 && payload?.banned){ try{ openBanAppealSheet(payload.error||'Аккаунт заблокирован'); }catch(_){} }
           const e=new Error(payload?.error||payload?.message||
-            (resp.status===401?'Не удалось подтвердить Telegram-сессию. Открой Resell из Telegram и попробуй ещё раз.':
+            (resp.status===401?'Не удалось подтвердить Telegram-сессию. Перезапусти Mini App из Telegram и попробуй ещё раз.':
              resp.status===404?'Раздел временно недоступен на сервере. Обнови приложение и попробуй ещё раз.':
              resp.status>=500?'Сервер RESSELL временно не отвечает.':`Операция не выполнена (HTTP ${resp.status})`));
           e.status=resp.status;
