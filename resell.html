@@ -2152,6 +2152,17 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     claimBtn.textContent = 'Получить награду';
   }
 
+  async function waitForTelegramInitData(timeoutMs=1800){
+    const started=Date.now();
+    while(Date.now()-started < timeoutMs){
+      const raw=getTelegramInitData();
+      if(raw) return raw;
+      try{ tg?.ready?.(); tg?.expand?.(); }catch(_){}
+      await new Promise(r=>setTimeout(r,120));
+    }
+    return getTelegramInitData();
+  }
+
   async function apiFetch(url, options={}, attempts=3){
     let lastError=null;
     for(let i=0;i<attempts;i++){
@@ -2159,7 +2170,8 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
       const timer=setTimeout(()=>controller.abort(),10000);
       try{
         try{ tg?.ready?.(); }catch(_){}
-        const initData=getTelegramInitData();
+        const needsTelegramAuth=/\/(?:hold|engagement|quests|passive|tycoon|cars|garage|avito|profile|referr|bank|taxi|rcoin|container|race|poker|game_result|buy-case|case-win|deposit|withdraw|claim-reward|register|admin)/i.test(url);
+        const initData=needsTelegramAuth ? await waitForTelegramInitData(1800) : getTelegramInitData();
         const secureHeaders={'Accept':'application/json','Cache-Control':'no-cache',...(options.headers||{})};
         if(initData){
           secureHeaders['X-Telegram-Init-Data']=initData;
