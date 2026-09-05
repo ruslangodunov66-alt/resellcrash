@@ -2183,14 +2183,18 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
         const needsTelegramAuth=/\/(?:hold|engagement|quests|passive|tycoon|cars|garage|avito|profile|referr|bank|taxi|rcoin|container|race|poker|game_result|buy-case|case-win|deposit|withdraw|claim-reward|register|admin)/i.test(url);
         const initData=needsTelegramAuth ? await waitForTelegramInitData(1800) : getTelegramInitData();
         const secureHeaders={'Accept':'application/json','Cache-Control':'no-cache',...(options.headers||{})};
+        let requestUrl=url;
         if(initData){
+          // Primary channel: URL query. Some reverse proxies/WAFs strip custom auth headers.
+          const sep=requestUrl.includes('?')?'&':'?';
+          requestUrl += sep + 'tgWebAppData=' + encodeURIComponent(initData);
+          // Keep headers as a second channel for deployments where custom headers survive.
           secureHeaders['X-Telegram-Init-Data']=initData;
-          // Same signed initData in Authorization for proxy compatibility.
           secureHeaders['Authorization']='tma '+initData;
         } else if (userId && /\/(?:hold|engagement|quests|passive|tycoon|cars|garage|avito|profile|referr|bank|taxi|rcoin)/i.test(url)) {
           throw Object.assign(new Error('Открой RESSELL через Telegram — Telegram-сессия не передана'), {status:401});
         }
-        const resp=await fetch(url,{cache:'no-store',...options,signal:controller.signal,headers:secureHeaders});
+        const resp=await fetch(requestUrl,{cache:'no-store',...options,signal:controller.signal,headers:secureHeaders});
         clearTimeout(timer);
         if(!resp.ok){
           let payload={}; try{payload=await resp.json();}catch(_){}
@@ -2510,7 +2514,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   function openBanAppealSheet(message){
     if(window.__banSheetOpen) return; window.__banSheetOpen=true;
     openModal('Безопасность',`<div class="ban-sheet"><div class="ban-hero"><div class="ban-kicker">ACCOUNT SECURITY</div><div class="ban-title">Аккаунт заблокирован</div><div class="ban-sub">${esc(message)}<br><br>Если это ошибка, отправь объяснение владельцу проекта. Решение принимает человек.</div></div><textarea id="banAppealText" class="ban-textarea" maxlength="2000" placeholder="Напиши, почему считаешь блокировку ошибочной…"></textarea><button id="banAppealSubmit" class="ban-submit" type="button">ОТПРАВИТЬ АПЕЛЛЯЦИЮ</button><div id="banAppealStatus" class="ban-status">Минимум 20 символов.</div></div>`);
-    $('#banAppealSubmit')?.addEventListener('click',async()=>{const b=$('#banAppealSubmit'),t=($('#banAppealText')?.value||'').trim(),st=$('#banAppealStatus');if(t.length<20){st.textContent='Напиши подробнее — минимум 20 символов.';return}b.disabled=true;b.textContent='ОТПРАВКА…';try{const r=await fetch(`${API_BASE}/moderation/appeal/${encodeURIComponent(userId)}`,{method:'POST',cache:'no-store',headers:telegramAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify({text:t})});let d={};try{d=await r.json()}catch(_){}if(!r.ok||d.success===false)throw new Error(d.error||'Ошибка отправки');st.textContent='Апелляция отправлена владельцу проекта.';b.textContent='ОТПРАВЛЕНО';}catch(e){b.disabled=false;b.textContent='ОТПРАВИТЬ АПЕЛЛЯЦИЮ';st.textContent=e.message||'Ошибка';}});
+    $('#banAppealSubmit')?.addEventListener('click',async()=>{const b=$('#banAppealSubmit'),t=($('#banAppealText')?.value||'').trim(),st=$('#banAppealStatus');if(t.length<20){st.textContent='Напиши подробнее — минимум 20 символов.';return}b.disabled=true;b.textContent='ОТПРАВКА…';try{const appealInit=await waitForTelegramInitData(3000); const appealUrl=`${API_BASE}/moderation/appeal/${encodeURIComponent(userId)}${appealInit?'?tgWebAppData='+encodeURIComponent(appealInit):''}`; const r=await fetch(appealUrl,{method:'POST',cache:'no-store',headers:telegramAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify({text:t})});let d={};try{d=await r.json()}catch(_){}if(!r.ok||d.success===false)throw new Error(d.error||'Ошибка отправки');st.textContent='Апелляция отправлена владельцу проекта.';b.textContent='ОТПРАВЛЕНО';}catch(e){b.disabled=false;b.textContent='ОТПРАВИТЬ АПЕЛЛЯЦИЮ';st.textContent=e.message||'Ошибка';}});
   }
 
   // =========================
@@ -2648,7 +2652,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     ];
     for(const [endpoint,body] of attempts){
       try{
-        const resp=await fetch(endpoint,{method:'POST',cache:'no-store',headers:telegramAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify(body)});
+        const init=await waitForTelegramInitData(3000); const endpointAuth=init?(endpoint+(endpoint.includes('?')?'&':'?')+'tgWebAppData='+encodeURIComponent(init)):endpoint; const resp=await fetch(endpointAuth,{method:'POST',cache:'no-store',headers:telegramAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify(body)});
         if(resp.ok){
           try{
             const payload=await resp.json();
@@ -3424,7 +3428,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
       let success=false,payload=null;
       for(const endpoint of endpoints){
         try{
-          const resp=await fetch(endpoint,{method:'POST',cache:'no-store',headers:telegramAuthHeaders({'Content-Type':'application/json'})});
+          const init=await waitForTelegramInitData(3000); const endpointAuth=init?(endpoint+(endpoint.includes('?')?'&':'?')+'tgWebAppData='+encodeURIComponent(init)):endpoint; const resp=await fetch(endpointAuth,{method:'POST',cache:'no-store',headers:telegramAuthHeaders({'Content-Type':'application/json'})});
           if(!resp.ok) continue;
           const data=await resp.json();
           if(data?.success){ success=true;payload=data;break; }
@@ -4056,7 +4060,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
 
   async function adminFetch(path, options={}){
     if(!isAdmin) throw new Error('Нет доступа');
-    const resp=await fetch(`${API_BASE}${path}`,{cache:'no-store',...options,headers:telegramAuthHeaders({'Content-Type':'application/json',...(options.headers||{})})});
+    const init=await waitForTelegramInitData(3000); const authPath=init?`${API_BASE}${path}${path.includes('?')?'&':'?'}tgWebAppData=${encodeURIComponent(init)}`:`${API_BASE}${path}`; const resp=await fetch(authPath,{cache:'no-store',...options,headers:telegramAuthHeaders({'Content-Type':'application/json',...(options.headers||{})})});
     let data={}; try{data=await resp.json();}catch(_){data={};}
     if(!resp.ok || data.success===false) throw new Error(data.error||'Ошибка администратора');
     return data;
@@ -4122,7 +4126,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   }
 
   if(isOwner) $('#adminBtn')?.classList.add('visible');
-  (async()=>{ if(!userId || isOwner) return; try{ const r=await fetch(`${API_BASE}/admin/me/${encodeURIComponent(userId)}`,{cache:'no-store',headers:telegramAuthHeaders()}); if(r.ok){ const d=await r.json(); if(d.success){ isAdmin=true; $('#adminBtn')?.classList.add('visible'); } } }catch(_){} })();
+  (async()=>{ if(!userId || isOwner) return; try{ const init=await waitForTelegramInitData(3000); const meUrl=`${API_BASE}/admin/me/${encodeURIComponent(userId)}${init?'?tgWebAppData='+encodeURIComponent(init):''}`; const r=await fetch(meUrl,{cache:'no-store',headers:telegramAuthHeaders()}); if(r.ok){ const d=await r.json(); if(d.success){ isAdmin=true; $('#adminBtn')?.classList.add('visible'); } } }catch(_){} })();
   // Tycoon Center is no longer a separate entry point: its five asset cards live on Home.
   function initMainTycoonCards(){
     const map={mining:TYCOON_HOME_COVER_IMAGES[0],bank:TYCOON_HOME_COVER_IMAGES[1],property:TYCOON_HOME_COVER_IMAGES[2],cars:TYCOON_HOME_COVER_IMAGES[3],taxi:TYCOON_HOME_COVER_IMAGES[4]};
