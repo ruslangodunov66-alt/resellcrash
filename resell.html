@@ -1234,6 +1234,45 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
 #welcomeOverlay.open{display:none!important}
 </style>
 
+
+<style id="resell-launch-v24-fixes">
+/* Launch bootstrap: identify account before the cinematic loading sequence. */
+#bootSplash.boot-identifying .boot-welcome-name{color:#cfd3d1}
+#bootSplash.boot-identifying .boot-state-text{color:#e7e9e8}
+#bootSplash.boot-identifying .boot-progress i{width:18%!important}
+#bootSplash.boot-ready .boot-progress i{transition:width .75s cubic-bezier(.16,1,.3,1)}
+
+/* Sphere tap reaction — subtle, premium, no layout shift. */
+#bootOrb{cursor:pointer;touch-action:manipulation}
+#bootOrb.tap-pulse{animation:bootTapBody 900ms cubic-bezier(.16,1,.3,1)}
+#bootOrb.tap-pulse .boot-reference-sphere{animation:bootTapImage 900ms cubic-bezier(.16,1,.3,1)}
+#bootOrb.tap-pulse .boot-sphere-light{animation:bootTapLight 900ms cubic-bezier(.16,1,.3,1)}
+#bootOrb.tap-pulse .boot-sphere-edge{animation:bootTapEdge 900ms cubic-bezier(.16,1,.3,1)}
+#bootOrb.tap-pulse .boot-sphere-reflection{animation:bootTapReflection 900ms cubic-bezier(.16,1,.3,1)}
+#bootOrb::after{content:"";position:absolute;inset:18%;border-radius:50%;pointer-events:none;opacity:0;transform:scale(.84);border:1px solid rgba(255,255,255,.75);box-shadow:0 0 28px rgba(255,255,255,.22),inset 0 0 22px rgba(255,255,255,.08)}
+#bootOrb.tap-pulse::after{animation:bootTapWave 900ms cubic-bezier(.16,1,.3,1)}
+@keyframes bootTapBody{0%{transform:scale(1)}16%{transform:scale(.985)}42%{transform:scale(1.018)}100%{transform:scale(1)}}
+@keyframes bootTapImage{0%{transform:scale(1) translate3d(0,0,0)}26%{transform:scale(1.025) translate3d(0,-2px,0)}58%{transform:scale(.992) translate3d(0,1px,0)}100%{transform:scale(1) translate3d(0,0,0)}}
+@keyframes bootTapLight{0%{opacity:.24;transform:translate3d(0,0,0)}35%{opacity:.44;transform:translate3d(8px,-5px,0) scale(1.02)}100%{opacity:.24;transform:translate3d(0,0,0)}}
+@keyframes bootTapEdge{0%{opacity:.30;transform:scale(1)}40%{opacity:.68;transform:scale(1.035)}100%{opacity:.30;transform:scale(1)}}
+@keyframes bootTapReflection{0%{opacity:.18;transform:translate3d(0,0,0)}38%{opacity:.36;transform:translate3d(-9px,5px,0) scale(1.04)}100%{opacity:.18;transform:translate3d(0,0,0)}}
+@keyframes bootTapWave{0%{opacity:.0;transform:scale(.84)}20%{opacity:.42}68%{opacity:.12;transform:scale(1.13)}100%{opacity:0;transform:scale(1.22)}}
+
+/* Game covers on Home: show the complete art, do not crop/zoom the source artwork. */
+.game-cover{display:grid;place-items:center;background:#080808}
+.game-cover img{object-fit:contain!important;object-position:center!important;width:100%!important;height:100%!important;transform:none!important;filter:saturate(.78) contrast(1.04) brightness(.90)!important}
+.game-card:hover .game-cover img{transform:scale(1.012)!important;filter:saturate(.84) contrast(1.06) brightness(.96)!important}
+
+/* Main asset covers (Bank/Mining/Property/Cars/Taxi): preserve full art. */
+.main-tycoon-card img{object-fit:contain!important;object-position:center!important;transform:none!important;background:#050505!important}
+.main-tycoon-card:hover img{transform:scale(1.012)!important}
+
+/* Never expose the legacy welcome sheet in the main interface. */
+#welcomeOverlay{display:none!important;pointer-events:none!important}
+#welcomeOverlay.open{display:none!important}
+
+@media(prefers-reduced-motion:reduce){#bootOrb.tap-pulse,#bootOrb.tap-pulse .boot-reference-sphere,#bootOrb.tap-pulse .boot-sphere-light,#bootOrb.tap-pulse .boot-sphere-edge,#bootOrb.tap-pulse .boot-sphere-reflection,#bootOrb.tap-pulse::after{animation:none!important}}
+</style>
 </head>
 <body class="resell-booting">
 
@@ -1250,7 +1289,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     </div>
     <div class="boot-wordmark">RES<span>SELL</span></div>
     <div class="boot-kicker">PRIVATE RESSELL SYSTEM · SECURE SESSION</div>
-    <div class="boot-welcome" id="bootWelcome"><span class="boot-welcome-label">Добро пожаловать,</span><strong class="boot-welcome-name" id="bootWelcomeName">Пользователь</strong></div>
+    <div class="boot-welcome" id="bootWelcome"><span class="boot-welcome-label">Добро пожаловать,</span><strong class="boot-welcome-name" id="bootWelcomeName">ОПРЕДЕЛЯЕМ АККАУНТ</strong></div>
     <div class="boot-state"><div class="boot-state-text" id="bootStateText">ЗАПУСКАЕМ СИСТЕМУ</div></div>
     <div class="boot-progress"><i id="bootProgressFill"></i></div>
     <div class="boot-meta" id="bootMeta">INITIALIZING / 00%</div>
@@ -1768,12 +1807,20 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
 
   function launchUserName(){
     const tgUser=tg?.initDataUnsafe?.user||{};
-    return String(profileData?.nickname || profileData?.resell_nickname || 'Пользователь').trim() || 'Пользователь';
+    return String(profileData?.nickname || profileData?.resell_nickname || 'ОПРЕДЕЛЯЕМ АККАУНТ').trim() || 'ОПРЕДЕЛЯЕМ АККАУНТ';
   }
 
-  function setBootWelcome(){
+  function setBootWelcome({identified=true}={}){
     const el=$('#bootWelcomeName');
-    if(el) el.textContent=launchUserName();
+    const splash=$('#bootSplash');
+    if(!el) return;
+    if(!identified){
+      el.textContent='ОПРЕДЕЛЯЕМ АККАУНТ';
+      splash?.classList.add('boot-identifying');
+      return;
+    }
+    el.textContent=launchUserName();
+    splash?.classList.remove('boot-identifying');
   }
 
   (function initBootParallax(){
@@ -1797,6 +1844,23 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     window.addEventListener('pointermove',e=>move(e.clientX,e.clientY),{passive:true});
     window.addEventListener('touchmove',e=>{const t=e.touches?.[0];if(t)move(t.clientX,t.clientY)},{passive:true});
     window.addEventListener('pointerleave',reset,{passive:true});
+  })();
+
+  // Premium tap response for the launch sphere. Visual only; no game-state mutation.
+  (function initBootTap(){
+    const orb=$('#bootOrb');
+    if(!orb) return;
+    let timer=0;
+    const pulse=()=>{
+      orb.classList.remove('tap-pulse');
+      void orb.offsetWidth;
+      orb.classList.add('tap-pulse');
+      clearTimeout(timer);
+      timer=setTimeout(()=>orb.classList.remove('tap-pulse'),980);
+      try{haptic('light');}catch(_){}
+    };
+    orb.addEventListener('pointerdown',pulse,{passive:true});
+    orb.addEventListener('touchstart',pulse,{passive:true});
   })();
 
   function setBootState(text, progress){
@@ -1855,7 +1919,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   }
 
   async function runLaunchSequence(){
-    setBootWelcome();
+    setBootWelcome({identified:Boolean(profileData)});
     const steps=[
       ['ПОДКЛЮЧАЕМ RESSELL',8],
       ['ЗАГРУЖАЕМ БАЛАНС',24],
@@ -4368,22 +4432,34 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   resizeCanvas();
   drawParticles();
 
-  // Initial load: warm the account and major home data while the launch screen is visible.
+  // Initial load: identify the account first, then run the cinematic loading sequence.
+  // All existing data warming and gameplay initialization remains unchanged.
   (async()=>{
     let bootData=null;
-    const sequence=runLaunchSequence();
+    setBootWelcome({identified:false});
+    setBootState('ОПРЕДЕЛЯЕМ ВАШ АККАУНТ',6);
     const dataPromise=loadProfile().then(async(data)=>{
       bootData=data;
-      try{setBootWelcome();}catch(_){ }
+      try{setBootWelcome({identified:true});}catch(_){ }
       if(data?.registration_complete===false || data?.registration_required===true) return data;
       try{bindEngagement();}catch(_){ }
       try{initMainTycoonCards();}catch(_){ }
       try{await attachIncomingReferral();}catch(_){ }
       try{referralData=await fetchReferralData();updateReferralCard();}catch(_){ }
-      try{setBootWelcome();}catch(_){ }
+      try{setBootWelcome({identified:true});}catch(_){ }
       return data;
     }).catch(()=>null);
-    await Promise.all([sequence,dataPromise]);
+    // Keep a short, intentional account-discovery stage before the existing launch sequence.
+    await new Promise(r=>setTimeout(r,520));
+    await dataPromise;
+    if(!bootData){
+      setBootWelcome({identified:false});
+      setBootState('НЕ УДАЛОСЬ ОПРЕДЕЛИТЬ СЕССИЮ',10);
+      await new Promise(r=>setTimeout(r,280));
+    }
+    setBootWelcome({identified:Boolean(bootData)});
+    const sequence=runLaunchSequence();
+    await sequence;
     // Make sure slow endpoints do not keep a player behind the splash forever.
     if(!bootData){ setBootState('ВОССТАНАВЛИВАЕМ СЕССИЮ',96); await new Promise(r=>setTimeout(r,260)); }
     const firstRun=Boolean(bootData && (bootData.registration_complete===false || bootData.registration_required===true));
