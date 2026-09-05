@@ -1679,7 +1679,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     bot: 'https://t.me/buygame61_bot'
   };
 
-  const tg = window.Telegram?.WebApp || null;
+  let tg = window.Telegram?.WebApp || null;
   if (tg) {
     try { tg.ready(); } catch(_) {}
     try { tg.expand(); } catch(_) {}
@@ -1690,7 +1690,9 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   const params = new URLSearchParams(location.search);
   function getTelegramInitData(){
     try {
-      const direct = String(tg?.initData || '').trim();
+      const live = window.Telegram?.WebApp || tg;
+      if (live) tg = live;
+      const direct = String(live?.initData || '').trim();
       if (direct) return direct;
     } catch(_) {}
     // Compatibility: Telegram can expose initData in the launch URL/hash
@@ -2152,14 +2154,22 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     claimBtn.textContent = 'Получить награду';
   }
 
-  async function waitForTelegramInitData(timeoutMs=1800){
+  async function waitForTelegramInitData(timeoutMs=3000){
     const started=Date.now();
     while(Date.now()-started < timeoutMs){
+      // Telegram can expose WebApp slightly after the document script starts.
+      // Re-read the live object instead of keeping a stale null reference.
+      try{
+        const live=window.Telegram?.WebApp;
+        if(live) tg=live;
+        tg?.ready?.();
+        tg?.expand?.();
+      }catch(_){}
       const raw=getTelegramInitData();
       if(raw) return raw;
-      try{ tg?.ready?.(); tg?.expand?.(); }catch(_){}
       await new Promise(r=>setTimeout(r,120));
     }
+    try{ if(window.Telegram?.WebApp) tg=window.Telegram.WebApp; }catch(_){}
     return getTelegramInitData();
   }
 
