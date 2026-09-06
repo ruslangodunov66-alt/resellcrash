@@ -1735,7 +1735,16 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
       return user?.id ? String(user.id) : '';
     } catch(_) { return ''; }
   }
-  const userId = tg?.initDataUnsafe?.user?.id || getTelegramUserIdFromInitData() || params.get('userId') || '';
+  let userId = tg?.initDataUnsafe?.user?.id || getTelegramUserIdFromInitData() || params.get('userId') || '';
+  function syncTelegramUserId(){
+    try{
+      const live=window.Telegram?.WebApp || tg;
+      if(live) tg=live;
+      const liveId=String(tg?.initDataUnsafe?.user?.id || getTelegramUserIdFromInitData() || '').trim();
+      if(liveId) userId=liveId;
+    }catch(_){}
+    return String(userId||'');
+  }
   const ADMIN_OWNER_ID = '1475910449';
   let isAdmin = String(userId) === ADMIN_OWNER_ID;
   const isOwner = String(userId) === ADMIN_OWNER_ID;
@@ -2188,9 +2197,24 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
       try{
         try{ tg?.ready?.(); }catch(_){}
         const needsTelegramAuth=/\/(?:hold|engagement|quests|passive|tycoon|cars|garage|avito|profile|referr|bank|taxi|rcoin|container|race|poker|game_result|buy-case|case-win|deposit|withdraw|claim-reward|register|admin)/i.test(url);
-        const initData=needsTelegramAuth ? await waitForTelegramInitData(3000) : getTelegramInitData();
+        const initData=needsTelegramAuth ? await waitForTelegramInitData(5000) : getTelegramInitData();
+        syncTelegramUserId();
+        if(initData){
+          try{
+            const q=new URLSearchParams(initData);
+            const initUser=JSON.parse(q.get('user')||'{}');
+            const liveId=String(initUser?.id||'').trim();
+            if(liveId) userId=liveId;
+          }catch(_){}
+        }
         const secureHeaders={'Accept':'application/json','Cache-Control':'no-cache',...(options.headers||{})};
         let requestUrl=url;
+        if(needsTelegramAuth && userId){
+          // Synchronize player-id path segments with the same Telegram user
+          // whose initData is being sent. This prevents restored WebViews from
+          // mixing a stale URL userId with a fresh Telegram session.
+          requestUrl=requestUrl.replace(/(\/(?:profile|engagement|quests|passive|tycoon|cars|garage|avito|referr|bank|taxi|rcoin|container|race|poker|game_result)\/)\d+/i, '$1'+userId);
+        }
         if(initData){
           // Primary channel: URL query. Some reverse proxies/WAFs strip custom auth headers.
           const sep=requestUrl.includes('?')?'&':'?';
