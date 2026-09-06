@@ -1688,78 +1688,101 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   }
 
   const params = new URLSearchParams(location.search);
-  // One canonical Telegram identity for the lifetime of this WebView.
-  // Never let a later WebApp object, sessionStorage value or URL userId replace it.
-  let canonicalTelegramInitData = '';
-  let canonicalTelegramUserId = '';
-  function rememberTelegramInitData(raw){
+
+  // ================================================================
+  // TELEGRAM AUTH — unified working path
+  // ================================================================
+  // Keep the exact initData string Telegram gives the WebView. Do not rebuild,
+  // normalize or JSON-stringify the signed payload on the client.
+  let telegramInitData = '';
+  let telegramUserId = '';
+
+  function captureTelegramInitData(raw){
     const value=String(raw||'').trim();
     if(!value) return '';
-    if(canonicalTelegramInitData) return canonicalTelegramInitData;
+    // Prefer the live Telegram payload whenever it exists; otherwise keep the
+    // first exact payload captured during this WebView session.
+    if(telegramInitData && telegramInitData===value) return telegramInitData;
     try{
       const q=new URLSearchParams(value);
-      const user=JSON.parse(q.get('user')||'{}');
-      const uid=String(user?.id||'').trim();
-      if(!uid) return '';
-      canonicalTelegramInitData=value;
-      canonicalTelegramUserId=uid;
-      return canonicalTelegramInitData;
-    }catch(_){ return ''; }
-  }
-  function getTelegramInitData(){
-    if(canonicalTelegramInitData) return canonicalTelegramInitData;
-    try {
-      const live = window.Telegram?.WebApp || tg;
-      if (live) tg = live;
-      const direct = String(live?.initData || '').trim();
-      if (direct && rememberTelegramInitData(direct)) return canonicalTelegramInitData;
-    } catch(_) {}
-
-    // Compatibility for WebView launches that expose the signed payload in URL/hash.
-    // This is used only to establish the canonical payload before any protected request.
-    try {
-      const currentParams = new URLSearchParams(location.search || '');
-      const fromQuery = String(currentParams.get('initData') || currentParams.get('tgWebAppData') || '').trim();
-      if (fromQuery && rememberTelegramInitData(fromQuery)) return canonicalTelegramInitData;
-    } catch(_) {}
-    try {
-      const rawHash = String(location.hash || '').replace(/^#\?/, '').replace(/^#/, '');
-      const hash = new URLSearchParams(rawHash);
-      const fromHash = String(hash.get('tgWebAppData') || hash.get('initData') || '').trim();
-      if (fromHash && rememberTelegramInitData(fromHash)) return canonicalTelegramInitData;
-    } catch(_) {}
+      const userRaw=q.get('user')||'';
+      let uid='';
+      try{ uid=String(JSON.parse(userRaw||'{}')?.id||'').trim(); }catch(_){
+        const m=String(userRaw).match(/"id"\s*:\s*(\d+)/); uid=m?m[1]:'';
+      }
+      if(uid){
+        telegramInitData=value;
+        telegramUserId=uid;
+        return telegramInitData;
+      }
+    }catch(_){ }
     return '';
   }
+
+  function getTelegramInitData(){
+    try{
+      const live=window.Telegram?.WebApp || tg;
+      if(live) tg=live;
+      const direct=String(live?.initData||'').trim();
+      if(direct){
+        const captured=captureTelegramInitData(direct);
+        if(captured) return captured;
+      }
+    }catch(_){ }
+    if(telegramInitData) return telegramInitData;
+    try{
+      const q=String(params.get('initData')||params.get('tgWebAppData')||'').trim();
+      if(q){ const raw=decodeURIComponent(q); const captured=captureTelegramInitData(raw||q); if(captured) return captured; }
+    }catch(_){ }
+    try{
+      const rawHash=String(location.hash||'').replace(/^#\?/,'').replace(/^#/,'');
+      const q=new URLSearchParams(rawHash);
+      const raw=String(q.get('tgWebAppData')||q.get('initData')||'').trim();
+      if(raw){ const captured=captureTelegramInitData(raw); if(captured) return captured; }
+    }catch(_){ }
+    return '';
+  }
+
   function telegramAuthHeaders(extra={}){
     const headers={'Accept':'application/json',...extra};
     const initData=getTelegramInitData();
     if(initData){
       headers['X-Telegram-Init-Data']=initData;
-      // Compatibility with reverse proxies that drop custom X-* headers.
+      // Fallback used by some reverse proxies.
       headers['Authorization']='tma '+initData;
     }
     return headers;
   }
+
   function getTelegramUserIdFromInitData(){
-    return canonicalTelegramUserId;
+    if(telegramUserId) return telegramUserId;
+    try{
+      const raw=getTelegramInitData();
+      const q=new URLSearchParams(raw||'');
+      const userRaw=q.get('user')||'';
+      try{ telegramUserId=String(JSON.parse(userRaw||'{}')?.id||'').trim(); }
+      catch(_){ const m=String(userRaw).match(/"id"\s*:\s*(\d+)/); telegramUserId=m?m[1]:''; }
+    }catch(_){ }
+    return telegramUserId;
   }
-  let userId = '';
+
+  let userId = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '').trim() || getTelegramUserIdFromInitData() || String(params.get('userId')||'').trim();
   const ADMIN_OWNER_ID = '1475910449';
-  let isAdmin = false;
-  let isOwner = false;
+  let isOwner = String(userId) === ADMIN_OWNER_ID;
+  let isAdmin = isOwner;
+
   function syncTelegramUserId(){
-    // Identity is always derived from the canonical signed Telegram initData.
-    // Do not rely on initDataUnsafe or a stale URL/local value for protected API calls.
     const signedId=getTelegramUserIdFromInitData();
     if(signedId) userId=signedId;
-    isOwner = String(userId||'') === ADMIN_OWNER_ID;
-    if(isOwner) isAdmin = true;
+    isOwner=String(userId||'')===ADMIN_OWNER_ID;
+    if(isOwner) isAdmin=true;
     return String(userId||'');
   }
-  // Telegram may already have populated initData before this script reaches here.
-  // Capture it immediately so owner/admin state is not frozen against an empty userId.
-  try{ rememberTelegramInitData(String(window.Telegram?.WebApp?.initData || tg?.initData || '')); }catch(_){}
+
+  // Capture Telegram payload immediately when it is already available.
+  try{ captureTelegramInitData(String(window.Telegram?.WebApp?.initData||tg?.initData||'')); }catch(_){ }
   syncTelegramUserId();
+
   let adminState = {players:[], selected:null};
 
   const $ = (s) => document.querySelector(s);
