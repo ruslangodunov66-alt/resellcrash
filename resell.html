@@ -1743,7 +1743,9 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   function getTelegramUserIdFromInitData(){
     return canonicalTelegramUserId;
   }
-  let userId = canonicalTelegramUserId;
+  // Do not freeze userId before Telegram has supplied initData. The WebApp
+  // object may become available a moment after this script starts.
+  let userId = canonicalTelegramUserId || '';
   function syncTelegramUserId(){
     const signedId=getTelegramUserIdFromInitData();
     if(signedId) userId=signedId;
@@ -4576,6 +4578,14 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   (async()=>{
     let bootData=null;
     setBootWelcome({identified:false});
+    // First establish Telegram identity, then load any protected endpoint.
+    // Previously loadProfile() ran while userId was still empty, so the new
+    // canonical-auth patch could never start synchronization on a cold launch.
+    try{
+      await waitForTelegramInitData(5000);
+      syncTelegramUserId();
+      isAdmin = String(userId) === ADMIN_OWNER_ID;
+    }catch(_){}
     setBootState('ОПРЕДЕЛЯЕМ ВАШ АККАУНТ',6);
     const dataPromise=loadProfile().then(async(data)=>{
       bootData=data;
