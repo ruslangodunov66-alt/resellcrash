@@ -1689,6 +1689,18 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
 
   const params = new URLSearchParams(location.search);
   let cachedTelegramInitData = '';
+  let cachedResellSession = '';
+  let resellSessionUid = '';
+  let resellSessionExp = 0;
+  let resellSessionPromise = null;
+  try {
+    const saved = JSON.parse(sessionStorage.getItem('resell_telegram_session_v2') || '{}');
+    if (saved && saved.token && Number(saved.exp || 0) > Math.floor(Date.now()/1000) + 30) {
+      cachedResellSession = String(saved.token);
+      resellSessionUid = String(saved.uid || '');
+      resellSessionExp = Number(saved.exp || 0);
+    }
+  } catch(_) {}
   function rawWebAppParam(source, key){
     try{
       const text=String(source||'');
@@ -1759,6 +1771,40 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
       return String(url)+(String(url).includes('?')?'&':'?')+'tg_auth_b64='+encodeURIComponent(encoded);
     }
   }
+  async function ensureResellSession(initData, force=false){
+    const raw=String(initData||'').trim();
+    let uid='';
+    try{
+      const q=new URLSearchParams(raw);
+      uid=String(JSON.parse(q.get('user')||'{}')?.id||'').trim();
+    }catch(_){}
+    if(!uid) uid=String(userId||'').trim();
+    const now=Math.floor(Date.now()/1000);
+    if(!force && cachedResellSession && resellSessionUid===uid && resellSessionExp>now+60) return cachedResellSession;
+    if(!raw) return '';
+    if(resellSessionPromise && !force) return resellSessionPromise;
+    resellSessionPromise=(async()=>{
+      try{
+        // text/plain is a CORS-safelisted content type, so the handshake does
+        // not depend on a preflight accepting custom headers.
+        const r=await fetch(`${API_BASE}/auth/telegram`,{
+          method:'POST', cache:'no-store',
+          headers:{'Content-Type':'text/plain'}, body:raw
+        });
+        let d={}; try{d=await r.json();}catch(_){}
+        if(!r.ok || !d?.success || !d?.session) throw Object.assign(new Error(d?.error||'Telegram session handshake failed'),{status:r.status||401});
+        cachedResellSession=String(d.session);
+        resellSessionUid=String(d.tg_id||uid);
+        resellSessionExp=Number(d.expires_at||0);
+        try{sessionStorage.setItem('resell_telegram_session_v2',JSON.stringify({token:cachedResellSession,uid:resellSessionUid,exp:resellSessionExp}));}catch(_){}
+        return cachedResellSession;
+      } finally {
+        resellSessionPromise=null;
+      }
+    })();
+    return resellSessionPromise;
+  }
+
   function getTelegramUserIdFromInitData(){
     try {
       const raw = getTelegramInitData();
@@ -2250,26 +2296,35 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
           }catch(_){}
         }
         const secureHeaders={'Accept':'application/json','Cache-Control':'no-cache',...(options.headers||{})};
-        // Do not allow a caller-supplied stale auth header to override the
-        // current Telegram WebApp payload below.
+        // Never trust caller-supplied authentication headers. We rebuild them
+        // from the current Telegram payload/session on every protected call.
         delete secureHeaders['X-Telegram-Init-Data'];
         delete secureHeaders['x-telegram-init-data'];
+        delete secureHeaders['X-Resell-Session'];
+        delete secureHeaders['x-resell-session'];
         delete secureHeaders['Authorization'];
         let requestUrl=url;
+        let sessionToken='';
+        if(needsTelegramAuth){
+          sessionToken=await ensureResellSession(initData, false);
+        }
         if(needsTelegramAuth && userId){
           // Synchronize player-id path segments with the same Telegram user
           // whose initData is being sent. This prevents restored WebViews from
           // mixing a stale URL userId with a fresh Telegram session.
           requestUrl=requestUrl.replace(/(\/(?:profile|engagement|quests|passive|tycoon|cars|garage|avito|referr|bank|taxi|rcoin|container|race|poker|game_result)\/)\d+/i, '$1'+userId);
         }
-        if(initData){
-          // Primary transport: headers.
+        if(sessionToken){
+          // Primary steady-state transport: server-issued signed session.
+          secureHeaders['X-Resell-Session']=sessionToken;
+          secureHeaders['Authorization']='Bearer '+sessionToken;
+          // Last-resort query fallback if the reverse proxy strips headers.
+          try{ const u=new URL(requestUrl,location.href); u.searchParams.set('rsess',sessionToken); requestUrl=u.toString(); }catch(_){}
+        } else if(initData){
           secureHeaders['X-Telegram-Init-Data']=initData;
           secureHeaders['Authorization']='tma '+initData;
-          // Guaranteed fallback transport when a proxy strips those headers.
-          // The backend still performs the Telegram HMAC check.
           requestUrl=appendTelegramAuth(requestUrl,initData);
-        } else if (userId && /\/(?:hold|engagement|quests|passive|tycoon|cars|garage|avito|profile|referr|bank|taxi|rcoin)/i.test(url)) {
+        } else if (userId && needsTelegramAuth) {
           throw Object.assign(new Error('Открой RESSELL через Telegram — Telegram-сессия не передана'), {status:401});
         }
         const resp=await fetch(requestUrl,{cache:'no-store',...options,signal:controller.signal,headers:secureHeaders});
@@ -2290,15 +2345,18 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
         lastError=e?.name==='AbortError'?new Error('Сервер не ответил вовремя'):e;
         if(i<attempts-1){
           if(lastError?.status===401){
-            // A 401 can be caused by a restored/stale WebView session.
-            // Discard the fallback and give Telegram a moment to expose the live one.
             cachedTelegramInitData='';
+            cachedResellSession='';
+            resellSessionUid='';
+            resellSessionExp=0;
+            try{sessionStorage.removeItem('resell_telegram_session_v2');}catch(_){}
             try{
               const live=window.Telegram?.WebApp;
               if(live) tg=live;
               tg?.ready?.(); tg?.expand?.();
             }catch(_){}
-            await waitForTelegramInitData(1200);
+            const fresh=await waitForTelegramInitData(1800);
+            if(fresh){ try{ await ensureResellSession(fresh,true); }catch(_){} }
           }
           await new Promise(r=>setTimeout(r,350*(i+1)));
         }
