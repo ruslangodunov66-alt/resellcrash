@@ -1689,9 +1689,20 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
 
   const params = new URLSearchParams(location.search);
   let cachedTelegramInitData = '';
+  function rawWebAppParam(source, key){
+    try{
+      const text=String(source||'');
+      const re=new RegExp('(?:^|[&])'+key.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'=([^&]*)');
+      const m=text.match(re);
+      return m ? m[1] : '';
+    }catch(_){ return ''; }
+  }
+  function decodeOuter(value){
+    try{ return decodeURIComponent(String(value||'')); }catch(_){ return String(value||''); }
+  }
   function getTelegramInitData(useCache=true){
-    // Live Telegram WebApp initData is authoritative. A cached value can become
-    // stale when Telegram restores a WebView, which then causes false 401s.
+    // Live Telegram WebApp initData is authoritative and is already in its
+    // canonical URL-encoded form. Never run it through URLSearchParams again.
     try {
       const live = window.Telegram?.WebApp || tg;
       if (live) tg = live;
@@ -1699,21 +1710,20 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
       if (direct) { cachedTelegramInitData = direct; return direct; }
     } catch(_) {}
 
-    // Only use the in-memory fallback while Telegram is still restoring.
     if (useCache && cachedTelegramInitData) return cachedTelegramInitData;
 
-    // Compatibility for WebView launches that expose the signed payload in URL/hash.
-    try {
-      const currentParams = new URLSearchParams(location.search || '');
-      const fromQuery = String(currentParams.get('initData') || currentParams.get('tgWebAppData') || '').trim();
-      if (fromQuery) return fromQuery;
-    } catch(_) {}
-    try {
-      const rawHash = String(location.hash || '').replace(/^#\?/, '').replace(/^#/, '');
-      const hash = new URLSearchParams(rawHash);
-      const fromHash = String(hash.get('tgWebAppData') || hash.get('initData') || '').trim();
-      if (fromHash) return fromHash;
-    } catch(_) {}
+    // Compatibility for Telegram WebViews that expose tgWebAppData in the URL/hash.
+    // Extract the single parameter without interpreting inner '+' characters.
+    const queryRaw=String(location.search||'').replace(/^\?/,'');
+    const hashRaw=String(location.hash||'').replace(/^#\?/,'').replace(/^#/,'');
+    for(const source of [queryRaw,hashRaw]){
+      for(const key of ['tgWebAppData','initData']){
+        const encoded=rawWebAppParam(source,key);
+        if(!encoded) continue;
+        const decoded=decodeOuter(encoded).trim();
+        if(decoded) return decoded;
+      }
+    }
     return '';
   }
   function telegramAuthHeaders(extra={}){
@@ -1726,17 +1736,27 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     }
     return headers;
   }
+  function encodeBase64UrlUtf8(value){
+    try{
+      const bytes=new TextEncoder().encode(String(value||''));
+      let bin='';
+      for(let i=0;i<bytes.length;i++) bin+=String.fromCharCode(bytes[i]);
+      return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+    }catch(_){ return ''; }
+  }
   function appendTelegramAuth(url, initData){
     const raw=String(initData||'').trim();
     if(!raw) return url;
     try{
       const u=new URL(url, location.href);
-      // Fallback transport for WebViews/proxies that strip custom headers.
-      // The server verifies this exact signed Telegram payload with HMAC.
-      u.searchParams.set('tg_auth', raw);
+      // Lossless fallback transport. The backend base64-decodes first and then
+      // performs the normal Telegram HMAC verification on the original string.
+      const encoded=encodeBase64UrlUtf8(raw);
+      if(encoded) u.searchParams.set('tg_auth_b64', encoded);
       return u.toString();
     }catch(_){
-      return String(url)+(String(url).includes('?')?'&':'?')+'tg_auth='+encodeURIComponent(raw);
+      const encoded=encodeBase64UrlUtf8(raw);
+      return String(url)+(String(url).includes('?')?'&':'?')+'tg_auth_b64='+encodeURIComponent(encoded);
     }
   }
   function getTelegramUserIdFromInitData(){
