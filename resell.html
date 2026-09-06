@@ -1688,24 +1688,31 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   }
 
   const params = new URLSearchParams(location.search);
+  let cachedTelegramInitData = '';
   function getTelegramInitData(){
+    // Prefer the live Telegram WebApp object. It is the canonical source and
+    // avoids relying on a stale launch URL after Telegram restores a WebView.
     try {
       const live = window.Telegram?.WebApp || tg;
       if (live) tg = live;
       const direct = String(live?.initData || '').trim();
-      if (direct) return direct;
+      if (direct) { cachedTelegramInitData = direct; return direct; }
     } catch(_) {}
-    // Compatibility: Telegram can expose initData in the launch URL/hash
-    // when the page is restored or opened through a webview wrapper.
+
+    // Keep a verified value available while Telegram restores/repaints the page.
+    if (cachedTelegramInitData) return cachedTelegramInitData;
+
+    // Compatibility: Telegram can expose initData in the launch URL/hash.
     try {
-      const fromQuery = String(params.get('initData') || params.get('tgWebAppData') || '').trim();
-      if (fromQuery) return decodeURIComponent(fromQuery);
+      const currentParams = new URLSearchParams(location.search || '');
+      const fromQuery = String(currentParams.get('initData') || currentParams.get('tgWebAppData') || '').trim();
+      if (fromQuery) { cachedTelegramInitData = fromQuery; return fromQuery; }
     } catch(_) {}
     try {
       const rawHash = String(location.hash || '').replace(/^#\?/, '').replace(/^#/, '');
       const hash = new URLSearchParams(rawHash);
       const fromHash = String(hash.get('tgWebAppData') || hash.get('initData') || '').trim();
-      if (fromHash) return fromHash;
+      if (fromHash) { cachedTelegramInitData = fromHash; return fromHash; }
     } catch(_) {}
     return '';
   }
@@ -2154,7 +2161,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     claimBtn.textContent = 'Получить награду';
   }
 
-  async function waitForTelegramInitData(timeoutMs=3000){
+  async function waitForTelegramInitData(timeoutMs=5000){
     const started=Date.now();
     while(Date.now()-started < timeoutMs){
       // Telegram can expose WebApp slightly after the document script starts.
@@ -2181,7 +2188,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
       try{
         try{ tg?.ready?.(); }catch(_){}
         const needsTelegramAuth=/\/(?:hold|engagement|quests|passive|tycoon|cars|garage|avito|profile|referr|bank|taxi|rcoin|container|race|poker|game_result|buy-case|case-win|deposit|withdraw|claim-reward|register|admin)/i.test(url);
-        const initData=needsTelegramAuth ? await waitForTelegramInitData(1800) : getTelegramInitData();
+        const initData=needsTelegramAuth ? await waitForTelegramInitData(3000) : getTelegramInitData();
         const secureHeaders={'Accept':'application/json','Cache-Control':'no-cache',...(options.headers||{})};
         let requestUrl=url;
         if(initData){
