@@ -4334,9 +4334,22 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
         // Taxi button collects only the Taxopark ledger.
         const d=await tycoonFetch(`/tycoon/taxopark/${encodeURIComponent(userId)}/collect-profit`,{method:'POST'});
         profileData=profileData||{}; profileData.balance=d.balance??profileData.balance; setBalance(profileData.balance);
+        // Do NOT reload the whole profile/taxipark after collection.
+        // A collection changes only the cash ledger/cursor; rebuilding the
+        // fleet here can briefly rehydrate stale garage data and visually
+        // reset wear. Keep the live fleet cards untouched and update only
+        // the money/pending-profit UI. The next explicit refresh will read
+        // the authoritative server state.
+        const pendingNode=document.querySelector('.taxi-profit-amount');
+        if(pendingNode) pendingNode.textContent='0 ₽';
+        const rateNode=document.querySelector('.taxi-profit-rate');
+        const hourlyNode=Number(d.hourly_profit??window.__taxiHourly??0);
+        if(rateNode) rateNode.textContent='+'+number(hourlyNode)+' ₽ / час';
+        const collectNode=document.querySelector('[data-taxi-collect]');
+        if(collectNode){ collectNode.disabled=true; collectNode.textContent='НАКОПЛЕНИЙ НЕТ'; }
+        window.__taxiPendingBase=0;
+        window.__taxiPendingAt=Number(d.server_time||Math.floor(Date.now()/1000));
         showToast(d.message||'Пассивный доход зачислен');
-        await loadProfile();
-        await renderTycoon();
       }catch(_){ btn.disabled=false; }
       return;
     }
