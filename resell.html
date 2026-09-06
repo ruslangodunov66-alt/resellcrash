@@ -1743,17 +1743,23 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   function getTelegramUserIdFromInitData(){
     return canonicalTelegramUserId;
   }
-  // Do not freeze userId before Telegram has supplied initData. The WebApp
-  // object may become available a moment after this script starts.
-  let userId = canonicalTelegramUserId || '';
+  let userId = '';
+  const ADMIN_OWNER_ID = '1475910449';
+  let isAdmin = false;
+  let isOwner = false;
   function syncTelegramUserId(){
+    // Identity is always derived from the canonical signed Telegram initData.
+    // Do not rely on initDataUnsafe or a stale URL/local value for protected API calls.
     const signedId=getTelegramUserIdFromInitData();
     if(signedId) userId=signedId;
+    isOwner = String(userId||'') === ADMIN_OWNER_ID;
+    if(isOwner) isAdmin = true;
     return String(userId||'');
   }
-  const ADMIN_OWNER_ID = '1475910449';
-  let isAdmin = String(userId) === ADMIN_OWNER_ID;
-  const isOwner = String(userId) === ADMIN_OWNER_ID;
+  // Telegram may already have populated initData before this script reaches here.
+  // Capture it immediately so owner/admin state is not frozen against an empty userId.
+  try{ rememberTelegramInitData(String(window.Telegram?.WebApp?.initData || tg?.initData || '')); }catch(_){}
+  syncTelegramUserId();
   let adminState = {players:[], selected:null};
 
   const $ = (s) => document.querySelector(s);
@@ -4578,15 +4584,23 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   (async()=>{
     let bootData=null;
     setBootWelcome({identified:false});
-    // First establish Telegram identity, then load any protected endpoint.
-    // Previously loadProfile() ran while userId was still empty, so the new
-    // canonical-auth patch could never start synchronization on a cold launch.
+    setBootState('ОПРЕДЕЛЯЕМ ВАШ АККАУНТ',6);
+    // Wait for Telegram initData BEFORE the first profile request.
+    // The profile endpoint may be readable without auth, while Tycoon/Admin are protected.
+    // This ordering keeps one canonical Telegram identity for the whole Mini App session.
     try{
       await waitForTelegramInitData(5000);
       syncTelegramUserId();
-      isAdmin = String(userId) === ADMIN_OWNER_ID;
+      if(!isOwner){
+        try{
+          const meUrl=`${API_BASE}/admin/me/${encodeURIComponent(userId)}`;
+          const r=await fetch(meUrl,{cache:'no-store',headers:telegramAuthHeaders()});
+          if(r.ok){ const d=await r.json().catch(()=>({})); if(d?.success) isAdmin=true; }
+        }catch(_){}
+      }
+      if(isOwner) isAdmin=true;
+      if(isAdmin) $('#adminBtn')?.classList.add('visible');
     }catch(_){}
-    setBootState('ОПРЕДЕЛЯЕМ ВАШ АККАУНТ',6);
     const dataPromise=loadProfile().then(async(data)=>{
       bootData=data;
       try{setBootWelcome({identified:true});}catch(_){ }
