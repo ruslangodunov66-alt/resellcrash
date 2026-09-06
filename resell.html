@@ -1726,6 +1726,19 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     }
     return headers;
   }
+  function appendTelegramAuth(url, initData){
+    const raw=String(initData||'').trim();
+    if(!raw) return url;
+    try{
+      const u=new URL(url, location.href);
+      // Fallback transport for WebViews/proxies that strip custom headers.
+      // The server verifies this exact signed Telegram payload with HMAC.
+      u.searchParams.set('tg_auth', raw);
+      return u.toString();
+    }catch(_){
+      return String(url)+(String(url).includes('?')?'&':'?')+'tg_auth='+encodeURIComponent(raw);
+    }
+  }
   function getTelegramUserIdFromInitData(){
     try {
       const raw = getTelegramInitData();
@@ -2013,7 +2026,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     if(!userId){error.textContent='❌ Открой RESSELL внутри Telegram';return;}
     btn.disabled=true;btn.textContent='СОЗДАНИЕ…';error.textContent='';
     try{
-      const resp=await fetch(`${API_BASE}/register/${encodeURIComponent(userId)}`,{method:'POST',cache:'no-store',headers:telegramAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify({nickname:registrationDraft.nickname,shop_name:shopName,referrer_id:referralRegistrationToken()})});
+      const init=await waitForTelegramInitData(3000); const authUrl=appendTelegramAuth(`${API_BASE}/register/${encodeURIComponent(userId)}`,init); const resp=await fetch(authUrl,{method:'POST',cache:'no-store',headers:telegramAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify({nickname:registrationDraft.nickname,shop_name:shopName,referrer_id:referralRegistrationToken()})});
       const payload=await resp.json().catch(()=>({}));
       if(!resp.ok||!payload.success) throw new Error(payload.error||'Не удалось создать аккаунт');
       registrationRequired=false;if(modalClose) modalClose.style.display='';closeModal();
@@ -2230,12 +2243,12 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
           requestUrl=requestUrl.replace(/(\/(?:profile|engagement|quests|passive|tycoon|cars|garage|avito|referr|bank|taxi|rcoin|container|race|poker|game_result)\/)\d+/i, '$1'+userId);
         }
         if(initData){
-          // Keep signed Telegram initData OUT of the URL. Besides leaking the
-          // session into access logs, query transport can add another encoding
-          // layer and break signature verification. Send the canonical string
-          // unchanged in request headers only.
+          // Primary transport: headers.
           secureHeaders['X-Telegram-Init-Data']=initData;
           secureHeaders['Authorization']='tma '+initData;
+          // Guaranteed fallback transport when a proxy strips those headers.
+          // The backend still performs the Telegram HMAC check.
+          requestUrl=appendTelegramAuth(requestUrl,initData);
         } else if (userId && /\/(?:hold|engagement|quests|passive|tycoon|cars|garage|avito|profile|referr|bank|taxi|rcoin)/i.test(url)) {
           throw Object.assign(new Error('Открой RESSELL через Telegram — Telegram-сессия не передана'), {status:401});
         }
@@ -2707,7 +2720,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     ];
     for(const [endpoint,body] of attempts){
       try{
-        const init=await waitForTelegramInitData(3000); const endpointAuth=endpoint; const resp=await fetch(endpointAuth,{method:'POST',cache:'no-store',headers:telegramAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify(body)});
+        const init=await waitForTelegramInitData(3000); const endpointAuth=appendTelegramAuth(endpoint,init); const resp=await fetch(endpointAuth,{method:'POST',cache:'no-store',headers:telegramAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify(body)});
         if(resp.ok){
           try{
             const payload=await resp.json();
@@ -3483,7 +3496,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
       let success=false,payload=null;
       for(const endpoint of endpoints){
         try{
-          const init=await waitForTelegramInitData(3000); const endpointAuth=endpoint; const resp=await fetch(endpointAuth,{method:'POST',cache:'no-store',headers:telegramAuthHeaders({'Content-Type':'application/json'})});
+          const init=await waitForTelegramInitData(3000); const endpointAuth=appendTelegramAuth(endpoint,init); const resp=await fetch(endpointAuth,{method:'POST',cache:'no-store',headers:telegramAuthHeaders({'Content-Type':'application/json'})});
           if(!resp.ok) continue;
           const data=await resp.json();
           if(data?.success){ success=true;payload=data;break; }
@@ -4115,7 +4128,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
 
   async function adminFetch(path, options={}){
     if(!isAdmin) throw new Error('Нет доступа');
-    const init=await waitForTelegramInitData(3000); const authPath=`${API_BASE}${path}`; const resp=await fetch(authPath,{cache:'no-store',...options,headers:telegramAuthHeaders({'Content-Type':'application/json',...(options.headers||{})})});
+    const init=await waitForTelegramInitData(3000); const authPath=appendTelegramAuth(`${API_BASE}${path}`,init); const resp=await fetch(authPath,{cache:'no-store',...options,headers:telegramAuthHeaders({'Content-Type':'application/json',...(options.headers||{})})});
     let data={}; try{data=await resp.json();}catch(_){data={};}
     if(!resp.ok || data.success===false) throw new Error(data.error||'Ошибка администратора');
     return data;
