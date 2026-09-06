@@ -1688,31 +1688,45 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   }
 
   const params = new URLSearchParams(location.search);
-  let cachedTelegramInitData = '';
-  function getTelegramInitData(useCache=true){
-    // Live Telegram WebApp initData is authoritative. A cached value can become
-    // stale when Telegram restores a WebView, which then causes false 401s.
+  // One canonical Telegram identity for the lifetime of this WebView.
+  // Never let a later WebApp object, sessionStorage value or URL userId replace it.
+  let canonicalTelegramInitData = '';
+  let canonicalTelegramUserId = '';
+  function rememberTelegramInitData(raw){
+    const value=String(raw||'').trim();
+    if(!value) return '';
+    if(canonicalTelegramInitData) return canonicalTelegramInitData;
+    try{
+      const q=new URLSearchParams(value);
+      const user=JSON.parse(q.get('user')||'{}');
+      const uid=String(user?.id||'').trim();
+      if(!uid) return '';
+      canonicalTelegramInitData=value;
+      canonicalTelegramUserId=uid;
+      return canonicalTelegramInitData;
+    }catch(_){ return ''; }
+  }
+  function getTelegramInitData(){
+    if(canonicalTelegramInitData) return canonicalTelegramInitData;
     try {
       const live = window.Telegram?.WebApp || tg;
       if (live) tg = live;
       const direct = String(live?.initData || '').trim();
-      if (direct) { cachedTelegramInitData = direct; return direct; }
+      if (direct && rememberTelegramInitData(direct)) return canonicalTelegramInitData;
     } catch(_) {}
 
-    // Only use the in-memory fallback while Telegram is still restoring.
-    if (useCache && cachedTelegramInitData) return cachedTelegramInitData;
-
     // Compatibility for WebView launches that expose the signed payload in URL/hash.
+    // This is used only to establish the canonical payload before any protected request.
     try {
       const currentParams = new URLSearchParams(location.search || '');
       const fromQuery = String(currentParams.get('initData') || currentParams.get('tgWebAppData') || '').trim();
-      if (fromQuery) return fromQuery;
+      if (fromQuery && rememberTelegramInitData(fromQuery)) return canonicalTelegramInitData;
     } catch(_) {}
     try {
       const rawHash = String(location.hash || '').replace(/^#\?/, '').replace(/^#/, '');
       const hash = new URLSearchParams(rawHash);
       const fromHash = String(hash.get('tgWebAppData') || hash.get('initData') || '').trim();
-      if (fromHash) return fromHash;
+      if (fromHash && rememberTelegramInitData(fromHash)) return canonicalTelegramInitData;
     } catch(_) {}
     return '';
   }
@@ -1727,22 +1741,12 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     return headers;
   }
   function getTelegramUserIdFromInitData(){
-    try {
-      const raw = getTelegramInitData();
-      if (!raw) return '';
-      const q = new URLSearchParams(raw);
-      const user = JSON.parse(q.get('user') || '{}');
-      return user?.id ? String(user.id) : '';
-    } catch(_) { return ''; }
+    return canonicalTelegramUserId;
   }
-  let userId = tg?.initDataUnsafe?.user?.id || getTelegramUserIdFromInitData() || params.get('userId') || '';
+  let userId = canonicalTelegramUserId;
   function syncTelegramUserId(){
-    try{
-      const live=window.Telegram?.WebApp || tg;
-      if(live) tg=live;
-      const liveId=String(tg?.initDataUnsafe?.user?.id || getTelegramUserIdFromInitData() || '').trim();
-      if(liveId) userId=liveId;
-    }catch(_){}
+    const signedId=getTelegramUserIdFromInitData();
+    if(signedId) userId=signedId;
     return String(userId||'');
   }
   const ADMIN_OWNER_ID = '1475910449';
@@ -2188,7 +2192,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     const liveGraceMs=Math.min(1200, Math.max(300, Math.floor(timeoutMs*0.25)));
     while(Date.now()-started < timeoutMs){
       // Telegram can expose WebApp slightly after the document script starts.
-      // Always prefer the current live initData and never let an old cache win.
+      // Once captured, the exact signed payload remains canonical for this WebView.
       try{
         const live=window.Telegram?.WebApp;
         if(live) tg=live;
@@ -2197,18 +2201,16 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
       }catch(_){}
       let raw='';
       try{ raw=String(window.Telegram?.WebApp?.initData || tg?.initData || '').trim(); }catch(_){}
-      if(raw) { cachedTelegramInitData=raw; return raw; }
+      if(raw) { const captured=rememberTelegramInitData(raw); if(captured) return captured; }
 
-      // Only after Telegram had a chance to initialize, allow the URL/hash
-      // compatibility path. This avoids restoring an old cached WebView session.
       if(Date.now()-started >= liveGraceMs){
-        raw=getTelegramInitData(false);
+        raw=getTelegramInitData();
         if(raw) return raw;
       }
       await new Promise(r=>setTimeout(r,120));
     }
     try{ if(window.Telegram?.WebApp) tg=window.Telegram.WebApp; }catch(_){}
-    return getTelegramInitData(false);
+    return getTelegramInitData(true);
   }
 
   async function apiFetch(url, options={}, attempts=3){
@@ -2221,14 +2223,6 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
         const needsTelegramAuth=/\/(?:hold|engagement|quests|passive|tycoon|cars|garage|avito|profile|referr|bank|taxi|rcoin|container|race|poker|game_result|buy-case|case-win|deposit|withdraw|claim-reward|register|admin)/i.test(url);
         const initData=needsTelegramAuth ? await waitForTelegramInitData(5000) : getTelegramInitData();
         syncTelegramUserId();
-        if(initData){
-          try{
-            const q=new URLSearchParams(initData);
-            const initUser=JSON.parse(q.get('user')||'{}');
-            const liveId=String(initUser?.id||'').trim();
-            if(liveId) userId=liveId;
-          }catch(_){}
-        }
         const secureHeaders={'Accept':'application/json','Cache-Control':'no-cache',...(options.headers||{})};
         // Do not allow a caller-supplied stale auth header to override the
         // current Telegram WebApp payload below.
@@ -2269,15 +2263,18 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
         lastError=e?.name==='AbortError'?new Error('Сервер не ответил вовремя'):e;
         if(i<attempts-1){
           if(lastError?.status===401){
-            // A 401 can be caused by a restored/stale WebView session.
-            // Discard the fallback and give Telegram a moment to expose the live one.
-            cachedTelegramInitData='';
+            // NEVER erase the previously captured signed Telegram initData on a
+            // transient 401. Doing so creates a failure cascade: the first
+            // rejected request deletes the only usable session and every next
+            // protected request becomes 401 as well. Keep the exact signed
+            // payload in memory/sessionStorage and give Telegram a moment to
+            // restore its live WebApp object.
             try{
               const live=window.Telegram?.WebApp;
               if(live) tg=live;
               tg?.ready?.(); tg?.expand?.();
             }catch(_){}
-            await waitForTelegramInitData(1200);
+            await waitForTelegramInitData(1500);
           }
           await new Promise(r=>setTimeout(r,350*(i+1)));
         }
