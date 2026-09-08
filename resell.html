@@ -1461,7 +1461,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
       </div>
       <div class="rhold-control-v20" id="rholdCustomizeControl">
         <div><span class="rhold-control-kicker">R-HOLD STYLE</span><b id="rholdCustomizeLabel">СТИЛЬ R</b></div>
-        <button type="button" id="rholdCustomizeBtn">СМЕНИТЬ</button>
+        <button type="button" id="rholdCustomizeBtn">КАСТОМИЗАЦИЯ</button>
       </div>
       <div class="farm-stage">
         <div class="farm-ring" id="farmRing"><div class="farm-glow"></div><div class="farm-r" id="farmR">R</div><div class="farm-timer" id="farmTimer" aria-hidden="true" style="display:none">0:00</div></div>
@@ -3974,9 +3974,9 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
       const d=await tycoonFetch(`/tycoon/property/${encodeURIComponent(userId)}`);
       const currentId=d.current?.id;
       body=`<div class="tycoon-shell">
-        <div class="tycoon-top"><div class="tycoon-kicker">REAL ESTATE PORTFOLIO</div><div class="tycoon-balance">${esc((d.current?.name||'Комната').replace(/^[^А-ЯA-Za-z]+/,'').trim())}</div><div class="tycoon-sub">Недвижимость — статусный актив. Пассивный доход от домов не начисляется; покупка и продажа считаются сервером.</div></div>
-        <div class="tycoon-section"><div class="tycoon-label">Текущая недвижимость</div><div class="tycoon-card"><div class="tycoon-title">${esc(d.current?.name||'Комната')}</div><div class="tycoon-meta">${number(d.current?.price||0)} ₽ · без пассивного дохода</div></div></div>
-        <div class="tycoon-section"><div class="tycoon-section-head"><div class="tycoon-label">Каталог недвижимости</div><div class="tycoon-section-note">Слева направо: выше стоимость → выше статус</div></div><div class="tycoon-grid">${(d.houses||[]).map((h,i)=>{const owned=h.id===currentId;const image=TYCOON_PROPERTY_IMAGES[i] || DORM_ROOM_IMAGE;return `<div class="tycoon-house" data-house-id="${esc(h.id)}"><img class="tycoon-house-img" src="${image}" loading="lazy" alt=""><div class="tycoon-house-copy"><div class="tycoon-house-name">${esc(h.name.replace(/^[^А-ЯA-Za-z]+/,'').trim())}</div><div class="tycoon-house-desc">${esc(h.description||'Недвижимость для увеличения капитала.')}</div><div class="tycoon-house-bottom"><div><div class="tycoon-price">${number(h.price)} ₽</div><div class="tycoon-income">БЕЗ ПАССИВНОГО ДОХОДА</div></div>${owned?'<span class="tycoon-current">ТЕКУЩИЙ ОБЪЕКТ</span>':(Number(h.price)<=Number(d.current?.price||0)?'<button class="tycoon-btn" disabled>НИЖЕ УРОВНЕМ</button>':`<button class="tycoon-btn primary" data-buy-house="${esc(h.id)}">ПРИОБРЕСТИ</button>`)}</div></div></div>`}).join('')}</div></div>
+        <div class="tycoon-top"><div class="tycoon-kicker">REAL ESTATE PORTFOLIO</div><div class="tycoon-balance">${esc((d.current?.name||'Комната').replace(/^[^А-ЯA-Za-z]+/,'').trim())}</div><div class="tycoon-sub">Недвижимость приносит пассивный доход каждый час. Чем выше объект — тем выше доход.</div></div>
+        <div class="tycoon-section"><div class="tycoon-label">Текущая недвижимость</div><div class="tycoon-card"><div class="tycoon-title">${esc(d.current?.name||'Комната')}</div><div class="tycoon-meta">${number(d.current?.price||0)} ₽ · +${number(d.current?.income_per_hour||0)} ₽/час</div></div></div>
+        <div class="tycoon-section"><div class="tycoon-section-head"><div class="tycoon-label">Каталог недвижимости</div><div class="tycoon-section-note">Слева направо: выше стоимость → выше статус</div></div><div class="tycoon-grid">${(d.houses||[]).map((h,i)=>{const owned=h.id===currentId;const image=TYCOON_PROPERTY_IMAGES[i] || DORM_ROOM_IMAGE;return `<div class="tycoon-house" data-house-id="${esc(h.id)}"><img class="tycoon-house-img" src="${image}" loading="lazy" alt=""><div class="tycoon-house-copy"><div class="tycoon-house-name">${esc(h.name.replace(/^[^А-ЯA-Za-z]+/,'').trim())}</div><div class="tycoon-house-desc">${esc(h.description||'Недвижимость для увеличения капитала.')}</div><div class="tycoon-house-bottom"><div><div class="tycoon-price">${number(h.price)} ₽</div><div class="tycoon-income">+${number(h.income_per_hour||0)} ₽ / ЧАС</div></div>${owned?'<span class="tycoon-current">ТЕКУЩИЙ ОБЪЕКТ</span>':(Number(h.price)<=Number(d.current?.price||0)?'<button class="tycoon-btn" disabled>НИЖЕ УРОВНЕМ</button>':`<button class="tycoon-btn primary" data-buy-house="${esc(h.id)}">ПРИОБРЕСТИ</button>`)}</div></div></div>`}).join('')}</div></div>
         ${currentId!=='room'?`<button class="tycoon-btn" id="tycoonSellHouse" style="width:100%">ПРОДАТЬ ТЕКУЩУЮ НЕДВИЖИМОСТЬ</button>`:''}
       </div>`;
     } else if(tycoonTab==='cars') {
@@ -4980,6 +4980,15 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   })();
   setInterval(() => { if (document.visibilityState === 'visible') loadProfile(); }, 60000);
 
+  // V26 bridge: expose only stable read/call primitives for isolated UI modules.
+  window.__resellCoreV26 = {
+    apiFetch,
+    getUserId: () => String(userId || ''),
+    getProfile: () => profileData || null,
+    setBalance,
+    showToast
+  };
+
 })();
 </script>
 <style id="taxi-ux-fixes">
@@ -5168,7 +5177,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   }
   function applyRholdSkinById(id,list){const x=(list||[]).find(v=>v.id===id);if(!x)return;const panel=document.querySelector('#farmPanel')||document.querySelector('.farm-panel');if(!panel)return;panel.style.setProperty('--rhold-bg',x.bg);panel.style.setProperty('--rhold-border',x.border);panel.style.setProperty('--rhold-accent',x.accent);panel.style.setProperty('--rhold-glow',x.glow);panel.dataset.rholdSkin=id;}
   async function loadRholdSkinV19(){if(!userId)return;try{const r=await apiFetch(`${API_BASE}/hold/skins/${encodeURIComponent(userId)}?t=${Date.now()}`,{method:'GET'},2);const d=await r.json();if(r.ok&&d.success)applyRholdSkinById(d.equipped,d.skins||[]);}catch(_){} }
-  function ensureRholdButtonV19(){const panel=document.querySelector('#farmPanel');if(!panel||panel.querySelector('.rhold-v19-btn'))return;const b=document.createElement('button');b.type='button';b.className='rhold-v19-btn';b.textContent=currentLang==='en'?'CUSTOMIZE':'КАСТОМИЗАЦИЯ';b.addEventListener('click',e=>{e.stopPropagation();openRholdShopV19();});panel.style.position='relative';panel.appendChild(b);loadRholdSkinV19();}
+  function ensureRholdButtonV19(){const panel=document.querySelector('#farmPanel');if(!panel||panel.querySelector('.rhold-v19-btn'))return;const b=document.createElement('button');b.type='button';b.className='rhold-v19-btn';b.textContent=currentLang==='en'?'CUSTOMIZE':'КАСТОМИЗАЦИЯ';b.addEventListener('click',e=>{e.stopPropagation();(window.__resellOpenCustomizationV26||(()=>{}))();});panel.style.position='relative';panel.appendChild(b);loadRholdSkinV19();}
   function ensureMomentumV19(){const act=document.querySelector('.section .section-title')?.parentElement?.parentElement; if(!act)return;const activityTitle=[...document.querySelectorAll('.section-title')].find(x=>x.textContent.trim()==='Активность'||x.textContent.trim()==='Activity');const section=activityTitle?.closest('.section');if(!section||section.querySelector('.momentum-v19'))return;const box=document.createElement('div');box.className='momentum-v19';box.innerHTML='<div class="momentum-v19-top"><div><div class="momentum-v19-kicker">RESSELL · MOMENTUM</div><div class="momentum-v19-title">Сегодня двигаешься вверх</div></div><div class="momentum-v19-badge">NEXT UNLOCK</div></div><div class="momentum-v19-bar"><i style="width:18%"></i></div><div class="momentum-v19-meta"><span>Прогресс загрузится после синхронизации</span><span>LVL —</span></div><div class="momentum-v19-route"><span>DAILY</span><span>R-HOLD</span><span>NETWORK</span></div>';section.querySelector('.actions')?.before(box);renderMomentumV19(box);}
   function renderMomentumV19(box){if(!box)return;const e=engagementData||{};const lvl=Math.max(1,Number(e.level||1)),xp=Number(e.xp||0),req=Math.max(1,Number(e.xp_required||1)),pct=Math.min(100,xp/req*100),streak=Math.max(1,Number(e.streak||1)),friends=Array.isArray(friendsData?.friends)?friendsData.friends.length:0;const dayDone=Boolean(e.last_checkin_at&&getLastCompletedAt({last_completed_at:e.last_checkin_at})===getLastCompletedAt({last_completed_at:Math.floor(Date.now()/1000)}));box.innerHTML=`<div class="momentum-v19-top"><div><div class="momentum-v19-kicker">RESSELL · MOMENTUM</div><div class="momentum-v19-title">${currentLang==='en'?'Keep the line moving':'Продолжай держать линию'}</div></div><div class="momentum-v19-badge">LVL ${lvl}</div></div><div class="momentum-v19-bar"><i style="width:${pct}%"></i></div><div class="momentum-v19-meta"><span>${xp.toLocaleString()} / ${req.toLocaleString()} XP</span><span>${streak} ${currentLang==='en'?'DAY STREAK':'ДНЕЙ СЕРИЯ'}</span></div><div class="momentum-v19-route"><span class="${dayDone?'done':''}">DAILY</span><span>R-HOLD</span><span class="${friends>0?'done':''}">NETWORK</span></div>`;}
   // Keep the working V18/V16 event system, only intercept Friends and add V19-only surfaces.
@@ -5291,7 +5300,9 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
       b.addEventListener('touchstart',e=>{e.stopPropagation();},{passive:false});
       b.addEventListener('click',async function(e){
         e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
-        await openRholdShopSafeV25();
+        const opener=window.__resellOpenCustomizationV26;
+        if(typeof opener==='function') await opener();
+        else showToast('Кастомизация загружается…');
       },{passive:false});
     }
     const panel=document.getElementById('farmPanel');if(panel)panel.style.position='relative';
@@ -5300,7 +5311,9 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     const b=e.target?.closest?.('#rholdCustomizeBtn');
     if(!b)return;
     e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
-    openRholdShopSafeV25();
+    const opener=window.__resellOpenCustomizationV26;
+    if(typeof opener==='function') opener();
+    else { window.setTimeout(()=>window.__resellOpenCustomizationV26?.(),0); }
   },true);
   try{ensureRholdButtonV20();}catch(_){}
   try{ensureMomentumV20();}catch(_){}
@@ -5310,5 +5323,168 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   setTimeout(()=>clearInterval(t),30000);
 })();
 </script>
+
+<style id="resell-v26-customization">
+  .r26-overlay{position:fixed;inset:0;z-index:120;display:none;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.70);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+  .r26-overlay.open{display:flex}
+  .r26-sheet{width:min(560px,100vw);max-height:92vh;overflow:auto;background:linear-gradient(180deg,#151815,#080a09);border:1px solid rgba(255,255,255,.10);border-bottom:0;border-radius:28px 28px 0 0;box-shadow:0 -30px 100px rgba(0,0,0,.65),inset 0 1px 0 rgba(255,255,255,.04);padding:10px 14px calc(20px + env(safe-area-inset-bottom))}
+  .r26-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:6px 2px 12px}
+  .r26-kicker{font:950 7px/1 "Montserrat";letter-spacing:1.8px;color:#6d756e}
+  .r26-title{margin-top:7px;font:950 22px/1 "Montserrat";letter-spacing:-.5px}
+  .r26-sub{margin-top:6px;color:#737b75;font:800 9px/1.35 "Nunito"}
+  .r26-close{width:36px;height:36px;border-radius:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#999}
+  .r26-summary{display:grid;grid-template-columns:1.15fr .85fr;gap:8px;margin-bottom:12px}
+  .r26-stat{padding:11px 12px;border-radius:15px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.06)}
+  .r26-stat small{display:block;color:#5f6761;font:900 6px/1 "Montserrat";letter-spacing:1px}
+  .r26-stat b{display:block;margin-top:5px;color:#eef1ed;font:950 12px/1.1 "Montserrat"}
+  .r26-stat.accent b{color:#b7ff6a}
+  .r26-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-bottom:11px}
+  .r26-tab{padding:9px 5px;border-radius:11px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);color:#666;font:950 6px/1 "Montserrat";letter-spacing:.6px;text-transform:uppercase}
+  .r26-tab.active{background:#fff;color:#060706;border-color:#fff}
+  .r26-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+  .r26-card{padding:10px;border-radius:17px;background:linear-gradient(145deg,#151815,#0a0c0b);border:1px solid rgba(255,255,255,.065);position:relative;overflow:hidden}
+  .r26-card.locked{opacity:.58}
+  .r26-preview{height:86px;border-radius:14px;display:grid;place-items:center;margin-bottom:9px;background:var(--r26-bg,radial-gradient(circle,#1a1d1a,#070807));border:1px solid var(--r26-border,rgba(183,255,106,.24));box-shadow:0 0 28px var(--r26-glow,rgba(183,255,106,.08))}
+  .r26-preview.rhold span{font:950 48px/.8 "Montserrat";font-style:italic;color:var(--r26-accent,#b7ff6a);text-shadow:0 0 20px var(--r26-glow,rgba(183,255,106,.2))}
+  .r26-preview.nick span{font:950 17px/1 "Montserrat";color:var(--r26-accent,#fff);text-shadow:0 0 18px var(--r26-glow,rgba(255,255,255,.3))}
+  .r26-preview.avatar{width:86px;margin:0 auto 9px;border-radius:50%;position:relative;background:linear-gradient(145deg,#e9eee9,#929992);color:#080b08}
+  .r26-preview.avatar span{font:950 30px/1 "Montserrat"}
+  .r26-preview.avatar:after{content:"";position:absolute;inset:-5px;border-radius:50%;border:2px solid var(--r26-accent,#b7ff6a);box-shadow:0 0 20px var(--r26-glow,rgba(183,255,106,.25))}
+  .r26-preview.badge span{font:950 12px/1 "Montserrat";letter-spacing:1px;color:var(--r26-accent,#b7ff6a)}
+  .r26-card-name{font:950 9px/1.15 "Montserrat";text-transform:uppercase}
+  .r26-card-meta{margin-top:5px;color:#646c66;font:800 8px/1.25 "Nunito";min-height:20px}
+  .r26-card-btn{width:100%;margin-top:8px;padding:9px;border-radius:11px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.07);color:#aeb5ae;font:950 7px/1 "Montserrat";letter-spacing:.6px}
+  .r26-card-btn.primary{background:#fff;color:#050505;border-color:#fff}
+  .r26-card-btn.equipped{background:rgba(183,255,106,.10);color:#b7ff6a;border-color:rgba(183,255,106,.22)}
+  .r26-req{margin-top:6px;color:#555d57;font:900 6.5px/1.2 "Montserrat"}
+  .r26-section{margin-top:12px;margin-bottom:7px;color:#676f69;font:950 7px/1 "Montserrat";letter-spacing:1.3px}
+  .r26-note{margin-top:11px;padding:10px 11px;border-radius:13px;background:rgba(183,255,106,.04);border:1px solid rgba(183,255,106,.09);color:#707971;font:800 8px/1.35 "Nunito"}
+  @media(max-width:390px){.r26-grid{grid-template-columns:1fr}.r26-tabs .r26-tab{font-size:5.7px}.r26-summary{grid-template-columns:1fr 1fr}}
+
+<style id="resell-v26-visual-overrides">
+  .farm-panel .farm-ring{background:var(--rhold-bg,radial-gradient(circle,#111 0 51%,rgba(183,255,106,.08) 52%,rgba(183,255,106,.02) 68%,transparent 69%));border-color:var(--rhold-border,rgba(183,255,106,.18));box-shadow:0 0 0 8px rgba(183,255,106,.025),0 0 70px var(--rhold-glow,rgba(183,255,106,.10)),inset 0 0 40px var(--rhold-glow,rgba(183,255,106,.05))}
+  .tycoon-income{color:#b7ff6a!important}
+  .r26-nick-glow{transition:.25s ease}
+</style>
+<script id="resell-v26-customization">
+(function(){
+  const CORE=()=>window.__resellCoreV26;
+  let cache=null, activeTab='rhold', busy=false;
+  const escV=v=>String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'","&#039;");
+  const money=v=>Math.round(Number(v)||0).toLocaleString('ru-RU');
+  function ensureOverlay(){
+    let o=document.getElementById('r26Customization');
+    if(o)return o;
+    o=document.createElement('div');o.id='r26Customization';o.className='r26-overlay';
+    o.innerHTML='<div class="r26-sheet" role="dialog" aria-modal="true"><div class="r26-head"><div><div class="r26-kicker">RESSELL · ЛИЧНЫЙ СТИЛЬ</div><div class="r26-title">МАГАЗИН КАСТОМИЗАЦИИ</div><div class="r26-sub">Меняй внешний вид R-HOLD, ника и профиля.</div></div><button type="button" class="r26-close" id="r26Close">✕</button></div><div id="r26Body"></div></div>';
+    document.body.appendChild(o);
+    o.addEventListener('click',e=>{if(e.target===o)close();});
+    o.querySelector('#r26Close').addEventListener('click',close);
+    return o;
+  }
+  function close(){document.getElementById('r26Customization')?.classList.remove('open');}
+  function ratingTitle(sales){sales=Number(sales)||0; if(sales>=100)return '5.0+ · ЛЕГЕНДА'; if(sales>=50)return '5.0 · 5 ЗВЁЗД'; if(sales>=25)return '4.5 · 4+ ЗВЕЗДЫ'; if(sales>=10)return '4.0 · 4 ЗВЕЗДЫ'; return 'ДО 4 ЗВЁЗД';}
+  function category(item){
+    const k=item.kind||'';
+    if(k==='era'||k==='premium'||k==='network')return 'rhold';
+    if(k==='nick_glow')return 'nick';
+    if(k==='avatar_frame')return 'avatar';
+    return 'badge';
+  }
+  function tabLabel(t){return t==='rhold'?'R-HOLD':t==='nick'?'НИК':t==='avatar'?'АВАТАР':'ЗНАЧОК';}
+  function preview(item){
+    const k=item.kind||'';
+    if(k==='avatar_frame') return `<div class="r26-preview avatar" style="--r26-accent:${escV(item.accent||'#b7ff6a')};--r26-glow:${escV(item.glow||'rgba(183,255,106,.2)')}"><span>R</span></div>`;
+    if(k==='nick_glow') return `<div class="r26-preview nick" style="--r26-accent:${escV(item.accent||'#fff')};--r26-glow:${escV(item.glow||'rgba(255,255,255,.2)')}"><span>@RESSELL</span></div>`;
+    if(k==='profile_badge') return `<div class="r26-preview badge" style="--r26-accent:${escV(item.accent||'#b7ff6a')};--r26-glow:${escV(item.glow||'rgba(183,255,106,.2)')}"><span>${escV(item.name)}</span></div>`;
+    return `<div class="r26-preview rhold" style="--r26-bg:${escV(item.bg||'radial-gradient(circle,#171b17,#080a08)')};--r26-border:${escV(item.border||'rgba(183,255,106,.24)')};--r26-accent:${escV(item.accent||'#b7ff6a')};--r26-glow:${escV(item.glow||'rgba(183,255,106,.15)')}"><span>R</span></div>`;
+  }
+  function render(){
+    const o=ensureOverlay(), body=o.querySelector('#r26Body');
+    if(!cache){body.innerHTML='<div class="r26-note">Загрузка каталога…</div>';return;}
+    const sales=Number(cache.total_sales||0);
+    const tabs=['rhold','nick','avatar','badge'];
+    const arr=(cache.skins||[]).filter(x=>category(x)===activeTab);
+    const cards=arr.map(item=>{
+      const owned=Boolean(item.owned), equipped=Boolean(item.equipped), unlocked=Boolean(item.unlocked);
+      let req=item.lock_reason||'';
+      if(item.min_sales) req=`Авито: ${item.min_sales} продаж · ${ratingTitle(item.min_sales)}`;
+      let action=equipped?'ВКЛЮЧЕНО':owned?'ВКЛЮЧИТЬ':unlocked?(Number(item.price||0)>0?`КУПИТЬ · ${money(item.price)} ₽`:'ОТКРЫТЬ'):'ЗАКРЫТО';
+      let meta=unlocked?(owned?'Предмет уже в твоей коллекции':(item.price?`Цена ${money(item.price)} ₽`:'Доступно')):`Нужно: ${req}`;
+      const disabled=equipped||!unlocked||(busy);
+      return `<div class="r26-card ${!unlocked?'locked':''}">${preview(item)}<div class="r26-card-name">${escV(item.name)}</div><div class="r26-card-meta">${escV(meta)}</div>${!unlocked&&item.min_sales?`<div class="r26-req">Твой уровень: ${escV(ratingTitle(sales))}</div>`:''}<button type="button" class="r26-card-btn ${owned&&!equipped?'primary':''} ${equipped?'equipped':''}" data-r26-id="${escV(item.id)}" ${disabled?'disabled':''}>${escV(action)}</button></div>`;
+    }).join('');
+    body.innerHTML=`<div class="r26-summary"><div class="r26-stat accent"><small>ТВОЙ УРОВЕНЬ АВИТО</small><b>${escV(ratingTitle(sales))}</b></div><div class="r26-stat"><small>ПРОДАЖ</small><b>${money(sales)}</b></div></div><div class="r26-tabs">${tabs.map(t=>`<button type="button" class="r26-tab ${activeTab===t?'active':''}" data-r26-tab="${t}">${tabLabel(t)}</button>`).join('')}</div>${activeTab==='rhold'?'<div class="r26-section">ВИЗУАЛЬНЫЕ ВЕРСИИ R-HOLD</div>':''}<div class="r26-grid">${cards||'<div class="r26-note">Пока ничего не доступно.</div>'}</div><div class="r26-note">Новые элементы открываются по мере роста твоего уровня на Авито. Купил — сразу можешь включить.</div>`;
+    body.querySelectorAll('[data-r26-tab]').forEach(b=>b.addEventListener('click',()=>{activeTab=b.dataset.r26Tab;render();}));
+    body.querySelectorAll('[data-r26-id]').forEach(b=>b.addEventListener('click',()=>act(b.dataset.r26Id)));
+  }
+  async function load(){
+    const core=CORE(); if(!core?.apiFetch)return;
+    const uid=core.getUserId(); if(!uid)return;
+    const r=await core.apiFetch(`https://resellgame.bothost.tech/hold/skins/${encodeURIComponent(uid)}?t=${Date.now()}`,{method:'GET'},3);
+    const d=await r.json(); if(!r.ok||!d.success)throw new Error(d.error||'Не удалось загрузить магазин');
+    cache=d; render();
+    applyAllEquipped(d);
+  }
+  function applyAllEquipped(d){
+    const panel=document.querySelector('#farmPanel')||document.querySelector('.farm-panel');
+    const r=(d.skins||[]).find(x=>x.id===d.equipped_slots?.rhold) || (d.skins||[]).find(x=>x.id===d.equipped);
+    if(panel&&r){panel.style.setProperty('--rhold-bg',r.bg||'');panel.style.setProperty('--rhold-border',r.border||'');panel.style.setProperty('--rhold-accent',r.accent||'');panel.style.setProperty('--rhold-glow',r.glow||'');panel.dataset.rholdSkin=r.id;}
+    const nick=(d.skins||[]).find(x=>x.id===d.equipped_slots?.nick);
+    const avatar=(d.skins||[]).find(x=>x.id===d.equipped_slots?.avatar);
+    const badge=(d.skins||[]).find(x=>x.id===d.equipped_slots?.badge);
+    const name=document.querySelector('.balance-name');
+    if(name){
+      name.classList.toggle('r26-nick-glow',!!nick);
+      if(nick){name.style.color=nick.accent||'';name.style.textShadow=`0 0 18px ${nick.glow||'rgba(255,255,255,.3)'}`;} else {name.style.color='';name.style.textShadow='';}
+      name.dataset.r26Badge=badge?.name||'';
+    }
+    const brand=document.querySelector('.brand-mark');
+    if(brand){
+      brand.style.border=avatar?'2px solid '+(avatar.accent||'#b7ff6a'):'';
+      brand.style.boxShadow=avatar?`0 0 18px ${avatar.glow||'rgba(183,255,106,.25)'}`:'';
+    }
+  }
+  async function act(id){
+    if(busy)return; const core=CORE(); const uid=core?.getUserId(); if(!core?.apiFetch||!uid)return;
+    const item=(cache?.skins||[]).find(x=>x.id===id); if(!item)return;
+    busy=true;render();
+    try{
+      if(!item.owned){
+        const r=await core.apiFetch(`https://resellgame.bothost.tech/hold/skins/${encodeURIComponent(uid)}/buy`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skin_id:id})},3);
+        const d=await r.json();if(!r.ok||!d.success)throw new Error(d.error||'Не удалось купить');
+        cache.balance=d.balance??cache.balance;
+        core.setBalance?.(cache.balance);
+      }
+      const r2=await core.apiFetch(`https://resellgame.bothost.tech/hold/skins/${encodeURIComponent(uid)}/equip`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skin_id:id})},3);
+      const d2=await r2.json();if(!r2.ok||!d2.success)throw new Error(d2.error||'Не удалось включить');
+      await load();
+      core.showToast?.('Стиль применён');
+    }catch(e){core.showToast?.(e.message||'Ошибка');}
+    finally{busy=false;render();}
+  }
+  async function open(){
+    const o=ensureOverlay();o.classList.add('open');
+    try{await load();}catch(e){const body=o.querySelector('#r26Body');body.innerHTML=`<div class="r26-note">${escV(e.message||'Не удалось открыть магазин')}</div>`;}
+  }
+  window.__resellOpenCustomizationV26=open;
+  function bind(){
+    const b=document.getElementById('rholdCustomizeBtn');
+    if(!b)return;
+    b.type='button';b.disabled=false;b.style.pointerEvents='auto';b.removeAttribute('aria-disabled');
+    b.onclick=e=>{e.preventDefault();e.stopPropagation();open();return false;};
+    b.addEventListener('pointerdown',e=>e.stopPropagation(),{passive:false});
+    b.addEventListener('touchstart',e=>e.stopPropagation(),{passive:false});
+  }
+  document.addEventListener('click',e=>{
+    const b=e.target?.closest?.('#rholdCustomizeBtn');if(!b)return;
+    e.preventDefault();e.stopImmediatePropagation();open();
+  },true);
+  bind();setInterval(bind,900);
+  // Apply currently equipped cosmetics on startup.
+  setTimeout(()=>{load().catch(()=>{});},1200);
+})();
+</script>
+
 </body>
 </html>
