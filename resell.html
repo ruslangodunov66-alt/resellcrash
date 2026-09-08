@@ -1807,7 +1807,24 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     return '';
   }
 
+  function invalidateStaleTelegramCache(){
+    try{
+      const hint=String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '').trim();
+      if(hint && telegramUserId && hint!==telegramUserId){
+        // initDataUnsafe is NEVER used as proof of identity. It only tells us
+        // that Telegram appears to have switched accounts, so we discard the
+        // old signed payload and wait for the new signed initData.
+        telegramInitData='';
+        telegramUserId='';
+        userId='';
+        isOwner=false;
+        isAdmin=false;
+      }
+    }catch(_){}
+  }
+
   function getTelegramInitData(){
+    invalidateStaleTelegramCache();
     try{
       const live=window.Telegram?.WebApp || tg;
       if(live) tg=live;
@@ -2431,28 +2448,30 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
 
   async function waitForTelegramInitData(timeoutMs=5000){
     const started=Date.now();
-    const liveGraceMs=Math.min(1200, Math.max(300, Math.floor(timeoutMs*0.25)));
+    const hasWebApp=()=>!!(window.Telegram?.WebApp || tg);
+    let lastLive='';
     while(Date.now()-started < timeoutMs){
-      // Telegram can expose WebApp slightly after the document script starts.
-      // Once captured, the exact signed payload remains canonical for this WebView.
+      invalidateStaleTelegramCache();
       try{
         const live=window.Telegram?.WebApp;
         if(live) tg=live;
         tg?.ready?.();
         tg?.expand?.();
       }catch(_){}
-      let raw='';
-      try{ raw=String(window.Telegram?.WebApp?.initData || tg?.initData || '').trim(); }catch(_){}
-      if(raw) { const captured=captureTelegramInitData(raw); if(captured) return captured; }
-
-      if(Date.now()-started >= liveGraceMs){
-        raw=getTelegramInitData();
-        if(raw) return raw;
+      try{ lastLive=String(window.Telegram?.WebApp?.initData || tg?.initData || '').trim(); }catch(_){ lastLive=''; }
+      if(lastLive){
+        const captured=captureTelegramInitData(lastLive);
+        if(captured) return captured;
       }
+      // When a Telegram account is switched, the WebView can expose an empty
+      // live initData for a short interval. Do NOT fall back to the previous
+      // account's cached payload during that interval.
+      if(!hasWebApp()) break;
       await new Promise(r=>setTimeout(r,120));
     }
-    try{ if(window.Telegram?.WebApp) tg=window.Telegram.WebApp; }catch(_){}
-    return getTelegramInitData();
+    // Only use non-live fallbacks when there is no Telegram WebApp object at all.
+    if(!hasWebApp()) return getTelegramInitData();
+    return lastLive || '';
   }
 
   async function apiFetch(url, options={}, attempts=3){
@@ -2534,7 +2553,10 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   }
 
   async function loadProfile(){
-    if(!userId){ try{ await ensureTelegramIdentity(5000); }catch(_){} }
+    try{
+      invalidateStaleTelegramCache();
+      await ensureTelegramIdentity(4200);
+    }catch(_){}
     if(!userId){ setBalance(0); setProgress(0); statusText.textContent='Открой проект через Telegram'; return null; }
     statusText.textContent='Синхронизация…';
     let lastError=null;
@@ -2815,7 +2837,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
       const podium=[rows[1],rows[0],rows[2]].filter(Boolean),places=[2,1,3];
       const podiumHtml=`<div class="leaderboard-podium-v3">${podium.map((r,i)=>`<div class="podium-item ${places[i]===1?'first':''}"><div class="podium-rank">#${places[i]}</div><div class="podium-name">${esc(r.nickname||'Игрок')}</div><div class="podium-value">${number(valueFor(r))}${suffix}</div></div>`).join('')}</div>`;
       const self=String(profileData?.nickname||'').trim();
-      const list=rows.map((r,i)=>{const mine=self&&r.nickname===self;return `<div class="leaderboard-row top-${i+1}${mine?' self':''}"><div class="leaderboard-rank">${i+1}</div><div style="min-width:0"><div class="leaderboard-name">${esc(r.nickname||'Игрок')}${mine?' · ты':''}</div><div class="leaderboard-meta">${number(r.shops_count||0)} бизнесов · ${number(r.cars_count||0)} машин</div></div><div class="leaderboard-wealth"><div class="leaderboard-money">${number(valueFor(r))}${suffix}</div><div class="leaderboard-cars">${number(r.wealth||0)} ₽ капитал</div></div></div>`}).join('');
+      const list=rows.map((r,i)=>{const mine=(String(r.tg_id||'')===String(userId||''))||(self&&r.nickname===self);const ac=esc(r.customization?.nick?.accent||'');const gl=esc(r.customization?.nick?.glow||'');const av=esc(r.customization?.avatar?.accent||'');const badge=r.customization?.badge?.name?` <span class="leaderboard-public-badge" style="color:${esc(r.customization.badge.accent||'#b7ff6a')};border-color:${esc(r.customization.badge.accent||'#b7ff6a')}">[${esc(r.customization.badge.name)}]</span>`:'';return `<div class="leaderboard-row top-${i+1}${mine?' self':''}"><div class="leaderboard-rank">${i+1}</div><div style="min-width:0"><div class="leaderboard-name" style="${ac?`color:${ac};`:''}${gl?`text-shadow:0 0 10px ${gl};`:''}border-left:${av?`2px solid ${av}`:'0 solid transparent'};padding-left:${av?'6px':'0'}">${esc(r.nickname||'Игрок')}${badge}${mine?' · ты':''}</div><div class="leaderboard-meta">${number(r.shops_count||0)} бизнесов · ${number(r.cars_count||0)} машин</div></div><div class="leaderboard-wealth"><div class="leaderboard-money">${number(valueFor(r))}${suffix}</div><div class="leaderboard-cars">${number(r.wealth||0)} ₽ капитал</div></div></div>`}).join('');
       const sr=Number(payload.self_rank||0),se=payload.self_entry,selfNote=sr>10&&se?`<div class="leaderboard-self">Твоя позиция: <strong>#${sr}</strong> · ${number(valueFor(se))}${suffix}</div>`:'';
       return `${tabs}${podiumHtml}<div class="leaderboard-note">Серверный рейтинг по выбранной метрике. Переключай режимы и сравнивай свой прогресс.</div><div class="leaderboard-list">${list}</div>${selfNote}`;
     }catch(err){console.warn('Leaderboard load failed:',err);return '<div class="leaderboard-loading">Не удалось загрузить рейтинг. Попробуй обновить позже.</div>'}
@@ -4380,35 +4402,36 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     const totalDay=Number(d.total_per_day||totalHour*24);
     const taxiBusiness=d.taxi_business||{};
     const taxiHour=Number(taxiBusiness.hourly_income ?? d.hourly_breakdown?.taxopark ?? 0);
-    const taxiPending=Number(taxiBusiness.pending_collect ?? d.pending_breakdown?.taxopark ?? 0);
-    const taxiDay=taxiHour*24;
-    const tabs=[['overview','ОБЗОР'],['assets','МОИ АКТИВЫ'],['market','КУПИТЬ']];
+    const businessHour=Math.max(0,totalHour-taxiHour);
+    const tabs=[['overview','ОБЗОР'],['assets','МОИ БИЗНЕСЫ'],['market','КУПИТЬ']];
     const tabsHtml=tabs.map(([id,label])=>`<button class="business-tab-v5 ${businessViewTab===id?'active':''}" data-business-tab="${id}">${label}</button>`).join('');
+    const paybackDays=(price,h)=>h>0?(Number(price||0)/Number(h)/24):0;
     let content='';
-
     if(businessViewTab==='overview'){
-      content=`
-        <div class="business-section-v5"><div class="business-section-kicker-v5">ДЕНЕЖНЫЙ ПОТОК</div><div class="business-overview-grid-v5">
+      const next=catalog.filter(x=>!businesses.some(b=>b.id===x.id)).sort((a,b)=>Number(a.price)-Number(b.price))[0];
+      content=`<div class="business-section-v5">
+        <div class="business-section-kicker-v5">ТВОЯ ЭКОНОМИКА</div>
+        <div class="business-overview-grid-v5">
           <div class="business-stat-v5"><span>В ЧАС</span><b>${number(totalHour)} ₽</b></div>
           <div class="business-stat-v5"><span>В ДЕНЬ</span><b>${number(totalDay)} ₽</b></div>
           <div class="business-stat-v5"><span>НАКОПЛЕНО</span><b>${number(pending)} ₽</b></div>
-          <div class="business-stat-v5"><span>АКТИВОВ</span><b>${businesses.length + (taxiHour>0?1:0)}</b></div>
-        </div></div>
-        ${taxiHour>0 || taxiPending>0 ? `<div class="business-feature-v5"><div><div class="business-feature-icon-v5">🚕</div><div><b>ТАКСОПАРК</b><span>+${number(taxiHour)} ₽/ч · +${number(taxiDay)} ₽/день · ${number(taxiPending)} ₽ накоплено</span></div></div><button class="business-mini-btn-v5" data-business-taxi-open>ОТКРЫТЬ</button></div>` : ''}
-        <div class="business-feature-v5"><div><div class="business-feature-icon-v5">🏢</div><div><b>БИЗНЕСЫ</b><span>${businesses.length} активов · +${number(Math.max(0,totalHour-taxiHour))} ₽/ч</span></div></div><button class="business-mini-btn-v5" data-business-tab="assets">ОТКРЫТЬ</button></div>
-        <div class="business-feature-v5 ${debt>0?'warn':''}"><div><div class="business-feature-icon-v5">${debt>0?'⚠️':'✓'}</div><div><b>${debt>0?'ОБСЛУЖИВАНИЕ':'СИСТЕМА ОБСЛУЖИВАНИЯ'}</b><span>${debt>0?`Долг ${number(debt)} ₽`:'Все обязательства закрыты'}</span></div></div>${debt>0?`<button class="business-mini-btn-v5" id="businessMaintenanceInline">ОПЛАТИТЬ</button>`:'<span class="business-status-v5">OK</span>'}</div>`;
+          <div class="business-stat-v5"><span>БАЛАНС</span><b>${number(balance)} ₽</b></div>
+        </div>
+      </div>
+      <div class="business-feature-v5"><div><div class="business-feature-icon-v5">🏢</div><div><b>БИЗНЕСЫ</b><span>${businesses.length} активов · +${number(businessHour)} ₽/ч</span></div></div><button class="business-mini-btn-v5" data-business-tab="assets">ОТКРЫТЬ</button></div>
+      ${taxiHour>0?`<div class="business-feature-v5"><div><div class="business-feature-icon-v5">🚕</div><div><b>ТАКСОПАРК</b><span>+${number(taxiHour)} ₽/ч — отдельный источник</span></div></div><button class="business-mini-btn-v5" data-business-taxi-open>ОТКРЫТЬ</button></div>`:''}
+      ${next?`<div class="business-feature-v5"><div><div class="business-feature-icon-v5">↗</div><div><b>СЛЕДУЮЩИЙ ШАГ</b><span>${esc(next.name)} · ${number(next.price)} ₽ · +${number(next.income_per_hour)} ₽/ч</span></div></div><button class="business-mini-btn-v5" data-business-tab="market">КУПИТЬ</button></div>`:''}
+      <div class="business-feature-v5 ${debt>0?'warn':''}"><div><div class="business-feature-icon-v5">${debt>0?'⚠️':'✓'}</div><div><b>${debt>0?'ОБСЛУЖИВАНИЕ':'ОБСЛУЖИВАНИЕ OK'}</b><span>${debt>0?`К оплате ${number(debt)} ₽`:'Долг отсутствует'}</span></div></div>${debt>0?`<button class="business-mini-btn-v5" id="businessMaintenanceInline">ОПЛАТИТЬ</button>`:'<span class="business-status-v5">OK</span>'}</div>`;
     } else if(businessViewTab==='assets'){
-      content=`<div class="business-section-v5"><div class="business-section-kicker-v5">МОИ АКТИВЫ · ${businesses.length}</div><div class="business-list-v5">${businesses.length?businesses.map(b=>`<div class="business-asset-card-v5"><div class="business-asset-top-v5"><div><b>${esc(b.name)}</b><span>+${number(b.income_per_hour)} ₽/ч · +${number(b.income_per_day)} ₽/день</span></div><div class="business-asset-income-v5">${number(b.income_per_hour)} ₽<small>/ЧАС</small></div></div><div class="business-asset-bottom-v5"><span>${b.maintenance_days_left?`Обслуживание: ${b.maintenance_days_left} дн.`:'Требуется обслуживание'}</span><button class="business-mini-btn-v5" data-business-sell="${esc(b.id)}">ПРОДАТЬ · ${number(b.sell_price)} ₽</button></div></div>`).join(''):'<div class="business-empty-v5">Пока нет отдельных бизнесов. Перейди во вкладку «Купить», чтобы открыть первый актив.</div>'}</div></div>`;
+      content=`<div class="business-section-v5"><div class="business-section-kicker-v5">АКТИВЫ · ${businesses.length}</div><div class="business-list-v5">${businesses.length?businesses.map(b=>{const days=paybackDays(b.purchase_price||b.price,b.income_per_hour);return `<div class="business-asset-card-v5"><div class="business-asset-top-v5"><div><b>${esc(b.name)}</b><span>+${number(b.income_per_hour)} ₽/ч · +${number(b.income_per_day)} ₽/день</span></div><div class="business-asset-income-v5">+${number(b.income_per_hour)} ₽<small>В ЧАС</small></div></div><div class="business-asset-bottom-v5"><span>Окупаемость ≈ ${days.toFixed(1)} дн.</span><button class="business-mini-btn-v5" data-business-sell="${esc(b.id)}">ПРОДАТЬ · ${number(b.sell_price)} ₽</button></div></div>`;}).join(''):'<div class="business-empty-v5">Пока нет бизнесов. Купи первый актив во вкладке «Купить».</div>'}</div></div>`;
     } else {
-      const groups=[['СТАРТ',catalog.filter(x=>Number(x.price||0)<1000000)],['РОСТ',catalog.filter(x=>Number(x.price||0)>=1000000&&Number(x.price||0)<10000000)],['ПРЕМИУМ',catalog.filter(x=>Number(x.price||0)>=10000000)]];
-      content=groups.map(([group,items])=>items.length?`<div class="business-section-v5"><div class="business-section-kicker-v5">${group}</div><div class="business-buy-list-v5">${items.map(x=>`<div class="business-buy-card-v5"><div><b>${esc(x.name)}</b><span>${number(x.price)} ₽ · +${number(x.income_per_hour)} ₽/ч</span><small>Продажа: ${number(x.sell_price)} ₽</small></div><button class="business-buy-v5" data-business-buy="${esc(x.id)}">КУПИТЬ</button></div>`).join('')}</div></div>`:'').join('');
+      const groups=[['СТАРТ',catalog.filter(x=>Number(x.price||0)<1000000)],['РОСТ',catalog.filter(x=>Number(x.price||0)>=1000000&&Number(x.price||0)<50000000)],['ИМПЕРИЯ',catalog.filter(x=>Number(x.price||0)>=50000000)]];
+      content=groups.map(([group,items])=>items.length?`<div class="business-section-v5"><div class="business-section-kicker-v5">${group}</div><div class="business-buy-list-v5">${items.map(x=>{const days=paybackDays(x.price,x.income_per_hour);const owned=businesses.filter(b=>b.id===x.id).length;return `<div class="business-buy-card-v5"><div><b>${esc(x.name)}</b><span>${number(x.price)} ₽ · +${number(x.income_per_hour)} ₽/ч</span><small>Окупаемость ≈ ${days.toFixed(1)} дн. · у тебя ${owned}/2</small></div><button class="business-buy-v5" data-business-buy="${esc(x.id)}">КУПИТЬ</button></div>`;}).join('')}</div></div>`:'').join('');
     }
-
     return `<div class="business-control-v5">
-      <div class="business-hero-v5"><div><span>BUSINESS CENTER · RESSELL</span><b>${number(totalDay)} ₽ <em>/ ДЕНЬ</em></b><small>Баланс ${number(balance)} ₽ · ${number(totalHour)} ₽/ч</small></div><button class="business-collect-v5" id="businessCollectBtn" ${pending<=0?'disabled':''}>${pending>0?`ЗАБРАТЬ +${number(pending)} ₽`:'НАКОПЛЕНИЙ НЕТ'}</button></div>
-      <div class="business-maintenance-v5"><span>${debt>0?`⚠️ Обслуживание · долг ${number(debt)} ₽`:'✓ Обслуживание закрыто'}</span>${debt>0?`<button class="business-mini-btn-v5" id="businessMaintenanceBtn">ОПЛАТИТЬ</button>`:''}<button class="business-refresh-v5" id="businessRefreshBtn">↻</button></div>
-      <div class="business-tabs-v5">${tabsHtml}</div>
-      ${content}
+      <div class="business-hero-v5"><div><span>BUSINESS CENTER · ЕДИНАЯ ЭКОНОМИКА</span><b>${number(totalHour)} ₽ <em>/ ЧАС</em></b><small>${number(totalDay)} ₽ в день · баланс ${number(balance)} ₽</small></div><button class="business-collect-v5" id="businessCollectBtn" ${pending<=0?'disabled':''}>${pending>0?`ЗАБРАТЬ +${number(pending)} ₽`:'НАКОПЛЕНИЙ НЕТ'}</button></div>
+      <div class="business-maintenance-v5"><span>${debt>0?`⚠️ Обслуживание · ${number(debt)} ₽ к оплате`:'✓ Обслуживание закрыто'} · RCOIN начисляется за общий lifetime-заработок</span>${debt>0?`<button class="business-mini-btn-v5" id="businessMaintenanceBtn">ОПЛАТИТЬ</button>`:''}<button class="business-refresh-v5" id="businessRefreshBtn">↻</button></div>
+      <div class="business-tabs-v5">${tabsHtml}</div>${content}
     </div>`;
   }
 
@@ -4985,6 +5008,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     // The profile endpoint may be readable without auth, while Tycoon/Admin are protected.
     // This ordering keeps one canonical Telegram identity for the whole Mini App session.
     try{
+      invalidateStaleTelegramCache();
       await waitForTelegramInitData(5000);
       syncTelegramUserId();
       if(!isOwner){
@@ -5036,6 +5060,27 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     setBalance,
     showToast
   };
+
+  // Telegram can swap the signed session while this Mini App remains open.
+  // Re-resolve identity on resume/focus before the next protected request.
+  const refreshSessionIdentity=async()=>{
+    try{
+      invalidateStaleTelegramCache();
+      const before=String(userId||'');
+      const raw=await waitForTelegramInitData(3800);
+      const signed=getSignedTelegramUserId(raw);
+      if(signed){
+        userId=signed; telegramUserId=signed;
+        isOwner=String(userId)===ADMIN_OWNER_ID; if(isOwner) isAdmin=true;
+        if(before && before!==signed){
+          profileData=null; epochData=null; businessState=null; marketState=null;
+          try{ sessionStorage.setItem('resell_account_switched','1'); }catch(_){}
+        }
+      }
+    }catch(_){}
+  };
+  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') refreshSessionIdentity().then(()=>loadProfile().catch(()=>{})); });
+  window.addEventListener('focus',()=>refreshSessionIdentity().catch(()=>{}));
 
 })();
 </script>
@@ -5648,7 +5693,10 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   // Leaderboard gets a visible identity layer; metrics remain server-sourced.
   async function renderPublicLeaderboard(mode='wealth'){
     if(!uid())return; try{const r=await core().apiFetch(`${API}/leaderboard/wealth?limit=10&mode=${encodeURIComponent(mode)}&userId=${encodeURIComponent(uid())}&t=${Date.now()}`,{method:'GET'},3);const d=await r.json();if(!r.ok)throw new Error(d.error||'Рейтинг недоступен');const rows=d.leaderboard||[];const val=x=>({wealth:x.wealth,earned:x.earned,today:x.today,referrals:x.referrals,fleet:x.cars_count})[mode]??0;const suf=mode==='fleet'?' авто':mode==='referrals'?'':' ₽';const tabs=[['wealth','КАПИТАЛ'],['earned','ЗАРАБОТАНО'],['today','СЕГОДНЯ'],['referrals','РЕФЕРАЛЫ'],['fleet','АВТОПАРК']];openModal('Forbes · RESSELL',`<div class="leaderboard-modebar">${tabs.map(([id,l])=>`<button type="button" class="leaderboard-mode ${id===mode?'active':''}" data-r28-lb="${id}">${l}</button>`).join('')}</div><div class="r28-public-rail">${publicStyle(core().getProfile?.()?.customization,core().getProfile?.()?.nickname)}</div><div class="leaderboard-list">${rows.map((x,i)=>`<div class="leaderboard-row"><div class="r28-leader-card"><div class="r28-leader-avatar" style="border:2px solid ${esc(x.customization?.avatar?.accent||'#b7ff6a')};box-shadow:0 0 15px ${esc(x.customization?.avatar?.glow||'rgba(183,255,106,.18)')}">R</div><div style="min-width:0"><div class="leaderboard-name" style="color:${esc(x.customization?.nick?.accent||'')};text-shadow:0 0 12px ${esc(x.customization?.nick?.glow||'transparent')}">@${esc(x.nickname||'Игрок')}${x.customization?.badge?.name?` <span class="r28-prefix" style="border-color:${esc(x.customization.badge.accent||'#b7ff6a')};color:${esc(x.customization.badge.accent||'#b7ff6a')}">[${esc(x.customization.badge.name)}]</span>`:''}</div><div class="leaderboard-meta">${esc(x.customization?.rhold?.name||'BASE R-HOLD')} · ${Number(x.customization?.rhold?.reward_multiplier||1).toFixed(2)}× награды</div></div><div class="leaderboard-wealth"><div class="leaderboard-money">${money(val(x))}${suf}</div><div class="leaderboard-cars">#${i+1}</div></div></div></div>`).join('')}</div>`);document.querySelectorAll('[data-r28-lb]').forEach(b=>b.onclick=()=>renderPublicLeaderboard(b.dataset.r28Lb));}catch(e){core().showToast?.(e.message||'Ошибка рейтинга');}}
-  document.addEventListener('click',e=>{const b=e.target?.closest?.('#leaderboardBtn');if(!b)return;e.preventDefault();e.stopImmediatePropagation();renderPublicLeaderboard('wealth');},true);
+  // V33 visual identity layer must NOT replace the legacy leaderboard renderer.
+  // The old renderer is the stable layout; customization data is only layered
+  // into its existing rows.
+  // (Intentionally no second #leaderboardBtn handler here.)
 
   // Friends: decorate existing friend cards after the V20/V19 renderer runs.
   function decorateFriendsPublic(){
@@ -5757,6 +5805,13 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
 .v29-back{width:100%;margin-top:10px;padding:12px;border-radius:13px;border:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.025);color:#7b847d;font:950 6px/1 "Montserrat";letter-spacing:.8px}
 @media(max-width:430px){.v29-market-title,.v29-club-title{font-size:24px}.v29-card-grid{grid-template-columns:1fr}.v29-feature-grid{grid-template-columns:1fr 1fr 1fr}.v29-club-stats{grid-template-columns:1fr 1fr}.v29-style-grid{grid-template-columns:1fr 1fr}.v29-market-tab{padding:9px 4px;font-size:5.4px}}
 </style>
+<style id="resell-unified-ux-css">
+.leaderboard-public-badge{display:inline-block;margin-left:4px;padding:2px 4px;border:1px solid;border-radius:5px;font-size:7px;letter-spacing:.2px}
+.unified-market-note{margin:8px 0;padding:10px 12px;border-radius:13px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.05);color:#737d75;font:800 7px/1.35 Montserrat}
+.unified-market-choice{display:grid;gap:8px}.unified-market-choice .v29-card{cursor:pointer}.unified-market-choice .v29-card .v29-desc{min-height:auto}
+.unified-club-bars{display:grid;gap:8px;margin-top:10px}.unified-club-bar{display:grid;gap:5px}.unified-club-bar-head{display:flex;justify-content:space-between;color:#767e78;font:900 7px/1 Montserrat}.unified-club-track{height:7px;border-radius:99px;background:#070807;border:1px solid rgba(255,255,255,.06);overflow:hidden}.unified-club-track i{display:block;height:100%;border-radius:99px;background:#b7ff6a;box-shadow:0 0 14px rgba(183,255,106,.18)}
+@media(max-width:430px){.leaderboard-public-badge{font-size:6px}.business-buy-card-v5{align-items:flex-start}}
+</style>
 
 <script id="resell-v29-market-system">
 (function(){
@@ -5826,12 +5881,21 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   // ---------- Market Hub: all new features are discoverable from one screen ----------
   let marketState=null,marketTab='home',marketBusy=false;
   async function loadMarket(){const c=core(),u=uid();if(!c.apiFetch||!u)throw new Error('Telegram-сессия не определена');const r=await c.apiFetch(`${API}/resell/market/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'GET'},3);const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)throw new Error(d.error||'RESSELL Market недоступен');marketState=d;return d;}
-  function mtabs(){return `<div class="v33-market-tabs">${[['home','ОБЗОР'],['assets','АКТИВЫ'],['cars','COLLECTOR CARS'],['hof','ЗАЛ СЛАВЫ'],['black','BLACK MARKET'],['club','NIGHT CLUB']].map(([id,l])=>`<button class="v33-market-tab ${marketTab===id?'active':''}" data-v33-mtab="${id}">${l}</button>`).join('')}</div>`;}
-  function mhead(){const s=marketState||{};return `<div class="v29-market-hero"><div class="v29-market-kicker">RESSELL · CAPITAL LAYER</div><div class="v29-market-title">MARKET</div><div class="v29-market-sub">Единая точка для дорогих активов, коллекций, статуса и ночной экономики. Никаких вторых автосалонов.</div><div class="v29-market-balance"><strong>${money(s.balance||0)} ₽</strong><span>STATUS · ${esc(s.status?.name||'DEALER')}<br>${money(s.status?.total_sales||0)} продаж</span></div></div>`;}
+  function mtabs(){return `<div class="v33-market-tabs">${[['home','ОБЗОР'],['assets','АКТИВЫ'],['cars','МАШИНЫ'],['hof','ЗАЛ СЛАВЫ'],['black','BLACK MARKET'],['club','NIGHT CLUB']].map(([id,l])=>`<button class="v33-market-tab ${marketTab===id?'active':''}" data-v33-mtab="${id}">${l}</button>`).join('')}</div>`;}
+  function mhead(){const s=marketState||{};return `<div class="v29-market-hero"><div class="v29-market-kicker">RESSELL · CAPITAL LAYER</div><div class="v29-market-title">MARKET</div><div class="v29-market-sub">Единая точка для дорогих активов, коллекций, статуса и ночной экономики. Никаких вторых автосалонов.</div><div class="v29-market-balance"><strong>${money(s.balance||0)}</strong><span>STATUS · ${esc(s.status?.name||'DEALER')}<br>${money(s.status?.total_sales||0)} продаж</span></div></div>`;}
   async function marketBuy(id){if(marketBusy)return;marketBusy=true;try{const c=core(),u=uid();const r=await c.apiFetch(`${API}/resell/market/${encodeURIComponent(u)}/buy`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asset_id:id})},3);const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)throw new Error(d.error||'Покупка не выполнена');marketState.balance=d.balance??marketState.balance;marketState.owned=[...(marketState.owned||[]),id];c.setBalance?.(marketState.balance);c.showToast?.(d.message||'Покупка завершена');await loadMarket();}catch(e){core().showToast?.(e.message||'Ошибка');}finally{marketBusy=false;renderMarket();}}
-  function marketItem(x, owned){return `<div class="v29-collection-item"><div class="v29-collection-copy"><b>${esc(x.name)}</b><span>${esc(x.description||'')}</span></div><div class="v29-collection-side"><span class="v29-rarity" style="color:${esc(x.accent||'#b7ff6a')}">${esc(x.rarity||'ASSET')}</span><span class="v29-price">${money(x.price)} ₽</span><button class="v29-card-action ${owned?'owned':''}" data-v33-buy="${esc(x.id)}" ${owned?'disabled':''}>${owned?'В КОЛЛЕКЦИИ':'ЗАБРАТЬ'}</button></div></div>`;}
-  function marketView(){const s=marketState||{},o=s.owned||[];if(marketTab==='cars')return `${mhead()}${mtabs()}<div class="v29-section-head"><b>COLLECTOR CARS</b><span>Личные коллекционные машины.<br>Не смешиваются с Taxi/Auto.</span></div><div class="v33-car-grid">${(s.collector_cars||[]).map(x=>{const id='collector_car:'+x.id;return `<div class="v33-car"><div class="v33-car-art">R</div><b>${esc(x.name)}</b><span>${esc(x.description||'')}</span><div class="v29-rarity" style="color:${esc(x.accent||'#b7ff6a')};margin-top:7px">${esc(x.rarity||'')}</div><div class="v29-price" style="margin-top:4px">${money(x.price)} ₽</div>${o.includes(id)?'<div class="v29-card-action owned" style="margin-top:8px;text-align:center">В ГАРАЖЕ КОЛЛЕКЦИИ</div>':`<button class="v29-card-action" data-v33-buy="${esc(id)}">ПОЛУЧИТЬ</button>`}</div>`;}).join('')}</div>`;if(marketTab==='hof')return `${mhead()}${mtabs()}<div class="v29-section-head"><b>ЗАЛ СЛАВЫ</b><span>Топ‑10 по заработанному капиталу.</span></div><div class="v29-collection-list">${(s.hall_of_fame||[]).map((x,i)=>`<div class="v33-hof-row"><div class="v33-hof-rank">#${i+1}</div><div class="v33-hof-main"><b>@${esc(x.nickname||'Игрок')}</b><span>${money(x.total_sales||0)} продаж · ${money(x.balance||0)} ₽ баланс</span></div><div class="v33-hof-value">${money(x.total_earned||0)} ₽</div></div>`).join('')}</div>`;if(marketTab==='black')return `${mhead()}${mtabs()}<div class="v29-section-head"><b>BLACK MARKET</b><span>Ротация раз в сутки.</span></div><div class="v29-collection-list">${(s.black_market||[]).map(x=>marketItem(x,o.includes(x.id))).join('')}</div>`;if(marketTab==='assets'){return `${mhead()}${mtabs()}<div class="v29-section-head"><b>RESSELL EMPIRE</b><span>Единая линия офиса → HQ → Tower.</span></div><div class="v29-card-grid">${(s.empire||[]).map(x=>`<div class="v29-card"><div class="v29-card-top"><span class="v29-tier">TIER ${x.tier}</span><span class="v29-price">${money(x.price)} ₽</span></div><div class="v29-name">${esc(x.name)}</div><div class="v29-desc">${esc(x.description||'')}</div><button class="v29-card-action ${o.includes(x.id)?'owned':''}" data-v33-buy="${esc(x.id)}" ${o.includes(x.id)?'disabled':''}>${o.includes(x.id)?'ПОЛУЧЕНО':'ОТКРЫТЬ'}</button></div>`).join('')}</div><div class="v29-section-head"><b>КОЛЛЕКЦИИ & DROPS</b><span>Гарантированный reward pool.</span></div><div class="v29-collection-list">${(s.collectibles||[]).map(x=>marketItem(x,o.includes(x.id))).join('')}</div><div class="v29-collection-list" style="margin-top:7px">${(s.drops||[]).map(x=>marketItem(x,o.includes(x.id))).join('')}</div>`;}if(marketTab==='club'){const c=s.nightclub||{};return `${mhead()}${mtabs()}<div class="v29-club-shell"><div class="v29-club-hero"><div class="v29-club-kicker">RESSELL NIGHT ECONOMY</div><div class="v29-club-title">${esc(c.venue_name||'NIGHT CLUB')}</div><div class="v29-club-sub">Строй клуб, повышай уровень, увеличивай вместимость и собирай ночную прибыль.</div><div class="v29-club-stats"><div class="v29-club-stat"><small>ГОСТИ</small><b>${money(c.guest_count)}</b></div><div class="v29-club-stat"><small>ЛИМИТ</small><b>${money(c.capacity)}</b></div><div class="v29-club-stat"><small>РЕПУТАЦИЯ</small><b>${money(c.reputation)}</b></div><div class="v29-club-stat"><small>НАКОПЛЕНО</small><b>${money(c.pending_income)}</b></div></div>${c.pending_income>0?`<button class="v29-primary" data-v33-club-collect>ЗАБРАТЬ ${money(c.pending_income)}</button>`:''}${c.next_level?`<button class="v29-primary" data-v33-club-upgrade>УРОВЕНЬ ${c.next_level.level} · ${money(c.next_level.price)} ₽</button>`:''}</div></div>`;}return `${mhead()}${mtabs()}<div class="v33-status-card"><div class="v33-market-pill">STATUS · PUBLIC</div><b>${esc(s.status?.name||'DEALER')}</b><span>${money(s.status?.total_sales||0)} продаж · следующий статус: ${s.status?.next?money(s.status.next)+' продаж':'MAX'}</span><div class="v33-status-meter"><i style="width:${Math.min(100,Math.max(8,Number(s.status?.total_sales||0)/5))}%"></i></div></div><div class="v29-section-head"><b>БЫСТРЫЙ ДОСТУП</b><span>Всё новое собрано здесь.</span></div><div class="v29-card-grid v33-market-access"><button class="v29-card" data-v33-go="cars"><span class="v33-market-pill">NEW</span><div class="v29-name">COLLECTOR CARS</div><div class="v29-desc">Редкие автомобили для личной коллекции. Не Taxi.</div></button><button class="v29-card" data-v33-go="hof"><span class="v33-market-pill">TOP 10</span><div class="v29-name">ЗАЛ СЛАВЫ</div><div class="v29-desc">Публичная вершина RESSELL по заработанному капиталу.</div></button><button class="v29-card" data-v33-go="assets"><div class="v29-name">EMPIRE & DROPS</div><div class="v29-desc">Офис, HQ, Tower, коллекции и гарантированные Drops.</div></button><button class="v29-card" data-v33-go="club"><span class="v33-market-pill">NIGHT</span><div class="v29-name">NIGHT CLUB</div><div class="v29-desc">Отдельная ночная экономика и накопление прибыли.</div></button></div>`;}
-  async function renderMarket(){if(!marketState)await loadMarket();document.getElementById('modalBody').innerHTML=marketView();document.querySelectorAll('[data-v33-mtab]').forEach(b=>b.onclick=()=>{marketTab=b.dataset.v33Mtab;renderMarket();});document.querySelectorAll('[data-v33-go]').forEach(b=>b.onclick=()=>{marketTab=b.dataset.v33Go;renderMarket();});document.querySelectorAll('[data-v33-buy]').forEach(b=>b.onclick=()=>marketBuy(b.dataset.v33Buy));document.querySelector('[data-v33-club-upgrade]')?.addEventListener('click',async()=>{if(marketBusy)return;marketBusy=true;try{const c=core(),u=uid();const r=await c.apiFetch(`${API}/resell/nightclub/${encodeURIComponent(u)}/upgrade`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'},3);const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)throw new Error(d.error||'Не удалось улучшить клуб');c.setBalance?.(d.balance??marketState.balance);await loadMarket();c.showToast?.('Ночной клуб улучшен');renderMarket();}catch(e){core().showToast?.(e.message)}finally{marketBusy=false;}});document.querySelector('[data-v33-club-collect]')?.addEventListener('click',async()=>{if(marketBusy)return;marketBusy=true;try{const c=core(),u=uid();const r=await c.apiFetch(`${API}/resell/nightclub/${encodeURIComponent(u)}/collect`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'},3);const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)throw new Error(d.error||'Не удалось забрать доход');c.setBalance?.(d.balance??marketState.balance);await loadMarket();c.showToast?.(d.message||'Доход забран');renderMarket();}catch(e){core().showToast?.(e.message)}finally{marketBusy=false;}});}
+  function marketItem(x, owned){return `<div class="v29-collection-item"><div class="v29-collection-copy"><b>${esc(x.name)}</b><span>${esc(x.description||'')}</span></div><div class="v29-collection-side"><span class="v29-rarity" style="color:${esc(x.accent||'#b7ff6a')}">${esc(x.rarity||'ASSET')}</span><span class="v29-price">${money(x.price)}</span><button class="v29-card-action ${owned?'owned':''}" data-v33-buy="${esc(x.id)}" ${owned?'disabled':''}>${owned?'В КОЛЛЕКЦИИ':'ЗАБРАТЬ'}</button></div></div>`;}
+  function marketView(){
+    const s=marketState||{},o=s.owned||[];
+    if(marketTab==='cars') return `${mhead()}${mtabs()}<div class="unified-market-note">Коллекционные машины — это личная коллекция. Они не занимают места в Таксопарке и не создают второй Автосалон.</div><div class="v33-car-grid">${(s.collector_cars||[]).map(x=>{const id='collector_car:'+x.id;return `<div class="v33-car"><div class="v33-car-art">R</div><b>${esc(x.name)}</b><span>${esc(x.description||'')}</span><div class="v29-rarity" style="color:${esc(x.accent||'#b7ff6a')};margin-top:7px">${esc(x.rarity||'КОЛЛЕКЦИЯ')}</div><div class="v29-price" style="margin-top:4px">${money(x.price)}</div>${o.includes(id)?'<div class="v29-card-action owned" style="margin-top:8px;text-align:center">✓ В КОЛЛЕКЦИИ</div>':`<button class="v29-card-action" data-v33-buy="${esc(id)}">КУПИТЬ</button>`}</div>`;}).join('')}</div>`;
+    if(marketTab==='hof'){const rows=s.hall_of_fame||[];return `${mhead()}${mtabs()}<div class="v29-section-head"><b>ЗАЛ СЛАВЫ</b><span>Просто смотри, кто впереди.</span></div><div class="unified-market-note">Здесь важен один показатель: сколько игрок заработал за всё время. Без дополнительных правил.</div><div class="v29-collection-list">${rows.map((x,i)=>`<div class="v33-hof-row"><div class="v33-hof-rank">#${i+1}</div><div class="v33-hof-main"><b>@${esc(x.nickname||'Игрок')}</b><span>${number(x.total_sales||0)} продаж</span></div><div class="v33-hof-value">${money(x.total_earned||0)}</div></div>`).join('')||'<div class="v29-collection-item"><div class="v29-collection-copy"><b>Пока пусто</b><span>Когда игроки начнут зарабатывать, здесь появится TOP‑10.</span></div></div>'}</div><button class="v29-back" data-v33-go="home">← НАЗАД К MARKET</button>`;}
+    if(marketTab==='black') return `${mhead()}${mtabs()}<div class="v29-section-head"><b>BLACK MARKET</b><span>Редкие сделки · обновляются ежедневно.</span></div><div class="unified-market-note">Каждый лот покупается один раз. Цена и редкость уже указаны — никаких сложных механик.</div><div class="v29-collection-list">${(s.black_market||[]).map(x=>marketItem(x,o.includes(x.id))).join('')}</div><button class="v29-back" data-v33-go="home">← НАЗАД К MARKET</button>`;
+    if(marketTab==='assets') return `${mhead()}${mtabs()}<div class="v29-section-head"><b>ДОРОГИЕ АКТИВЫ</b><span>Следующий уровень капитала.</span></div><div class="unified-market-choice">${(s.empire||[]).map(x=>`<div class="v29-card"><div class="v29-card-top"><span class="v29-tier">УРОВЕНЬ ${x.tier}</span><span class="v29-price">${money(x.price)}</span></div><div class="v29-name">${esc(x.name)}</div><div class="v29-desc">${esc(x.description||'')}</div>${marketItem ? `<button class="v29-card-action ${o.includes(x.id)?'owned':''}" data-v33-buy="${esc(x.id)}" ${o.includes(x.id)?'disabled':''}>${o.includes(x.id)?'✓ ЕСТЬ':'ОТКРЫТЬ'}</button>`:''}</div>`).join('')}</div><div class="v29-section-head"><b>КОЛЛЕКЦИИ & DROPS</b><span>Покупка → гарантированный reward.</span></div><div class="v29-collection-list">${(s.collectibles||[]).map(x=>marketItem(x,o.includes(x.id))).join('')}${(s.drops||[]).map(x=>marketItem(x,o.includes(x.id))).join('')}</div>`;
+    if(marketTab==='club'){const c=s.nightclub||{};const cap=Math.max(1,Number(c.capacity||0));const guest=Math.min(cap,Math.max(0,Number(c.guest_count||0)));const rep=Math.min(100,Math.max(0,Number(c.reputation||0)));return `${mhead()}${mtabs()}<div class="v29-club-shell"><div class="v29-club-hero"><div class="v29-club-kicker">NIGHT CLUB · ОТДЕЛЬНАЯ НОЧНАЯ ЭКОНОМИКА</div><div class="v29-club-title">${esc(c.venue_name||'NIGHT CLUB')}</div><div class="v29-club-sub">Один экран: уровень, гости, репутация и сколько денег уже накопилось.</div><div class="v29-club-income"><small>ДОХОД КЛУБА</small><strong>+${money(c.income_per_hour||0)}</strong><span>В ЧАС · не связан с Business</span></div><div class="unified-club-bars"><div class="unified-club-bar"><div class="unified-club-bar-head"><span>ГОСТИ</span><b>${number(guest)} / ${number(cap)}</b></div><div class="unified-club-track"><i style="width:${Math.min(100,guest/cap*100)}%"></i></div></div><div class="unified-club-bar"><div class="unified-club-bar-head"><span>РЕПУТАЦИЯ</span><b>${number(rep)}%</b></div><div class="unified-club-track"><i style="width:${rep}%"></i></div></div></div><div class="v29-club-stats"><div class="v29-club-stat"><small>УРОВЕНЬ</small><b>${number(c.level||0)}</b></div><div class="v29-club-stat"><small>ГОСТИ</small><b>${number(guest)}</b></div><div class="v29-club-stat"><small>РЕПУТАЦИЯ</small><b>${number(rep)}%</b></div><div class="v29-club-stat"><small>НАКОПЛЕНО</small><b>${money(c.pending_income||0)}</b></div></div>${Number(c.pending_income||0)>0?`<button class="v29-primary" data-v33-club-collect>ЗАБРАТЬ +${money(c.pending_income)}</button>`:''}${c.next_level?`<button class="v29-primary" data-v33-club-upgrade>УЛУЧШИТЬ ДО ${number(c.next_level.level)} · ${money(c.next_level.price)}</button>`:'<div class="unified-market-note">MAX LEVEL · клуб уже на максимальном уровне.</div>'}<div class="v29-section-head"><b>СТИЛЬ</b><span>Только внешний вид.</span></div><div class="v29-style-grid">${(c.styles||[]).map(st=>`<button type="button" class="v29-style ${st.id===c.venue_style?'active':''}" data-v29-style="${esc(st.id)}"><div class="v29-style-dot" style="background:${esc(st.accent||'#b7ff6a')};box-shadow:0 0 18px ${esc(st.accent||'#b7ff6a')}"></div><b>${esc(st.name)}</b><span>${Number(st.price||0)>0?money(st.price):'БЕСПЛАТНО'}</span></button>`).join('')}</div></div></div>`;}
+    return `${mhead()}${mtabs()}<div class="v33-status-card"><div class="v33-market-pill">ТВОЙ СТАТУС</div><b>${esc(s.status?.name||'DEALER')}</b><span>${number(s.status?.total_sales||0)} продаж · следующий уровень: ${s.status?.next?number(s.status.next):'MAX'}</span><div class="v33-status-meter"><i style="width:${Math.min(100,Math.max(8,Number(s.status?.total_sales||0)/5))}%"></i></div></div><div class="unified-market-note">Market — это не обязательная часть новичка. Сначала подними основной доход в Business, потом трать капитал на коллекции и статус.</div><div class="v29-card-grid v33-market-access"><button class="v29-card" data-v33-go="cars"><div class="v29-name">МАШИНЫ</div><div class="v29-desc">Редкая личная коллекция. Не Taxi.</div></button><button class="v29-card" data-v33-go="hof"><div class="v29-name">ЗАЛ СЛАВЫ</div><div class="v29-desc">TOP‑10 по общему заработку.</div></button><button class="v29-card" data-v33-go="assets"><div class="v29-name">АКТИВЫ</div><div class="v29-desc">Дорогие объекты и коллекционные rewards.</div></button><button class="v29-card" data-v33-go="black"><div class="v29-name">BLACK MARKET</div><div class="v29-desc">Редкие лоты на сегодня.</div></button><button class="v29-card" data-v33-go="club"><div class="v29-name">NIGHT CLUB</div><div class="v29-desc">Отдельная ночная прибыль и стиль.</div></button></div>`;
+  }
+
+  async function renderMarket(){if(!marketState)await loadMarket();document.getElementById('modalBody').innerHTML=marketView();document.querySelectorAll('[data-v33-mtab]').forEach(b=>b.onclick=()=>{marketTab=b.dataset.v33Mtab;renderMarket();});document.querySelectorAll('[data-v33-go]').forEach(b=>b.onclick=()=>{marketTab=b.dataset.v33Go;renderMarket();});document.querySelectorAll('[data-v33-buy]').forEach(b=>b.onclick=()=>marketBuy(b.dataset.v33Buy));document.querySelector('[data-v33-club-upgrade]')?.addEventListener('click',async()=>{if(marketBusy)return;marketBusy=true;try{const c=core(),u=uid();const r=await c.apiFetch(`${API}/resell/nightclub/${encodeURIComponent(u)}/upgrade`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'},3);const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)throw new Error(d.error||'Не удалось улучшить клуб');c.setBalance?.(d.balance??marketState.balance);await loadMarket();c.showToast?.('Ночной клуб улучшен');renderMarket();}catch(e){core().showToast?.(e.message)}finally{marketBusy=false;}});document.querySelector('[data-v33-club-collect]')?.addEventListener('click',async()=>{if(marketBusy)return;marketBusy=true;try{const c=core(),u=uid();const r=await c.apiFetch(`${API}/resell/nightclub/${encodeURIComponent(u)}/collect`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'},3);const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)throw new Error(d.error||'Не удалось забрать доход');c.setBalance?.(d.balance??marketState.balance);await loadMarket();c.showToast?.(d.message||'Доход клуба зачислен');renderMarket();}catch(e){core().showToast?.(e.message)}finally{marketBusy=false;}});document.querySelectorAll('[data-v29-style]').forEach(b=>b.addEventListener('click',async()=>{if(marketBusy||b.classList.contains('active'))return;marketBusy=true;b.disabled=true;try{const c=core(),u=uid();const r=await c.apiFetch(`${API}/resell/nightclub/${encodeURIComponent(u)}/style`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({style_id:b.dataset.v29Style})},3);const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)throw new Error(d.error||'Не удалось сменить стиль');await loadMarket();c.showToast?.('Стиль клуба изменён');renderMarket();}catch(e){core().showToast?.(e.message)}finally{marketBusy=false;}}));}
   async function openMarket(){marketState=null;marketTab='home';const m=document.getElementById('modal');if(m){document.getElementById('modalTitle').textContent='RESSELL Market';document.getElementById('modalBody').innerHTML='<div class="loading">Загрузка Market…</div>';m.classList.add('open');document.body.style.overflow='hidden';}try{await loadMarket();await renderMarket();}catch(e){document.getElementById('modalBody').innerHTML=`<div class="v29-market-hero"><div class="v29-market-title">MARKET OFFLINE</div><div class="v29-market-sub">${esc(e.message||'Market временно недоступен')}</div></div>`;}}
   window.__resellOpenMarketV33=openMarket;
   document.addEventListener('click',e=>{const b=e.target?.closest?.('#resellMarketBtn');if(!b)return;e.preventDefault();e.stopImmediatePropagation();openMarket();},true);
