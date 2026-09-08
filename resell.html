@@ -3820,8 +3820,6 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
       </div>`;
   }
 
-  window.__resellOpenTycoonCars = async function(){ try{ tycoonTab='cars'; await renderTycoon(); }catch(err){ try{showToast(err.message||'Не удалось открыть Auto');}catch(_){} } };
-
   async function openUpgrades(){
     haptic('light');
     try{
@@ -3830,8 +3828,6 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
       $$('.upgrade-buy').forEach(btn=>btn.addEventListener('click',buyUpgrade));
     }catch(err){showToast('Не удалось открыть улучшения');}
   }
-
-  window.__resellOpenUpgrades = openUpgrades;
 
   async function buyUpgrade(e){
     const btn=e.currentTarget, id=btn.dataset.upgrade;
@@ -4437,15 +4433,14 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     catch(err){ showToast(err.message||'Не удалось обновить бизнес'); }
   }
 
-  async function businessAction(endpoint, body, successText){
+  async function businessAction(endpoint, body, successText, opts={}){
     try{
       const resp=await apiFetch(`${API_BASE}${endpoint}`,{method:'POST',body:JSON.stringify(body||{}),headers:{'Content-Type':'application/json','Accept':'application/json'}},3);
       const payload=await resp.json().catch(()=>({}));
       if(!resp.ok||!payload.success) throw new Error(payload.error||payload.message||'Операция не выполнена');
       profileData=profileData||{}; if(payload.balance!==undefined){profileData.balance=Number(payload.balance);setBalance(profileData.balance);}
       showToast(successText||payload.message||'Готово');
-      await fetchBusinessState();
-      modalBody.innerHTML=renderBusinessModal();
+      if(!opts.skipReload){ await fetchBusinessState(); modalBody.innerHTML=renderBusinessModal(); }
       return payload;
     }catch(err){ console.error('Business API error:',err); showToast(err.message||'Операция не выполнена'); throw err; }
   }
@@ -4829,7 +4824,14 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     }
     if(e.target.closest('#businessCollectBtn')){
       const btn=e.target.closest('#businessCollectBtn'); btn.disabled=true;
-      try{ await businessAction(`/business/${encodeURIComponent(userId)}/collect`,{},'Выручка зачислена на баланс'); }catch(_){ btn.disabled=false; }
+      try{
+        const payload=await businessAction(`/business/${encodeURIComponent(userId)}/collect`,{},'Выручка зачислена на баланс',{skipReload:true});
+        businessState=businessState||{};
+        businessState.balance=Number(payload.balance??businessState.balance??profileData?.balance??0);
+        businessState.pending_collect=0;
+        businessState.pending_breakdown={...(businessState.pending_breakdown||{}),shops:0,business:0};
+        modalBody.innerHTML=renderBusinessModal();
+      }catch(_){ btn.disabled=false; }
       return;
     }
     if(e.target.closest('#businessMaintenanceBtn')){
@@ -5511,37 +5513,22 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     }
   }
   async function act(id){
-    if(busy)return;
-    const c=core(),u=uid(),item=(cache?.skins||[]).find(x=>x.id===id);
-    if(!c.apiFetch||!u||!item)return;
-    busy=true;renderShop();
+    if(busy)return; const core=CORE(); const uid=core?.getUserId(); if(!core?.apiFetch||!uid)return;
+    const item=(cache?.skins||[]).find(x=>x.id===id); if(!item)return;
+    busy=true;render();
     try{
-      if(item.unlock_method==='stars' && !item.owned){
-        const r=await c.apiFetch(`${API}/hold/skins/${encodeURIComponent(u)}/stars-invoice`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skin_id:id})},3);
-        const d=await r.json().catch(()=>({}));
-        if(!r.ok||!d.success)throw new Error(d.error||'Не удалось создать оплату Stars');
-        const web=window.Telegram?.WebApp;
-        if(!web?.openInvoice)throw new Error('Оплата Stars доступна только внутри Telegram');
-        const status=await new Promise((resolve,reject)=>{try{web.openInvoice(d.invoice_url,resolve)}catch(err){reject(err)}});
-        if(status!=='paid')throw new Error(status==='cancelled'?'Покупка отменена':'Оплата Stars не завершена');
-        // Telegram sends successful_payment to the bot; give it a moment to grant the skin.
-        for(let i=0;i<5;i++){await new Promise(r=>setTimeout(r,600));try{await loadCatalog();if((cache?.skins||[]).find(x=>x.id===id)?.owned)break;}catch(_){} }
-        const fresh=(cache?.skins||[]).find(x=>x.id===id);
-        if(!fresh?.owned)throw new Error('Оплата прошла, но стиль ещё синхронизируется. Открой магазин через секунду.');
-        const r2=await c.apiFetch(`${API}/hold/skins/${encodeURIComponent(u)}/equip`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skin_id:id})},3);
-        const d2=await r2.json();if(!r2.ok||!d2.success)throw new Error(d2.error||'Не удалось включить');
-        await loadCatalog();c.showToast?.(`⭐ ${Number(d.stars||item.stars_price||0)} Stars · стиль применён`);
-      } else {
-        if(!item.owned){
-          const r=await c.apiFetch(`${API}/hold/skins/${encodeURIComponent(u)}/buy`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skin_id:id})},3);
-          const d=await r.json();if(!r.ok||!d.success)throw new Error(d.error||'Покупка не выполнена');
-        }
-        const r2=await c.apiFetch(`${API}/hold/skins/${encodeURIComponent(u)}/equip`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skin_id:id})},3);
-        const d2=await r2.json();if(!r2.ok||!d2.success)throw new Error(d2.error||'Не удалось включить');
-        await loadCatalog();c.showToast?.('Стиль применён — теперь он виден другим игрокам');
+      if(!item.owned){
+        const r=await core.apiFetch(`https://resellgame.bothost.tech/hold/skins/${encodeURIComponent(uid)}/buy`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skin_id:id})},3);
+        const d=await r.json();if(!r.ok||!d.success)throw new Error(d.error||'Не удалось купить');
+        cache.balance=d.balance??cache.balance;
+        core.setBalance?.(cache.balance);
       }
-    }catch(e){c.showToast?.(e.message||'Ошибка');}
-    finally{busy=false;renderShop();}
+      const r2=await core.apiFetch(`https://resellgame.bothost.tech/hold/skins/${encodeURIComponent(uid)}/equip`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skin_id:id})},3);
+      const d2=await r2.json();if(!r2.ok||!d2.success)throw new Error(d2.error||'Не удалось включить');
+      await load();
+      core.showToast?.('Стиль применён');
+    }catch(e){core.showToast?.(e.message||'Ошибка');}
+    finally{busy=false;render();}
   }
   async function open(){
     const o=ensureOverlay();o.classList.add('open');
@@ -5604,10 +5591,10 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     const sales=Number(cache.total_sales||0),arr=(cache.skins||[]).filter(x=>!x.legacy&&cat(x)===tab);
     const cards=arr.map(item=>{
       const owned=!!item.owned, eq=!!item.equipped, unlocked=!!item.unlocked;
-      const need=item.unlock_method==='stars'?`Только ⭐ ${Number(item.stars_price||0)}`:`ЭРА ${Number(item.unlock_era||1)}`;
-      const meta=owned?'В коллекции · можно включить':unlocked?(item.unlock_method==='stars'?`Цена ⭐ ${Number(item.stars_price||0)} Stars`:'Бесплатно · открывается по Эре'):`Нужно: ${need}`;
+      const need=item.min_sales?`Авито: ${item.min_sales} продаж · ${esc(item.tier||rating(item.min_sales))}`:String(item.lock_reason||'');
+      const meta=unlocked?(owned?'В коллекции · можно включить':`Цена ${money(item.price||0)} ₽`):`Нужно: ${need}`;
       const power=Number(item.reward_multiplier||1)>1?`НАГРАДА ×${Number(item.reward_multiplier).toFixed(2)}`:'';
-      const action=eq?'АКТИВНО':owned?'ВКЛЮЧИТЬ':unlocked?(item.unlock_method==='stars'?`КУПИТЬ · ⭐ ${Number(item.stars_price||0)}`:'ПОЛУЧИТЬ БЕСПЛАТНО'):'ЗАКРЫТО';
+      const action=eq?'АКТИВНО':owned?'ВКЛЮЧИТЬ':unlocked?(Number(item.price||0)?`КУПИТЬ · ${money(item.price)} ₽`:'ОТКРЫТЬ'):'ЗАКРЫТО';
       return `<div class="r28-card ${unlocked?'':'locked'}">${preview(item)}<div class="r28-card-name">${esc(item.name)}</div><div class="r28-card-meta">${esc(meta)}</div>${power?`<div class="r28-card-power">${power}</div>`:''}<button type="button" class="r28-card-btn ${owned&&!eq?'primary':''} ${eq?'equipped':''}" data-r28-item="${esc(item.id)}" ${eq||!unlocked||busy?'disabled':''}>${esc(action)}</button></div>`;
     }).join('');
     const tabs=[['rhold','R-HOLD'],['nick','НИК'],['avatar','АВАТАР'],['badge','ПРЕФИКС']];
@@ -5626,38 +5613,36 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     document.querySelectorAll('.brand-mark').forEach(el=>{if(av){el.style.border=`2px solid ${av.accent||'#b7ff6a'}`;el.style.boxShadow=`0 0 18px ${av.glow||'rgba(183,255,106,.2)'}`;}});
     if(nick){document.documentElement.style.setProperty('--r28-own-nick',nick.accent||'#b7ff6a');document.documentElement.style.setProperty('--r28-own-nick-glow',nick.glow||'rgba(183,255,106,.2)');}
   }
-  async function act(id){
-    if(busy)return;
-    const c=core(),u=uid(),item=(cache?.skins||[]).find(x=>x.id===id);
-    if(!c.apiFetch||!u||!item)return;
-    busy=true;renderShop();
-    try{
-      if(item.unlock_method==='stars' && !item.owned){
-        const r=await c.apiFetch(`${API}/hold/skins/${encodeURIComponent(u)}/stars-invoice`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skin_id:id})},3);
-        const d=await r.json().catch(()=>({}));
-        if(!r.ok||!d.success)throw new Error(d.error||'Не удалось создать оплату Stars');
-        const web=window.Telegram?.WebApp;
-        if(!web?.openInvoice)throw new Error('Оплата Stars доступна только внутри Telegram');
-        const status=await new Promise((resolve,reject)=>{try{web.openInvoice(d.invoice_url,resolve)}catch(err){reject(err)}});
-        if(status!=='paid')throw new Error(status==='cancelled'?'Покупка отменена':'Оплата Stars не завершена');
-        // Telegram sends successful_payment to the bot; give it a moment to grant the skin.
-        for(let i=0;i<5;i++){await new Promise(r=>setTimeout(r,600));try{await loadCatalog();if((cache?.skins||[]).find(x=>x.id===id)?.owned)break;}catch(_){} }
-        const fresh=(cache?.skins||[]).find(x=>x.id===id);
-        if(!fresh?.owned)throw new Error('Оплата прошла, но стиль ещё синхронизируется. Открой магазин через секунду.');
-        const r2=await c.apiFetch(`${API}/hold/skins/${encodeURIComponent(u)}/equip`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skin_id:id})},3);
-        const d2=await r2.json();if(!r2.ok||!d2.success)throw new Error(d2.error||'Не удалось включить');
-        await loadCatalog();c.showToast?.(`⭐ ${Number(d.stars||item.stars_price||0)} Stars · стиль применён`);
-      } else {
-        if(!item.owned){
-          const r=await c.apiFetch(`${API}/hold/skins/${encodeURIComponent(u)}/buy`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skin_id:id})},3);
-          const d=await r.json();if(!r.ok||!d.success)throw new Error(d.error||'Покупка не выполнена');
-        }
-        const r2=await c.apiFetch(`${API}/hold/skins/${encodeURIComponent(u)}/equip`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skin_id:id})},3);
-        const d2=await r2.json();if(!r2.ok||!d2.success)throw new Error(d2.error||'Не удалось включить');
-        await loadCatalog();c.showToast?.('Стиль применён — теперь он виден другим игрокам');
-      }
-    }catch(e){c.showToast?.(e.message||'Ошибка');}
-    finally{busy=false;renderShop();}
+  async function act(id){if(busy)return;const c=core(),u=uid(),item=(cache?.skins||[]).find(x=>x.id===id);if(!c.apiFetch||!u||!item)return;busy=true;renderShop();try{if(!item.owned){const r=await c.apiFetch(`${API}/hold/skins/${encodeURIComponent(u)}/buy`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skin_id:id})},3);const d=await r.json();if(!r.ok||!d.success)throw new Error(d.error||'Покупка не выполнена');}const r2=await c.apiFetch(`${API}/hold/skins/${encodeURIComponent(u)}/equip`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skin_id:id})},3);const d2=await r2.json();if(!r2.ok||!d2.success)throw new Error(d2.error||'Не удалось включить');await loadCatalog();c.showToast?.('Стиль применён — теперь он виден другим игрокам');}catch(e){c.showToast?.(e.message||'Ошибка');}finally{busy=false;renderShop();}}
+  function ensureShop(){let o=document.getElementById('r28Shop');if(o)return o;o=document.createElement('div');o.id='r28Shop';o.className='r28-shop-overlay';o.innerHTML='<div class="r28-shop-sheet"><div class="r28-head"><div><div class="r28-kicker">RESSELL · PUBLIC IDENTITY</div><div class="r28-title">МАГАЗИН СТИЛЯ</div><div class="r28-sub">Твои изменения не только у тебя — их видят в профиле, друзьях и лидерборде.</div></div><button type="button" class="r28-close" id="r28Close">✕</button></div><div id="r28Body"></div></div>';document.body.appendChild(o);o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('open');});o.querySelector('#r28Close').onclick=()=>o.classList.remove('open');return o;}
+  async function openShop(){const o=ensureShop();o.classList.add('open');renderShop();try{await loadCatalog();}catch(e){o.querySelector('#r28Body').innerHTML=`<div class="r28-empty">${esc(e.message||'Не удалось открыть магазин')}</div>`;}}
+  window.__resellOpenCustomizationV26=openShop; window.__resellOpenCustomizationV28=openShop;
+
+  // Make the customization trigger visually new and bulletproof.
+  function decorateTrigger(){const b=document.getElementById('rholdCustomizeBtn');const c=document.getElementById('rholdCustomizeControl');if(!b||!c)return;c.classList.add('r28-customize-control');b.textContent='ОТКРЫТЬ СТИЛЬ';b.disabled=false;b.style.pointerEvents='auto';}
+  document.addEventListener('click',e=>{const b=e.target?.closest?.('#rholdCustomizeBtn');if(!b)return;e.preventDefault();e.stopImmediatePropagation();openShop();},true);
+  document.addEventListener('click',e=>{const b=e.target?.closest?.('#profileBtn');if(!b)return;e.preventDefault();e.stopImmediatePropagation();renderOwnProfile();},true);
+  function decorateAll(){decorateTrigger();} setTimeout(decorateAll,250);setInterval(decorateAll,1400);
+
+  // Public profile modal using the same authoritative profile payload.
+  async function renderOwnProfile(){
+    const p=core().getProfile?.()||{}; const cust=p.customization||{}; const n=p.nickname||'Игрок';
+    openModal('Профиль',`<div class="friends-sheet">
+      <div class="r28-public-rail">${publicStyle(cust,n)}</div>
+      <div class="r28-profile-cosmetics"><div class="r28-profile-cosmetics-title">PUBLIC STYLE · ВИДНО ДРУГИМ</div><div class="r28-profile-cosmetic-grid">
+        <div class="r28-profile-cosmetic"><small>R-HOLD</small><b>${esc(cust.rhold?.name||'BASE')} · ×${Number(cust.rhold?.reward_multiplier||1).toFixed(2)}</b></div>
+        <div class="r28-profile-cosmetic"><small>НИК</small><b>${esc(cust.nick?.name||'БЕЗ ПОДСВЕТКИ')}</b></div>
+        <div class="r28-profile-cosmetic"><small>АВАТАР</small><b>${esc(cust.avatar?.name||'БЕЗ РАМКИ')}</b></div>
+        <div class="r28-profile-cosmetic"><small>ПРЕФИКС</small><b>${esc(cust.badge?.name||'БЕЗ ПРЕФИКСА')}</b></div>
+      </div><button type="button" class="r28-btn" id="r28ProfileCustomize"><span class="r28-btn-main"><span class="r28-btn-kicker">RESSELL IDENTITY</span><span class="r28-btn-title">НАСТРОИТЬ ВНЕШНИЙ ВИД</span><span class="r28-btn-sub">Изменения увидят другие игроки</span></span><span class="r28-btn-arrow">›</span></button></div>
+      <div class="profile-grid-v2" style="margin-top:10px">
+        <div class="profile-stat-v2"><div class="profile-stat-label-v2">БАЛАНС</div><div class="profile-stat-value-v2">${money(p.balance||0)} ₽</div><div class="profile-stat-sub-v2">RESSELL POINTS</div></div>
+        <div class="profile-stat-v2"><div class="profile-stat-label-v2">ПРОДАЖИ</div><div class="profile-stat-value-v2">${money(p.total_sales||0)}</div><div class="profile-stat-sub-v2">сделок</div></div>
+        <div class="profile-stat-v2"><div class="profile-stat-label-v2">ПРИБЫЛЬ</div><div class="profile-stat-value-v2">${money(p.total_profit||0)} ₽</div><div class="profile-stat-sub-v2">всего</div></div>
+        <div class="profile-stat-v2"><div class="profile-stat-label-v2">ПАССИВ</div><div class="profile-stat-value-v2">${money(p.business_info?.total_per_hour||0)} ₽</div><div class="profile-stat-sub-v2">каждый час</div></div>
+      </div>
+    </div>`);
+    document.getElementById('r28ProfileCustomize')?.addEventListener('click',()=>{closeModal();openShop();});
   }
 
   // Leaderboard gets a visible identity layer; metrics remain server-sourced.
@@ -5810,6 +5795,67 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
 })();
 </script>
 
+
+<style id="resell-v33-polish-css">
+.v33-market-access{margin-top:10px}.v33-market-access .v29-card{min-height:130px}.v33-market-pill{display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border-radius:9px;background:rgba(183,255,106,.08);border:1px solid rgba(183,255,106,.17);color:#b7ff6a;font:950 5px/1 Montserrat;letter-spacing:.8px}.v33-market-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:10px 0}.v33-market-tab{padding:10px 7px;border-radius:13px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.025);color:#737c76;font:950 6px/1.15 Montserrat;letter-spacing:.35px}.v33-market-tab.active{color:#b7ff6a;background:rgba(183,255,106,.08);border-color:rgba(183,255,106,.28)}
+.v33-car-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.v33-car{padding:13px;border-radius:18px;background:linear-gradient(145deg,#11151b,#08090c);border:1px solid rgba(126,167,255,.12);box-shadow:0 14px 32px rgba(0,0,0,.25)}.v33-car-art{height:74px;border-radius:14px;display:grid;place-items:center;background:radial-gradient(circle at 50% 45%,rgba(126,167,255,.18),transparent 52%),linear-gradient(145deg,#151b26,#080a0e);border:1px solid rgba(255,255,255,.05);color:#dbe5ff;font:950 28px/1 Montserrat;font-style:italic}.v33-car b{display:block;margin-top:10px;font:950 9px/1.15 Montserrat}.v33-car span{display:block;margin-top:5px;color:#707a76;font:800 6.5px/1.3 Nunito}.v33-car .v29-card-action{margin-top:9px}
+.v33-hof-row{display:flex;align-items:center;gap:9px;padding:10px;border-radius:15px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.055)}.v33-hof-rank{width:27px;height:27px;border-radius:9px;display:grid;place-items:center;background:#fff;color:#080908;font:950 8px/1 Montserrat}.v33-hof-main{min-width:0;flex:1}.v33-hof-main b{display:block;font:950 9px/1.1 Montserrat;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.v33-hof-main span{display:block;margin-top:4px;color:#69726d;font:800 6.5px/1.15 Nunito}.v33-hof-value{text-align:right;color:#b7ff6a;font:950 9px/1 Montserrat}.v33-status-card{padding:14px;border-radius:18px;background:radial-gradient(circle at 95% 5%,rgba(183,255,106,.11),transparent 32%),linear-gradient(145deg,#131713,#080a08);border:1px solid rgba(183,255,106,.14)}.v33-status-card b{display:block;margin-top:6px;color:#fff;font:950 22px/1 Montserrat}.v33-status-card span{display:block;margin-top:6px;color:#78827c;font:800 7.5px/1.3 Nunito}.v33-status-meter{height:5px;margin-top:11px;border-radius:99px;background:#090a09;overflow:hidden}.v33-status-meter i{display:block;height:100%;background:linear-gradient(90deg,#fff,#b7ff6a);border-radius:inherit}
+.v33-unlock-overlay{position:fixed;inset:0;z-index:120;display:none;place-items:center;padding:22px;background:rgba(0,0,0,.58);backdrop-filter:blur(13px)}.v33-unlock-overlay.open{display:grid;animation:v33UnlockIn .2s ease both}@keyframes v33UnlockIn{from{opacity:0}to{opacity:1}}.v33-unlock-card{width:min(330px,calc(100vw - 40px));padding:22px;border-radius:26px;background:radial-gradient(circle at 50% -10%,rgba(183,255,106,.15),transparent 42%),linear-gradient(145deg,#151a16,#080a09);border:1px solid rgba(183,255,106,.22);box-shadow:0 35px 100px rgba(0,0,0,.7),0 0 60px rgba(183,255,106,.09);text-align:center}.v33-unlock-icon{width:68px;height:68px;margin:0 auto;border-radius:22px;display:grid;place-items:center;background:rgba(183,255,106,.09);border:1px solid rgba(183,255,106,.24);box-shadow:0 0 35px rgba(183,255,106,.12);font:950 27px/1 Montserrat;color:#b7ff6a}.v33-unlock-kicker{margin-top:14px;color:#69756c;font:900 6px/1 Montserrat;letter-spacing:1.5px}.v33-unlock-title{margin-top:8px;color:#fff;font:950 21px/1.05 Montserrat}.v33-unlock-sub{margin-top:8px;color:#7b847e;font:800 9px/1.4 Nunito}.v33-unlock-tag{display:inline-block;margin-top:13px;padding:7px 10px;border-radius:10px;background:#fff;color:#080a08;font:950 7px/1 Montserrat;letter-spacing:.8px}.v33-unlock-close{width:100%;margin-top:15px;padding:12px;border-radius:13px;background:#fff;color:#080908;font:950 8px/1 Montserrat;letter-spacing:.8px}
+</style>
+<script id="resell-v33-ux">
+(function(){
+  const API='https://resellgame.bothost.tech';
+  const core=()=>window.__resellCoreV26||{}; const uid=()=>String(core().getUserId?.()||'');
+  const esc=v=>String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
+  const money=v=>Math.round(Number(v)||0).toLocaleString('ru-RU');
+  let custCache=null,custBusy=false,custTab='rhold';
+
+  // ---------- unified customization shop ----------
+  function ensureCust(){let o=document.getElementById('v33Cust');if(o)return o;o=document.createElement('div');o.id='v33Cust';o.className='r28-shop-overlay';o.innerHTML='<div class="r28-shop-sheet"><div class="r28-head"><div><div class="r28-kicker">RESSELL · PUBLIC IDENTITY</div><div class="r28-title">МАГАЗИН СТИЛЯ</div><div class="r28-sub">3 эксклюзивных кнопки за ⭐. Остальные стили открываются только за прогресс ERA.</div></div><button class="r28-close" id="v33CustClose">✕</button></div><div id="v33CustBody"></div></div>';document.body.appendChild(o);o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('open');});o.querySelector('#v33CustClose').onclick=()=>o.classList.remove('open');return o;}
+  function cat(k){return k==='nick_glow'?'nick':k==='avatar_frame'?'avatar':k==='profile_badge'?'badge':'rhold';}
+  function preview(x){const k=x.kind||'';const style=`--r26-accent:${esc(x.accent||'#b7ff6a')};--r26-glow:${esc(x.glow||'rgba(183,255,106,.22)')}`;if(k==='avatar_frame')return `<div class="r26-preview avatar" style="${style}"><span>R</span></div>`;if(k==='nick_glow')return `<div class="r26-preview nick" style="${style}"><span>@RESSELL</span></div>`;if(k==='profile_badge')return `<div class="r26-preview badge" style="${style}"><span>${esc(x.name)}</span></div>`;return `<div class="r26-preview rhold" style="--r26-bg:${esc(x.bg||'linear-gradient(145deg,#101414,#080a0a)')};--r26-border:${esc(x.border||'rgba(183,255,106,.28)')};--r26-accent:${esc(x.accent||'#b7ff6a')};--r26-glow:${esc(x.glow||'rgba(183,255,106,.18)')}"><span>R</span></div>`;}
+  async function loadCust(){const c=core(),u=uid();if(!c.apiFetch||!u)throw new Error('Telegram-сессия не определена');const r=await c.apiFetch(`${API}/hold/skins/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'GET'},3);const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)throw new Error(d.error||'Не удалось загрузить стили');custCache=d;return d;}
+  async function buyEraOrEquip(x){const c=core(),u=uid();if(x.unlock_method==='stars'){const r=await c.apiFetch(`${API}/hold/skins/${encodeURIComponent(u)}/stars-invoice`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skin_id:x.id})},3);const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)throw new Error(d.error||'Не удалось открыть оплату Stars');if(!window.Telegram?.WebApp?.openInvoice)throw new Error('Telegram Stars доступны только внутри Telegram');await new Promise((resolve,reject)=>{try{window.Telegram.WebApp.openInvoice(d.invoice_url,status=>{if(status==='paid'||status==='pending'){resolve(status);}else reject(new Error(status==='cancelled'?'Оплата отменена':'Оплата не завершена'));});}catch(e){reject(e);}});if(custCache){await new Promise(r=>setTimeout(r,900));}await loadCust();return;}
+    if(!x.owned){const r=await c.apiFetch(`${API}/hold/skins/${encodeURIComponent(u)}/buy`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skin_id:x.id})},3);const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)throw new Error(d.error||'Не удалось открыть стиль');}
+    const r2=await c.apiFetch(`${API}/hold/skins/${encodeURIComponent(u)}/equip`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skin_id:x.id})},3);const d2=await r2.json().catch(()=>({}));if(!r2.ok||!d2.success)throw new Error(d2.error||'Не удалось включить стиль');await loadCust();}
+  function renderCust(){const o=ensureCust(),b=o.querySelector('#v33CustBody');if(!custCache){b.innerHTML='<div class="r26-note">Загрузка каталога…</div>';return;}const arr=(custCache.skins||[]).filter(x=>cat(x.kind||'')===custTab);const cards=arr.map(x=>{const stars=x.unlock_method==='stars';const unlocked=Boolean(x.unlocked),owned=Boolean(x.owned),equipped=Boolean(x.equipped);let action=equipped?'ВКЛЮЧЕНО':stars&&!owned?`⭐ ${money(x.stars_price)} · ПОЛУЧИТЬ`:owned?'ВКЛЮЧИТЬ':unlocked?'ОТКРЫТЬ':'ЗАКРЫТО';let meta=stars?`EXCLUSIVE · ${money(x.stars_price)} ⭐`:unlocked?(owned?'Уже в коллекции':'Награда ERA · бесплатно'):`Нужно открыть ${esc(x.lock_reason||'следующую ERA')}`;return `<div class="r26-card ${!unlocked&&!stars?'locked':''}">${preview(x)}<div class="r26-card-name">${esc(x.name)}</div><div class="r26-card-meta">${meta}</div><button type="button" class="r26-card-btn ${owned&&!equipped?'primary':''} ${equipped?'equipped':''}" data-v33-cust="${esc(x.id)}" ${((equipped)||(!unlocked&&!stars)||custBusy||(!stars&&owned))?'disabled':''}>${action}</button></div>`;}).join('');b.innerHTML=`<div class="r26-summary"><div class="r26-stat accent"><small>ПРОГРЕСС ERA</small><b>ERA ${Number(custCache.unlocked_era||1)}</b></div><div class="r26-stat"><small>ПРОДАЖИ</small><b>${money(custCache.total_sales||0)}</b></div></div><div class="r26-tabs">${[['rhold','R-HOLD'],['nick','НИК'],['avatar','АВАТАР'],['badge','ПРЕФИКС']].map(([id,l])=>`<button type="button" class="r26-tab ${custTab===id?'active':''}" data-v33-tab="${id}">${l}</button>`).join('')}</div>${custTab==='rhold'?'<div class="r26-section">3 EXCLUSIVE ⭐ · остальные — только ERA</div>':''}<div class="r26-grid">${cards||'<div class="r26-note">Пока ничего не открыто.</div>'}</div><div class="r26-note">⭐ — реальная оплата Telegram Stars. ERA — бесплатное открытие за игровой прогресс.</div>`;b.querySelectorAll('[data-v33-tab]').forEach(z=>z.onclick=()=>{custTab=z.dataset.v33Tab;renderCust();});b.querySelectorAll('[data-v33-cust]').forEach(z=>z.onclick=async()=>{const x=(custCache.skins||[]).find(q=>q.id===z.dataset.v33Cust);if(!x||custBusy)return;custBusy=true;renderCust();try{await buyEraOrEquip(x);core().showToast?.(x.unlock_method==='stars'?'⭐ Стиль приобретён':'Новый стиль открыт');}catch(e){core().showToast?.(e.message||'Ошибка');}finally{custBusy=false;renderCust();}});}
+  async function openCust(){const o=ensureCust();o.classList.add('open');document.body.style.overflow='hidden';renderCust();try{await loadCust();renderCust();}catch(e){o.querySelector('#v33CustBody').innerHTML=`<div class="r26-note">${esc(e.message||'Не удалось загрузить')}</div>`;}}
+  window.__resellOpenCustomizationV26=openCust;window.__resellOpenCustomizationV33=openCust;
+  document.addEventListener('click',e=>{const b=e.target?.closest?.('#rholdCustomizeBtn');if(!b)return;e.preventDefault();e.stopImmediatePropagation();openCust();},true);
+
+  // ---------- Market Hub: all new features are discoverable from one screen ----------
+  let marketState=null,marketTab='home',marketBusy=false;
+  async function loadMarket(){const c=core(),u=uid();if(!c.apiFetch||!u)throw new Error('Telegram-сессия не определена');const r=await c.apiFetch(`${API}/resell/market/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'GET'},3);const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)throw new Error(d.error||'RESSELL Market недоступен');marketState=d;return d;}
+  function mtabs(){return `<div class="v33-market-tabs">${[['home','ОБЗОР'],['assets','АКТИВЫ'],['cars','COLLECTOR CARS'],['hof','ЗАЛ СЛАВЫ'],['black','BLACK MARKET'],['club','NIGHT CLUB']].map(([id,l])=>`<button class="v33-market-tab ${marketTab===id?'active':''}" data-v33-mtab="${id}">${l}</button>`).join('')}</div>`;}
+  function mhead(){const s=marketState||{};return `<div class="v29-market-hero"><div class="v29-market-kicker">RESSELL · CAPITAL LAYER</div><div class="v29-market-title">MARKET</div><div class="v29-market-sub">Единая точка для дорогих активов, коллекций, статуса и ночной экономики. Никаких вторых автосалонов.</div><div class="v29-market-balance"><strong>${money(s.balance||0)} ₽</strong><span>STATUS · ${esc(s.status?.name||'DEALER')}<br>${money(s.status?.total_sales||0)} продаж</span></div></div>`;}
+  async function marketBuy(id){if(marketBusy)return;marketBusy=true;try{const c=core(),u=uid();const r=await c.apiFetch(`${API}/resell/market/${encodeURIComponent(u)}/buy`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asset_id:id})},3);const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)throw new Error(d.error||'Покупка не выполнена');marketState.balance=d.balance??marketState.balance;marketState.owned=[...(marketState.owned||[]),id];c.setBalance?.(marketState.balance);c.showToast?.(d.message||'Покупка завершена');await loadMarket();}catch(e){core().showToast?.(e.message||'Ошибка');}finally{marketBusy=false;renderMarket();}}
+  function marketItem(x, owned){return `<div class="v29-collection-item"><div class="v29-collection-copy"><b>${esc(x.name)}</b><span>${esc(x.description||'')}</span></div><div class="v29-collection-side"><span class="v29-rarity" style="color:${esc(x.accent||'#b7ff6a')}">${esc(x.rarity||'ASSET')}</span><span class="v29-price">${money(x.price)} ₽</span><button class="v29-card-action ${owned?'owned':''}" data-v33-buy="${esc(x.id)}" ${owned?'disabled':''}>${owned?'В КОЛЛЕКЦИИ':'ЗАБРАТЬ'}</button></div></div>`;}
+  function marketView(){const s=marketState||{},o=s.owned||[];if(marketTab==='cars')return `${mhead()}${mtabs()}<div class="v29-section-head"><b>COLLECTOR CARS</b><span>Личные коллекционные машины.<br>Не смешиваются с Taxi/Auto.</span></div><div class="v33-car-grid">${(s.collector_cars||[]).map(x=>{const id='collector_car:'+x.id;return `<div class="v33-car"><div class="v33-car-art">R</div><b>${esc(x.name)}</b><span>${esc(x.description||'')}</span><div class="v29-rarity" style="color:${esc(x.accent||'#b7ff6a')};margin-top:7px">${esc(x.rarity||'')}</div><div class="v29-price" style="margin-top:4px">${money(x.price)} ₽</div>${o.includes(id)?'<div class="v29-card-action owned" style="margin-top:8px;text-align:center">В ГАРАЖЕ КОЛЛЕКЦИИ</div>':`<button class="v29-card-action" data-v33-buy="${esc(id)}">ПОЛУЧИТЬ</button>`}</div>`;}).join('')}</div>`;if(marketTab==='hof')return `${mhead()}${mtabs()}<div class="v29-section-head"><b>ЗАЛ СЛАВЫ</b><span>Топ‑10 по заработанному капиталу.</span></div><div class="v29-collection-list">${(s.hall_of_fame||[]).map((x,i)=>`<div class="v33-hof-row"><div class="v33-hof-rank">#${i+1}</div><div class="v33-hof-main"><b>@${esc(x.nickname||'Игрок')}</b><span>${money(x.total_sales||0)} продаж · ${money(x.balance||0)} ₽ баланс</span></div><div class="v33-hof-value">${money(x.total_earned||0)} ₽</div></div>`).join('')}</div>`;if(marketTab==='black')return `${mhead()}${mtabs()}<div class="v29-section-head"><b>BLACK MARKET</b><span>Ротация раз в сутки.</span></div><div class="v29-collection-list">${(s.black_market||[]).map(x=>marketItem(x,o.includes(x.id))).join('')}</div>`;if(marketTab==='assets'){return `${mhead()}${mtabs()}<div class="v29-section-head"><b>RESSELL EMPIRE</b><span>Единая линия офиса → HQ → Tower.</span></div><div class="v29-card-grid">${(s.empire||[]).map(x=>`<div class="v29-card"><div class="v29-card-top"><span class="v29-tier">TIER ${x.tier}</span><span class="v29-price">${money(x.price)} ₽</span></div><div class="v29-name">${esc(x.name)}</div><div class="v29-desc">${esc(x.description||'')}</div><button class="v29-card-action ${o.includes(x.id)?'owned':''}" data-v33-buy="${esc(x.id)}" ${o.includes(x.id)?'disabled':''}>${o.includes(x.id)?'ПОЛУЧЕНО':'ОТКРЫТЬ'}</button></div>`).join('')}</div><div class="v29-section-head"><b>КОЛЛЕКЦИИ & DROPS</b><span>Гарантированный reward pool.</span></div><div class="v29-collection-list">${(s.collectibles||[]).map(x=>marketItem(x,o.includes(x.id))).join('')}</div><div class="v29-collection-list" style="margin-top:7px">${(s.drops||[]).map(x=>marketItem(x,o.includes(x.id))).join('')}</div>`;}if(marketTab==='club'){const c=s.nightclub||{};return `${mhead()}${mtabs()}<div class="v29-club-shell"><div class="v29-club-hero"><div class="v29-club-kicker">RESSELL NIGHT ECONOMY</div><div class="v29-club-title">${esc(c.venue_name||'NIGHT CLUB')}</div><div class="v29-club-sub">Строй клуб, повышай уровень, увеличивай вместимость и собирай ночную прибыль.</div><div class="v29-club-stats"><div class="v29-club-stat"><small>ГОСТИ</small><b>${money(c.guest_count)}</b></div><div class="v29-club-stat"><small>ЛИМИТ</small><b>${money(c.capacity)}</b></div><div class="v29-club-stat"><small>РЕПУТАЦИЯ</small><b>${money(c.reputation)}</b></div><div class="v29-club-stat"><small>НАКОПЛЕНО</small><b>${money(c.pending_income)}</b></div></div>${c.pending_income>0?`<button class="v29-primary" data-v33-club-collect>ЗАБРАТЬ ${money(c.pending_income)}</button>`:''}${c.next_level?`<button class="v29-primary" data-v33-club-upgrade>УРОВЕНЬ ${c.next_level.level} · ${money(c.next_level.price)} ₽</button>`:''}</div></div>`;}return `${mhead()}${mtabs()}<div class="v33-status-card"><div class="v33-market-pill">STATUS · PUBLIC</div><b>${esc(s.status?.name||'DEALER')}</b><span>${money(s.status?.total_sales||0)} продаж · следующий статус: ${s.status?.next?money(s.status.next)+' продаж':'MAX'}</span><div class="v33-status-meter"><i style="width:${Math.min(100,Math.max(8,Number(s.status?.total_sales||0)/5))}%"></i></div></div><div class="v29-section-head"><b>БЫСТРЫЙ ДОСТУП</b><span>Всё новое собрано здесь.</span></div><div class="v29-card-grid v33-market-access"><button class="v29-card" data-v33-go="cars"><span class="v33-market-pill">NEW</span><div class="v29-name">COLLECTOR CARS</div><div class="v29-desc">Редкие автомобили для личной коллекции. Не Taxi.</div></button><button class="v29-card" data-v33-go="hof"><span class="v33-market-pill">TOP 10</span><div class="v29-name">ЗАЛ СЛАВЫ</div><div class="v29-desc">Публичная вершина RESSELL по заработанному капиталу.</div></button><button class="v29-card" data-v33-go="assets"><div class="v29-name">EMPIRE & DROPS</div><div class="v29-desc">Офис, HQ, Tower, коллекции и гарантированные Drops.</div></button><button class="v29-card" data-v33-go="club"><span class="v33-market-pill">NIGHT</span><div class="v29-name">NIGHT CLUB</div><div class="v29-desc">Отдельная ночная экономика и накопление прибыли.</div></button></div>`;}
+  async function renderMarket(){if(!marketState)await loadMarket();document.getElementById('modalBody').innerHTML=marketView();document.querySelectorAll('[data-v33-mtab]').forEach(b=>b.onclick=()=>{marketTab=b.dataset.v33Mtab;renderMarket();});document.querySelectorAll('[data-v33-go]').forEach(b=>b.onclick=()=>{marketTab=b.dataset.v33Go;renderMarket();});document.querySelectorAll('[data-v33-buy]').forEach(b=>b.onclick=()=>marketBuy(b.dataset.v33Buy));document.querySelector('[data-v33-club-upgrade]')?.addEventListener('click',async()=>{if(marketBusy)return;marketBusy=true;try{const c=core(),u=uid();const r=await c.apiFetch(`${API}/resell/nightclub/${encodeURIComponent(u)}/upgrade`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'},3);const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)throw new Error(d.error||'Не удалось улучшить клуб');c.setBalance?.(d.balance??marketState.balance);await loadMarket();c.showToast?.('Ночной клуб улучшен');renderMarket();}catch(e){core().showToast?.(e.message)}finally{marketBusy=false;}});document.querySelector('[data-v33-club-collect]')?.addEventListener('click',async()=>{if(marketBusy)return;marketBusy=true;try{const c=core(),u=uid();const r=await c.apiFetch(`${API}/resell/nightclub/${encodeURIComponent(u)}/collect`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'},3);const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)throw new Error(d.error||'Не удалось забрать доход');c.setBalance?.(d.balance??marketState.balance);await loadMarket();c.showToast?.(d.message||'Доход забран');renderMarket();}catch(e){core().showToast?.(e.message)}finally{marketBusy=false;}});}
+  async function openMarket(){marketState=null;marketTab='home';const m=document.getElementById('modal');if(m){document.getElementById('modalTitle').textContent='RESSELL Market';document.getElementById('modalBody').innerHTML='<div class="loading">Загрузка Market…</div>';m.classList.add('open');document.body.style.overflow='hidden';}try{await loadMarket();await renderMarket();}catch(e){document.getElementById('modalBody').innerHTML=`<div class="v29-market-hero"><div class="v29-market-title">MARKET OFFLINE</div><div class="v29-market-sub">${esc(e.message||'Market временно недоступен')}</div></div>`;}}
+  window.__resellOpenMarketV33=openMarket;
+  document.addEventListener('click',e=>{const b=e.target?.closest?.('#resellMarketBtn');if(!b)return;e.preventDefault();e.stopImmediatePropagation();openMarket();},true);
+
+  // ---------- unlock notifications ----------
+  let lastSnapshot=null,unlockQueue=[],unlockShowing=false;
+  function unlockRoot(){let o=document.getElementById('v33UnlockOverlay');if(o)return o;o=document.createElement('div');o.id='v33UnlockOverlay';o.className='v33-unlock-overlay';o.innerHTML='<div class="v33-unlock-card"><div class="v33-unlock-icon" id="v33UnlockIcon">✓</div><div class="v33-unlock-kicker" id="v33UnlockKicker">RESSELL UNLOCK</div><div class="v33-unlock-title" id="v33UnlockTitle">НОВЫЙ УРОВЕНЬ</div><div class="v33-unlock-sub" id="v33UnlockSub"></div><div class="v33-unlock-tag">ПОЛУЧЕНО</div><button class="v33-unlock-close" id="v33UnlockClose">ПРОДОЛЖИТЬ</button></div></div>';document.body.appendChild(o);o.addEventListener('click',e=>{if(e.target===o)nextUnlock();});o.querySelector('#v33UnlockClose').onclick=nextUnlock;return o;}
+  function nextUnlock(){if(unlockQueue.length){const x=unlockQueue.shift();paintUnlock(x);return;}unlockShowing=false;unlockRoot().classList.remove('open');}
+  function paintUnlock(x){unlockShowing=true;const o=unlockRoot();o.querySelector('#v33UnlockIcon').textContent=x.icon;o.querySelector('#v33UnlockKicker').textContent=x.kicker;o.querySelector('#v33UnlockTitle').textContent=x.title;o.querySelector('#v33UnlockSub').textContent=x.sub;o.classList.add('open');try{core().showToast?.(x.toast||x.title)}catch(_){}}
+  function queueUnlocks(prev,next){const out=[];const p=prev||{},n=next||{};const pe=new Set(p.epoch_completed||[]),ne=new Set(n.epoch_completed||[]);[...ne].filter(x=>!pe.has(x)).forEach(e=>out.push({icon:'E'+e,kicker:'ERA PROGRESSION',title:`НОВАЯ ERA · ${String(e).padStart(2,'0')}`,sub:'Новая эпоха открыта. Следующие стили и контент теперь доступны.',toast:`Открыта ERA ${e}`}));const pt=new Set(p.sales_reached||[]),nt=new Set(n.sales_reached||[]);[...nt].filter(x=>!pt.has(x)).forEach(s=>out.push({icon:'★',kicker:'AVITO MILESTONE',title:`${money(s)} ПРОДАЖ`,sub:'Достижение открыто. Новый уровень статуса и контента RESSELL.',toast:`Открыто достижение · ${s} продаж`}));return out;}
+  async function pollUnlocks(){const c=core(),u=uid();if(!c.apiFetch||!u)return;try{const r=await c.apiFetch(`${API}/unlocks/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'GET'},1);const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)return;const key=`resell_v33_unlock_baseline_${u}`;let base=null;try{base=JSON.parse(localStorage.getItem(key)||'null')}catch(_){}if(!base){localStorage.setItem(key,JSON.stringify(d));lastSnapshot=d;return;}const events=queueUnlocks(base,d);localStorage.setItem(key,JSON.stringify(d));lastSnapshot=d;if(events.length){unlockQueue.push(...events);if(!unlockShowing){const x=unlockQueue.shift();paintUnlock(x);}}}catch(_){}}
+  setTimeout(pollUnlocks,2500);setInterval(pollUnlocks,6500);
+})();
+</script>
+
+<script id="resell-v33-business-discovery">
+(function(){
+  const core=()=>window.__resellCoreV26||{}; const API='https://resellgame.bothost.tech';
+  const esc=v=>String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
+  const money=v=>Math.round(Number(v)||0).toLocaleString('ru-RU');
+  function decorate(){const body=document.getElementById('modalBody');if(!body||!body.querySelector('.business-control-v5'))return;const tabs=[...body.querySelectorAll('[data-business-tab]')];const buyTab=tabs.find(x=>x.dataset.businessTab==='market');if(buyTab&&!buyTab.dataset.v33){buyTab.dataset.v33='1';}if(!body.querySelector('.business-v33-next')){const box=document.createElement('div');box.className='business-v33-next';box.style.cssText='margin-top:10px;padding:12px 14px;border-radius:16px;background:linear-gradient(145deg,rgba(183,255,106,.07),rgba(255,255,255,.02));border:1px solid rgba(183,255,106,.11);color:#78827c;font:800 7px/1.3 Montserrat;letter-spacing:.4px';box.innerHTML='<span style="color:#b7ff6a;font-weight:950">BUSINESS LINE · 12 LEVELS</span><br>Новые Concept → Flagship → Gallery → City Plaza → Campus → Metroplex находятся внутри вкладки «Купить». Это единая линейка Business.';body.querySelector('.business-maintenance-v5')?.after(box);}}
+  setInterval(decorate,700);
+})();
+</script>
 </body>
 </html>
 <style id="business-v5-layout">
