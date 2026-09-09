@@ -2561,6 +2561,21 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     finally{ telegramIdentityPromise=null; }
   }
 
+  const RESSELL_AUTH_BRIDGE_KEY='resell_auth_bridge_sent_v5';
+  function requestResellAuthBridge(){
+    try{
+      const now=Date.now();
+      const last=Number(localStorage.getItem(RESSELL_AUTH_BRIDGE_KEY)||0);
+      if(last && now-last < 10*60*1000) return false;
+      const live=window.Telegram?.WebApp || tg;
+      if(!live?.sendData) return false;
+      const ref=(()=>{try{return String(new URLSearchParams(location.search).get('ref')||'').trim()}catch(_){return ''}})();
+      localStorage.setItem(RESSELL_AUTH_BRIDGE_KEY,String(now));
+      live.sendData(JSON.stringify({action:'resell_auth_bootstrap',ref}));
+      return true;
+    }catch(_){ return false; }
+  }
+
   async function apiFetch(url, options={}, attempts=3){
     let lastError=null;
     for(let i=0;i<attempts;i++){
@@ -2660,6 +2675,12 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
         clearTimeout(timer);
         if(!resp.ok){
           let payload={}; try{payload=await resp.json();}catch(_){}
+          if(resp.status===401 && needsTelegramAuth && !serverSession){
+            const bridged=requestResellAuthBridge();
+            if(bridged){
+              throw Object.assign(new Error('Создаём безопасную RESSELL-сессию…'),{status:401,authBridge:true});
+            }
+          }
           if(resp.status===403 && payload?.banned){ try{ openBanAppealSheet(payload.error||'Аккаунт заблокирован'); }catch(_){} }
           const e=new Error(payload?.error||payload?.message||
             (resp.status===401?'Не удалось подтвердить Telegram-сессию. Перезапусти Mini App из Telegram и попробуй ещё раз.':
@@ -2672,6 +2693,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
       }catch(e){
         clearTimeout(timer);
         lastError=e?.name==='AbortError'?new Error('Сервер не ответил вовремя'):e;
+        if(e?.authBridge){ throw e; }
         if(i<attempts-1){
           if(lastError?.status===401){
             // NEVER erase the previously captured signed Telegram initData on a
