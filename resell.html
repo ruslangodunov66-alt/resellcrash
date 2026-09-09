@@ -2480,10 +2480,42 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
       return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
     }catch(_){ return ''; }
   }
+  const RESSELL_SESSION_KEY='resell_server_session_v4';
+
   function getResellLaunchToken(){
     try{return String(new URLSearchParams(location.search).get('resell_session')||'').trim();}
     catch(_){return '';}
   }
+
+  function getStoredResellSession(){
+    try{return String(sessionStorage.getItem(RESSELL_SESSION_KEY)||localStorage.getItem(RESSELL_SESSION_KEY)||'').trim();}
+    catch(_){return '';}
+  }
+
+  function setStoredResellSession(token){
+    const value=String(token||'').trim();
+    if(!value) return;
+    try{sessionStorage.setItem(RESSELL_SESSION_KEY,value);}catch(_){}
+    try{localStorage.setItem(RESSELL_SESSION_KEY,value);}catch(_){}
+  }
+
+  function clearStoredResellSession(){
+    try{sessionStorage.removeItem(RESSELL_SESSION_KEY);}catch(_){}
+    try{localStorage.removeItem(RESSELL_SESSION_KEY);}catch(_){}
+  }
+
+  function resellSessionUserId(token){
+    try{
+      const value=String(token||'').trim().replace(/^Bearer\s+/i,'');
+      const uid=value.split('.')[0]||'';
+      return /^\d+$/.test(uid)?uid:'';
+    }catch(_){return '';}
+  }
+
+  try{
+    const launchToken=getResellLaunchToken();
+    if(launchToken) setStoredResellSession(launchToken);
+  }catch(_){}
 
   function appendTelegramAuth(url,initData){
     // Transport fallback only: encode the exact Telegram.WebApp.initData bytes.
@@ -2554,27 +2586,74 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
           syncTelegramUserId();
         }
         const secureHeaders={'Accept':'application/json','Cache-Control':'no-cache',...(options.headers||{})};
-        // Do not allow a caller-supplied stale auth header to override the
-        // current Telegram WebApp payload below.
+        // Never trust a caller-supplied authorization header. Auth is selected
+        // deterministically from the current Telegram identity + RESSELL session.
         delete secureHeaders['X-Telegram-Init-Data'];
         delete secureHeaders['x-telegram-init-data'];
         delete secureHeaders['Authorization'];
+        delete secureHeaders['X-Resell-Session'];
+        delete secureHeaders['x-resell-session'];
         let requestUrl=url;
         if(needsTelegramAuth && userId){
           // Synchronize every protected player-id path with the same signed
           // Telegram user. Business is included here explicitly.
           requestUrl=requestUrl.replace(/(\/(?:profile|engagement|quests|passive|tycoon|business|upgrades|epoch|referrals|referral|friends|hold|cars|garage|avito|referr|bank|taxi|rcoin|container|race|poker|game_result)\/)\d+/i, '$1'+userId);
         }
-        if(initData){
+        // RESSELL server session is the primary auth transport. It is generated
+        // by the bot/backend, bound to the Telegram user id and survives all
+        // subsequent game API calls without re-validating Telegram signatures.
+        const launchToken=getResellLaunchToken();
+        const storedSession=getStoredResellSession();
+        let serverSession=launchToken || '';
+        const launchUid=resellSessionUserId(launchToken);
+
+        // A launch URL is itself a server proof, so it may bootstrap the
+        // identity before Telegram's WebApp object becomes available.
+        if(needsTelegramAuth && launchUid && !signedUserId){
+          userId=launchUid;
+          telegramUserId=launchUid;
+        }
+
+        // A persisted session is usable only after its uid matches the live
+        // Telegram user. This prevents cross-account reuse of localStorage.
+        if(!serverSession && storedSession && signedUserId){
+          const storedUid=resellSessionUserId(storedSession);
+          if(storedUid && storedUid===signedUserId){
+            serverSession=storedSession;
+          }else if(storedUid && storedUid!==signedUserId){
+            clearStoredResellSession();
+          }
+        }
+
+        if(serverSession && signedUserId){
+          const sessionUid=resellSessionUserId(serverSession);
+          if(sessionUid && sessionUid!==signedUserId){
+            clearStoredResellSession();
+            serverSession=launchToken || '';
+          }
+        }
+
+        if(needsTelegramAuth && serverSession){
+          secureHeaders['X-Resell-Session']=serverSession;
+          secureHeaders['Authorization']='Bearer '+serverSession;
+          // Keep a small query copy for deployments where custom auth headers
+          // are removed by an intermediate proxy. This contains only our own
+          // HMAC bearer, never the raw Telegram initData.
+          try{const u=new URL(requestUrl,location.href);u.searchParams.set('resell_session',serverSession);requestUrl=u.toString();}catch(_){}
+          setStoredResellSession(serverSession);
+        }else if(initData){
+          // Bootstrap/fallback path only. After a valid server session exists,
+          // raw Telegram initData is no longer sent on gameplay requests.
           secureHeaders['X-Telegram-Init-Data']=initData;
           secureHeaders['Authorization']='tma '+initData;
-          requestUrl=appendTelegramAuth(requestUrl,initData);
         }
-        const launchToken=getResellLaunchToken();
-        if(needsTelegramAuth && launchToken){
-          try{const u=new URL(requestUrl,location.href);u.searchParams.set('resell_session',launchToken);requestUrl=u.toString();}catch(_){}
+
+        if(!serverSession && initData){
+          // Do not put the huge Telegram payload into URLs anymore. Headers are
+          // preferred; the backend still supports tg_auth_b64 for legacy clients.
+          if(!needsTelegramAuth) requestUrl=appendTelegramAuth(requestUrl,initData);
         }
-        if(!initData && !launchToken && needsTelegramAuth) {
+        if(!initData && !serverSession && needsTelegramAuth) {
           throw Object.assign(new Error('Открой RESSELL через Telegram — Telegram-сессия не передана'), {status:401});
         }
         const resp=await fetch(requestUrl,{cache:'no-store',...options,signal:controller.signal,headers:secureHeaders});
