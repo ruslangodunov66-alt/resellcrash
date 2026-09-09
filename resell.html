@@ -2561,19 +2561,48 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     finally{ telegramIdentityPromise=null; }
   }
 
-  const RESSELL_AUTH_BRIDGE_KEY='resell_auth_bridge_sent_v5';
-  function requestResellAuthBridge(){
-    try{
-      const now=Date.now();
-      const last=Number(localStorage.getItem(RESSELL_AUTH_BRIDGE_KEY)||0);
-      if(last && now-last < 10*60*1000) return false;
-      const live=window.Telegram?.WebApp || tg;
-      if(!live?.sendData) return false;
-      const ref=(()=>{try{return String(new URLSearchParams(location.search).get('ref')||'').trim()}catch(_){return ''}})();
-      localStorage.setItem(RESSELL_AUTH_BRIDGE_KEY,String(now));
-      live.sendData(JSON.stringify({action:'resell_auth_bootstrap',ref}));
-      return true;
-    }catch(_){ return false; }
+  // V6: secure browser -> bot deep-link challenge. This replaces the old
+  // WebApp.sendData bridge, which only works for Mini Apps opened from a
+  // compatible keyboard context and therefore was never triggered here.
+  let resellAuthBootstrapPromise=null;
+  async function ensureResellServerSession(){
+    const existing=getStoredResellSession();
+    const existingUid=resellSessionUserId(existing);
+    if(existing && userId && existingUid===String(userId)) return existing;
+    if(resellAuthBootstrapPromise) return resellAuthBootstrapPromise;
+    resellAuthBootstrapPromise=(async()=>{
+      try{
+        const c=await fetch(`${API_BASE}/auth/resell/challenge?t=${Date.now()}`,{cache:'no-store'});
+        const challenge=await c.json().catch(()=>({}));
+        if(!c.ok||!challenge?.success||!challenge.nonce||!challenge.browser_key||!challenge.bot_url){
+          throw new Error('Не удалось создать безопасный вход RESSELL');
+        }
+        const openTelegram=()=>{
+          try{
+            const live=window.Telegram?.WebApp||tg;
+            if(typeof live?.openTelegramLink==='function'){ live.openTelegramLink(challenge.bot_url); return true; }
+          }catch(_){ }
+          try{ location.href=challenge.bot_url; return true; }catch(_){ return false; }
+        };
+        if(!openTelegram()) throw new Error('Не удалось открыть Telegram-бота для входа');
+        const deadline=Date.now()+Math.min(5*60*1000,Number(challenge.expires_in||300)*1000);
+        while(Date.now()<deadline){
+          await new Promise(r=>setTimeout(r,1200));
+          const r=await fetch(`${API_BASE}/auth/resell/poll/${encodeURIComponent(challenge.nonce)}?browser_key=${encodeURIComponent(challenge.browser_key)}`,{cache:'no-store'});
+          const d=await r.json().catch(()=>({}));
+          if(d?.success && d.status==='ready' && d.session){
+            setStoredResellSession(d.session);
+            if(d.tg_id){ userId=String(d.tg_id); telegramUserId=String(d.tg_id); }
+            return d.session;
+          }
+          if(d?.status==='expired'||d?.status==='invalid'||d?.status==='missing') break;
+        }
+        throw new Error('Подтверди вход в Telegram-боте и вернись в RESSELL');
+      }finally{
+        resellAuthBootstrapPromise=null;
+      }
+    })();
+    return resellAuthBootstrapPromise;
   }
 
   async function apiFetch(url, options={}, attempts=3){
@@ -2676,9 +2705,14 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
         if(!resp.ok){
           let payload={}; try{payload=await resp.json();}catch(_){}
           if(resp.status===401 && needsTelegramAuth && !serverSession){
-            const bridged=requestResellAuthBridge();
-            if(bridged){
-              throw Object.assign(new Error('Создаём безопасную RESSELL-сессию…'),{status:401,authBridge:true});
+            try{
+              const freshSession=await ensureResellServerSession();
+              if(freshSession){
+                lastError=new Error('RESSELL-сессия создана');
+                if(i<attempts-1) continue;
+              }
+            }catch(authErr){
+              throw Object.assign(authErr,{status:401,authBridge:true});
             }
           }
           if(resp.status===403 && payload?.banned){ try{ openBanAppealSheet(payload.error||'Аккаунт заблокирован'); }catch(_){} }
