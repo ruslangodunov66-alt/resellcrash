@@ -2726,7 +2726,14 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
         const resp=await apiFetch(`${API_BASE}/profile/${encodeURIComponent(userId)}?t=${Date.now()}`,{method:'GET'},1);
         const data=await resp.json(); profileData=data;
         if(data.registration_complete===false||data.registration_complete===0||data.registration_required===true){setBalance(primaryBalance(data));setProgress(0);statusText.textContent='Требуется регистрация';if(!registrationRequired && !launchSequenceActive)openRegistration();return data;}
-        setBalance(primaryBalance(data)); epochData=data.epoch||null; setProgress(Number(data.epoch_progress??epochData?.progress??0)); rcoinData=data.rcoin||null; renderRcoin(); statusText.textContent='Баланс синхронизирован'; $('.status-dot').style.background='var(--success)'; try{if(data.engagement){engagementData=data.engagement;renderEngagement();}await loadEngagement();await loadRcoinStatus();}catch(_){ } return data;
+        setBalance(primaryBalance(data)); epochData=data.epoch||null; setProgress(Number(data.epoch_progress??epochData?.progress??0)); rcoinData=data.rcoin||null; renderRcoin(); statusText.textContent='Баланс синхронизирован'; $('.status-dot').style.background='var(--success)';
+        // Critical boot fix: auxiliary modules must NEVER block the main RESSELL
+        // screen. Profile is the only data required to finish the splash.
+        // Engagement/RCoin continue loading in the background.
+        try{if(data.engagement){engagementData=data.engagement;renderEngagement();}}catch(_){}
+        Promise.resolve().then(()=>loadEngagement()).catch(()=>{});
+        Promise.resolve().then(()=>loadRcoinStatus()).catch(()=>{});
+        return data;
       }catch(e){lastError=e;if(attempt<2)await new Promise(r=>setTimeout(r,600*(attempt+1)));}
     }
     console.warn('Profile load failed:',lastError);
@@ -5277,8 +5284,11 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
       if(data?.registration_complete===false || data?.registration_required===true) return data;
       try{bindEngagement();}catch(_){ }
       try{initMainTycoonCards();}catch(_){ }
-      try{await attachIncomingReferral();}catch(_){ }
-      try{referralData=await fetchReferralData();updateReferralCard();}catch(_){ }
+      // Referral/secondary warmups are deliberately detached from the boot
+      // critical path. A slow endpoint must not leave the whole Mini App
+      // visually stuck on the loading screen.
+      Promise.resolve().then(()=>attachIncomingReferral()).catch(()=>{});
+      Promise.resolve().then(async()=>{referralData=await fetchReferralData();updateReferralCard();}).catch(()=>{});
       try{setBootWelcome({identified:true});}catch(_){ }
       return data;
     }).catch(()=>null);
@@ -6030,5 +6040,23 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   document.addEventListener('click',e=>{const b=e.target?.closest?.('#rcoinDeskInline,#tokenCounter');if(!b||b.id==='tokenCounter'&&e.target.closest?.('#rcoinDeskInline'))return;e.preventDefault();e.stopImmediatePropagation();openDesk()},true);
 })();
 </script>
+
+<script id="resell-boot-safety-guard">
+(function(){
+  // Safety net only for rendering: it never creates/changes authentication.
+  // If an optional startup task hangs, the game UI is still made visible.
+  setTimeout(function(){
+    try{
+      document.body.classList.remove('resell-booting');
+      var s=document.getElementById('bootSplash');
+      if(s && !s.classList.contains('is-done')){
+        s.classList.add('is-done');
+        s.setAttribute('aria-hidden','true');
+      }
+    }catch(_){}
+  }, 15000);
+})();
+</script>
+
 </body>
 </html>
