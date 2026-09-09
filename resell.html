@@ -4602,9 +4602,9 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     const key=`${BUSINESS_TUTORIAL_KEY}_${userId||'guest'}`;
     if(localStorage.getItem(key)==='1') return;
     const steps=[
-      {title:'Здесь копится доход',text:'Бизнесы приносят деньги автоматически. Вверху видна общая сумма за день.',target:'.biz7-hero'},
+      {title:'Здесь копится доход',text:'Бизнесы приносят деньги автоматически. Вверху видна общая сумма за день.',target:'.biz-clean-hero'},
       {title:'Забирай одной кнопкой',text:'Нажми «Забрать» — весь доступный пассивный доход зачислится на баланс.',target:'#businessCollectBtn'},
-      {title:'Таксопарк тоже здесь',text:'Доход таксопарка входит в общий бизнес и отображается отдельной строкой.',target:'.biz7-shortcuts'}
+      {title:'Таксопарк тоже здесь',text:'Доход таксопарка входит в общий бизнес и отображается отдельной строкой.',target:'.biz-clean-nav'}
     ];
     businessTutorialActive=true; let i=0;
     const old=document.getElementById('businessTutorialOverlay'); if(old) old.remove();
@@ -4622,171 +4622,112 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     const catalog=Array.isArray(d.catalog)?d.catalog:[];
     const pending=Math.max(0,Number(d.pending_collect||0));
     const debt=Math.max(0,Number(d.maintenance_debt||0));
-    const balance=Math.max(0,Number(d.balance ?? profileData?.balance ?? 0));
+    const balance=Math.max(0,Number(d.balance??profileData?.balance??0));
     const totalHour=Math.max(0,Number(d.total_per_hour||0));
     const totalDay=Math.max(0,Number(d.total_per_day||totalHour*24));
 
-    // Robustly unwrap strings so a nested API object can NEVER become "[object Object]".
-    const textValue=v=>{
+    const plain=v=>{
       if(v==null)return '';
       if(typeof v==='string'||typeof v==='number')return String(v);
-      if(Array.isArray(v))return v.length?textValue(v[0]):'';
-      if(typeof v==='object')return textValue(v.name ?? v.title ?? v.label ?? v.value ?? v.text ?? v.id);
+      if(Array.isArray(v))return v.length?plain(v[0]):'';
+      if(typeof v==='object')return plain(v.name??v.title??v.label??v.value??v.text??v.id);
       return '';
     };
-    const safeName=x=>{
-      const raw=textValue(x?.name ?? x?.title ?? x?.label ?? x);
-      return raw.replace(/^[\u{1F300}-\u{1FAFF}\u2600-\u27BF\uFE0F\s]+/u,'').trim() || 'Бизнес';
-    };
-    const safeId=x=>textValue(x?.id ?? x?.shop_id ?? x?.key);
-    const priceOf=x=>Math.max(0,Number(x?.price ?? x?.purchase_price ?? 0));
-    const hourOf=x=>Math.max(0,Number(x?.income_per_hour ?? x?.hourly_income ?? x?.income?.per_hour ?? 0));
-    const daysOf=x=>{
-      const p=priceOf(x), h=hourOf(x);
-      return h>0?p/h/24:0;
-    };
-    const icon=(type='building',active=false)=>{
-      const stroke=active?'#b7ff6a':'#aeb7b1';
-      const common=`fill="none" stroke="${stroke}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"`;
-      const paths={
-        business:`<rect x="4" y="4" width="16" height="16" rx="3" ${common}/><path d="M8 20V8h8v12M7 8l1.5-3h7L17 8M11 11h2M11 14h2M11 17h2"/>`,
-        assets:`<rect x="4" y="5" width="16" height="14" rx="3" ${common}/><path d="M8 5V3h8v2M8 10h8M8 14h5"/>`,
-        taxi:`<path d="M5 16h14l-1-6H6l-1 6Z" ${common}/><path d="m8 10 1.5-4h5L16 10M4 16v2M20 16v2M8 19h2M14 19h2M3 13h2M19 13h2"/><circle cx="8" cy="16" r="1.2" ${common}/><circle cx="16" cy="16" r="1.2" ${common}/>`,
-        profile:`<circle cx="12" cy="8" r="3.2" ${common}/><path d="M5.5 20a6.5 6.5 0 0 1 13 0"/>`,
-        crown:`<path d="m4 8 3.5 3L12 6l4.5 5L20 8l-1.5 10h-13L4 8Z" ${common}/><path d="M6 21h12"/>`,
-        wallet:`<rect x="4" y="6" width="16" height="13" rx="3" ${common}/><path d="M6 6V5a2 2 0 0 1 2-2h8M15 13h5M16.5 13h.1"/>`,
-        arrow:`<path d="M5 12h13M13 7l5 5-5 5" ${common}/`,
-        refresh:`<path d="M19 8a7 7 0 1 0 1 6" ${common}/><path d="M19 4v4h-4" ${common}/`,
-        wrench:`<path d="M14 6a4 4 0 0 0-5 5l-5 5a2.1 2.1 0 1 0 3 3l5-5a4 4 0 0 0 5-5l-3 3-2-2 2-3Z" ${common}/`
+    const nameOf=x=>plain(x?.name??x?.title??x?.label??x).replace(/^[\s\u{1F300}-\u{1FAFF}\u2600-\u27BF\uFE0F]+/u,'').trim()||'Бизнес';
+    const idOf=x=>plain(x?.id??x?.shop_id??x?.key);
+    const priceOf=x=>Math.max(0,Number(x?.price??x?.purchase_price??0));
+    const hourOf=x=>Math.max(0,Number(x?.income_per_hour??x?.hourly_income??x?.income?.per_hour??0));
+    const daysOf=x=>hourOf(x)>0?priceOf(x)/hourOf(x)/24:0;
+    const ownedCount=id=>businesses.filter(b=>idOf(b)===String(id)).length;
+
+    const svg=(kind='building',active=false)=>{
+      const s=active?'#b7ff6a':'#aeb7b1';
+      const a=`fill="none" stroke="${s}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"`;
+      const maps={
+        building:`<rect x="4" y="5" width="16" height="15" rx="2.8" ${a}/><path d="M8 20V9h8v11M10 12h1M13 12h1M10 15h1M13 15h1M10 18h1M13 18h1"/>`,
+        assets:`<rect x="5" y="5" width="14" height="14" rx="2.8" ${a}/><path d="M8 5V3h8v2M8 10h8M8 14h5"/>`,
+        taxi:`<path d="M5 16h14l-1.2-6H6.2L5 16Z" ${a}/><path d="m8 10 1.5-4h5L16 10M4 16v2M20 16v2M8 19h2M14 19h2"/><circle cx="8" cy="16" r="1.2" ${a}/><circle cx="16" cy="16" r="1.2" ${a}/>`,
+        profile:`<circle cx="12" cy="8" r="3" ${a}/><path d="M5.5 20a6.5 6.5 0 0 1 13 0"/>`,
+        crown:`<path d="m4 8 3.5 3L12 6l4.5 5L20 8l-1.5 10h-13L4 8Z" ${a}/><path d="M6 21h12"/>`,
+        wallet:`<rect x="4" y="6" width="16" height="13" rx="2.5" ${a}/><path d="M6 6V5a2 2 0 0 1 2-2h7M15 13h5M16.5 13h.1"/>`,
+        refresh:`<path d="M19 8a7 7 0 1 0 1 6" ${a}/><path d="M19 4v4h-4" ${a}/>`,
+        search:`<circle cx="11" cy="11" r="6" ${a}/><path d="m16 16 4 4" ${a}/`,
+        users:`<circle cx="9" cy="9" r="3" ${a}/><circle cx="17" cy="10" r="2.3" ${a}/><path d="M3.8 19a5.2 5.2 0 0 1 10.4 0M14.5 19a4 4 0 0 1 6.2 0"/>`
       };
-      return `<svg class="biz7-svg" viewBox="0 0 24 24" aria-hidden="true">${paths[type]||paths.business}</svg>`;
+      return `<svg class="biz-clean-icon" viewBox="0 0 24 24" aria-hidden="true">${maps[kind]||maps.building}</svg>`;
     };
-    const artUrl=id=>{
-      const urls={
-        flagship_center:'https://commons.wikimedia.org/wiki/Special:Redirect/file/Skyscrapers.png',
-        resell_gallery:'https://commons.wikimedia.org/wiki/Special:Redirect/file/MBS_non-profit_City_Illustration.png',
-        city_plaza:'https://commons.wikimedia.org/wiki/Special:Redirect/file/Sky_city.png'
-      };
-      return urls[id]||'';
+
+    // Hand-drawn/isometric skyscrapers. No external image, no emoji and no broken URLs.
+    const skyline=(variant)=>{
+      const palettes=[
+        ['#17231b','#2f5339','#b7ff6a'],
+        ['#101d25','#294b59','#8df0ff'],
+        ['#1d1825','#4a2f56','#d39cff']
+      ];
+      const [dark,mid,light]=palettes[variant%palettes.length];
+      const towers=variant===0
+        ? `<path d="M30 102V45l25-14v71Z" fill="${mid}"/><path d="M55 31v71l28-13V43Z" fill="${dark}"/><path d="M62 24v82l24-12V37Z" fill="${light}" opacity=".78"/><path d="M90 102V54l18-10v48Z" fill="${mid}" opacity=".9"/>`
+        : variant===1
+        ? `<path d="M24 102V35l22-12v79Z" fill="${dark}"/><path d="M46 23l30 13v65L46 102Z" fill="${mid}"/><path d="M58 18v82l25-10V30Z" fill="${light}" opacity=".78"/><path d="M84 102V48l18-9v54Z" fill="${mid}"/>`
+        : `<path d="M25 102V47l27-16v71Z" fill="${mid}"/><path d="M52 31v71l28-12V44Z" fill="${dark}"/><path d="M69 18v78l24-11V30Z" fill="${light}" opacity=".76"/><path d="M96 102V55l18-10v47Z" fill="${mid}" opacity=".9"/>`;
+      return `<svg class="biz-skyline" viewBox="0 0 140 110" aria-hidden="true"><rect width="140" height="110" rx="18" fill="${dark}"/><path d="M16 102h108" stroke="rgba(255,255,255,.12)" stroke-width="2"/><g>${towers}</g><g fill="rgba(255,255,255,.22)">${Array.from({length:18},(_,i)=>{const x=32+(i%6)*12,y=39+Math.floor(i/6)*15;return `<rect x="${x}" y="${y}" width="5" height="7" rx="1"/>`;}).join('')}</g><path d="M15 100 70 76l58 23" fill="none" stroke="${light}" stroke-opacity=".18" stroke-width="2"/></svg>`;
     };
-    const findCatalogById=id=>catalog.find(x=>safeId(x)===String(id));
-    const ownedCount=id=>businesses.filter(x=>safeId(x)===String(id)).length;
 
     const empireIds=['flagship_center','resell_gallery','city_plaza'];
-    const featured=empireIds.map(findCatalogById).filter(Boolean);
-    const otherCatalog=catalog.filter(x=>!empireIds.includes(safeId(x)));
+    const byId=id=>catalog.find(x=>idOf(x)===id);
+    const empire=empireIds.map(byId).filter(Boolean);
+    const other=catalog.filter(x=>!empireIds.includes(idOf(x)));
 
-    const tabs=[['overview','ОБЗОР'],['assets','МОИ БИЗНЕСЫ'],['market','КУПИТЬ']];
-    let inner='';
+    const nav=`<div class="biz-clean-nav">
+      <button type="button" class="biz-clean-nav-btn active" data-business-tab="overview">${svg('building',true)}<b>Бизнес</b></button>
+      <button type="button" class="biz-clean-nav-btn" data-business-tab="assets">${svg('assets')}<b>Мои бизнесы</b></button>
+      <button type="button" class="biz-clean-nav-btn" data-business-taxi-open>${svg('taxi')}<b>Таксопарк</b></button>
+      <button type="button" class="biz-clean-nav-btn" data-business-profile>${svg('profile')}<b>Профиль</b></button>
+    </div>`;
 
+    const buyRow=x=>{
+      const id=idOf(x);
+      return `<article class="biz-clean-row">
+        <div class="biz-clean-row-icon">${svg('building')}</div>
+        <div class="biz-clean-row-copy"><b>${esc(nameOf(x))}</b><span>${number(priceOf(x))} ₽ · +${number(hourOf(x))} ₽/ч</span><small>Окупаемость ≈ ${daysOf(x).toFixed(1)} дн. · у тебя ${ownedCount(id)}/2</small></div>
+        <button type="button" class="biz-clean-buy" data-business-buy="${esc(id)}">КУПИТЬ</button>
+      </article>`;
+    };
+
+    let content='';
     if(businessViewTab==='assets'){
-      inner=`<section class="biz7-section">
-        <div class="biz7-section-head"><b>МОИ БИЗНЕСЫ</b><span>${businesses.length} активов</span></div>
-        <div class="biz7-owned-list">
-          ${businesses.length?businesses.map(b=>`
-            <article class="biz7-owned">
-              <div class="biz7-owned-icon">${icon('business')}</div>
-              <div class="biz7-owned-copy">
-                <b>${esc(safeName(b))}</b>
-                <span>+${number(hourOf(b))} ₽/ч · +${number(hourOf(b)*24)} ₽/день</span>
-                <small>Стоимость ${number(priceOf(b))} ₽ · окупаемость ≈ ${daysOf(b).toFixed(1)} дн.</small>
-              </div>
-              <button type="button" class="biz7-ghost" data-business-sell="${esc(safeId(b))}">ПРОДАТЬ</button>
-            </article>`).join(''):'<div class="biz7-empty">Пока нет купленных бизнесов.</div>'}
-        </div>
-      </section>`;
+      content=`<section class="biz-clean-section"><div class="biz-clean-head"><b>МОИ БИЗНЕСЫ</b><span>${businesses.length} активов</span></div><div class="biz-clean-list">
+        ${businesses.length?businesses.map(b=>`<article class="biz-clean-row"><div class="biz-clean-row-icon">${svg('building')}</div><div class="biz-clean-row-copy"><b>${esc(nameOf(b))}</b><span>+${number(hourOf(b))} ₽/ч · +${number(hourOf(b)*24)} ₽/день</span><small>Стоимость ${number(priceOf(b))} ₽ · статус ${esc(String(b.status||'active').toUpperCase())}</small></div><button type="button" class="biz-clean-ghost" data-business-sell="${esc(idOf(b))}">ПРОДАТЬ</button></article>`).join(''):'<div class="biz-clean-empty">Пока нет купленных бизнесов.</div>'}
+      </div></section>`;
     }else if(businessViewTab==='market'){
       const groups=[
         ['СТАРТ',catalog.filter(x=>priceOf(x)<1000000)],
         ['РОСТ',catalog.filter(x=>priceOf(x)>=1000000&&priceOf(x)<50000000)],
         ['ИМПЕРИЯ',catalog.filter(x=>priceOf(x)>=50000000)]
       ];
-      inner=groups.map(([label,items])=>items.length?`
-        <section class="biz7-section">
-          <div class="biz7-section-head"><b>${label}</b><span>${items.length} вариантов</span></div>
-          <div class="biz7-market-list">${items.map(x=>{
-            const id=safeId(x), owned=ownedCount(id), days=daysOf(x);
-            const art=artUrl(id);
-            return `<article class="biz7-market-row">
-              <div class="biz7-market-icon ${art?'photo':''}">${art?`<img src="${art}" alt="" loading="lazy" referrerpolicy="no-referrer">`:icon('business')}</div>
-              <div class="biz7-market-copy">
-                <b>${esc(safeName(x))}</b>
-                <span>${number(priceOf(x))} ₽ · +${number(hourOf(x))} ₽/ч</span>
-                <small>Окупаемость ≈ ${days.toFixed(1)} дн. · у тебя ${owned}/2</small>
-              </div>
-              <button type="button" class="biz7-buy" data-business-buy="${esc(id)}">КУПИТЬ</button>
-            </article>`;
-          }).join('')}</div>
-        </section>`:'').join('');
+      content=groups.map(([label,items])=>items.length?`<section class="biz-clean-section"><div class="biz-clean-head"><b>${label}</b><span>${items.length}</span></div><div class="biz-clean-list">${items.map(buyRow).join('')}</div></section>`:'').join('');
     }else{
-      inner=`<section class="biz7-section">
-        <div class="biz7-section-head"><b>BUSINESS LINE · 12 LEVELS</b><span>единая линейка</span></div>
-        <button type="button" class="biz7-line" data-business-tab="market">
-          <span class="biz7-line-icon">${icon('crown',true)}</span>
-          <span class="biz7-line-copy"><b>Новая бизнес-линия</b><small>Flagship → Gallery → City Plaza → Campus → Metroplex</small></span>
-          <span class="biz7-line-arrow">${icon('arrow',true)}</span>
-        </button>
+      content=`<section class="biz-clean-section">
+        <div class="biz-clean-head"><b>BUSINESS LINE · 12 LEVELS</b><span>единая линия</span></div>
+        <button type="button" class="biz-clean-line" data-business-tab="market"><span class="biz-clean-line-icon">${svg('crown',true)}</span><span><b>Новая бизнес-линия</b><small>Flagship → Gallery → City Plaza → Campus → Metroplex</small></span><i>→</i></button>
       </section>
-      <section class="biz7-section">
-        <div class="biz7-section-head"><b>ИМПЕРИЯ</b><span>3 крупных актива</span></div>
-        <div class="biz7-feature-grid">
-          ${featured.map(x=>{
-            const id=safeId(x), art=artUrl(id);
-            return `<article class="biz7-feature">
-              <div class="biz7-feature-art">${art?`<img src="${art}" alt="${esc(safeName(x))}" loading="lazy" referrerpolicy="no-referrer">`:icon('business')}</div>
-              <div class="biz7-feature-name">${esc(safeName(x))}</div>
-              <div class="biz7-feature-rate">+${number(hourOf(x))} ₽/ч</div>
-              <div class="biz7-feature-days">◉ ${daysOf(x).toFixed(1)} дн.</div>
-              <button type="button" class="biz7-buy biz7-buy-wide" data-business-buy="${esc(id)}">КУПИТЬ</button>
-            </article>`;
-          }).join('')}
-        </div>
+      <section class="biz-clean-section"><div class="biz-clean-head"><b>ИМПЕРИЯ</b><span>3 крупных актива</span></div>
+        <div class="biz-clean-empire-grid">${empire.map((x,i)=>`<article class="biz-clean-empire"><div class="biz-clean-empire-art">${skyline(i)}</div><b>${esc(nameOf(x))}</b><span>+${number(hourOf(x))} ₽/ч</span><small>◉ ${daysOf(x).toFixed(1)} дн.</small><button type="button" class="biz-clean-buy wide" data-business-buy="${esc(idOf(x))}">КУПИТЬ</button></article>`).join('')}</div>
       </section>
-      <section class="biz7-section">
-        <div class="biz7-section-head"><b>ДРУГИЕ БИЗНЕСЫ</b><button type="button" class="biz7-link" data-business-tab="market">Все →</button></div>
-        <div class="biz7-compact-list">
-          ${otherCatalog.slice(0,6).map(x=>{
-            const id=safeId(x);
-            return `<article class="biz7-compact">
-              <span class="biz7-compact-icon">${icon('business')}</span>
-              <span class="biz7-compact-copy"><b>${esc(safeName(x))}</b><small>+${number(hourOf(x))} ₽/ч · ${daysOf(x).toFixed(1)} дн.</small></span>
-              <button type="button" class="biz7-buy" data-business-buy="${esc(id)}">КУПИТЬ</button>
-            </article>`;
-          }).join('')}
-        </div>
-      </section>`;
+      <section class="biz-clean-section"><div class="biz-clean-head"><b>ДРУГИЕ БИЗНЕСЫ</b><button type="button" class="biz-clean-link" data-business-tab="market">Все →</button></div><div class="biz-clean-list">${other.slice(0,6).map(buyRow).join('')}</div></section>`;
     }
 
-    return `<div class="business-control-v7">
-      <header class="biz7-hero">
-        <div class="biz7-hero-row">
-          <div class="biz7-hero-icon">${icon('crown',true)}</div>
-          <div><span>ВАША ИМПЕРИЯ</span><b>Доход в час</b></div>
-          <em>ACTIVE</em>
-        </div>
-        <div class="biz7-total">${number(totalHour)} ₽ <small>/ ЧАС</small></div>
-        <div class="biz7-daily">${number(totalDay)} ₽ / день · Баланс: ${number(balance)} ₽</div>
-        <button type="button" class="biz7-collect" id="businessCollectBtn" ${pending<=0?'disabled':''}>
-          <span class="biz7-collect-icon">${icon('wallet',true)}</span>
-          <span><b>${pending>0?`ЗАБРАТЬ +${number(pending)} ₽`:'НАКОПЛЕНИЙ НЕТ'}</b><small>Общий пассивный доход</small></span>
-          <span class="biz7-collect-arrow">${icon('arrow')}</span>
-        </button>
+    return `<div class="business-clean">
+      <header class="biz-clean-hero">
+        <div class="biz-clean-top"><div class="biz-clean-icon">${svg('crown',true)}</div><div><span>ВАША ИМПЕРИЯ</span><b>Доход в час</b></div><em>ACTIVE</em></div>
+        <div class="biz-clean-total">${number(totalHour)} ₽ <small>/ ЧАС</small></div>
+        <div class="biz-clean-daily">${number(totalDay)} ₽ / день · Баланс: ${number(balance)} ₽</div>
+        <button type="button" class="biz-clean-collect" id="businessCollectBtn" ${pending<=0?'disabled':''}><span>${svg('wallet',true)}</span><b>${pending>0?`ЗАБРАТЬ +${number(pending)} ₽`:'НАКОПЛЕНИЙ НЕТ'}</b><i>→</i></button>
       </header>
-
-      <nav class="biz7-shortcuts">
-        <button type="button" class="biz7-shortcut active" data-business-tab="overview">${icon('business',true)}<b>Бизнес</b></button>
-        <button type="button" class="biz7-shortcut" data-business-tab="assets">${icon('assets')}<b>Мои бизнесы</b></button>
-        <button type="button" class="biz7-shortcut" data-business-taxi-open>${icon('taxi')}<b>Таксопарк</b></button>
-        <button type="button" class="biz7-shortcut" data-business-profile>${icon('profile')}<b>Профиль</b></button>
-      </nav>
-
-      <div class="biz7-maintenance ${debt>0?'warn':''}">
-        <span class="biz7-maint-main">${debt>0?'Обслуживание · '+number(debt)+' ₽ к оплате':'Обслуживание закрыто'}<small>RCOIN начисляется за общий lifetime-заработок</small></span>
-        <span class="biz7-maint-actions">${debt>0?`<button type="button" class="biz7-maint-pay" id="businessMaintenanceBtn">ОПЛАТИТЬ</button>`:''}<button type="button" class="biz7-refresh" id="businessRefreshBtn">${icon('refresh')}</button></span>
-      </div>
-
-      <div class="biz7-tabs">${tabs.map(([id,label])=>`<button type="button" class="${businessViewTab===id?'active':''}" data-business-tab="${id}">${label}</button>`).join('')}</div>
-      ${inner}
+      ${nav}
+      <div class="biz-clean-maintenance ${debt>0?'warn':''}"><span>${debt>0?`Обслуживание · ${number(debt)} ₽ к оплате`:'Обслуживание закрыто'}<small>RCOIN начисляется за общий lifetime-заработок</small></span><span class="biz-clean-maint-actions">${debt>0?'<button type="button" id="businessMaintenanceBtn">ОПЛАТИТЬ</button>':''}<button type="button" id="businessRefreshBtn">${svg('refresh')}</button></span></div>
+      <div class="biz-clean-tabs">${[['overview','ОБЗОР'],['assets','МОИ БИЗНЕСЫ'],['market','КУПИТЬ']].map(([id,label])=>`<button type="button" class="${businessViewTab===id?'active':''}" data-business-tab="${id}">${label}</button>`).join('')}</div>
+      ${content}
     </div>`;
   }
 
@@ -4985,15 +4926,18 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   loadFriends();
 
   modalBody.addEventListener('click', async (e) => {
-    if(e.target.closest('[data-business-profile]')){ closeModal(); setTimeout(()=>{ $('#profileBtn')?.click(); },0); return; }
+    if(e.target.closest('[data-business-taxi-open]')){
+      e.preventDefault();
+      closeModal();
+      tycoonTab='taxi';
+      taxiView='fleet';
+      setTimeout(()=>renderTycoon().catch(err=>showToast(err.message||'Не удалось открыть таксопарк')),0);
+      return;
+    }
+
     if(e.target.closest('[data-business-profile]')){
       closeModal();
       setTimeout(()=>{ $('#profileBtn')?.click(); },0);
-      return;
-    }
-    if(e.target.closest('[data-business-taxi-open]')){
-      closeModal();
-      setTimeout(()=>{ typeof openTaxiPark==='function' ? openTaxiPark() : $('#taxiBtn')?.click(); },0);
       return;
     }
         const businessTab=e.target.closest('[data-business-tab]');
@@ -5203,7 +5147,6 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
       try{ await businessAction(`/business/${encodeURIComponent(userId)}/buy`,{shop_id:id},'Бизнес куплен и добавлен в активы'); }catch(_){ buy.disabled=false; buy.textContent='КУПИТЬ'; }
       return;
     }
-    if(e.target.closest('[data-business-taxi-open]')){ closeModal(); tycoonTab='taxi'; taxiView='fleet'; setTimeout(()=>renderTycoon().catch(err=>showToast(err.message||'Не удалось открыть таксопарк')),0); return; }
     const sell=e.target.closest('[data-business-sell]');
     if(sell){
       const id=sell.dataset.businessSell;
@@ -6012,14 +5955,6 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
 </script>
 
 
-<script id="resell-v28-friends-bridge">
-(function(){
-  // Keep public cosmetic cards in sync after the existing friends renderer redraws.
-  setInterval(function(){try{window.__resellDecorateFriendsPublic?.();}catch(_){ }},700);
-})();
-</script>
-
-
 <style id="resell-v29-market-css">
 .market-hub-card-v29{position:relative;overflow:hidden;background:radial-gradient(circle at 85% 15%,rgba(183,255,106,.11),transparent 26%),linear-gradient(145deg,rgba(255,255,255,.045),rgba(10,12,10,.82));border-color:rgba(183,255,106,.18)}
 .market-hub-card-v29:before{content:"";position:absolute;inset:-40%;background:conic-gradient(from 210deg,transparent 0 63%,rgba(183,255,106,.08) 68%,transparent 75%);animation:v29spin 11s linear infinite;pointer-events:none}
@@ -6045,44 +5980,6 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
 .unified-club-bars{display:grid;gap:8px;margin-top:10px}.unified-club-bar{display:grid;gap:5px}.unified-club-bar-head{display:flex;justify-content:space-between;color:#767e78;font:900 7px/1 Montserrat}.unified-club-track{height:7px;border-radius:99px;background:#070807;border:1px solid rgba(255,255,255,.06);overflow:hidden}.unified-club-track i{display:block;height:100%;border-radius:99px;background:#b7ff6a;box-shadow:0 0 14px rgba(183,255,106,.18)}
 @media(max-width:430px){.leaderboard-public-badge{font-size:6px}.business-buy-card-v5{align-items:flex-start}}
 </style>
-
-<script id="resell-v29-market-system">
-(function(){
-  const API = window.RESSELL_API || window.location.origin;
-  const core = ()=>window.__resellCoreV26 || {};
-  const uid = ()=>String(core().getUserId?.() || '');
-  const modal=()=>document.getElementById('modal');
-  const title=()=>document.getElementById('modalTitle');
-  const body=()=>document.getElementById('modalBody');
-  const h=(v)=>String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-  const n=(v)=>Number(v||0).toLocaleString('ru-RU').replace(/\u00a0/g,' ');
-  const money=(v)=>n(v)+' ₽';
-  let state=null;
-  let tab='home';
-  let busy=false;
-  function open(titleText, html){ const m=modal(); if(!m)return; title().textContent=titleText; body().innerHTML=html; m.classList.add('open'); document.body.style.overflow='hidden'; }
-  function close(){ modal()?.classList.remove('open'); document.body.style.overflow=''; }
-  async function api(path,opts={}){
-    const r=await core().apiFetch(`${API}${path}`,opts,3); let d={}; try{d=await r.json()}catch(_){d={}}; if(!r.ok) throw new Error(d.error||'Операция недоступна'); return d;
-  }
-  async function load(){ state=await api(`/resell/market/${encodeURIComponent(uid())}?t=${Date.now()}`); return state; }
-  function marketTop(){return `<div class="v29-market-hero"><div class="v29-market-kicker">RESSELL · CAPITAL DESTINATION</div><div class="v29-market-title">Куда уходит капитал.</div><div class="v29-market-sub">Не ещё один автосалон и не копия Business. Это единый слой роскоши и прогресса: империя, коллекции, закрытый рынок и ночная экономика.</div><div class="v29-market-balance"><strong>${money(state?.balance)}</strong><span>${state?.owned?.length||0} предметов<br>в собственности</span></div></div>`}
-  function tabs(){const arr=[['home','ОБЗОР'],['empire','ИМПЕРИЯ'],['black','BLACK MARKET'],['club','NIGHT CLUB']];return `<div class="v29-market-tabs">${arr.map(([id,label])=>`<button class="v29-market-tab ${tab===id?'active':''}" data-v29-tab="${id}">${label}</button>`).join('')}</div>`}
-  function assetButton(item){const owned=(state.owned||[]).includes(item.id); const cls=owned?'owned':''; return `<button class="v29-card-action ${cls}" ${owned?'disabled':''} data-v29-buy="${h(item.id)}">${owned?'В КОЛЛЕКЦИИ':`ПРИОБРЕСТИ · ${money(item.price)}`}</button>`}
-  function empireView(){return `${marketTop()}${tabs()}<div class="v29-section-head"><b>RESSELL EMPIRE</b><span>Одна последовательная линия.<br>Без дублирования Business.</span></div><div class="v29-card-grid">${(state.empire||[]).map(x=>`<div class="v29-card"><div class="v29-card-top"><span class="v29-tier">TIER ${x.tier}</span><span class="v29-price">${money(x.price)}</span></div><div class="v29-name">${h(x.name)}</div><div class="v29-desc">${h(x.description)}</div>${assetButton(x)}</div>`).join('')}</div><div class="v29-section-head"><b>PRIVATE CLUB</b><span>Закрытый слой для игроков<br>с реально большим капиталом.</span></div><div class="v29-feature-card"><div class="v29-feature-top"><span class="v29-feature-badge">100M ENTRY</span><span class="v29-price">100 000 000 ₽</span></div><div class="v29-feature-title">PRIVATE CLUB</div><div class="v29-feature-desc">Разовая покупка. Открывает отдельную закрытую зону и доступ к клубным ротациям Black Market.</div><div class="v29-feature-grid"><div class="v29-mini"><small>ДОСТУП</small><b>24/7</b></div><div class="v29-mini"><small>СТАТУС</small><b>PRIVATE</b></div><div class="v29-mini"><small>ТИП</small><b>ONE-TIME</b></div></div>${assetButton({id:'private_club',price:100000000})}</div>`}
-  function blackView(){const items=state.black_market||[]; const owned=state.owned||[]; return `${marketTop()}${tabs()}<div class="v29-section-head"><b>BLACK MARKET</b><span>Ротация раз в сутки.<br>Редкие лоты не пересекаются с другими магазинами.</span></div><div class="v29-feature-card"><div class="v29-feature-top"><span class="v29-feature-badge">LIVE ROTATION</span><span class="v29-price">${h(state.market_day||'—')}</span></div><div class="v29-feature-title">TODAY'S DROP</div><div class="v29-feature-desc">Четыре лота на сегодня. Каждый предмет после покупки навсегда остаётся в твоей коллекции.</div></div><div class="v29-collection-list" style="margin-top:9px">${items.map(x=>`<div class="v29-collection-item"><div class="v29-collection-copy"><b>${h(x.name)}</b><span>${h(x.description)}</span></div><div class="v29-collection-side"><span class="v29-rarity" style="color:${h(x.accent||'#b7ff6a')}">${h(x.rarity||'RARE')}</span><span class="v29-price">${money(x.price)}</span><button class="v29-card-action ${(owned.includes(x.id)?'owned':'')}" data-v29-buy="${h(x.id)}" ${owned.includes(x.id)?'disabled':''}>${owned.includes(x.id)?'В КОЛЛЕКЦИИ':'ЗАБРАТЬ'}</button></div></div>`).join('')}</div><div class="v29-section-head"><b>КОЛЛЕКЦИЯ</b><span>${owned.filter(x=>x.startsWith('collect_')).length} коллекционных предметов</span></div><div class="v29-collection-list">${(state.collectibles||[]).map(x=>{const own=owned.includes(x.id);return `<div class="v29-collection-item"><div class="v29-collection-copy"><b>${h(x.name)}</b><span>${h(x.description)}</span></div><div class="v29-collection-side"><span class="v29-rarity" style="color:${h(x.accent||'#b7ff6a')}">${h(x.rarity||'RARE')}</span>${assetButton(x)}</div></div>`}).join('')}</div>`}
-  function clubView(){const c=state.nightclub||{}; const next=c.next_level; return `<div class="v29-club-shell"><div class="v29-club-hero"><div class="v29-club-kicker">RESSELL NIGHT ECONOMY</div><div class="v29-club-title">${h(c.venue_name||'NIGHT CLUB')}</div><div class="v29-club-sub">Не просто красивый экран. Клуб — отдельный денежный цикл: апгрейд → гости → накопление → сбор.</div><div class="v29-club-status"><strong>${c.level?`LEVEL ${c.level}`:'NOT OPEN'}</strong><span class="v29-live"><i></i>${c.level?'CLUB ONLINE':'READY TO BUILD'}</span></div><div class="v29-club-stats"><div class="v29-club-stat"><small>ГОСТИ</small><b>${n(c.guest_count)}</b></div><div class="v29-club-stat"><small>ЛИМИТ</small><b>${n(c.capacity)}</b></div><div class="v29-club-stat"><small>REPUTATION</small><b>${n(c.reputation)}</b></div><div class="v29-club-stat"><small>LVL</small><b>${n(c.level)}</b></div></div><div class="v29-club-income"><small>НАКОПЛЕНО К ВЫВОДУ</small><strong>${money(c.pending_income)}</strong><span>${c.income_per_hour?`+${money(c.income_per_hour)} / час · доход продолжает копиться между заходами`: 'Открой первый уровень, чтобы запустить ночную экономику'}</span></div>${c.pending_income>0?`<button class="v29-primary" data-v29-club-collect>ЗАБРАТЬ ${money(c.pending_income)}</button>`:''}${next?`<button class="v29-primary" data-v29-club-upgrade>ПОДНЯТЬ ДО LEVEL ${next.level} · ${money(next.price)}</button>`:`<div class="v29-section-head" style="margin-top:14px"><b>MAX LEVEL</b><span>BLACK PALACE достигнут</span></div>`}</div></div><div class="v29-section-head"><b>СТИЛЬ КЛУБА</b><span>Меняет сцену и цвет пространства.</span></div><div class="v29-style-grid">${(c.styles||[]).map(x=>{const active=x.id===c.venue_style; const own=active||x.id==='afterdark' || (state.owned||[]).includes('club_style_'+x.id);return `<button class="v29-style ${active?'active':''}" data-v29-style="${h(x.id)}"><div class="v29-style-dot" style="background:${h(x.accent)};box-shadow:0 0 18px ${h(x.accent)}55"></div><b>${h(x.name)}</b><span>${own?'ДОСТУПЕН':money(x.price)}</span></button>`}).join('')}</div><div class="v29-section-head"><b>УРОВНИ</b><span>Один клуб, одна линия прогрессии.</span></div><div class="v29-levels">${clubLevels()}</div><button class="v29-back" data-v29-back>← НАЗАД В MARKET</button></div>`}
-  function clubLevels(){const c=state.nightclub||{}; return [1,2,3,4].map(level=>({level,name:['AFTERDARK ROOM','NEON LOUNGE','NIGHT DISTRICT','BLACK PALACE'][level-1],price:[50000000,150000000,500000000,1500000000][level-1],income_per_hour:[6000,20000,70000,240000][level-1],capacity:[40,90,220,500][level-1]})).map(x=>`<div class="v29-level-row"><div class="v29-level-num">${x.level}</div><div class="v29-level-copy"><b>${x.name}</b><span>+${money(x.income_per_hour)} / ч · вместимость ${n(x.capacity)}</span></div><div class="v29-level-cost">${money(x.price)}</div></div>`).join('')}
-  async function render(){if(!state) await load(); let html=''; if(tab==='empire')html=empireView(); else if(tab==='black')html=blackView(); else if(tab==='club')html=clubView(); else html=homeView(); body().innerHTML=html; bind();}
-  function homeView(){const c=state.nightclub||{};return `${marketTop()}${tabs()}<div class="v29-feature-card" data-v29-open-club><div class="v29-feature-top"><span class="v29-feature-badge">NEW · NIGHT ECONOMY</span><span class="v29-price">${c.level?`LEVEL ${c.level}`:'50M ENTRY'}</span></div><div class="v29-feature-title">NIGHT CLUB</div><div class="v29-feature-desc">Отдельная ночная экономика RESSELL. Строй клуб, выбирай стиль, собирай гостей и забирай накопленный доход.</div><div class="v29-feature-grid"><div class="v29-mini"><small>ДОХОД</small><b>${c.income_per_hour?money(c.income_per_hour)+'/ч':'—'}</b></div><div class="v29-mini"><small>ГОСТИ</small><b>${c.capacity?n(c.guest_count)+'/'+n(c.capacity):'—'}</b></div><div class="v29-mini"><small>НАКОПЛЕНО</small><b>${money(c.pending_income)}</b></div></div><button class="v29-primary">${c.level?'ОТКРЫТЬ КЛУБ':'ПОСТРОИТЬ КЛУБ'}</button></div><div class="v29-section-head"><b>КУДА УЙТИ С КАПИТАЛОМ</b><span>Без вторых автосалонов<br>и копий существующих функций.</span></div><div class="v29-card-grid"><div class="v29-card"><div class="v29-card-top"><span class="v29-tier">IMPERIAL</span><span class="v29-price">25M → 500M</span></div><div class="v29-name">RESSELL EMPIRE</div><div class="v29-desc">Линейка личных пространств: Office → HQ → Tower.</div><button class="v29-card-action" data-v29-go="empire">ОТКРЫТЬ ИМПЕРИЮ</button></div><div class="v29-card"><div class="v29-card-top"><span class="v29-tier">LIMITED</span><span class="v29-price">DAILY</span></div><div class="v29-name">BLACK MARKET</div><div class="v29-desc">Четыре лимитированных лота в сутки + постоянная коллекция.</div><button class="v29-card-action" data-v29-go="black">ОТКРЫТЬ РЫНОК</button></div></div>`}
-  function bind(){document.querySelectorAll('[data-v29-tab]').forEach(b=>b.onclick=async()=>{tab=b.dataset.v29Tab;try{await render()}catch(e){core().showToast?.(e.message)}});document.querySelectorAll('[data-v29-go]').forEach(b=>b.onclick=async()=>{tab=b.dataset.v29Go;await render()});document.querySelectorAll('[data-v29-buy]').forEach(b=>b.onclick=async()=>{if(b.disabled||busy)return;busy=true;b.disabled=true;try{const d=await api(`/resell/market/${encodeURIComponent(uid())}/buy`,{method:'POST',body:JSON.stringify({asset_id:b.dataset.v29Buy})});state.balance=d.balance??state.balance;state.owned=[...(state.owned||[]),b.dataset.v29Buy];core().setBalance?.(state.balance);core().showToast?.(d.message||'Покупка завершена');await render();}catch(e){core().showToast?.(e.message);b.disabled=false}finally{busy=false}});document.querySelector('[data-v29-open-club]')?.addEventListener('click',async()=>{tab='club';await render()});document.querySelector('[data-v29-back]')?.addEventListener('click',async()=>{tab='home';await render()});document.querySelector('[data-v29-club-upgrade]')?.addEventListener('click',async()=>{if(busy)return;busy=true;try{const d=await api(`/resell/nightclub/${encodeURIComponent(uid())}/upgrade`,{method:'POST'});state.balance=d.balance??state.balance;core().setBalance?.(state.balance);core().showToast?.(d.message||'Клуб улучшен');await load();await render();}catch(e){core().showToast?.(e.message)}finally{busy=false}});document.querySelector('[data-v29-club-collect]')?.addEventListener('click',async()=>{if(busy)return;busy=true;try{const d=await api(`/resell/nightclub/${encodeURIComponent(uid())}/collect`,{method:'POST'});state.balance=d.balance??state.balance;state.nightclub.pending_income=0;core().setBalance?.(state.balance);core().showToast?.(d.message||'Доход забран');await load();await render();}catch(e){core().showToast?.(e.message)}finally{busy=false}});document.querySelectorAll('[data-v29-style]').forEach(b=>b.onclick=async()=>{if(busy)return;busy=true;try{const d=await api(`/resell/nightclub/${encodeURIComponent(uid())}/style`,{method:'POST',body:JSON.stringify({style_id:b.dataset.v29Style})});core().showToast?.('Стиль клуба обновлён');await load();await render();}catch(e){core().showToast?.(e.message)}finally{busy=false}})}
-  function openMarket(){tab='home';state=null;open('RESSELL Market','<div class="loading">Загрузка нового слоя RESSELL…</div>');load().then(render).catch(e=>{body().innerHTML=`<div class="v29-market-hero"><div class="v29-market-title">MARKET недоступен</div><div class="v29-market-sub">${h(e.message||'Не удалось загрузить Market')}</div></div>`});}
-  const btn=document.getElementById('resellMarketBtn'); if(btn) btn.addEventListener('click',e=>{e.preventDefault();openMarket()});
-  // Keep direct visual access without adding another Night Club button to the home screen.
-  window.__resellOpenMarketV29=openMarket;
-})();
-</script>
-
 
 <style id="resell-v33-polish-css">
 .v33-market-access{margin-top:10px}.v33-market-access .v29-card{min-height:130px}.v33-market-pill{display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border-radius:9px;background:rgba(183,255,106,.08);border:1px solid rgba(183,255,106,.17);color:#b7ff6a;font:950 5px/1 Montserrat;letter-spacing:.8px}.v33-market-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:10px 0}.v33-market-tab{padding:10px 7px;border-radius:13px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.025);color:#737c76;font:950 6px/1.15 Montserrat;letter-spacing:.35px}.v33-market-tab.active{color:#b7ff6a;background:rgba(183,255,106,.08);border-color:rgba(183,255,106,.28)}
@@ -6155,50 +6052,52 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
 </script>
 </body>
 </html>
-<style id="business-v5-layout">
-.business-control-v5{display:grid;gap:10px;color:#f4f4f4;font-family:"Montserrat",sans-serif}
-.business-control-v5 *{box-sizing:border-box;font-family:"Montserrat",sans-serif}
-.business-hero-v5{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px;border:1px solid rgba(255,255,255,.09);border-radius:22px;background:radial-gradient(circle at 85% 0,rgba(255,255,255,.09),transparent 40%),linear-gradient(145deg,#171717,#090909 72%);box-shadow:0 22px 55px rgba(0,0,0,.36)}
-.business-hero-v5>div{min-width:0}.business-hero-v5 span{display:block;color:#707070;font-size:8px;font-weight:950;letter-spacing:1.5px}.business-hero-v5 b{display:block;margin-top:7px;font-size:25px;line-height:1;letter-spacing:-.7px}.business-hero-v5 em{font-style:normal;color:#777;font-size:9px;letter-spacing:1px}.business-hero-v5 small{display:block;margin-top:8px;color:#7e7e7e;font-size:9px;font-weight:800}.business-collect-v5{flex:0 0 135px;min-height:52px;border:1px solid #fff;border-radius:15px;background:#fff;color:#050505;font:950 8px/1.1 Montserrat,sans-serif;letter-spacing:.7px;box-shadow:0 10px 28px rgba(255,255,255,.07)}.business-collect-v5:disabled{opacity:.36}
-.business-maintenance-v5{display:flex;align-items:center;gap:8px;padding:9px 11px;border:1px solid rgba(255,255,255,.07);border-radius:14px;background:rgba(255,255,255,.025);color:#727272;font-size:8px;font-weight:850}.business-maintenance-v5>span{flex:1}.business-refresh-v5{width:31px;height:31px;border:1px solid rgba(255,255,255,.07);border-radius:10px;background:rgba(255,255,255,.03);color:#ddd;font-size:15px}.business-tabs-v5{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:4px;border-radius:15px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.07)}.business-tab-v5{min-height:38px;border:0;border-radius:11px;background:transparent;color:#707070;font:950 8px/1 Montserrat,sans-serif;letter-spacing:.7px}.business-tab-v5.active{background:#fff;color:#050505;box-shadow:0 7px 18px rgba(255,255,255,.06)}
-.business-section-v5{display:grid;gap:8px}.business-section-kicker-v5{margin:2px 2px 0;color:#626262;font-size:8px;font-weight:950;letter-spacing:1.5px}.business-overview-grid-v5{display:grid;grid-template-columns:1fr 1fr;gap:7px}.business-stat-v5{padding:13px;border-radius:16px;border:1px solid rgba(255,255,255,.07);background:linear-gradient(145deg,rgba(255,255,255,.045),rgba(255,255,255,.017))}.business-stat-v5 span{display:block;color:#666;font-size:7px;font-weight:950;letter-spacing:1.1px}.business-stat-v5 b{display:block;margin-top:6px;color:#eee;font-size:15px;letter-spacing:-.2px}.business-feature-v5{display:flex;align-items:center;justify-content:space-between;gap:9px;padding:12px;border-radius:17px;border:1px solid rgba(255,255,255,.07);background:linear-gradient(145deg,rgba(255,255,255,.04),rgba(255,255,255,.017))}.business-feature-v5.warn{border-color:rgba(255,150,100,.16);background:linear-gradient(145deg,rgba(255,130,80,.055),rgba(255,255,255,.017))}.business-feature-v5>div{display:flex;align-items:center;gap:9px;min-width:0}.business-feature-icon-v5{display:grid;place-items:center;width:36px;height:36px;border-radius:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.06);font-size:16px}.business-feature-v5 b{display:block;color:#eee;font-size:9px}.business-feature-v5 span{display:block;margin-top:4px;color:#666;font-size:7.5px;line-height:1.3;font-weight:800}.business-mini-btn-v5{flex:0 0 auto;min-height:34px;padding:0 10px;border:1px solid rgba(255,255,255,.09);border-radius:10px;background:rgba(255,255,255,.035);color:#ddd;font:900 7px/1 Montserrat,sans-serif;letter-spacing:.45px}.business-status-v5{color:#8c8c8c;font-size:7px;font-weight:950;letter-spacing:1px}
-.business-list-v5,.business-buy-list-v5{display:grid;gap:7px}.business-asset-card-v5,.business-buy-card-v5{padding:12px;border:1px solid rgba(255,255,255,.07);border-radius:17px;background:linear-gradient(145deg,rgba(255,255,255,.045),rgba(255,255,255,.015))}.business-asset-top-v5{display:flex;justify-content:space-between;gap:8px}.business-asset-top-v5 b,.business-buy-card-v5 b{display:block;color:#eee;font-size:9px}.business-asset-top-v5 span,.business-buy-card-v5 span,.business-buy-card-v5 small{display:block;margin-top:4px;color:#676767;font-size:7.5px;font-weight:800;line-height:1.3}.business-buy-card-v5 small{margin-top:2px}.business-asset-income-v5{white-space:nowrap;color:#fff;font-size:11px;font-weight:950}.business-asset-income-v5 small{display:block;color:#666;font-size:6px;text-align:right;letter-spacing:.7px}.business-asset-bottom-v5{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:9px;padding-top:9px;border-top:1px solid rgba(255,255,255,.055)}.business-asset-bottom-v5>span{color:#666;font-size:7px;font-weight:800}.business-buy-card-v5{display:flex;align-items:center;justify-content:space-between;gap:8px}.business-buy-v5{flex:0 0 auto;min-width:62px;min-height:35px;border:1px solid #fff;border-radius:10px;background:#fff;color:#050505;font:950 7px/1 Montserrat,sans-serif;letter-spacing:.5px}.business-empty-v5{padding:18px;text-align:center;color:#676767;font-size:8.5px;line-height:1.45;border:1px dashed rgba(255,255,255,.09);border-radius:15px}
-@media(max-width:420px){.business-hero-v5{align-items:stretch;flex-direction:column}.business-collect-v5{width:100%;flex-basis:48px}.business-overview-grid-v5{grid-template-columns:1fr 1fr}.business-asset-bottom-v5{align-items:stretch;flex-direction:column}.business-asset-bottom-v5 .business-mini-btn-v5{width:100%}.business-tab-v5{font-size:7px}}
+<style id="resell-friends-clean-v3">
+.friends-sheet,.friend-profile-sheet,.friend-compare-sheet{font-family:"Montserrat",sans-serif}
+.friends-sheet .friends-hero,.friend-profile-hero{background:radial-gradient(circle at 90% 0,rgba(183,255,106,.12),transparent 35%),linear-gradient(145deg,#161917,#0b0c0b)}
+.friend-v3-network-icon{width:34px;height:34px;display:grid;place-items:center;border-radius:11px;background:rgba(183,255,106,.07);border:1px solid rgba(183,255,106,.15)}
+.friend-v3-network-icon svg{width:19px;height:19px}
+</style>
+<script id="resell-friends-clean-v3">
+(function(){
+  document.addEventListener('click',function(e){
+    const btn=e.target?.closest?.('#friendsBtn');
+    if(!btn)return;
+    const open=window.__resellOpenFriends;
+    if(typeof open!=='function')return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    try{open();}catch(err){console.error('RESSELL Friends',err);}
+  },true);
+})();
+</script>
+
+<style id="resell-business-clean-v3-css">
+.business-clean{display:grid;gap:10px;color:#f2f5f2;font-family:"Montserrat",sans-serif}
+.business-clean *{box-sizing:border-box}
+.biz-clean-hero{padding:15px;border-radius:23px;border:1px solid rgba(183,255,106,.16);background:radial-gradient(circle at 100% 0,rgba(183,255,106,.11),transparent 33%),linear-gradient(145deg,#151815,#090b0a 72%);box-shadow:0 20px 50px rgba(0,0,0,.3)}
+.biz-clean-top{display:flex;align-items:center;gap:9px}.biz-clean-icon{width:38px;height:38px;display:grid;place-items:center;border-radius:12px;background:rgba(183,255,106,.07);border:1px solid rgba(183,255,106,.16)}.biz-clean-icon .biz-clean-icon{width:18px;height:18px}.biz-clean-top span{display:block;color:#6d776f;font:950 6px/1 "Montserrat";letter-spacing:1.5px}.biz-clean-top b{display:block;margin-top:4px;font:950 9px/1 "Montserrat"}.biz-clean-top em{margin-left:auto;padding:6px 8px;border-radius:9px;border:1px solid rgba(183,255,106,.22);background:rgba(183,255,106,.07);color:#b7ff6a;font:950 5.8px/1 "Montserrat";font-style:normal}
+.biz-clean-total{margin-top:11px;font:950 30px/1 "Montserrat";letter-spacing:-1px}.biz-clean-total small{font-size:7px;color:#69736c;letter-spacing:1.2px}.biz-clean-daily{margin-top:6px;color:#737d76;font:800 7px/1.2 "Montserrat"}.biz-clean-collect{display:flex;align-items:center;gap:9px;width:100%;margin-top:12px;min-height:49px;padding:0 11px;border-radius:14px;border:1px solid rgba(183,255,106,.18);background:rgba(183,255,106,.055);color:#eef2ee;text-align:left}.biz-clean-collect>span{width:29px;height:29px;display:grid;place-items:center;border-radius:9px;background:rgba(183,255,106,.08)}.biz-clean-collect .biz-clean-icon,.biz-clean-collect .biz-clean-icon *{width:17px;height:17px}.biz-clean-collect b{flex:1;font:950 7.5px/1 "Montserrat"}.biz-clean-collect i{font-style:normal;font-size:17px;color:#aeb8b0}.biz-clean-collect:disabled{opacity:.40}
+.biz-clean-nav{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.biz-clean-nav-btn{min-height:60px;border-radius:15px;border:1px solid rgba(255,255,255,.065);background:rgba(255,255,255,.02);color:#737c76;display:grid;place-items:center;align-content:center;gap:5px}.biz-clean-nav-btn .biz-clean-icon{width:18px;height:18px}.biz-clean-nav-btn b{font:950 5.9px/1 "Montserrat"}.biz-clean-nav-btn.active{border-color:rgba(183,255,106,.27);background:rgba(183,255,106,.055);color:#b7ff6a}
+.biz-clean-maintenance{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 10px;border-radius:14px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.02);color:#727c75;font:800 6.7px/1.25 "Montserrat"}.biz-clean-maintenance.warn{border-color:rgba(255,178,94,.20);background:rgba(255,145,80,.03)}.biz-clean-maintenance span:first-child{min-width:0}.biz-clean-maintenance small{display:block;margin-top:4px;color:#535d56;font-size:5.5px}.biz-clean-maint-actions{display:flex;gap:5px;flex:none}.biz-clean-maint-actions button{min-height:32px;border-radius:9px;border:1px solid rgba(255,255,255,.08);font:950 6px/1 "Montserrat"}.biz-clean-maint-actions button:first-child{padding:0 9px;background:#fff;border-color:#fff;color:#050505}.biz-clean-maint-actions button:last-child{width:32px;background:rgba(255,255,255,.03);color:#aab4ac}.biz-clean-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:4px;border-radius:14px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.018)}.biz-clean-tabs button{min-height:37px;border:0;border-radius:10px;background:transparent;color:#646e68;font:950 6.5px/1 "Montserrat"}.biz-clean-tabs button.active{background:#fff;color:#050505}
+.biz-clean-section{display:grid;gap:7px}.biz-clean-head{display:flex;align-items:center;justify-content:space-between;padding:1px 2px}.biz-clean-head b{font:950 7px/1 "Montserrat";letter-spacing:1.2px}.biz-clean-head span{color:#5e6961;font:800 6px/1 "Montserrat"}.biz-clean-link{border:0;background:none;color:#7b877e;font:800 6px/1 "Montserrat"}
+.biz-clean-line{display:flex;align-items:center;gap:9px;width:100%;padding:10px;border-radius:16px;border:1px solid rgba(183,255,106,.18);background:linear-gradient(145deg,rgba(183,255,106,.07),rgba(255,255,255,.015));text-align:left}.biz-clean-line-icon{width:38px;height:38px;display:grid;place-items:center;border-radius:12px;background:rgba(183,255,106,.06);border:1px solid rgba(183,255,106,.12)}.biz-clean-line span:nth-child(2){flex:1;min-width:0}.biz-clean-line b{display:block;color:#b7ff6a;font-size:8px}.biz-clean-line small{display:block;margin-top:4px;color:#69736d;font:800 6.2px/1.25 "Montserrat"}.biz-clean-line i{font-style:normal;font-size:18px;color:#b7ff6a}
+.biz-clean-empire-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.biz-clean-empire{padding:7px;border-radius:16px;border:1px solid rgba(255,255,255,.065);background:linear-gradient(145deg,#131715,#090b0a)}.biz-clean-empire-art{height:105px;overflow:hidden;border-radius:12px;border:1px solid rgba(183,255,106,.11);background:#0d130f}.biz-skyline{width:100%;height:100%;display:block}.biz-clean-empire>b{display:block;margin-top:8px;color:#e9eee9;font:950 6.8px/1.1 "Montserrat"}.biz-clean-empire>span{display:block;margin-top:4px;color:#b7ff6a;font:950 6.4px/1 "Montserrat"}.biz-clean-empire>small{display:block;margin-top:4px;color:#626d64;font:800 5.8px/1 "Montserrat"}.biz-clean-buy{min-height:32px;border-radius:9px;border:1px solid #fff;background:#fff;color:#050505;font:950 6.1px/1 "Montserrat"}.biz-clean-buy.wide{width:100%;margin-top:8px}
+.biz-clean-list{display:grid;gap:6px}.biz-clean-row{display:flex;align-items:center;gap:8px;padding:9px;border-radius:15px;border:1px solid rgba(255,255,255,.06);background:linear-gradient(145deg,rgba(255,255,255,.032),rgba(255,255,255,.014))}.biz-clean-row-icon{width:36px;height:36px;display:grid;place-items:center;flex:none;border-radius:11px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.04)}.biz-clean-row-copy{flex:1;min-width:0}.biz-clean-row-copy b{display:block;color:#e8ede8;font:950 8px/1.1 "Montserrat";white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.biz-clean-row-copy span{display:block;margin-top:4px;color:#707b73;font:800 6.2px/1.1 "Montserrat"}.biz-clean-row-copy small{display:block;margin-top:3px;color:#525d55;font:800 5.6px/1.1 "Montserrat"}.biz-clean-ghost{min-height:32px;padding:0 8px;border-radius:9px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.025);color:#c7cec8;font:950 5.8px/1 "Montserrat"}.biz-clean-empty{padding:17px;border-radius:14px;border:1px dashed rgba(255,255,255,.08);text-align:center;color:#59635c;font:800 7px/1.4 "Nunito"}.biz-clean-icon{width:18px;height:18px;display:block}
+@media(max-width:390px){.biz-clean-total{font-size:27px}.biz-clean-empire-grid{gap:5px}.biz-clean-empire-art{height:91px}.biz-clean-empire>b{font-size:6.3px}.biz-clean-nav-btn b{font-size:5.5px}}
 </style>
 
-
-<style id="resell-business-v6-ui">
-.business-control-v6{display:grid;gap:10px;color:#f7f8f7;font-family:"Montserrat",sans-serif}
-.business-control-v6 *{box-sizing:border-box;font-family:"Montserrat",sans-serif}
-.biz6-hero{position:relative;overflow:hidden;padding:15px;border-radius:23px;background:radial-gradient(circle at 92% 0,rgba(183,255,106,.14),transparent 34%),linear-gradient(145deg,#171a18,#080a09 72%);border:1px solid rgba(255,255,255,.09);box-shadow:0 24px 58px rgba(0,0,0,.42)}
-.biz6-hero-top{display:flex;align-items:center;gap:9px}.biz6-crown{width:37px;height:37px;display:grid;place-items:center;border-radius:12px;background:rgba(183,255,106,.08);font-size:19px}.biz6-hero-top span{display:block;color:#68716b;font:950 6px/1 "Montserrat";letter-spacing:1.6px}.biz6-hero-top b{display:block;margin-top:4px;font-size:9px}.biz6-hero-top em{margin-left:auto;padding:6px 8px;border-radius:8px;background:rgba(183,255,106,.09);border:1px solid rgba(183,255,106,.17);color:#b7ff6a;font:950 6px/1 "Montserrat";font-style:normal}
-.biz6-total{margin-top:10px;font:950 29px/1 "Montserrat";letter-spacing:-1px}.biz6-total small{color:#777;font-size:8px;letter-spacing:1px}.biz6-daily{margin-top:6px;color:#808981;font:800 7.5px/1.25 "Montserrat"}
-.biz6-collect{display:flex;align-items:center;gap:9px;width:100%;margin-top:12px;min-height:48px;padding:0 12px;border:1px solid rgba(183,255,106,.24);border-radius:14px;background:linear-gradient(90deg,rgba(183,255,106,.10),rgba(255,255,255,.035));color:#fff}.biz6-collect span{font-size:16px}.biz6-collect b{flex:1;text-align:left;font:950 8px/1 "Montserrat";letter-spacing:.3px}.biz6-collect i{font-size:19px;font-style:normal;color:#a8b1ab}.biz6-collect:disabled{opacity:.43}
-.biz6-shortcuts{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.biz6-shortcut{min-height:60px;border:1px solid rgba(255,255,255,.07);border-radius:15px;background:rgba(255,255,255,.025);color:#858c87;display:grid;place-items:center;align-content:center;gap:5px}.biz6-shortcut span{font-size:15px;line-height:1}.biz6-shortcut b{font:900 6px/1.1 "Montserrat"}.biz6-shortcut.active{background:rgba(183,255,106,.07);border-color:rgba(183,255,106,.22);color:#b7ff6a}
-.biz6-maintenance{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 11px;border:1px solid rgba(255,255,255,.07);border-radius:14px;background:rgba(255,255,255,.025);color:#747d77;font:800 7px/1.35 "Montserrat"}.biz6-maintenance.warn{border-color:rgba(255,175,105,.18);background:rgba(255,145,80,.035)}.biz6-maintenance span{min-width:0}.biz6-maintenance small{display:block;margin-top:3px;color:#545c57;font-size:6px}.biz6-maintenance>div{display:flex;gap:5px;flex:none}.biz6-maint-btn,.biz6-refresh{min-height:32px;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:rgba(255,255,255,.035);color:#ddd;font:950 6px/1 "Montserrat"}.biz6-maint-btn{padding:0 9px;background:#fff;color:#050505;border-color:#fff}.biz6-refresh{width:32px;font-size:15px}
-.biz6-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;padding:4px;border-radius:14px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.06)}.biz6-tabs button{min-height:35px;border:0;border-radius:10px;background:transparent;color:#707770;font:950 6.5px/1 "Montserrat";letter-spacing:.4px}.biz6-tabs button.active{background:#fff;color:#050505}
-.biz6-section{display:grid;gap:7px}.biz6-section-head{display:flex;align-items:center;justify-content:space-between;padding:2px}.biz6-section-head b{font:950 7px/1 "Montserrat";letter-spacing:1.3px}.biz6-section-head span,.biz6-link-btn{color:#69736d;font:800 6.5px/1 "Montserrat"}.biz6-link-btn{border:0;background:none;color:#8d9891;padding:3px}
-.biz6-line-card{display:flex;align-items:center;gap:9px;padding:11px;border-radius:17px;background:linear-gradient(145deg,rgba(183,255,106,.10),rgba(255,255,255,.018));border:1px solid rgba(183,255,106,.19)}.biz6-line-icon{width:36px;height:36px;display:grid;place-items:center;border-radius:12px;background:rgba(183,255,106,.08);font-size:17px}.biz6-line-copy{min-width:0;flex:1}.biz6-line-copy b{display:block;color:#b7ff6a;font-size:8px}.biz6-line-copy span{display:block;margin-top:4px;color:#6f7771;font-size:6.5px;line-height:1.3;font-weight:800}.biz6-arrow-btn{width:31px;height:31px;border:1px solid rgba(183,255,106,.15);border-radius:10px;background:rgba(0,0,0,.16);color:#b7ff6a;font-size:15px}
-.biz6-feature-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.biz6-feature-card{padding:7px;border-radius:16px;background:linear-gradient(145deg,#141919,#090b0a);border:1px solid rgba(255,255,255,.07)}.biz6-art{height:67px;border-radius:12px;display:grid;place-items:center;background:radial-gradient(circle at 50% 36%,rgba(183,255,106,.13),transparent 56%),linear-gradient(145deg,#1d2620,#0a0d0b);border:1px solid rgba(255,255,255,.05);font-size:26px}.biz6-feature-card b{display:block;margin-top:7px;font-size:7.5px;line-height:1.15}.biz6-feature-card span{display:block;margin-top:3px;color:#b7ff6a;font-size:6.5px;font-weight:900}.biz6-feature-card small{display:block;margin-top:3px;color:#6e7771;font-size:6px;font-weight:800}.biz6-feature-buy{width:100%;margin-top:7px;min-height:28px;border:1px solid #fff;border-radius:9px;background:#fff;color:#050505;font:950 6.5px/1 "Montserrat"}
-.biz6-compact-list,.biz6-buy-list,.biz6-list{display:grid;gap:6px}.biz6-compact-row,.biz6-buy-row,.biz6-wide-card{display:flex;align-items:center;gap:8px;padding:9px;border-radius:15px;background:linear-gradient(145deg,rgba(255,255,255,.035),rgba(255,255,255,.017));border:1px solid rgba(255,255,255,.065)}.biz6-compact-icon,.biz6-buy-art,.biz6-wide-icon{width:35px;height:35px;flex:none;display:grid;place-items:center;border-radius:11px;background:rgba(255,255,255,.045);font-size:16px}.biz6-compact-copy,.biz6-buy-copy,.biz6-wide-copy{flex:1;min-width:0}.biz6-compact-copy b,.biz6-buy-copy b,.biz6-wide-copy b{display:block;font-size:8px}.biz6-compact-copy span,.biz6-buy-copy span,.biz6-wide-copy span{display:block;margin-top:3px;color:#6f7872;font:800 6.3px/1.25 "Montserrat"}.biz6-buy-copy small,.biz6-wide-copy small{display:block;margin-top:2px;color:#555e58;font:800 5.9px/1.2 "Montserrat"}.biz6-buy-btn,.biz6-small-action{flex:none;min-height:32px;padding:0 9px;border:1px solid #fff;border-radius:9px;background:#fff;color:#050505;font:950 6.3px/1 "Montserrat"}.biz6-buy-btn.compact{min-width:60px}.biz6-small-action{border-color:rgba(255,255,255,.08);background:rgba(255,255,255,.035);color:#ddd}.biz6-empty{padding:18px;text-align:center;border:1px dashed rgba(255,255,255,.08);border-radius:15px;color:#636b65;font:800 7.5px/1.4 "Montserrat"}
-@media(max-width:390px){.biz6-shortcut b{font-size:5.7px}.biz6-feature-grid{gap:5px}.biz6-art{height:59px}.biz6-total{font-size:26px}}
-</style>
-
-<style id="resell-business-v7-polish">
-.business-control-v7{display:grid;gap:10px;color:#f5f7f5;font-family:"Montserrat",sans-serif}
-.business-control-v7 *{box-sizing:border-box;font-family:"Montserrat",sans-serif}
-.biz7-svg{width:19px;height:19px;display:block;flex:none}
-.biz7-hero{overflow:hidden;padding:15px;border-radius:24px;border:1px solid rgba(183,255,106,.16);background:radial-gradient(circle at 100% 0,rgba(183,255,106,.16),transparent 33%),radial-gradient(circle at 0 100%,rgba(100,160,255,.05),transparent 35%),linear-gradient(150deg,#171a18,#080a09 75%);box-shadow:0 20px 50px rgba(0,0,0,.36)}
-.biz7-hero-row{display:flex;align-items:center;gap:9px}.biz7-hero-icon{width:40px;height:40px;display:grid;place-items:center;border-radius:13px;background:rgba(183,255,106,.08);border:1px solid rgba(183,255,106,.12)}.biz7-hero-row span{display:block;color:#68736c;font:950 6px/1 "Montserrat";letter-spacing:1.4px}.biz7-hero-row b{display:block;margin-top:4px;font-size:9px}.biz7-hero-row em{margin-left:auto;padding:7px 9px;border-radius:9px;color:#b7ff6a;background:rgba(183,255,106,.08);border:1px solid rgba(183,255,106,.22);font:950 6px/1 "Montserrat";font-style:normal}
-.biz7-total{margin-top:11px;font:950 31px/1 "Montserrat";letter-spacing:-1.2px}.biz7-total small{font-size:8px;color:#717a74;letter-spacing:1.2px}.biz7-daily{margin-top:7px;color:#7b847e;font:800 7.2px/1.25 "Montserrat"}
-.biz7-collect{display:flex;align-items:center;gap:9px;width:100%;min-height:51px;margin-top:12px;padding:0 12px;border-radius:15px;border:1px solid rgba(183,255,106,.20);background:linear-gradient(90deg,rgba(183,255,106,.09),rgba(255,255,255,.025));color:#eef2ee;text-align:left}.biz7-collect-icon{width:30px;height:30px;display:grid;place-items:center;border-radius:10px;background:rgba(183,255,106,.08)}.biz7-collect b{display:block;font:950 7.5px/1 "Montserrat"}.biz7-collect small{display:block;margin-top:4px;color:#647067;font:800 5.8px/1 "Montserrat"}.biz7-collect-arrow{margin-left:auto}
-.biz7-collect:disabled{opacity:.42}
-.biz7-shortcuts{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.biz7-shortcut{min-height:62px;border-radius:16px;border:1px solid rgba(255,255,255,.065);background:rgba(255,255,255,.022);color:#727b75;display:grid;place-items:center;align-content:center;gap:6px}.biz7-shortcut b{font:950 6px/1 "Montserrat"}.biz7-shortcut.active{border-color:rgba(183,255,106,.27);background:rgba(183,255,106,.065);color:#b7ff6a}
-.biz7-maintenance{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 11px;border-radius:15px;border:1px solid rgba(255,255,255,.065);background:rgba(255,255,255,.022);color:#758079;font:800 6.8px/1.25 "Montserrat"}.biz7-maintenance.warn{border-color:rgba(255,181,95,.20);background:rgba(255,145,80,.035)}.biz7-maint-main small{display:block;margin-top:4px;color:#555e59;font-size:5.7px}.biz7-maint-actions{display:flex;gap:6px}.biz7-maint-pay,.biz7-refresh{min-height:33px;border-radius:10px;border:1px solid rgba(255,255,255,.08);font:950 6.2px/1 "Montserrat"}.biz7-maint-pay{padding:0 9px;background:#fff;border-color:#fff;color:#060706}.biz7-refresh{width:33px;background:rgba(255,255,255,.035);color:#b8c0ba}.biz7-refresh .biz7-svg{width:15px;height:15px;margin:auto}
-.biz7-tabs{display:grid;grid-template-columns:repeat(3,1fr);padding:4px;gap:4px;border-radius:15px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.02)}.biz7-tabs button{min-height:37px;border:0;border-radius:10px;background:transparent;color:#666f69;font:950 6.4px/1 "Montserrat";letter-spacing:.5px}.biz7-tabs button.active{background:#fff;color:#060706}
-.biz7-section{display:grid;gap:7px}.biz7-section-head{display:flex;align-items:center;justify-content:space-between;padding:2px}.biz7-section-head b{font:950 7px/1 "Montserrat";letter-spacing:1.2px}.biz7-section-head span,.biz7-link{color:#657068;font:800 6px/1 "Montserrat"}.biz7-link{border:0;background:none;padding:3px}
-.biz7-line{display:flex;align-items:center;width:100%;gap:10px;padding:11px;border-radius:17px;border:1px solid rgba(183,255,106,.21);background:linear-gradient(145deg,rgba(183,255,106,.085),rgba(255,255,255,.018));text-align:left}.biz7-line-icon{width:39px;height:39px;display:grid;place-items:center;border-radius:12px;background:rgba(183,255,106,.07);border:1px solid rgba(183,255,106,.10)}.biz7-line-copy{min-width:0;flex:1}.biz7-line-copy b{display:block;color:#b7ff6a;font-size:8px}.biz7-line-copy small{display:block;margin-top:4px;color:#69736c;font:800 6.4px/1.25 "Montserrat"}.biz7-line-arrow{width:32px;height:32px;display:grid;place-items:center;border-radius:10px;border:1px solid rgba(183,255,106,.18)}
-.biz7-feature-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.biz7-feature{min-width:0;padding:7px;border-radius:17px;background:linear-gradient(145deg,#141817,#090b0a);border:1px solid rgba(255,255,255,.07)}.biz7-feature-art{height:104px;overflow:hidden;border-radius:13px;background:linear-gradient(145deg,#132019,#090c0b);border:1px solid rgba(183,255,106,.10);display:grid;place-items:center}.biz7-feature-art img{width:100%;height:100%;object-fit:cover;filter:saturate(.88) contrast(1.05) brightness(.78);display:block}.biz7-feature-name{margin-top:8px;color:#eef2ee;font:950 7px/1.15 "Montserrat"}.biz7-feature-rate{margin-top:4px;color:#b7ff6a;font:950 6.5px/1 "Montserrat"}.biz7-feature-days{margin-top:4px;color:#657067;font:800 5.9px/1 "Montserrat"}.biz7-buy{min-height:33px;padding:0 9px;border-radius:10px;border:1px solid #fff;background:#fff;color:#050605;font:950 6.3px/1 "Montserrat";white-space:nowrap}.biz7-buy-wide{width:100%;margin-top:8px}
-.biz7-compact-list,.biz7-owned-list,.biz7-market-list{display:grid;gap:6px}.biz7-compact,.biz7-owned,.biz7-market-row{display:flex;align-items:center;gap:9px;padding:9px;border-radius:15px;background:linear-gradient(145deg,rgba(255,255,255,.035),rgba(255,255,255,.015));border:1px solid rgba(255,255,255,.065)}.biz7-compact-icon,.biz7-owned-icon,.biz7-market-icon{width:37px;height:37px;display:grid;place-items:center;flex:none;border-radius:12px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.045)}.biz7-market-icon.photo{overflow:hidden}.biz7-market-icon.photo img{width:100%;height:100%;object-fit:cover;display:block;filter:brightness(.78) saturate(.85)}.biz7-compact-copy,.biz7-owned-copy,.biz7-market-copy{flex:1;min-width:0}.biz7-compact-copy b,.biz7-owned-copy b,.biz7-market-copy b{display:block;color:#e9eee9;font:950 8px/1.12 "Montserrat";white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.biz7-compact-copy small,.biz7-owned-copy span,.biz7-market-copy span{display:block;margin-top:4px;color:#707a73;font:800 6px/1.15 "Montserrat"}.biz7-owned-copy small,.biz7-market-copy small{display:block;margin-top:3px;color:#535e56;font:800 5.7px/1.15 "Montserrat"}.biz7-ghost{min-height:32px;padding:0 8px;border-radius:9px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.035);color:#c9d0ca;font:950 6px/1 "Montserrat"}.biz7-empty{padding:18px;text-align:center;border:1px dashed rgba(255,255,255,.09);border-radius:15px;color:#59635c;font:800 7px/1.4 "Nunito"}
-@media(max-width:390px){.biz7-feature-grid{gap:5px}.biz7-feature-art{height:93px}.biz7-feature-name{font-size:6.6px}.biz7-shortcut b{font-size:5.7px}}
-</style>
+<script id="resell-friends-final-v4">
+(function(){
+  document.addEventListener('click',function(e){
+    const b=e.target?.closest?.('#friendsBtn');
+    if(!b)return;
+    const fn=window.__resellOpenFriends;
+    if(typeof fn!=='function')return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    try{Promise.resolve(fn()).catch(err=>console.error('Friends open error',err));}
+    catch(err){console.error('Friends open error',err);}
+  },true);
+})();
+</script>
