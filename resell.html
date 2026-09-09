@@ -1832,29 +1832,58 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   }
 
   function getTelegramInitData(){
-    invalidateStaleTelegramCache();
     try{
+      // Always prefer the live signed payload supplied by Telegram.
       const live=window.Telegram?.WebApp || tg;
       if(live) tg=live;
       const direct=String(live?.initData||'').trim();
       if(direct){
         const captured=captureTelegramInitData(direct);
         if(captured) return captured;
-      }else if(live){
-        // Do not reuse an old signed payload while Telegram is restoring the WebView.
-        return '';
       }
     }catch(_){ }
-    if(telegramInitData) return telegramInitData;
+
+    // During iOS/Android WebView startup Telegram can expose WebApp while
+    // initData is still temporarily empty. In that case recover the exact
+    // signed launch payload from the URL instead of declaring the session dead.
+    const currentUnsafeId=String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '').trim();
+    const acceptFallback=(raw)=>{
+      const value=String(raw||'').trim();
+      if(!value) return '';
+      const signedId=getSignedTelegramUserId(value);
+      if(!signedId) return '';
+      // When Telegram already exposed a user id, never accept a payload for a
+      // different account. Without an unsafe id, the signed payload itself is
+      // the source of truth.
+      if(currentUnsafeId && signedId!==currentUnsafeId) return '';
+      return captureTelegramInitData(value);
+    };
+
     try{
       const q=String(params.get('initData')||params.get('tgWebAppData')||'').trim();
-      if(q){ const raw=decodeURIComponent(q); const captured=captureTelegramInitData(raw||q); if(captured) return captured; }
+      if(q){
+        const raw=decodeURIComponent(q);
+        const captured=acceptFallback(raw||q);
+        if(captured) return captured;
+      }
     }catch(_){ }
+
     try{
       const rawHash=String(location.hash||'').replace(/^#\?/,'').replace(/^#/,'');
       const q=new URLSearchParams(rawHash);
       const raw=String(q.get('tgWebAppData')||q.get('initData')||'').trim();
-      if(raw){ const captured=captureTelegramInitData(raw); if(captured) return captured; }
+      const captured=acceptFallback(raw);
+      if(captured) return captured;
+    }catch(_){ }
+
+    // Reuse a previously captured signed payload only when Telegram is not
+    // exposing a contradictory current account id. This prevents session loss
+    // on transient WebView gaps without allowing account mixing.
+    try{
+      if(telegramInitData){
+        const cachedId=getSignedTelegramUserId(telegramInitData);
+        if(!currentUnsafeId || !cachedId || cachedId===currentUnsafeId) return telegramInitData;
+      }
     }catch(_){ }
     return '';
   }
@@ -2461,27 +2490,26 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     if(telegramIdentityPromise) return telegramIdentityPromise;
     telegramIdentityPromise=(async()=>{
       const started=Date.now();
-      let lastLive='';
       while(Date.now()-started < timeoutMs){
         try{
           const live=window.Telegram?.WebApp;
           if(live) tg=live;
-          tg?.ready?.(); tg?.expand?.();
-          const current=String(live?.initData || tg?.initData || '').trim();
-          if(current){
-            const captured=captureTelegramInitData(current);
-            if(captured){ lastLive=captured; return captured; }
+          tg?.ready?.();
+          tg?.expand?.();
+
+          const current=getTelegramInitData();
+          const uid=getSignedTelegramUserId(current);
+          if(current && uid){
+            userId=uid;
+            telegramUserId=uid;
+            return current;
           }
-          // During account switching Telegram may briefly expose empty initData.
-          // Never resurrect the previous account while a WebApp object exists.
-          if(!live && !tg) break;
         }catch(_){ }
-        await new Promise(r=>setTimeout(r,120));
+        await new Promise(r=>setTimeout(r,100));
       }
-      if(!(window.Telegram?.WebApp || tg)) return getTelegramInitData();
-      // Telegram WebView exists but no current signed payload is available.
-      // Do not revive cached data from a previous WebView/account state.
-      return '';
+
+      // Final synchronous recovery from all launch transports.
+      return getTelegramInitData();
     })();
     try{ return await telegramIdentityPromise; }
     finally{ telegramIdentityPromise=null; }
