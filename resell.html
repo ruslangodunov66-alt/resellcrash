@@ -3157,15 +3157,97 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   }
 
   async function openFriends(){
+    haptic('light');
     openModal('Друзья','<div class="loading">Загрузка круга…</div>');
-    await loadFriends();
-    const list=Array.isArray(friendsData?.friends)?friendsData.friends:[];
-    modalBody.innerHTML=`<div class="friends-sheet">
-      <div class="friends-hero"><div class="friends-hero-kicker">RESSELL NETWORK</div><div class="friends-hero-title">Твой круг сделок</div><div class="friends-hero-sub">Открывай профили друзей, смотри их капитал и активы, сравнивай прогресс и держи свой круг рядом.</div></div>
-      ${list.length?`<div class="friends-list">${list.map((f,idx)=>{const nick=String(f.nickname||'Игрок');const status=f.recently_active?'В ИГРЕ':'В RESSELL';return `<button type="button" class="friend-row friend-row-button" data-friend-index="${idx}"><div class="friend-avatar">${esc(friendInitial(nick))}</div><div class="friend-copy"><b>@${esc(nick.replace(/^@+/,''))}</b><span>${esc(f.shop_name||'Без магазина')} · ${esc(status)}</span><small>${esc(friendMoney(f.balance))} · ${esc(friendAssetWord(f.business_count||0,'бизнес','бизнесов','бизнеса'))} · ${esc(friendAssetWord(f.car_count||0,'машина','машин','машины'))}</small></div><strong class="friend-row-arrow">›</strong></button>`}).join('')}</div>`:'<div class="friend-empty">Пока никого нет. Первый друг может прийти прямо по твоей реферальной ссылке.</div>'}
-      <div class="friend-network-footer"><b>КРУГ RESSELL</b><span>Открывай игрока → профиль → сравнение</span></div>
-    </div>`;
-    $$('.friend-row-button').forEach(btn=>btn.addEventListener('click',()=>{const idx=Number(btn.dataset.friendIndex);const f=(friendsData?.friends||[])[idx];if(f)openFriendProfile(f);}));
+    try{
+      await loadFriends();
+      const list=Array.isArray(friendsData?.friends)?friendsData.friends:[];
+      modalBody.innerHTML=`<div class="friends-sheet">
+        <div class="friends-hero">
+          <div class="friends-hero-kicker">RESSELL NETWORK</div>
+          <div class="friends-hero-title">Твой круг сделок</div>
+          <div class="friends-hero-sub">Смотри капитал, бизнесы, машины и прогресс. Ищи игроков и развивай свою сеть.</div>
+        </div>
+        <div class="friend-search-main">
+          <input id="friendsSearchMain" maxlength="20" placeholder="Поиск по никнейму">
+          <button type="button" id="friendsSearchMainBtn">ИСКАТЬ</button>
+        </div>
+        <div id="friendsSearchMainResults"></div>
+        ${list.length?`<div class="friends-list" style="margin-top:10px">${list.map((f,idx)=>{
+          const nick=String(f.nickname||'Игрок').replace(/^@+/,'');
+          return `<button type="button" class="friend-row friend-row-button" data-friend-index="${idx}">
+            <div class="friend-avatar">${esc(friendInitial(nick))}</div>
+            <div class="friend-copy">
+              <b>@${esc(nick)}</b>
+              <span>${esc(f.shop_name||'Без магазина')} · ${f.recently_active?'В ИГРЕ':'В RESSELL'}</span>
+              <small>${esc(friendMoney(f.balance))} · ${Number(f.business_count||0)} бизнесов · ${Number(f.car_count||0)} машин</small>
+            </div>
+            <strong class="friend-row-arrow">›</strong>
+          </button>`;
+        }).join('')}</div>`:'<div class="friend-empty">Пока никого нет. Найди первого партнёра через поиск выше.</div>'}
+        <div class="friend-network-footer"><b>КРУГ RESSELL</b><span>Поиск → добавление → профиль → сравнение</span></div>
+      </div>`;
+
+      $$('.friend-row-button').forEach(btn=>btn.addEventListener('click',()=>{
+        const idx=Number(btn.dataset.friendIndex);
+        const f=(friendsData?.friends||[])[idx];
+        if(f) openFriendProfile(f);
+      }));
+
+      const runSearch=async()=>{
+        const q=String($('#friendsSearchMain')?.value||'').trim().replace(/^@+/,'');
+        const result=$('#friendsSearchMainResults');
+        if(!result)return;
+        if(q.length<2){result.innerHTML='';return;}
+        try{
+          const r=await apiFetch(`${API_BASE}/friends/search/${encodeURIComponent(userId)}?q=${encodeURIComponent(q)}&t=${Date.now()}`,{method:'GET'},2);
+          const d=await r.json().catch(()=>({}));
+          const players=Array.isArray(d?.players)?d.players:[];
+          result.innerHTML=players.length
+            ? `<div class="friend-search-results">${players.map((f,i)=>`
+                <div class="friend-search-result">
+                  <div class="friend-avatar">${esc(friendInitial(f.nickname||'Игрок'))}</div>
+                  <div class="friend-copy">
+                    <b>@${esc(String(f.nickname||'Игрок').replace(/^@+/,''))}</b>
+                    <span>${esc(f.shop_name||'Без магазина')} · ${esc(friendMoney(f.balance))}</span>
+                  </div>
+                  <button type="button" class="friend-add-main" data-friend-search-tg="${Number(f.tg_id||0)}" ${f.is_friend?'disabled':''}>${f.is_friend?'ДОБАВЛЕН':'ДОБАВИТЬ'}</button>
+                </div>`).join('')}</div>`
+            : '<div class="friend-empty">Игрок не найден.</div>';
+        }catch(err){
+          result.innerHTML=`<div class="friend-empty">${esc(err.message||'Не удалось выполнить поиск')}</div>`;
+        }
+      };
+      $('#friendsSearchMainBtn')?.addEventListener('click',runSearch);
+      $('#friendsSearchMain')?.addEventListener('keydown',e=>{if(e.key==='Enter')runSearch();});
+      $('#friendsSearchMainResults')?.addEventListener('click',async e=>{
+        const btn=e.target.closest('[data-friend-search-tg]');
+        if(!btn || btn.disabled)return;
+        btn.disabled=true;
+        try{
+          const r=await apiFetch(`${API_BASE}/friends/add/${encodeURIComponent(userId)}`,{
+            method:'POST',
+            headers:{'Content-Type':'application/json','Accept':'application/json'},
+            body:JSON.stringify({friend_tg_id:Number(btn.dataset.friendSearchTg||0)})
+          },3);
+          const d=await r.json().catch(()=>({}));
+          if(!r.ok||!d.success)throw new Error(d.error||'Не удалось добавить друга');
+          showToast('Друг добавлен');
+          await loadFriends();
+          await openFriends();
+        }catch(err){
+          btn.disabled=false;
+          showToast(err.message||'Не удалось добавить друга');
+        }
+      });
+    }catch(err){
+      modalBody.innerHTML=`<div class="friend-empty friend-error-state">
+        <b>Не удалось открыть «Друзья»</b>
+        <span>${esc(err.message||'Ошибка загрузки')}</span>
+        <button type="button" class="friend-retry-btn" id="friendsRetryBtn">ПОВТОРИТЬ</button>
+      </div>`;
+      $('#friendsRetryBtn')?.addEventListener('click',openFriends);
+    }
   }
 
   async function showReferralFriendOffer(inviterTgId){
@@ -4538,43 +4620,122 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     const d=businessState||{};
     const businesses=Array.isArray(d.businesses)?d.businesses:[];
     const catalog=Array.isArray(d.catalog)?d.catalog:[];
-    const pending=Number(d.pending_collect||0);
-    const debt=Number(d.maintenance_debt||0);
-    const balance=Number(d.balance ?? profileData?.balance ?? 0);
-    const totalHour=Number(d.total_per_hour||0);
-    const totalDay=Number(d.total_per_day||totalHour*24);
+    const pending=Math.max(0,Number(d.pending_collect||0));
+    const debt=Math.max(0,Number(d.maintenance_debt||0));
+    const balance=Math.max(0,Number(d.balance ?? profileData?.balance ?? 0));
+    const totalHour=Math.max(0,Number(d.total_per_hour||0));
+    const totalDay=Math.max(0,Number(d.total_per_day||totalHour*24));
     const taxiBusiness=d.taxi_business||{};
-    const taxiHour=Number(taxiBusiness.hourly_income ?? d.hourly_breakdown?.taxopark ?? 0);
+    const taxiHour=Math.max(0,Number(taxiBusiness.hourly_income ?? d.hourly_breakdown?.taxopark ?? 0));
     const businessHour=Math.max(0,totalHour-taxiHour);
+
+    const escName=s=>esc(String(s||'Бизнес'));
+    const iconFor=(x)=>{
+      const s=(String(x?.name||x?.id||'')).toLowerCase();
+      if(s.includes('market')||s.includes('рын'))return '🛍️';
+      if(s.includes('container')||s.includes('контей'))return '📦';
+      if(s.includes('boutique')||s.includes('бутик'))return '👑';
+      if(s.includes('concept'))return '✨';
+      if(s.includes('flagship'))return '🏢';
+      if(s.includes('gallery')||s.includes('gallery'))return '🖼️';
+      if(s.includes('plaza'))return '🏙️';
+      if(s.includes('campus'))return '🏫';
+      if(s.includes('metro'))return '🌆';
+      return '🏪';
+    };
+    const featured=[
+      ...catalog.filter(x=>/flagship|plaza|campus|metro|gallery/i.test(String(x.name||''))),
+      ...catalog
+    ].filter((x,i,a)=>a.findIndex(y=>String(y.id)===String(x.id))===i).slice(0,3);
+
     const tabs=[['overview','ОБЗОР'],['assets','МОИ БИЗНЕСЫ'],['market','КУПИТЬ']];
-    const tabsHtml=tabs.map(([id,label])=>`<button class="business-tab-v5 ${businessViewTab===id?'active':''}" data-business-tab="${id}">${label}</button>`).join('');
-    const paybackDays=(price,h)=>h>0?(Number(price||0)/Number(h)/24):0;
-    let content='';
-    if(businessViewTab==='overview'){
-      const next=catalog.filter(x=>!businesses.some(b=>b.id===x.id)).sort((a,b)=>Number(a.price)-Number(b.price))[0];
-      content=`<div class="business-section-v5">
-        <div class="business-section-kicker-v5">ТВОЯ ЭКОНОМИКА</div>
-        <div class="business-overview-grid-v5">
-          <div class="business-stat-v5"><span>В ЧАС</span><b>${number(totalHour)} ₽</b></div>
-          <div class="business-stat-v5"><span>В ДЕНЬ</span><b>${number(totalDay)} ₽</b></div>
-          <div class="business-stat-v5"><span>НАКОПЛЕНО</span><b>${number(pending)} ₽</b></div>
-          <div class="business-stat-v5"><span>БАЛАНС</span><b>${number(balance)} ₽</b></div>
+    let inner='';
+    if(businessViewTab==='assets'){
+      inner=`<div class="biz6-section">
+        <div class="biz6-section-head"><b>МОИ БИЗНЕСЫ</b><span>${businesses.length} активов</span></div>
+        <div class="biz6-list">
+          ${businesses.length?businesses.map((b,i)=>`<div class="biz6-wide-card">
+            <div class="biz6-wide-icon">${iconFor(b)}</div>
+            <div class="biz6-wide-copy"><b>${escName(b)}</b><span>+${number(b.income_per_hour||0)} ₽/ч · +${number(b.income_per_day||0)} ₽/день</span><small>Окупаемость ≈ ${Number(b.income_per_hour)>0?(Number(b.purchase_price||b.price||0)/Number(b.income_per_hour)/24).toFixed(1):'0.0'} дн.</small></div>
+            <button type="button" class="biz6-small-action" data-business-sell="${esc(b.id)}">ПРОДАТЬ</button>
+          </div>`).join(''):'<div class="biz6-empty">Пока нет купленных бизнесов.</div>'}
+        </div>
+      </div>`;
+    }else if(businessViewTab==='market'){
+      const groups=[
+        ['СТАРТ',catalog.filter(x=>Number(x.price||0)<1000000)],
+        ['РОСТ',catalog.filter(x=>Number(x.price||0)>=1000000&&Number(x.price||0)<50000000)],
+        ['ИМПЕРИЯ',catalog.filter(x=>Number(x.price||0)>=50000000)]
+      ];
+      inner=groups.map(([label,items])=>items.length?`<div class="biz6-section">
+        <div class="biz6-section-head"><b>${label}</b><span>${items.length} вариантов</span></div>
+        <div class="biz6-buy-list">${items.map(x=>{
+          const owned=businesses.filter(b=>String(b.id)===String(x.id)).length;
+          const days=Number(x.income_per_hour)>0?(Number(x.price||0)/Number(x.income_per_hour)/24):0;
+          return `<div class="biz6-buy-row">
+            <div class="biz6-buy-art">${iconFor(x)}</div>
+            <div class="biz6-buy-copy"><b>${escName(x)}</b><span>${number(x.price||0)} ₽ · +${number(x.income_per_hour||0)} ₽/ч</span><small>Окупаемость ≈ ${days.toFixed(1)} дн. · у тебя ${owned}/2</small></div>
+            <button type="button" class="biz6-buy-btn" data-business-buy="${esc(x.id)}">КУПИТЬ</button>
+          </div>`;
+        }).join('')}</div>
+      </div>`:'').join('');
+    }else{
+      inner=`<div class="biz6-section">
+        <div class="biz6-section-head"><b>BUSINESS LINE · 12 LEVELS</b><span>единая линейка</span></div>
+        <div class="biz6-line-card">
+          <div class="biz6-line-icon">👑</div>
+          <div class="biz6-line-copy"><b>Новая бизнес-линия</b><span>Flagship → Gallery → City Plaza → Campus → Metroplex</span></div>
+          <button type="button" class="biz6-arrow-btn" data-business-tab="market">→</button>
+        </div>
+        <div class="biz6-feature-grid">
+          ${featured.length?featured.map(x=>{
+            const days=Number(x.income_per_hour)>0?(Number(x.price||0)/Number(x.income_per_hour)/24):0;
+            return `<div class="biz6-feature-card">
+              <div class="biz6-art">${iconFor(x)}</div>
+              <b>${escName(x)}</b>
+              <span>+${number(x.income_per_hour||0)} ₽/ч</span>
+              <small>◉ ${days.toFixed(1)} дн.</small>
+              <button type="button" class="biz6-feature-buy" data-business-buy="${esc(x.id)}">КУПИТЬ</button>
+            </div>`;
+          }).join(''):'<div class="biz6-empty">Каталог бизнесов пуст.</div>'}
         </div>
       </div>
-      <div class="business-feature-v5"><div><div class="business-feature-icon-v5">🏢</div><div><b>БИЗНЕСЫ</b><span>${businesses.length} активов · +${number(businessHour)} ₽/ч</span></div></div><button class="business-mini-btn-v5" data-business-tab="assets">ОТКРЫТЬ</button></div>
-      ${taxiHour>0?`<div class="business-feature-v5"><div><div class="business-feature-icon-v5">🚕</div><div><b>ТАКСОПАРК</b><span>+${number(taxiHour)} ₽/ч — отдельный источник</span></div></div><button class="business-mini-btn-v5" data-business-taxi-open>ОТКРЫТЬ</button></div>`:''}
-      ${next?`<div class="business-feature-v5"><div><div class="business-feature-icon-v5">↗</div><div><b>СЛЕДУЮЩИЙ ШАГ</b><span>${esc(next.name)} · ${number(next.price)} ₽ · +${number(next.income_per_hour)} ₽/ч</span></div></div><button class="business-mini-btn-v5" data-business-tab="market">КУПИТЬ</button></div>`:''}
-      <div class="business-feature-v5 ${debt>0?'warn':''}"><div><div class="business-feature-icon-v5">${debt>0?'⚠️':'✓'}</div><div><b>${debt>0?'ОБСЛУЖИВАНИЕ':'ОБСЛУЖИВАНИЕ OK'}</b><span>${debt>0?`К оплате ${number(debt)} ₽`:'Долг отсутствует'}</span></div></div>${debt>0?`<button class="business-mini-btn-v5" id="businessMaintenanceInline">ОПЛАТИТЬ</button>`:'<span class="business-status-v5">OK</span>'}</div>`;
-    } else if(businessViewTab==='assets'){
-      content=`<div class="business-section-v5"><div class="business-section-kicker-v5">АКТИВЫ · ${businesses.length}</div><div class="business-list-v5">${businesses.length?businesses.map(b=>{const days=paybackDays(b.purchase_price||b.price,b.income_per_hour);return `<div class="business-asset-card-v5"><div class="business-asset-top-v5"><div><b>${esc(b.name)}</b><span>+${number(b.income_per_hour)} ₽/ч · +${number(b.income_per_day)} ₽/день</span></div><div class="business-asset-income-v5">+${number(b.income_per_hour)} ₽<small>В ЧАС</small></div></div><div class="business-asset-bottom-v5"><span>Окупаемость ≈ ${days.toFixed(1)} дн.</span><button class="business-mini-btn-v5" data-business-sell="${esc(b.id)}">ПРОДАТЬ · ${number(b.sell_price)} ₽</button></div></div>`;}).join(''):'<div class="business-empty-v5">Пока нет бизнесов. Купи первый актив во вкладке «Купить».</div>'}</div></div>`;
-    } else {
-      const groups=[['СТАРТ',catalog.filter(x=>Number(x.price||0)<1000000)],['РОСТ',catalog.filter(x=>Number(x.price||0)>=1000000&&Number(x.price||0)<50000000)],['ИМПЕРИЯ',catalog.filter(x=>Number(x.price||0)>=50000000)]];
-      content=groups.map(([group,items])=>items.length?`<div class="business-section-v5"><div class="business-section-kicker-v5">${group}</div><div class="business-buy-list-v5">${items.map(x=>{const days=paybackDays(x.price,x.income_per_hour);const owned=businesses.filter(b=>b.id===x.id).length;return `<div class="business-buy-card-v5"><div><b>${esc(x.name)}</b><span>${number(x.price)} ₽ · +${number(x.income_per_hour)} ₽/ч</span><small>Окупаемость ≈ ${days.toFixed(1)} дн. · у тебя ${owned}/2</small></div><button class="business-buy-v5" data-business-buy="${esc(x.id)}">КУПИТЬ</button></div>`;}).join('')}</div></div>`:'').join('');
+      <div class="biz6-section">
+        <div class="biz6-section-head"><b>ДРУГИЕ КАТЕГОРИИ</b><button type="button" class="biz6-link-btn" data-business-tab="market">Все →</button></div>
+        <div class="biz6-compact-list">
+          ${catalog.slice(0,6).map(x=>`<div class="biz6-compact-row"><div class="biz6-compact-icon">${iconFor(x)}</div><div class="biz6-compact-copy"><b>${escName(x)}</b><span>+${number(x.income_per_hour||0)} ₽/ч · ${(Number(x.income_per_hour)>0?(Number(x.price||0)/Number(x.income_per_hour)/24):0).toFixed(1)} дн.</span></div><button type="button" class="biz6-buy-btn compact" data-business-buy="${esc(x.id)}">КУПИТЬ</button></div>`).join('')}
+        </div>
+      </div>`;
     }
-    return `<div class="business-control-v5">
-      <div class="business-hero-v5"><div><span>BUSINESS CENTER · ЕДИНАЯ ЭКОНОМИКА</span><b>${number(totalHour)} ₽ <em>/ ЧАС</em></b><small>${number(totalDay)} ₽ в день · баланс ${number(balance)} ₽</small></div><button class="business-collect-v5" id="businessCollectBtn" ${pending<=0?'disabled':''}>${pending>0?`ЗАБРАТЬ +${number(pending)} ₽`:'НАКОПЛЕНИЙ НЕТ'}</button></div>
-      <div class="business-maintenance-v5"><span>${debt>0?`⚠️ Обслуживание · ${number(debt)} ₽ к оплате`:'✓ Обслуживание закрыто'} · RCOIN начисляется за общий lifetime-заработок</span>${debt>0?`<button class="business-mini-btn-v5" id="businessMaintenanceBtn">ОПЛАТИТЬ</button>`:''}<button class="business-refresh-v5" id="businessRefreshBtn">↻</button></div>
-      <div class="business-tabs-v5">${tabsHtml}</div>${content}
+
+    return `<div class="business-control-v6">
+      <div class="biz6-hero">
+        <div class="biz6-hero-top">
+          <div class="biz6-crown">👑</div>
+          <div><span>ВАША ИМПЕРИЯ</span><b>Доход в час</b></div>
+          <em>ACTIVE</em>
+        </div>
+        <div class="biz6-total">${number(totalHour)} ₽ <small>/ ЧАС</small></div>
+        <div class="biz6-daily">${number(totalDay)} ₽ / день · Баланс: ${number(balance)} ₽</div>
+        <button type="button" class="biz6-collect" id="businessCollectBtn" ${pending<=0?'disabled':''}>
+          <span>💰</span><b>${pending>0?`ЗАБРАТЬ +${number(pending)} ₽`:'НАКОПЛЕНИЙ НЕТ'}</b><i>›</i>
+        </button>
+      </div>
+
+      <div class="biz6-shortcuts">
+        <button type="button" class="biz6-shortcut active" data-business-tab="overview"><span>▦</span><b>Бизнес</b></button>
+        <button type="button" class="biz6-shortcut" data-business-tab="assets"><span>▣</span><b>Мои бизнесы</b></button>
+        <button type="button" class="biz6-shortcut" data-business-taxi-open><span>🚕</span><b>Таксопарк</b></button>
+        <button type="button" class="biz6-shortcut" data-business-profile><span>●</span><b>Профиль</b></button>
+      </div>
+
+      <div class="biz6-maintenance ${debt>0?'warn':''}">
+        <span>${debt>0?`⚠️ Обслуживание · ${number(debt)} ₽ к оплате`:'✓ Обслуживание закрыто'}<small>RCOIN начисляется за общий lifetime-заработок</small></span>
+        <div>${debt>0?`<button type="button" class="biz6-maint-btn" id="businessMaintenanceBtn">ОПЛАТИТЬ</button>`:''}<button type="button" class="biz6-refresh" id="businessRefreshBtn">↻</button></div>
+      </div>
+
+      <div class="biz6-tabs">${tabs.map(([id,label])=>`<button type="button" class="${businessViewTab===id?'active':''}" data-business-tab="${id}">${label}</button>`).join('')}</div>
+      ${inner}
     </div>`;
   }
 
@@ -4766,11 +4927,14 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   }));
   initMainTycoonCards();
   $('#businessBtn')?.addEventListener('click', openBusiness);
+  window.__resellOpenFriends = openFriends;
+  $('#friendsBtn')?.addEventListener('click', openFriends);
   $('#adminBtn')?.addEventListener('click', openAdmin);
   renderFriendsActivity();
   loadFriends();
 
   modalBody.addEventListener('click', async (e) => {
+    if(e.target.closest('[data-business-profile]')){ closeModal(); setTimeout(()=>{ $('#profileBtn')?.click(); },0); return; }
     const businessTab=e.target.closest('[data-business-tab]');
     if(businessTab){ businessViewTab=String(businessTab.dataset.businessTab||'overview'); modalBody.innerHTML=renderBusinessModal(); return; }
     if(e.target.closest('#businessMaintenanceInline')){ const btn=e.target.closest('#businessMaintenanceInline'); btn.disabled=true; try{ await businessAction(`/business/${encodeURIComponent(userId)}/maintenance`,{},'Обслуживание оплачено'); }catch(_){ btn.disabled=false; } return; }
@@ -5416,8 +5580,6 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   function ensureMomentumV19(){const act=document.querySelector('.section .section-title')?.parentElement?.parentElement; if(!act)return;const activityTitle=[...document.querySelectorAll('.section-title')].find(x=>x.textContent.trim()==='Активность'||x.textContent.trim()==='Activity');const section=activityTitle?.closest('.section');if(!section||section.querySelector('.momentum-v19'))return;const box=document.createElement('div');box.className='momentum-v19';box.innerHTML='<div class="momentum-v19-top"><div><div class="momentum-v19-kicker">RESSELL · MOMENTUM</div><div class="momentum-v19-title">Сегодня двигаешься вверх</div></div><div class="momentum-v19-badge">NEXT UNLOCK</div></div><div class="momentum-v19-bar"><i style="width:18%"></i></div><div class="momentum-v19-meta"><span>Прогресс загрузится после синхронизации</span><span>LVL —</span></div><div class="momentum-v19-route"><span>DAILY</span><span>R-HOLD</span><span>NETWORK</span></div>';section.querySelector('.actions')?.before(box);renderMomentumV19(box);}
   function renderMomentumV19(box){if(!box)return;const e=engagementData||{};const lvl=Math.max(1,Number(e.level||1)),xp=Number(e.xp||0),req=Math.max(1,Number(e.xp_required||1)),pct=Math.min(100,xp/req*100),streak=Math.max(1,Number(e.streak||1)),friends=Array.isArray(friendsData?.friends)?friendsData.friends.length:0;const dayDone=Boolean(e.last_checkin_at&&getLastCompletedAt({last_completed_at:e.last_checkin_at})===getLastCompletedAt({last_completed_at:Math.floor(Date.now()/1000)}));box.innerHTML=`<div class="momentum-v19-top"><div><div class="momentum-v19-kicker">RESSELL · MOMENTUM</div><div class="momentum-v19-title">${currentLang==='en'?'Keep the line moving':'Продолжай держать линию'}</div></div><div class="momentum-v19-badge">LVL ${lvl}</div></div><div class="momentum-v19-bar"><i style="width:${pct}%"></i></div><div class="momentum-v19-meta"><span>${xp.toLocaleString()} / ${req.toLocaleString()} XP</span><span>${streak} ${currentLang==='en'?'DAY STREAK':'ДНЕЙ СЕРИЯ'}</span></div><div class="momentum-v19-route"><span class="${dayDone?'done':''}">DAILY</span><span>R-HOLD</span><span class="${friends>0?'done':''}">NETWORK</span></div>`;}
   // Keep the working V18/V16 event system, only intercept Friends and add V19-only surfaces.
-  window.__resellOpenFriends = openFriendsV19;
-  document.addEventListener('click',e=>{const btn=e.target.closest?.('#friendsBtn');if(!btn)return;e.preventDefault();e.stopImmediatePropagation();try{window.__resellOpenFriends();}catch(err){console.error('RESSELL Friends:',err);}},true);
   const timer=setInterval(()=>{ensureRholdButtonV19();ensureMomentumV19();if(engagementData)renderMomentumV19(document.querySelector('.momentum-v19'));},700);setTimeout(()=>clearInterval(timer),20000);
   setTimeout(()=>{if(profileData?.language==='en'&&!localStorage.getItem('resell_language')){try{localStorage.setItem('resell_language','en');}catch(_){};}currentLang=localStorage.getItem('resell_language')==='en'?'en':'ru';resellSetLanguage(currentLang);},1400);
   // Apply current language to existing registration and main UI after all V18 handlers are ready.
@@ -5493,6 +5655,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   let cache=null, activeTab='rhold', busy=false;
   const escV=v=>String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'","&#039;");
   const money=v=>Math.round(Number(v)||0).toLocaleString('ru-RU');
+  const number=v=>Math.round(Number(v)||0).toLocaleString('ru-RU');
   function ensureOverlay(){
     let o=document.getElementById('r26Customization');
     if(o)return o;
@@ -5942,15 +6105,20 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
 @media(max-width:420px){.business-hero-v5{align-items:stretch;flex-direction:column}.business-collect-v5{width:100%;flex-basis:48px}.business-overview-grid-v5{grid-template-columns:1fr 1fr}.business-asset-bottom-v5{align-items:stretch;flex-direction:column}.business-asset-bottom-v5 .business-mini-btn-v5{width:100%}.business-tab-v5{font-size:7px}}
 </style>
 
-<script id="resell-friends-final-bridge">
-(function(){
-  document.addEventListener('click',function(e){
-    const btn=e.target && e.target.closest ? e.target.closest('#friendsBtn') : null;
-    if(!btn) return;
-    if(typeof window.__resellOpenFriends!=='function') return;
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    try{ window.__resellOpenFriends(); }catch(err){ console.error('RESSELL Friends open failed',err); }
-  }, true);
-})();
-</script>
+
+<style id="resell-business-v6-ui">
+.business-control-v6{display:grid;gap:10px;color:#f7f8f7;font-family:"Montserrat",sans-serif}
+.business-control-v6 *{box-sizing:border-box;font-family:"Montserrat",sans-serif}
+.biz6-hero{position:relative;overflow:hidden;padding:15px;border-radius:23px;background:radial-gradient(circle at 92% 0,rgba(183,255,106,.14),transparent 34%),linear-gradient(145deg,#171a18,#080a09 72%);border:1px solid rgba(255,255,255,.09);box-shadow:0 24px 58px rgba(0,0,0,.42)}
+.biz6-hero-top{display:flex;align-items:center;gap:9px}.biz6-crown{width:37px;height:37px;display:grid;place-items:center;border-radius:12px;background:rgba(183,255,106,.08);font-size:19px}.biz6-hero-top span{display:block;color:#68716b;font:950 6px/1 "Montserrat";letter-spacing:1.6px}.biz6-hero-top b{display:block;margin-top:4px;font-size:9px}.biz6-hero-top em{margin-left:auto;padding:6px 8px;border-radius:8px;background:rgba(183,255,106,.09);border:1px solid rgba(183,255,106,.17);color:#b7ff6a;font:950 6px/1 "Montserrat";font-style:normal}
+.biz6-total{margin-top:10px;font:950 29px/1 "Montserrat";letter-spacing:-1px}.biz6-total small{color:#777;font-size:8px;letter-spacing:1px}.biz6-daily{margin-top:6px;color:#808981;font:800 7.5px/1.25 "Montserrat"}
+.biz6-collect{display:flex;align-items:center;gap:9px;width:100%;margin-top:12px;min-height:48px;padding:0 12px;border:1px solid rgba(183,255,106,.24);border-radius:14px;background:linear-gradient(90deg,rgba(183,255,106,.10),rgba(255,255,255,.035));color:#fff}.biz6-collect span{font-size:16px}.biz6-collect b{flex:1;text-align:left;font:950 8px/1 "Montserrat";letter-spacing:.3px}.biz6-collect i{font-size:19px;font-style:normal;color:#a8b1ab}.biz6-collect:disabled{opacity:.43}
+.biz6-shortcuts{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.biz6-shortcut{min-height:60px;border:1px solid rgba(255,255,255,.07);border-radius:15px;background:rgba(255,255,255,.025);color:#858c87;display:grid;place-items:center;align-content:center;gap:5px}.biz6-shortcut span{font-size:15px;line-height:1}.biz6-shortcut b{font:900 6px/1.1 "Montserrat"}.biz6-shortcut.active{background:rgba(183,255,106,.07);border-color:rgba(183,255,106,.22);color:#b7ff6a}
+.biz6-maintenance{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 11px;border:1px solid rgba(255,255,255,.07);border-radius:14px;background:rgba(255,255,255,.025);color:#747d77;font:800 7px/1.35 "Montserrat"}.biz6-maintenance.warn{border-color:rgba(255,175,105,.18);background:rgba(255,145,80,.035)}.biz6-maintenance span{min-width:0}.biz6-maintenance small{display:block;margin-top:3px;color:#545c57;font-size:6px}.biz6-maintenance>div{display:flex;gap:5px;flex:none}.biz6-maint-btn,.biz6-refresh{min-height:32px;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:rgba(255,255,255,.035);color:#ddd;font:950 6px/1 "Montserrat"}.biz6-maint-btn{padding:0 9px;background:#fff;color:#050505;border-color:#fff}.biz6-refresh{width:32px;font-size:15px}
+.biz6-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;padding:4px;border-radius:14px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.06)}.biz6-tabs button{min-height:35px;border:0;border-radius:10px;background:transparent;color:#707770;font:950 6.5px/1 "Montserrat";letter-spacing:.4px}.biz6-tabs button.active{background:#fff;color:#050505}
+.biz6-section{display:grid;gap:7px}.biz6-section-head{display:flex;align-items:center;justify-content:space-between;padding:2px}.biz6-section-head b{font:950 7px/1 "Montserrat";letter-spacing:1.3px}.biz6-section-head span,.biz6-link-btn{color:#69736d;font:800 6.5px/1 "Montserrat"}.biz6-link-btn{border:0;background:none;color:#8d9891;padding:3px}
+.biz6-line-card{display:flex;align-items:center;gap:9px;padding:11px;border-radius:17px;background:linear-gradient(145deg,rgba(183,255,106,.10),rgba(255,255,255,.018));border:1px solid rgba(183,255,106,.19)}.biz6-line-icon{width:36px;height:36px;display:grid;place-items:center;border-radius:12px;background:rgba(183,255,106,.08);font-size:17px}.biz6-line-copy{min-width:0;flex:1}.biz6-line-copy b{display:block;color:#b7ff6a;font-size:8px}.biz6-line-copy span{display:block;margin-top:4px;color:#6f7771;font-size:6.5px;line-height:1.3;font-weight:800}.biz6-arrow-btn{width:31px;height:31px;border:1px solid rgba(183,255,106,.15);border-radius:10px;background:rgba(0,0,0,.16);color:#b7ff6a;font-size:15px}
+.biz6-feature-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.biz6-feature-card{padding:7px;border-radius:16px;background:linear-gradient(145deg,#141919,#090b0a);border:1px solid rgba(255,255,255,.07)}.biz6-art{height:67px;border-radius:12px;display:grid;place-items:center;background:radial-gradient(circle at 50% 36%,rgba(183,255,106,.13),transparent 56%),linear-gradient(145deg,#1d2620,#0a0d0b);border:1px solid rgba(255,255,255,.05);font-size:26px}.biz6-feature-card b{display:block;margin-top:7px;font-size:7.5px;line-height:1.15}.biz6-feature-card span{display:block;margin-top:3px;color:#b7ff6a;font-size:6.5px;font-weight:900}.biz6-feature-card small{display:block;margin-top:3px;color:#6e7771;font-size:6px;font-weight:800}.biz6-feature-buy{width:100%;margin-top:7px;min-height:28px;border:1px solid #fff;border-radius:9px;background:#fff;color:#050505;font:950 6.5px/1 "Montserrat"}
+.biz6-compact-list,.biz6-buy-list,.biz6-list{display:grid;gap:6px}.biz6-compact-row,.biz6-buy-row,.biz6-wide-card{display:flex;align-items:center;gap:8px;padding:9px;border-radius:15px;background:linear-gradient(145deg,rgba(255,255,255,.035),rgba(255,255,255,.017));border:1px solid rgba(255,255,255,.065)}.biz6-compact-icon,.biz6-buy-art,.biz6-wide-icon{width:35px;height:35px;flex:none;display:grid;place-items:center;border-radius:11px;background:rgba(255,255,255,.045);font-size:16px}.biz6-compact-copy,.biz6-buy-copy,.biz6-wide-copy{flex:1;min-width:0}.biz6-compact-copy b,.biz6-buy-copy b,.biz6-wide-copy b{display:block;font-size:8px}.biz6-compact-copy span,.biz6-buy-copy span,.biz6-wide-copy span{display:block;margin-top:3px;color:#6f7872;font:800 6.3px/1.25 "Montserrat"}.biz6-buy-copy small,.biz6-wide-copy small{display:block;margin-top:2px;color:#555e58;font:800 5.9px/1.2 "Montserrat"}.biz6-buy-btn,.biz6-small-action{flex:none;min-height:32px;padding:0 9px;border:1px solid #fff;border-radius:9px;background:#fff;color:#050505;font:950 6.3px/1 "Montserrat"}.biz6-buy-btn.compact{min-width:60px}.biz6-small-action{border-color:rgba(255,255,255,.08);background:rgba(255,255,255,.035);color:#ddd}.biz6-empty{padding:18px;text-align:center;border:1px dashed rgba(255,255,255,.08);border-radius:15px;color:#636b65;font:800 7.5px/1.4 "Montserrat"}
+@media(max-width:390px){.biz6-shortcut b{font-size:5.7px}.biz6-feature-grid{gap:5px}.biz6-art{height:59px}.biz6-total{font-size:26px}}
+</style>
