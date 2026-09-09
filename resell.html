@@ -2561,50 +2561,6 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     finally{ telegramIdentityPromise=null; }
   }
 
-  // V6: secure browser -> bot deep-link challenge. This replaces the old
-  // WebApp.sendData bridge, which only works for Mini Apps opened from a
-  // compatible keyboard context and therefore was never triggered here.
-  let resellAuthBootstrapPromise=null;
-  async function ensureResellServerSession(){
-    const existing=getStoredResellSession();
-    const existingUid=resellSessionUserId(existing);
-    if(existing && userId && existingUid===String(userId)) return existing;
-    if(resellAuthBootstrapPromise) return resellAuthBootstrapPromise;
-    resellAuthBootstrapPromise=(async()=>{
-      try{
-        const c=await fetch(`${API_BASE}/auth/resell/challenge?t=${Date.now()}`,{cache:'no-store'});
-        const challenge=await c.json().catch(()=>({}));
-        if(!c.ok||!challenge?.success||!challenge.nonce||!challenge.browser_key||!challenge.bot_url){
-          throw new Error('Не удалось создать безопасный вход RESSELL');
-        }
-        const openTelegram=()=>{
-          try{
-            const live=window.Telegram?.WebApp||tg;
-            if(typeof live?.openTelegramLink==='function'){ live.openTelegramLink(challenge.bot_url); return true; }
-          }catch(_){ }
-          try{ location.href=challenge.bot_url; return true; }catch(_){ return false; }
-        };
-        if(!openTelegram()) throw new Error('Не удалось открыть Telegram-бота для входа');
-        const deadline=Date.now()+Math.min(5*60*1000,Number(challenge.expires_in||300)*1000);
-        while(Date.now()<deadline){
-          await new Promise(r=>setTimeout(r,1200));
-          const r=await fetch(`${API_BASE}/auth/resell/poll/${encodeURIComponent(challenge.nonce)}?browser_key=${encodeURIComponent(challenge.browser_key)}`,{cache:'no-store'});
-          const d=await r.json().catch(()=>({}));
-          if(d?.success && d.status==='ready' && d.session){
-            setStoredResellSession(d.session);
-            if(d.tg_id){ userId=String(d.tg_id); telegramUserId=String(d.tg_id); }
-            return d.session;
-          }
-          if(d?.status==='expired'||d?.status==='invalid'||d?.status==='missing') break;
-        }
-        throw new Error('Подтверди вход в Telegram-боте и вернись в RESSELL');
-      }finally{
-        resellAuthBootstrapPromise=null;
-      }
-    })();
-    return resellAuthBootstrapPromise;
-  }
-
   async function apiFetch(url, options={}, attempts=3){
     let lastError=null;
     for(let i=0;i<attempts;i++){
@@ -2704,17 +2660,6 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
         clearTimeout(timer);
         if(!resp.ok){
           let payload={}; try{payload=await resp.json();}catch(_){}
-          if(resp.status===401 && needsTelegramAuth && !serverSession){
-            try{
-              const freshSession=await ensureResellServerSession();
-              if(freshSession){
-                lastError=new Error('RESSELL-сессия создана');
-                if(i<attempts-1) continue;
-              }
-            }catch(authErr){
-              throw Object.assign(authErr,{status:401,authBridge:true});
-            }
-          }
           if(resp.status===403 && payload?.banned){ try{ openBanAppealSheet(payload.error||'Аккаунт заблокирован'); }catch(_){} }
           const e=new Error(payload?.error||payload?.message||
             (resp.status===401?'Не удалось подтвердить Telegram-сессию. Перезапусти Mini App из Telegram и попробуй ещё раз.':
@@ -2727,7 +2672,6 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
       }catch(e){
         clearTimeout(timer);
         lastError=e?.name==='AbortError'?new Error('Сервер не ответил вовремя'):e;
-        if(e?.authBridge){ throw e; }
         if(i<attempts-1){
           if(lastError?.status===401){
             // NEVER erase the previously captured signed Telegram initData on a
@@ -5499,7 +5443,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   function ensureMomentumV19(){const act=document.querySelector('.section .section-title')?.parentElement?.parentElement; if(!act)return;const activityTitle=[...document.querySelectorAll('.section-title')].find(x=>x.textContent.trim()==='Активность'||x.textContent.trim()==='Activity');const section=activityTitle?.closest('.section');if(!section||section.querySelector('.momentum-v19'))return;const box=document.createElement('div');box.className='momentum-v19';box.innerHTML='<div class="momentum-v19-top"><div><div class="momentum-v19-kicker">RESSELL · MOMENTUM</div><div class="momentum-v19-title">Сегодня двигаешься вверх</div></div><div class="momentum-v19-badge">NEXT UNLOCK</div></div><div class="momentum-v19-bar"><i style="width:18%"></i></div><div class="momentum-v19-meta"><span>Прогресс загрузится после синхронизации</span><span>LVL —</span></div><div class="momentum-v19-route"><span>DAILY</span><span>R-HOLD</span><span>NETWORK</span></div>';section.querySelector('.actions')?.before(box);renderMomentumV19(box);}
   function renderMomentumV19(box){if(!box)return;const e=engagementData||{};const lvl=Math.max(1,Number(e.level||1)),xp=Number(e.xp||0),req=Math.max(1,Number(e.xp_required||1)),pct=Math.min(100,xp/req*100),streak=Math.max(1,Number(e.streak||1)),friends=Array.isArray(friendsData?.friends)?friendsData.friends.length:0;const dayDone=Boolean(e.last_checkin_at&&getLastCompletedAt({last_completed_at:e.last_checkin_at})===getLastCompletedAt({last_completed_at:Math.floor(Date.now()/1000)}));box.innerHTML=`<div class="momentum-v19-top"><div><div class="momentum-v19-kicker">RESSELL · MOMENTUM</div><div class="momentum-v19-title">${currentLang==='en'?'Keep the line moving':'Продолжай держать линию'}</div></div><div class="momentum-v19-badge">LVL ${lvl}</div></div><div class="momentum-v19-bar"><i style="width:${pct}%"></i></div><div class="momentum-v19-meta"><span>${xp.toLocaleString()} / ${req.toLocaleString()} XP</span><span>${streak} ${currentLang==='en'?'DAY STREAK':'ДНЕЙ СЕРИЯ'}</span></div><div class="momentum-v19-route"><span class="${dayDone?'done':''}">DAILY</span><span>R-HOLD</span><span class="${friends>0?'done':''}">NETWORK</span></div>`;}
   // Keep the working V18/V16 event system, only intercept Friends and add V19-only surfaces.
-  document.addEventListener('click',e=>{const btn=e.target.closest?.('#friendsBtn');if(btn){e.preventDefault();e.stopImmediatePropagation();if(typeof window.__resellFriendsV20==='function')window.__resellFriendsV20();else openFriendsV19();}},true);
+  document.addEventListener('click',e=>{const btn=e.target.closest?.('#friendsBtn');if(btn){e.preventDefault();e.stopImmediatePropagation();try{if(typeof window.__resellFriendsV20==='function')window.__resellFriendsV20();else openFriends();}catch(err){try{openFriends();}catch(_){console.error('Friends opener failed',err);}}}},true);
   const timer=setInterval(()=>{ensureRholdButtonV19();ensureMomentumV19();if(engagementData)renderMomentumV19(document.querySelector('.momentum-v19'));},700);setTimeout(()=>clearInterval(timer),20000);
   setTimeout(()=>{if(profileData?.language==='en'&&!localStorage.getItem('resell_language')){try{localStorage.setItem('resell_language','en');}catch(_){};}currentLang=localStorage.getItem('resell_language')==='en'?'en':'ru';resellSetLanguage(currentLang);},1400);
   // Apply current language to existing registration and main UI after all V18 handlers are ready.
@@ -5545,7 +5489,8 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
       await loadFriends();
       render(Array.isArray(friendsData?.friends)?friendsData.friends:[]);
     }catch(err){
-      showToast(err.message||'Не удалось синхронизировать друзей');
+      // The Friends sheet stays open even when the network sync fails.
+      console.warn('Friends sync failed:', err);
     }
     const runSearch=async()=>{
       const q=String(document.getElementById('friendV20Search')?.value||'').trim().replace(/^@+/,'');
