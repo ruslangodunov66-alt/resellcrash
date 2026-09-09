@@ -1784,6 +1784,9 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   // normalize or JSON-stringify the signed payload on the client.
   let telegramInitData = '';
   let telegramUserId = '';
+  let telegramAuthGeneration = 0;
+  let telegramIdentityPromise = null;
+  let telegramLastLiveUserId = '';
 
   function captureTelegramInitData(raw){
     const value=String(raw||'').trim();
@@ -1809,18 +1812,18 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
 
   function invalidateStaleTelegramCache(){
     try{
-      const hint=String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '').trim();
+      const live=window.Telegram?.WebApp;
+      const hint=String(live?.initDataUnsafe?.user?.id || '').trim();
       if(hint && telegramUserId && hint!==telegramUserId){
-        // initDataUnsafe is NEVER used as proof of identity. It only tells us
-        // that Telegram appears to have switched accounts, so we discard the
-        // old signed payload and wait for the new signed initData.
         telegramInitData='';
         telegramUserId='';
+        telegramLastLiveUserId='';
         userId='';
         isOwner=false;
         isAdmin=false;
+        telegramAuthGeneration++;
       }
-    }catch(_){}
+    }catch(_){ }
   }
 
   function getTelegramInitData(){
@@ -2447,31 +2450,31 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   }
 
   async function waitForTelegramInitData(timeoutMs=5000){
-    const started=Date.now();
-    const hasWebApp=()=>!!(window.Telegram?.WebApp || tg);
-    let lastLive='';
-    while(Date.now()-started < timeoutMs){
-      invalidateStaleTelegramCache();
-      try{
-        const live=window.Telegram?.WebApp;
-        if(live) tg=live;
-        tg?.ready?.();
-        tg?.expand?.();
-      }catch(_){}
-      try{ lastLive=String(window.Telegram?.WebApp?.initData || tg?.initData || '').trim(); }catch(_){ lastLive=''; }
-      if(lastLive){
-        const captured=captureTelegramInitData(lastLive);
-        if(captured) return captured;
+    if(telegramIdentityPromise) return telegramIdentityPromise;
+    telegramIdentityPromise=(async()=>{
+      const started=Date.now();
+      let lastLive='';
+      while(Date.now()-started < timeoutMs){
+        try{
+          const live=window.Telegram?.WebApp;
+          if(live) tg=live;
+          tg?.ready?.(); tg?.expand?.();
+          const current=String(live?.initData || tg?.initData || '').trim();
+          if(current){
+            const captured=captureTelegramInitData(current);
+            if(captured){ lastLive=captured; return captured; }
+          }
+          // During account switching Telegram may briefly expose empty initData.
+          // Never resurrect the previous account while a WebApp object exists.
+          if(!live && !tg) break;
+        }catch(_){ }
+        await new Promise(r=>setTimeout(r,120));
       }
-      // When a Telegram account is switched, the WebView can expose an empty
-      // live initData for a short interval. Do NOT fall back to the previous
-      // account's cached payload during that interval.
-      if(!hasWebApp()) break;
-      await new Promise(r=>setTimeout(r,120));
-    }
-    // Only use non-live fallbacks when there is no Telegram WebApp object at all.
-    if(!hasWebApp()) return getTelegramInitData();
-    return lastLive || '';
+      if(!(window.Telegram?.WebApp || tg)) return getTelegramInitData();
+      return lastLive || '';
+    })();
+    try{ return await telegramIdentityPromise; }
+    finally{ telegramIdentityPromise=null; }
   }
 
   async function apiFetch(url, options={}, attempts=3){
@@ -2483,8 +2486,13 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
         try{ tg?.ready?.(); }catch(_){}
         const isApiRequest=String(url||'').startsWith(API_BASE);
         const needsTelegramAuth=isApiRequest && !/\/tycoon\/media\//i.test(url);
+        const authGenerationAtStart=telegramAuthGeneration;
         const initData=needsTelegramAuth ? await waitForTelegramInitData(5000) : getTelegramInitData();
         const signedUserId=getSignedTelegramUserId(initData);
+        if(needsTelegramAuth && authGenerationAtStart!==telegramAuthGeneration && !signedUserId){
+          await new Promise(r=>setTimeout(r,120));
+          continue;
+        }
         if(signedUserId){
           userId=signedUserId;
           telegramUserId=signedUserId;
