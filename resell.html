@@ -4602,9 +4602,9 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     const key=`${BUSINESS_TUTORIAL_KEY}_${userId||'guest'}`;
     if(localStorage.getItem(key)==='1') return;
     const steps=[
-      {title:'Здесь копится доход',text:'Бизнесы приносят деньги автоматически. Вверху видна общая сумма за день.',target:'.business-hero-v5'},
+      {title:'Здесь копится доход',text:'Бизнесы приносят деньги автоматически. Вверху видна общая сумма за день.',target:'.biz7-hero'},
       {title:'Забирай одной кнопкой',text:'Нажми «Забрать» — весь доступный пассивный доход зачислится на баланс.',target:'#businessCollectBtn'},
-      {title:'Таксопарк тоже здесь',text:'Доход таксопарка входит в общий бизнес и отображается отдельной строкой.',target:'.business-feature-v5'}
+      {title:'Таксопарк тоже здесь',text:'Доход таксопарка входит в общий бизнес и отображается отдельной строкой.',target:'.biz7-shortcuts'}
     ];
     businessTutorialActive=true; let i=0;
     const old=document.getElementById('businessTutorialOverlay'); if(old) old.remove();
@@ -4625,116 +4625,167 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     const balance=Math.max(0,Number(d.balance ?? profileData?.balance ?? 0));
     const totalHour=Math.max(0,Number(d.total_per_hour||0));
     const totalDay=Math.max(0,Number(d.total_per_day||totalHour*24));
-    const taxiBusiness=d.taxi_business||{};
-    const taxiHour=Math.max(0,Number(taxiBusiness.hourly_income ?? d.hourly_breakdown?.taxopark ?? 0));
-    const businessHour=Math.max(0,totalHour-taxiHour);
 
-    const escName=s=>esc(String(s||'Бизнес'));
-    const iconFor=(x)=>{
-      const s=(String(x?.name||x?.id||'')).toLowerCase();
-      if(s.includes('market')||s.includes('рын'))return '🛍️';
-      if(s.includes('container')||s.includes('контей'))return '📦';
-      if(s.includes('boutique')||s.includes('бутик'))return '👑';
-      if(s.includes('concept'))return '✨';
-      if(s.includes('flagship'))return '🏢';
-      if(s.includes('gallery')||s.includes('gallery'))return '🖼️';
-      if(s.includes('plaza'))return '🏙️';
-      if(s.includes('campus'))return '🏫';
-      if(s.includes('metro'))return '🌆';
-      return '🏪';
+    // Robustly unwrap strings so a nested API object can NEVER become "[object Object]".
+    const textValue=v=>{
+      if(v==null)return '';
+      if(typeof v==='string'||typeof v==='number')return String(v);
+      if(Array.isArray(v))return v.length?textValue(v[0]):'';
+      if(typeof v==='object')return textValue(v.name ?? v.title ?? v.label ?? v.value ?? v.text ?? v.id);
+      return '';
     };
-    const featured=[
-      ...catalog.filter(x=>/flagship|plaza|campus|metro|gallery/i.test(String(x.name||''))),
-      ...catalog
-    ].filter((x,i,a)=>a.findIndex(y=>String(y.id)===String(x.id))===i).slice(0,3);
+    const safeName=x=>{
+      const raw=textValue(x?.name ?? x?.title ?? x?.label ?? x);
+      return raw.replace(/^[\u{1F300}-\u{1FAFF}\u2600-\u27BF\uFE0F\s]+/u,'').trim() || 'Бизнес';
+    };
+    const safeId=x=>textValue(x?.id ?? x?.shop_id ?? x?.key);
+    const priceOf=x=>Math.max(0,Number(x?.price ?? x?.purchase_price ?? 0));
+    const hourOf=x=>Math.max(0,Number(x?.income_per_hour ?? x?.hourly_income ?? x?.income?.per_hour ?? 0));
+    const daysOf=x=>{
+      const p=priceOf(x), h=hourOf(x);
+      return h>0?p/h/24:0;
+    };
+    const icon=(type='building',active=false)=>{
+      const stroke=active?'#b7ff6a':'#aeb7b1';
+      const common=`fill="none" stroke="${stroke}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"`;
+      const paths={
+        business:`<rect x="4" y="4" width="16" height="16" rx="3" ${common}/><path d="M8 20V8h8v12M7 8l1.5-3h7L17 8M11 11h2M11 14h2M11 17h2"/>`,
+        assets:`<rect x="4" y="5" width="16" height="14" rx="3" ${common}/><path d="M8 5V3h8v2M8 10h8M8 14h5"/>`,
+        taxi:`<path d="M5 16h14l-1-6H6l-1 6Z" ${common}/><path d="m8 10 1.5-4h5L16 10M4 16v2M20 16v2M8 19h2M14 19h2M3 13h2M19 13h2"/><circle cx="8" cy="16" r="1.2" ${common}/><circle cx="16" cy="16" r="1.2" ${common}/>`,
+        profile:`<circle cx="12" cy="8" r="3.2" ${common}/><path d="M5.5 20a6.5 6.5 0 0 1 13 0"/>`,
+        crown:`<path d="m4 8 3.5 3L12 6l4.5 5L20 8l-1.5 10h-13L4 8Z" ${common}/><path d="M6 21h12"/>`,
+        wallet:`<rect x="4" y="6" width="16" height="13" rx="3" ${common}/><path d="M6 6V5a2 2 0 0 1 2-2h8M15 13h5M16.5 13h.1"/>`,
+        arrow:`<path d="M5 12h13M13 7l5 5-5 5" ${common}/`,
+        refresh:`<path d="M19 8a7 7 0 1 0 1 6" ${common}/><path d="M19 4v4h-4" ${common}/`,
+        wrench:`<path d="M14 6a4 4 0 0 0-5 5l-5 5a2.1 2.1 0 1 0 3 3l5-5a4 4 0 0 0 5-5l-3 3-2-2 2-3Z" ${common}/`
+      };
+      return `<svg class="biz7-svg" viewBox="0 0 24 24" aria-hidden="true">${paths[type]||paths.business}</svg>`;
+    };
+    const artUrl=id=>{
+      const urls={
+        flagship_center:'https://commons.wikimedia.org/wiki/Special:Redirect/file/Skyscrapers.png',
+        resell_gallery:'https://commons.wikimedia.org/wiki/Special:Redirect/file/MBS_non-profit_City_Illustration.png',
+        city_plaza:'https://commons.wikimedia.org/wiki/Special:Redirect/file/Sky_city.png'
+      };
+      return urls[id]||'';
+    };
+    const findCatalogById=id=>catalog.find(x=>safeId(x)===String(id));
+    const ownedCount=id=>businesses.filter(x=>safeId(x)===String(id)).length;
+
+    const empireIds=['flagship_center','resell_gallery','city_plaza'];
+    const featured=empireIds.map(findCatalogById).filter(Boolean);
+    const otherCatalog=catalog.filter(x=>!empireIds.includes(safeId(x)));
 
     const tabs=[['overview','ОБЗОР'],['assets','МОИ БИЗНЕСЫ'],['market','КУПИТЬ']];
     let inner='';
+
     if(businessViewTab==='assets'){
-      inner=`<div class="biz6-section">
-        <div class="biz6-section-head"><b>МОИ БИЗНЕСЫ</b><span>${businesses.length} активов</span></div>
-        <div class="biz6-list">
-          ${businesses.length?businesses.map((b,i)=>`<div class="biz6-wide-card">
-            <div class="biz6-wide-icon">${iconFor(b)}</div>
-            <div class="biz6-wide-copy"><b>${escName(b)}</b><span>+${number(b.income_per_hour||0)} ₽/ч · +${number(b.income_per_day||0)} ₽/день</span><small>Окупаемость ≈ ${Number(b.income_per_hour)>0?(Number(b.purchase_price||b.price||0)/Number(b.income_per_hour)/24).toFixed(1):'0.0'} дн.</small></div>
-            <button type="button" class="biz6-small-action" data-business-sell="${esc(b.id)}">ПРОДАТЬ</button>
-          </div>`).join(''):'<div class="biz6-empty">Пока нет купленных бизнесов.</div>'}
+      inner=`<section class="biz7-section">
+        <div class="biz7-section-head"><b>МОИ БИЗНЕСЫ</b><span>${businesses.length} активов</span></div>
+        <div class="biz7-owned-list">
+          ${businesses.length?businesses.map(b=>`
+            <article class="biz7-owned">
+              <div class="biz7-owned-icon">${icon('business')}</div>
+              <div class="biz7-owned-copy">
+                <b>${esc(safeName(b))}</b>
+                <span>+${number(hourOf(b))} ₽/ч · +${number(hourOf(b)*24)} ₽/день</span>
+                <small>Стоимость ${number(priceOf(b))} ₽ · окупаемость ≈ ${daysOf(b).toFixed(1)} дн.</small>
+              </div>
+              <button type="button" class="biz7-ghost" data-business-sell="${esc(safeId(b))}">ПРОДАТЬ</button>
+            </article>`).join(''):'<div class="biz7-empty">Пока нет купленных бизнесов.</div>'}
         </div>
-      </div>`;
+      </section>`;
     }else if(businessViewTab==='market'){
       const groups=[
-        ['СТАРТ',catalog.filter(x=>Number(x.price||0)<1000000)],
-        ['РОСТ',catalog.filter(x=>Number(x.price||0)>=1000000&&Number(x.price||0)<50000000)],
-        ['ИМПЕРИЯ',catalog.filter(x=>Number(x.price||0)>=50000000)]
+        ['СТАРТ',catalog.filter(x=>priceOf(x)<1000000)],
+        ['РОСТ',catalog.filter(x=>priceOf(x)>=1000000&&priceOf(x)<50000000)],
+        ['ИМПЕРИЯ',catalog.filter(x=>priceOf(x)>=50000000)]
       ];
-      inner=groups.map(([label,items])=>items.length?`<div class="biz6-section">
-        <div class="biz6-section-head"><b>${label}</b><span>${items.length} вариантов</span></div>
-        <div class="biz6-buy-list">${items.map(x=>{
-          const owned=businesses.filter(b=>String(b.id)===String(x.id)).length;
-          const days=Number(x.income_per_hour)>0?(Number(x.price||0)/Number(x.income_per_hour)/24):0;
-          return `<div class="biz6-buy-row">
-            <div class="biz6-buy-art">${iconFor(x)}</div>
-            <div class="biz6-buy-copy"><b>${escName(x)}</b><span>${number(x.price||0)} ₽ · +${number(x.income_per_hour||0)} ₽/ч</span><small>Окупаемость ≈ ${days.toFixed(1)} дн. · у тебя ${owned}/2</small></div>
-            <button type="button" class="biz6-buy-btn" data-business-buy="${esc(x.id)}">КУПИТЬ</button>
-          </div>`;
-        }).join('')}</div>
-      </div>`:'').join('');
+      inner=groups.map(([label,items])=>items.length?`
+        <section class="biz7-section">
+          <div class="biz7-section-head"><b>${label}</b><span>${items.length} вариантов</span></div>
+          <div class="biz7-market-list">${items.map(x=>{
+            const id=safeId(x), owned=ownedCount(id), days=daysOf(x);
+            const art=artUrl(id);
+            return `<article class="biz7-market-row">
+              <div class="biz7-market-icon ${art?'photo':''}">${art?`<img src="${art}" alt="" loading="lazy" referrerpolicy="no-referrer">`:icon('business')}</div>
+              <div class="biz7-market-copy">
+                <b>${esc(safeName(x))}</b>
+                <span>${number(priceOf(x))} ₽ · +${number(hourOf(x))} ₽/ч</span>
+                <small>Окупаемость ≈ ${days.toFixed(1)} дн. · у тебя ${owned}/2</small>
+              </div>
+              <button type="button" class="biz7-buy" data-business-buy="${esc(id)}">КУПИТЬ</button>
+            </article>`;
+          }).join('')}</div>
+        </section>`:'').join('');
     }else{
-      inner=`<div class="biz6-section">
-        <div class="biz6-section-head"><b>BUSINESS LINE · 12 LEVELS</b><span>единая линейка</span></div>
-        <div class="biz6-line-card">
-          <div class="biz6-line-icon">👑</div>
-          <div class="biz6-line-copy"><b>Новая бизнес-линия</b><span>Flagship → Gallery → City Plaza → Campus → Metroplex</span></div>
-          <button type="button" class="biz6-arrow-btn" data-business-tab="market">→</button>
+      inner=`<section class="biz7-section">
+        <div class="biz7-section-head"><b>BUSINESS LINE · 12 LEVELS</b><span>единая линейка</span></div>
+        <button type="button" class="biz7-line" data-business-tab="market">
+          <span class="biz7-line-icon">${icon('crown',true)}</span>
+          <span class="biz7-line-copy"><b>Новая бизнес-линия</b><small>Flagship → Gallery → City Plaza → Campus → Metroplex</small></span>
+          <span class="biz7-line-arrow">${icon('arrow',true)}</span>
+        </button>
+      </section>
+      <section class="biz7-section">
+        <div class="biz7-section-head"><b>ИМПЕРИЯ</b><span>3 крупных актива</span></div>
+        <div class="biz7-feature-grid">
+          ${featured.map(x=>{
+            const id=safeId(x), art=artUrl(id);
+            return `<article class="biz7-feature">
+              <div class="biz7-feature-art">${art?`<img src="${art}" alt="${esc(safeName(x))}" loading="lazy" referrerpolicy="no-referrer">`:icon('business')}</div>
+              <div class="biz7-feature-name">${esc(safeName(x))}</div>
+              <div class="biz7-feature-rate">+${number(hourOf(x))} ₽/ч</div>
+              <div class="biz7-feature-days">◉ ${daysOf(x).toFixed(1)} дн.</div>
+              <button type="button" class="biz7-buy biz7-buy-wide" data-business-buy="${esc(id)}">КУПИТЬ</button>
+            </article>`;
+          }).join('')}
         </div>
-        <div class="biz6-feature-grid">
-          ${featured.length?featured.map(x=>{
-            const days=Number(x.income_per_hour)>0?(Number(x.price||0)/Number(x.income_per_hour)/24):0;
-            return `<div class="biz6-feature-card">
-              <div class="biz6-art">${iconFor(x)}</div>
-              <b>${escName(x)}</b>
-              <span>+${number(x.income_per_hour||0)} ₽/ч</span>
-              <small>◉ ${days.toFixed(1)} дн.</small>
-              <button type="button" class="biz6-feature-buy" data-business-buy="${esc(x.id)}">КУПИТЬ</button>
-            </div>`;
-          }).join(''):'<div class="biz6-empty">Каталог бизнесов пуст.</div>'}
+      </section>
+      <section class="biz7-section">
+        <div class="biz7-section-head"><b>ДРУГИЕ БИЗНЕСЫ</b><button type="button" class="biz7-link" data-business-tab="market">Все →</button></div>
+        <div class="biz7-compact-list">
+          ${otherCatalog.slice(0,6).map(x=>{
+            const id=safeId(x);
+            return `<article class="biz7-compact">
+              <span class="biz7-compact-icon">${icon('business')}</span>
+              <span class="biz7-compact-copy"><b>${esc(safeName(x))}</b><small>+${number(hourOf(x))} ₽/ч · ${daysOf(x).toFixed(1)} дн.</small></span>
+              <button type="button" class="biz7-buy" data-business-buy="${esc(id)}">КУПИТЬ</button>
+            </article>`;
+          }).join('')}
         </div>
-      </div>
-      <div class="biz6-section">
-        <div class="biz6-section-head"><b>ДРУГИЕ КАТЕГОРИИ</b><button type="button" class="biz6-link-btn" data-business-tab="market">Все →</button></div>
-        <div class="biz6-compact-list">
-          ${catalog.slice(0,6).map(x=>`<div class="biz6-compact-row"><div class="biz6-compact-icon">${iconFor(x)}</div><div class="biz6-compact-copy"><b>${escName(x)}</b><span>+${number(x.income_per_hour||0)} ₽/ч · ${(Number(x.income_per_hour)>0?(Number(x.price||0)/Number(x.income_per_hour)/24):0).toFixed(1)} дн.</span></div><button type="button" class="biz6-buy-btn compact" data-business-buy="${esc(x.id)}">КУПИТЬ</button></div>`).join('')}
-        </div>
-      </div>`;
+      </section>`;
     }
 
-    return `<div class="business-control-v6">
-      <div class="biz6-hero">
-        <div class="biz6-hero-top">
-          <div class="biz6-crown">👑</div>
+    return `<div class="business-control-v7">
+      <header class="biz7-hero">
+        <div class="biz7-hero-row">
+          <div class="biz7-hero-icon">${icon('crown',true)}</div>
           <div><span>ВАША ИМПЕРИЯ</span><b>Доход в час</b></div>
           <em>ACTIVE</em>
         </div>
-        <div class="biz6-total">${number(totalHour)} ₽ <small>/ ЧАС</small></div>
-        <div class="biz6-daily">${number(totalDay)} ₽ / день · Баланс: ${number(balance)} ₽</div>
-        <button type="button" class="biz6-collect" id="businessCollectBtn" ${pending<=0?'disabled':''}>
-          <span>💰</span><b>${pending>0?`ЗАБРАТЬ +${number(pending)} ₽`:'НАКОПЛЕНИЙ НЕТ'}</b><i>›</i>
+        <div class="biz7-total">${number(totalHour)} ₽ <small>/ ЧАС</small></div>
+        <div class="biz7-daily">${number(totalDay)} ₽ / день · Баланс: ${number(balance)} ₽</div>
+        <button type="button" class="biz7-collect" id="businessCollectBtn" ${pending<=0?'disabled':''}>
+          <span class="biz7-collect-icon">${icon('wallet',true)}</span>
+          <span><b>${pending>0?`ЗАБРАТЬ +${number(pending)} ₽`:'НАКОПЛЕНИЙ НЕТ'}</b><small>Общий пассивный доход</small></span>
+          <span class="biz7-collect-arrow">${icon('arrow')}</span>
         </button>
+      </header>
+
+      <nav class="biz7-shortcuts">
+        <button type="button" class="biz7-shortcut active" data-business-tab="overview">${icon('business',true)}<b>Бизнес</b></button>
+        <button type="button" class="biz7-shortcut" data-business-tab="assets">${icon('assets')}<b>Мои бизнесы</b></button>
+        <button type="button" class="biz7-shortcut" data-business-taxi-open>${icon('taxi')}<b>Таксопарк</b></button>
+        <button type="button" class="biz7-shortcut" data-business-profile>${icon('profile')}<b>Профиль</b></button>
+      </nav>
+
+      <div class="biz7-maintenance ${debt>0?'warn':''}">
+        <span class="biz7-maint-main">${debt>0?'Обслуживание · '+number(debt)+' ₽ к оплате':'Обслуживание закрыто'}<small>RCOIN начисляется за общий lifetime-заработок</small></span>
+        <span class="biz7-maint-actions">${debt>0?`<button type="button" class="biz7-maint-pay" id="businessMaintenanceBtn">ОПЛАТИТЬ</button>`:''}<button type="button" class="biz7-refresh" id="businessRefreshBtn">${icon('refresh')}</button></span>
       </div>
 
-      <div class="biz6-shortcuts">
-        <button type="button" class="biz6-shortcut active" data-business-tab="overview"><span>▦</span><b>Бизнес</b></button>
-        <button type="button" class="biz6-shortcut" data-business-tab="assets"><span>▣</span><b>Мои бизнесы</b></button>
-        <button type="button" class="biz6-shortcut" data-business-taxi-open><span>🚕</span><b>Таксопарк</b></button>
-        <button type="button" class="biz6-shortcut" data-business-profile><span>●</span><b>Профиль</b></button>
-      </div>
-
-      <div class="biz6-maintenance ${debt>0?'warn':''}">
-        <span>${debt>0?`⚠️ Обслуживание · ${number(debt)} ₽ к оплате`:'✓ Обслуживание закрыто'}<small>RCOIN начисляется за общий lifetime-заработок</small></span>
-        <div>${debt>0?`<button type="button" class="biz6-maint-btn" id="businessMaintenanceBtn">ОПЛАТИТЬ</button>`:''}<button type="button" class="biz6-refresh" id="businessRefreshBtn">↻</button></div>
-      </div>
-
-      <div class="biz6-tabs">${tabs.map(([id,label])=>`<button type="button" class="${businessViewTab===id?'active':''}" data-business-tab="${id}">${label}</button>`).join('')}</div>
+      <div class="biz7-tabs">${tabs.map(([id,label])=>`<button type="button" class="${businessViewTab===id?'active':''}" data-business-tab="${id}">${label}</button>`).join('')}</div>
       ${inner}
     </div>`;
   }
@@ -4935,7 +4986,17 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
 
   modalBody.addEventListener('click', async (e) => {
     if(e.target.closest('[data-business-profile]')){ closeModal(); setTimeout(()=>{ $('#profileBtn')?.click(); },0); return; }
-    const businessTab=e.target.closest('[data-business-tab]');
+    if(e.target.closest('[data-business-profile]')){
+      closeModal();
+      setTimeout(()=>{ $('#profileBtn')?.click(); },0);
+      return;
+    }
+    if(e.target.closest('[data-business-taxi-open]')){
+      closeModal();
+      setTimeout(()=>{ typeof openTaxiPark==='function' ? openTaxiPark() : $('#taxiBtn')?.click(); },0);
+      return;
+    }
+        const businessTab=e.target.closest('[data-business-tab]');
     if(businessTab){ businessViewTab=String(businessTab.dataset.businessTab||'overview'); modalBody.innerHTML=renderBusinessModal(); return; }
     if(e.target.closest('#businessMaintenanceInline')){ const btn=e.target.closest('#businessMaintenanceInline'); btn.disabled=true; try{ await businessAction(`/business/${encodeURIComponent(userId)}/maintenance`,{},'Обслуживание оплачено'); }catch(_){ btn.disabled=false; } return; }
     if(e.target.closest('#dailyCheckinBtn')){ await claimDailyCheckin(); return; }
@@ -6121,4 +6182,23 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
 .biz6-feature-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.biz6-feature-card{padding:7px;border-radius:16px;background:linear-gradient(145deg,#141919,#090b0a);border:1px solid rgba(255,255,255,.07)}.biz6-art{height:67px;border-radius:12px;display:grid;place-items:center;background:radial-gradient(circle at 50% 36%,rgba(183,255,106,.13),transparent 56%),linear-gradient(145deg,#1d2620,#0a0d0b);border:1px solid rgba(255,255,255,.05);font-size:26px}.biz6-feature-card b{display:block;margin-top:7px;font-size:7.5px;line-height:1.15}.biz6-feature-card span{display:block;margin-top:3px;color:#b7ff6a;font-size:6.5px;font-weight:900}.biz6-feature-card small{display:block;margin-top:3px;color:#6e7771;font-size:6px;font-weight:800}.biz6-feature-buy{width:100%;margin-top:7px;min-height:28px;border:1px solid #fff;border-radius:9px;background:#fff;color:#050505;font:950 6.5px/1 "Montserrat"}
 .biz6-compact-list,.biz6-buy-list,.biz6-list{display:grid;gap:6px}.biz6-compact-row,.biz6-buy-row,.biz6-wide-card{display:flex;align-items:center;gap:8px;padding:9px;border-radius:15px;background:linear-gradient(145deg,rgba(255,255,255,.035),rgba(255,255,255,.017));border:1px solid rgba(255,255,255,.065)}.biz6-compact-icon,.biz6-buy-art,.biz6-wide-icon{width:35px;height:35px;flex:none;display:grid;place-items:center;border-radius:11px;background:rgba(255,255,255,.045);font-size:16px}.biz6-compact-copy,.biz6-buy-copy,.biz6-wide-copy{flex:1;min-width:0}.biz6-compact-copy b,.biz6-buy-copy b,.biz6-wide-copy b{display:block;font-size:8px}.biz6-compact-copy span,.biz6-buy-copy span,.biz6-wide-copy span{display:block;margin-top:3px;color:#6f7872;font:800 6.3px/1.25 "Montserrat"}.biz6-buy-copy small,.biz6-wide-copy small{display:block;margin-top:2px;color:#555e58;font:800 5.9px/1.2 "Montserrat"}.biz6-buy-btn,.biz6-small-action{flex:none;min-height:32px;padding:0 9px;border:1px solid #fff;border-radius:9px;background:#fff;color:#050505;font:950 6.3px/1 "Montserrat"}.biz6-buy-btn.compact{min-width:60px}.biz6-small-action{border-color:rgba(255,255,255,.08);background:rgba(255,255,255,.035);color:#ddd}.biz6-empty{padding:18px;text-align:center;border:1px dashed rgba(255,255,255,.08);border-radius:15px;color:#636b65;font:800 7.5px/1.4 "Montserrat"}
 @media(max-width:390px){.biz6-shortcut b{font-size:5.7px}.biz6-feature-grid{gap:5px}.biz6-art{height:59px}.biz6-total{font-size:26px}}
+</style>
+
+<style id="resell-business-v7-polish">
+.business-control-v7{display:grid;gap:10px;color:#f5f7f5;font-family:"Montserrat",sans-serif}
+.business-control-v7 *{box-sizing:border-box;font-family:"Montserrat",sans-serif}
+.biz7-svg{width:19px;height:19px;display:block;flex:none}
+.biz7-hero{overflow:hidden;padding:15px;border-radius:24px;border:1px solid rgba(183,255,106,.16);background:radial-gradient(circle at 100% 0,rgba(183,255,106,.16),transparent 33%),radial-gradient(circle at 0 100%,rgba(100,160,255,.05),transparent 35%),linear-gradient(150deg,#171a18,#080a09 75%);box-shadow:0 20px 50px rgba(0,0,0,.36)}
+.biz7-hero-row{display:flex;align-items:center;gap:9px}.biz7-hero-icon{width:40px;height:40px;display:grid;place-items:center;border-radius:13px;background:rgba(183,255,106,.08);border:1px solid rgba(183,255,106,.12)}.biz7-hero-row span{display:block;color:#68736c;font:950 6px/1 "Montserrat";letter-spacing:1.4px}.biz7-hero-row b{display:block;margin-top:4px;font-size:9px}.biz7-hero-row em{margin-left:auto;padding:7px 9px;border-radius:9px;color:#b7ff6a;background:rgba(183,255,106,.08);border:1px solid rgba(183,255,106,.22);font:950 6px/1 "Montserrat";font-style:normal}
+.biz7-total{margin-top:11px;font:950 31px/1 "Montserrat";letter-spacing:-1.2px}.biz7-total small{font-size:8px;color:#717a74;letter-spacing:1.2px}.biz7-daily{margin-top:7px;color:#7b847e;font:800 7.2px/1.25 "Montserrat"}
+.biz7-collect{display:flex;align-items:center;gap:9px;width:100%;min-height:51px;margin-top:12px;padding:0 12px;border-radius:15px;border:1px solid rgba(183,255,106,.20);background:linear-gradient(90deg,rgba(183,255,106,.09),rgba(255,255,255,.025));color:#eef2ee;text-align:left}.biz7-collect-icon{width:30px;height:30px;display:grid;place-items:center;border-radius:10px;background:rgba(183,255,106,.08)}.biz7-collect b{display:block;font:950 7.5px/1 "Montserrat"}.biz7-collect small{display:block;margin-top:4px;color:#647067;font:800 5.8px/1 "Montserrat"}.biz7-collect-arrow{margin-left:auto}
+.biz7-collect:disabled{opacity:.42}
+.biz7-shortcuts{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.biz7-shortcut{min-height:62px;border-radius:16px;border:1px solid rgba(255,255,255,.065);background:rgba(255,255,255,.022);color:#727b75;display:grid;place-items:center;align-content:center;gap:6px}.biz7-shortcut b{font:950 6px/1 "Montserrat"}.biz7-shortcut.active{border-color:rgba(183,255,106,.27);background:rgba(183,255,106,.065);color:#b7ff6a}
+.biz7-maintenance{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 11px;border-radius:15px;border:1px solid rgba(255,255,255,.065);background:rgba(255,255,255,.022);color:#758079;font:800 6.8px/1.25 "Montserrat"}.biz7-maintenance.warn{border-color:rgba(255,181,95,.20);background:rgba(255,145,80,.035)}.biz7-maint-main small{display:block;margin-top:4px;color:#555e59;font-size:5.7px}.biz7-maint-actions{display:flex;gap:6px}.biz7-maint-pay,.biz7-refresh{min-height:33px;border-radius:10px;border:1px solid rgba(255,255,255,.08);font:950 6.2px/1 "Montserrat"}.biz7-maint-pay{padding:0 9px;background:#fff;border-color:#fff;color:#060706}.biz7-refresh{width:33px;background:rgba(255,255,255,.035);color:#b8c0ba}.biz7-refresh .biz7-svg{width:15px;height:15px;margin:auto}
+.biz7-tabs{display:grid;grid-template-columns:repeat(3,1fr);padding:4px;gap:4px;border-radius:15px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.02)}.biz7-tabs button{min-height:37px;border:0;border-radius:10px;background:transparent;color:#666f69;font:950 6.4px/1 "Montserrat";letter-spacing:.5px}.biz7-tabs button.active{background:#fff;color:#060706}
+.biz7-section{display:grid;gap:7px}.biz7-section-head{display:flex;align-items:center;justify-content:space-between;padding:2px}.biz7-section-head b{font:950 7px/1 "Montserrat";letter-spacing:1.2px}.biz7-section-head span,.biz7-link{color:#657068;font:800 6px/1 "Montserrat"}.biz7-link{border:0;background:none;padding:3px}
+.biz7-line{display:flex;align-items:center;width:100%;gap:10px;padding:11px;border-radius:17px;border:1px solid rgba(183,255,106,.21);background:linear-gradient(145deg,rgba(183,255,106,.085),rgba(255,255,255,.018));text-align:left}.biz7-line-icon{width:39px;height:39px;display:grid;place-items:center;border-radius:12px;background:rgba(183,255,106,.07);border:1px solid rgba(183,255,106,.10)}.biz7-line-copy{min-width:0;flex:1}.biz7-line-copy b{display:block;color:#b7ff6a;font-size:8px}.biz7-line-copy small{display:block;margin-top:4px;color:#69736c;font:800 6.4px/1.25 "Montserrat"}.biz7-line-arrow{width:32px;height:32px;display:grid;place-items:center;border-radius:10px;border:1px solid rgba(183,255,106,.18)}
+.biz7-feature-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.biz7-feature{min-width:0;padding:7px;border-radius:17px;background:linear-gradient(145deg,#141817,#090b0a);border:1px solid rgba(255,255,255,.07)}.biz7-feature-art{height:104px;overflow:hidden;border-radius:13px;background:linear-gradient(145deg,#132019,#090c0b);border:1px solid rgba(183,255,106,.10);display:grid;place-items:center}.biz7-feature-art img{width:100%;height:100%;object-fit:cover;filter:saturate(.88) contrast(1.05) brightness(.78);display:block}.biz7-feature-name{margin-top:8px;color:#eef2ee;font:950 7px/1.15 "Montserrat"}.biz7-feature-rate{margin-top:4px;color:#b7ff6a;font:950 6.5px/1 "Montserrat"}.biz7-feature-days{margin-top:4px;color:#657067;font:800 5.9px/1 "Montserrat"}.biz7-buy{min-height:33px;padding:0 9px;border-radius:10px;border:1px solid #fff;background:#fff;color:#050605;font:950 6.3px/1 "Montserrat";white-space:nowrap}.biz7-buy-wide{width:100%;margin-top:8px}
+.biz7-compact-list,.biz7-owned-list,.biz7-market-list{display:grid;gap:6px}.biz7-compact,.biz7-owned,.biz7-market-row{display:flex;align-items:center;gap:9px;padding:9px;border-radius:15px;background:linear-gradient(145deg,rgba(255,255,255,.035),rgba(255,255,255,.015));border:1px solid rgba(255,255,255,.065)}.biz7-compact-icon,.biz7-owned-icon,.biz7-market-icon{width:37px;height:37px;display:grid;place-items:center;flex:none;border-radius:12px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.045)}.biz7-market-icon.photo{overflow:hidden}.biz7-market-icon.photo img{width:100%;height:100%;object-fit:cover;display:block;filter:brightness(.78) saturate(.85)}.biz7-compact-copy,.biz7-owned-copy,.biz7-market-copy{flex:1;min-width:0}.biz7-compact-copy b,.biz7-owned-copy b,.biz7-market-copy b{display:block;color:#e9eee9;font:950 8px/1.12 "Montserrat";white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.biz7-compact-copy small,.biz7-owned-copy span,.biz7-market-copy span{display:block;margin-top:4px;color:#707a73;font:800 6px/1.15 "Montserrat"}.biz7-owned-copy small,.biz7-market-copy small{display:block;margin-top:3px;color:#535e56;font:800 5.7px/1.15 "Montserrat"}.biz7-ghost{min-height:32px;padding:0 8px;border-radius:9px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.035);color:#c9d0ca;font:950 6px/1 "Montserrat"}.biz7-empty{padding:18px;text-align:center;border:1px dashed rgba(255,255,255,.09);border-radius:15px;color:#59635c;font:800 7px/1.4 "Nunito"}
+@media(max-width:390px){.biz7-feature-grid{gap:5px}.biz7-feature-art{height:93px}.biz7-feature-name{font-size:6.6px}.biz7-shortcut b{font-size:5.7px}}
 </style>
