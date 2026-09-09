@@ -1778,7 +1778,8 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   const params = new URLSearchParams(location.search);
 
   // ================================================================
-  // TELEGRAM AUTH — unified working path
+  // TELEGRAM AUTH — canonical raw-initData transport
+  // AUTH_IMPL: canonical-telegram-auth-v4
   // ================================================================
   // Keep the exact initData string Telegram gives the WebView. Do not rebuild,
   // normalize or JSON-stringify the signed payload on the client.
@@ -1862,8 +1863,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
     try{
       const q=String(params.get('initData')||params.get('tgWebAppData')||'').trim();
       if(q){
-        const raw=decodeURIComponent(q);
-        const captured=acceptFallback(raw||q);
+        const captured=acceptFallback(q);
         if(captured) return captured;
       }
     }catch(_){ }
@@ -2486,9 +2486,18 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   }
 
   function appendTelegramAuth(url,initData){
-    const encoded=encodeBase64UrlUtf8(initData); if(!encoded) return url;
-    try{ const u=new URL(url,location.href); u.searchParams.set('tg_auth_b64',encoded); return u.toString(); }
-    catch(_){ return String(url)+(String(url).includes('?')?'&':'?')+'tg_auth_b64='+encodeURIComponent(encoded); }
+    // Transport fallback only: encode the exact Telegram.WebApp.initData bytes.
+    // The backend decodes base64url once and validates the resulting raw string.
+    const exact=String(initData||'');
+    const encoded=encodeBase64UrlUtf8(exact);
+    if(!encoded) return url;
+    try{
+      const u=new URL(url,location.href);
+      u.searchParams.set('tg_auth_b64',encoded);
+      return u.href;
+    }catch(_){
+      return String(url)+(String(url).includes('?')?'&':'?')+'tg_auth_b64='+encoded;
+    }
   }
 
   async function waitForTelegramInitData(timeoutMs=5000){
