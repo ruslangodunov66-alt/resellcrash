@@ -1811,16 +1811,21 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   }
 
   function invalidateStaleTelegramCache(){
+    // Authorization must be based only on the signed initData.
+    // initDataUnsafe can be transient during Telegram WebView transitions.
     try{
       const live=window.Telegram?.WebApp;
-      const hint=String(live?.initDataUnsafe?.user?.id || '').trim();
-      if(hint && telegramUserId && hint!==telegramUserId){
-        telegramInitData='';
-        telegramUserId='';
-        telegramLastLiveUserId='';
-        userId='';
-        isOwner=false;
-        isAdmin=false;
+      const direct=String(live?.initData||'').trim();
+      if(!direct || !telegramInitData || direct===telegramInitData) return;
+      const liveId=getSignedTelegramUserId(direct);
+      const cachedId=String(telegramUserId||'').trim();
+      if(liveId && cachedId && liveId!==cachedId){
+        telegramInitData=direct;
+        telegramUserId=liveId;
+        telegramLastLiveUserId=liveId;
+        userId=liveId;
+        isOwner=String(userId)===ADMIN_OWNER_ID;
+        isAdmin=isOwner;
         telegramAuthGeneration++;
       }
     }catch(_){ }
@@ -1835,6 +1840,9 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
       if(direct){
         const captured=captureTelegramInitData(direct);
         if(captured) return captured;
+      }else if(live){
+        // Do not reuse an old signed payload while Telegram is restoring the WebView.
+        return '';
       }
     }catch(_){ }
     if(telegramInitData) return telegramInitData;
@@ -2471,7 +2479,9 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
         await new Promise(r=>setTimeout(r,120));
       }
       if(!(window.Telegram?.WebApp || tg)) return getTelegramInitData();
-      return lastLive || '';
+      // Telegram WebView exists but no current signed payload is available.
+      // Do not revive cached data from a previous WebView/account state.
+      return '';
     })();
     try{ return await telegramIdentityPromise; }
     finally{ telegramIdentityPromise=null; }
