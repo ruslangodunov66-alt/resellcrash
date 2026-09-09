@@ -4859,8 +4859,11 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   }));
   initMainTycoonCards();
   $('#businessBtn')?.addEventListener('click', openBusiness);
-  window.__resellOpenFriends = openFriendsV19;
-  $('#friendsBtn')?.addEventListener('click', openFriendsV19);
+  // IMPORTANT: this handler lives in the main RESSELL scope.
+  // openFriendsV19 is declared later in another script and MUST NOT be
+  // referenced here, otherwise the main IIFE dies with ReferenceError.
+  window.__resellOpenFriends = openFriends;
+  $('#friendsBtn')?.addEventListener('click', openFriends);
   $('#adminBtn')?.addEventListener('click', openAdmin);
   renderFriendsActivity();
   loadFriends();
@@ -5282,46 +5285,22 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
       try{setBootWelcome({identified:true});}catch(_){ }
       return data;
     }).catch(()=>null);
-    // Do not keep the whole Mini App behind the splash while a protected or
-    // optional API call is slow. Telegram/session logic stays untouched; only
-    // the visual boot barrier is bounded.
+    // Keep a short, intentional account-discovery stage before the existing launch sequence.
     await new Promise(r=>setTimeout(r,520));
-    let bootTimedOut=false;
-    await Promise.race([
-      dataPromise,
-      new Promise(resolve=>setTimeout(()=>{bootTimedOut=true;resolve(null)},6500))
-    ]);
-
-    if(!bootData && bootTimedOut){
+    await dataPromise;
+    if(!bootData){
       setBootWelcome({identified:false});
-      setBootState('ЗАПУСКАЕМ СИСТЕМУ',12);
-      await new Promise(r=>setTimeout(r,220));
-    }else if(!bootData){
-      setBootWelcome({identified:false});
-      setBootState('ВОССТАНАВЛИВАЕМ СЕССИЮ',18);
-      await new Promise(r=>setTimeout(r,220));
+      setBootState('НЕ УДАЛОСЬ ОПРЕДЕЛИТЬ СЕССИЮ',10);
+      await new Promise(r=>setTimeout(r,280));
     }
-
-    // The cinematic sequence is now independent from profile/network latency.
-    // Profile, engagement, referrals and the rest continue warming in background.
     setBootWelcome({identified:Boolean(bootData)});
-    await runLaunchSequence();
-
+    const sequence=runLaunchSequence();
+    await sequence;
+    // Make sure slow endpoints do not keep a player behind the splash forever.
+    if(!bootData){ setBootState('ВОССТАНАВЛИВАЕМ СЕССИЮ',96); await new Promise(r=>setTimeout(r,260)); }
     const firstRun=Boolean(bootData && (bootData.registration_complete===false || bootData.registration_required===true));
-    await finishLaunch({firstRun:false});
-
-    // If the profile arrived after the splash closed, synchronize the visible
-    // state and open registration only when the server explicitly requires it.
-    dataPromise.then(data=>{
-      if(!data) return;
-      try{
-        setBootWelcome({identified:true});
-        if(data.registration_complete===false || data.registration_required===true){
-          registrationRequired=true;
-          if(!launchSequenceActive && !document.querySelector('.registration-sheet-v5')) openRegistration();
-        }
-      }catch(_){}
-    }).catch(()=>{});
+    if(firstRun) registrationRequired=false;
+    await finishLaunch({firstRun});
   })();
   setInterval(() => { if (document.visibilityState === 'visible') loadProfile(); }, 60000);
 
