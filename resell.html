@@ -2726,14 +2726,7 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
         const resp=await apiFetch(`${API_BASE}/profile/${encodeURIComponent(userId)}?t=${Date.now()}`,{method:'GET'},1);
         const data=await resp.json(); profileData=data;
         if(data.registration_complete===false||data.registration_complete===0||data.registration_required===true){setBalance(primaryBalance(data));setProgress(0);statusText.textContent='Требуется регистрация';if(!registrationRequired && !launchSequenceActive)openRegistration();return data;}
-        setBalance(primaryBalance(data)); epochData=data.epoch||null; setProgress(Number(data.epoch_progress??epochData?.progress??0)); rcoinData=data.rcoin||null; renderRcoin(); statusText.textContent='Баланс синхронизирован'; $('.status-dot').style.background='var(--success)';
-        // Critical boot fix: auxiliary modules must NEVER block the main RESSELL
-        // screen. Profile is the only data required to finish the splash.
-        // Engagement/RCoin continue loading in the background.
-        try{if(data.engagement){engagementData=data.engagement;renderEngagement();}}catch(_){}
-        Promise.resolve().then(()=>loadEngagement()).catch(()=>{});
-        Promise.resolve().then(()=>loadRcoinStatus()).catch(()=>{});
-        return data;
+        setBalance(primaryBalance(data)); epochData=data.epoch||null; setProgress(Number(data.epoch_progress??epochData?.progress??0)); rcoinData=data.rcoin||null; renderRcoin(); statusText.textContent='Баланс синхронизирован'; $('.status-dot').style.background='var(--success)'; try{if(data.engagement){engagementData=data.engagement;renderEngagement();}await loadEngagement();await loadRcoinStatus();}catch(_){ } return data;
       }catch(e){lastError=e;if(attempt<2)await new Promise(r=>setTimeout(r,600*(attempt+1)));}
     }
     console.warn('Profile load failed:',lastError);
@@ -5284,30 +5277,51 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
       if(data?.registration_complete===false || data?.registration_required===true) return data;
       try{bindEngagement();}catch(_){ }
       try{initMainTycoonCards();}catch(_){ }
-      // Referral/secondary warmups are deliberately detached from the boot
-      // critical path. A slow endpoint must not leave the whole Mini App
-      // visually stuck on the loading screen.
-      Promise.resolve().then(()=>attachIncomingReferral()).catch(()=>{});
-      Promise.resolve().then(async()=>{referralData=await fetchReferralData();updateReferralCard();}).catch(()=>{});
+      try{await attachIncomingReferral();}catch(_){ }
+      try{referralData=await fetchReferralData();updateReferralCard();}catch(_){ }
       try{setBootWelcome({identified:true});}catch(_){ }
       return data;
     }).catch(()=>null);
-    // Keep a short, intentional account-discovery stage before the existing launch sequence.
+    // Do not keep the whole Mini App behind the splash while a protected or
+    // optional API call is slow. Telegram/session logic stays untouched; only
+    // the visual boot barrier is bounded.
     await new Promise(r=>setTimeout(r,520));
-    await dataPromise;
-    if(!bootData){
+    let bootTimedOut=false;
+    await Promise.race([
+      dataPromise,
+      new Promise(resolve=>setTimeout(()=>{bootTimedOut=true;resolve(null)},6500))
+    ]);
+
+    if(!bootData && bootTimedOut){
       setBootWelcome({identified:false});
-      setBootState('НЕ УДАЛОСЬ ОПРЕДЕЛИТЬ СЕССИЮ',10);
-      await new Promise(r=>setTimeout(r,280));
+      setBootState('ЗАПУСКАЕМ СИСТЕМУ',12);
+      await new Promise(r=>setTimeout(r,220));
+    }else if(!bootData){
+      setBootWelcome({identified:false});
+      setBootState('ВОССТАНАВЛИВАЕМ СЕССИЮ',18);
+      await new Promise(r=>setTimeout(r,220));
     }
+
+    // The cinematic sequence is now independent from profile/network latency.
+    // Profile, engagement, referrals and the rest continue warming in background.
     setBootWelcome({identified:Boolean(bootData)});
-    const sequence=runLaunchSequence();
-    await sequence;
-    // Make sure slow endpoints do not keep a player behind the splash forever.
-    if(!bootData){ setBootState('ВОССТАНАВЛИВАЕМ СЕССИЮ',96); await new Promise(r=>setTimeout(r,260)); }
+    await runLaunchSequence();
+
     const firstRun=Boolean(bootData && (bootData.registration_complete===false || bootData.registration_required===true));
-    if(firstRun) registrationRequired=false;
-    await finishLaunch({firstRun});
+    await finishLaunch({firstRun:false});
+
+    // If the profile arrived after the splash closed, synchronize the visible
+    // state and open registration only when the server explicitly requires it.
+    dataPromise.then(data=>{
+      if(!data) return;
+      try{
+        setBootWelcome({identified:true});
+        if(data.registration_complete===false || data.registration_required===true){
+          registrationRequired=true;
+          if(!launchSequenceActive && !document.querySelector('.registration-sheet-v5')) openRegistration();
+        }
+      }catch(_){}
+    }).catch(()=>{});
   })();
   setInterval(() => { if (document.visibilityState === 'visible') loadProfile(); }, 60000);
 
@@ -6040,23 +6054,5 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
   document.addEventListener('click',e=>{const b=e.target?.closest?.('#rcoinDeskInline,#tokenCounter');if(!b||b.id==='tokenCounter'&&e.target.closest?.('#rcoinDeskInline'))return;e.preventDefault();e.stopImmediatePropagation();openDesk()},true);
 })();
 </script>
-
-<script id="resell-boot-safety-guard">
-(function(){
-  // Safety net only for rendering: it never creates/changes authentication.
-  // If an optional startup task hangs, the game UI is still made visible.
-  setTimeout(function(){
-    try{
-      document.body.classList.remove('resell-booting');
-      var s=document.getElementById('bootSplash');
-      if(s && !s.classList.contains('is-done')){
-        s.classList.add('is-done');
-        s.setAttribute('aria-hidden','true');
-      }
-    }catch(_){}
-  }, 15000);
-})();
-</script>
-
 </body>
 </html>
