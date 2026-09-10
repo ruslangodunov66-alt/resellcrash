@@ -7029,6 +7029,21 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     money.append(farm);
     money.append(referral, epoch); more.append(games, activity);
 
+    // Final secondary-page cleanup: remove legacy onboarding / "why you play" duplicates
+    // after the Activity block has actually been moved into page 2.
+    const cleanSecondaryPage = (root) => {
+      if(!root) return;
+      root.querySelectorAll('.launch-brief,#resellLaunchBrief,.momentum-v19').forEach(el=>el.remove());
+      root.querySelectorAll('*').forEach(el=>{
+        const t=(el.textContent||'').trim().toLowerCase();
+        if(/^зачем ты играешь/.test(t) && el.children.length===0){
+          const box=el.closest('.section,.card,.games,.activity-card')||el;
+          if(box && box!==root) box.remove();
+        }
+      });
+    };
+    cleanSecondaryPage(more);
+
     nav.querySelectorAll('.resell-home-tab').forEach(btn=>btn.addEventListener('click',()=>{
       const mode=btn.dataset.homeTab;
       const moneyMode=mode==='money';
@@ -7045,57 +7060,97 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     const saved=(()=>{try{return sessionStorage.getItem('resell_home_tab')||'money'}catch(_){return 'money'}})();
     if(saved==='more') nav.querySelector('[data-home-tab="more"]')?.click();
 
-    // Swipe navigation replaces the old two-tab buttons: horizontal gesture switches pages.
+    // Clear, predictable two-page swipe navigation.
     nav.setAttribute('aria-hidden','true');
     nav.classList.add('resell-swipe-nav-hidden');
     const swipeHint=document.createElement('div');
     swipeHint.id='resellSwipeHint';
     swipeHint.className='resell-swipe-hint';
-    swipeHint.innerHTML='<div class="swipe-particles" aria-hidden="true"></div><div class="swipe-caption"><span class="swipe-arrow" aria-hidden="true">›</span><span class="swipe-page swipe-current">1</span><i>СВАЙП</i><span class="swipe-page swipe-next">2</span></div>';
+    swipeHint.innerHTML=`
+      <button type="button" class="swipe-jump swipe-jump-prev" aria-label="Предыдущая страница">‹</button>
+      <div class="swipe-caption" aria-live="polite">
+        <span class="swipe-page swipe-current">1 · ГЛАВНАЯ</span>
+        <i>СВАЙП</i>
+        <span class="swipe-page swipe-next">2 · АКТИВНОСТЬ</span>
+      </div>
+      <button type="button" class="swipe-jump swipe-jump-next" aria-label="Следующая страница">›</button>`;
     nav.insertAdjacentElement('afterend',swipeHint);
 
-    let swipeStartX=0, swipeStartY=0, swipeTracking=false;
+    let swipeStartX=0, swipeStartY=0, swipeTracking=false, swipePointerId=null;
+    const pageFromMode=()=>more.hidden?'money':'more';
+    const updateSwipeIndicator=(mode)=>{
+      const moreMode=mode==='more';
+      swipeHint.classList.toggle('is-more',moreMode);
+      const cur=swipeHint.querySelector('.swipe-current');
+      const nxt=swipeHint.querySelector('.swipe-next');
+      if(cur) cur.textContent=moreMode?'2 · АКТИВНОСТЬ':'1 · ГЛАВНАЯ';
+      if(nxt) nxt.textContent=moreMode?'1 · ГЛАВНАЯ':'2 · АКТИВНОСТЬ';
+      const prev=swipeHint.querySelector('.swipe-jump-prev');
+      const next=swipeHint.querySelector('.swipe-jump-next');
+      if(prev) prev.disabled=!moreMode;
+      if(next) next.disabled=moreMode;
+    };
     const setSwipeMode=(mode,animate=true)=>{
       const moreMode=mode==='more';
       if(!animate){ money.hidden=moreMode; more.hidden=!moreMode; }
       else {
         const current=moreMode?money:more, next=moreMode?more:money;
         current.hidden=false; next.hidden=false;
-        current.classList.remove('resell-slide-in','resell-slide-out'); next.classList.remove('resell-slide-in','resell-slide-out');
-        current.classList.add('resell-slide-out'); next.classList.add('resell-slide-in');
+        current.classList.remove('resell-slide-in','resell-slide-out','is-moving');
+        next.classList.remove('resell-slide-in','resell-slide-out','is-moving');
+        current.classList.add(moreMode?'resell-slide-out':'resell-slide-out');
+        next.classList.add('resell-slide-in');
         requestAnimationFrame(()=>{current.classList.add('is-moving');next.classList.add('is-moving');});
-        setTimeout(()=>{ current.hidden=true; current.classList.remove('resell-slide-out','is-moving'); next.classList.remove('resell-slide-in','is-moving'); },280);
+        window.setTimeout(()=>{
+          current.hidden=true;
+          current.classList.remove('resell-slide-out','is-moving');
+          next.classList.remove('resell-slide-in','is-moving');
+        },300);
       }
-      swipeHint.classList.toggle('is-more',moreMode);
-      const arrow=swipeHint.querySelector('.swipe-arrow');
-      const cur=swipeHint.querySelector('.swipe-current'), nxt=swipeHint.querySelector('.swipe-next');
-      if(arrow) arrow.textContent=moreMode?'‹':'›';
-      if(cur) cur.textContent=moreMode?'2':'1';
-      if(nxt) nxt.textContent=moreMode?'1':'2';
+      updateSwipeIndicator(mode);
       if(animate){ swipeHint.classList.remove('swipe-pulse'); void swipeHint.offsetWidth; swipeHint.classList.add('swipe-pulse'); }
       try{sessionStorage.setItem('resell_home_tab',mode)}catch(_){}
     };
     const switchSwipePage=(direction)=>{
+      const current=pageFromMode();
+      if(direction>0 && current==='more') return;
+      if(direction<0 && current==='money') return;
       const mode=direction>0?'more':'money';
       setSwipeMode(mode,true);
       haptic('light');
       window.scrollTo({top:Math.max(0,nav.getBoundingClientRect().top+window.scrollY-8),behavior:'smooth'});
     };
+    swipeHint.querySelector('.swipe-jump-prev')?.addEventListener('click',()=>switchSwipePage(-1));
+    swipeHint.querySelector('.swipe-jump-next')?.addEventListener('click',()=>switchSwipePage(1));
+
     const swipeTarget=document.querySelector('main')||document.body;
+    swipeTarget.addEventListener('pointerdown',e=>{
+      if(e.pointerType==='mouse' && e.button!==0) return;
+      if(e.target?.closest?.('input,textarea,select,button,a,[contenteditable="true"]')) return;
+      swipeStartX=e.clientX; swipeStartY=e.clientY; swipePointerId=e.pointerId; swipeTracking=true;
+    },{passive:true});
+    swipeTarget.addEventListener('pointerup',e=>{
+      if(!swipeTracking || (swipePointerId!==null && e.pointerId!==swipePointerId)) return;
+      swipeTracking=false; swipePointerId=null;
+      const dx=e.clientX-swipeStartX, dy=e.clientY-swipeStartY;
+      const threshold=Math.max(64,Math.min(92,window.innerWidth*0.14));
+      if(Math.abs(dx)<threshold || Math.abs(dx)<Math.abs(dy)*1.35) return;
+      switchSwipePage(dx<0?1:-1);
+    },{passive:true});
+    swipeTarget.addEventListener('pointercancel',()=>{swipeTracking=false;swipePointerId=null},{passive:true});
+    // Touch fallback for older Telegram WebViews.
     swipeTarget.addEventListener('touchstart',e=>{
-      if(e.touches.length!==1) return;
+      if(e.touches.length!==1 || e.target?.closest?.('input,textarea,select,button,a,[contenteditable="true"]')) return;
       swipeStartX=e.touches[0].clientX; swipeStartY=e.touches[0].clientY; swipeTracking=true;
     },{passive:true});
     swipeTarget.addEventListener('touchend',e=>{
-      if(!swipeTracking||!e.changedTouches[0]) return;
+      if(!swipeTracking || !e.changedTouches[0]) return;
       swipeTracking=false;
-      const dx=e.changedTouches[0].clientX-swipeStartX;
-      const dy=e.changedTouches[0].clientY-swipeStartY;
-      if(Math.abs(dx)<55 || Math.abs(dx)<Math.abs(dy)*1.25) return;
-      // Right swipe: page 2. Left swipe: page 1.
+      const dx=e.changedTouches[0].clientX-swipeStartX, dy=e.changedTouches[0].clientY-swipeStartY;
+      const threshold=Math.max(64,Math.min(92,window.innerWidth*0.14));
+      if(Math.abs(dx)<threshold || Math.abs(dx)<Math.abs(dy)*1.35) return;
       switchSwipePage(dx<0?1:-1);
     },{passive:true});
-    // Reflect the saved page in the swipe indicator.
     setSwipeMode(saved==='more'?'more':'money',false);
 
     // Remove the duplicate top-right R-HOLD customization control injected by older V19 code.
@@ -7337,3 +7392,45 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   });
 })();
 </script>
+
+<style id="resell-v7-legacy-premium-assets">
+/* EXACT OLD PREMIUM IMAGE BEHAVIOUR: the source artwork is never squeezed or scaled down.
+   The cards crop naturally like the old RESSELL implementation. */
+#resellHomeMoney #mainAssetsSection .main-tycoon-grid{
+  display:grid!important;grid-template-columns:1fr 1fr!important;gap:9px!important;
+}
+#resellHomeMoney #mainAssetsSection .main-tycoon-card{
+  position:relative!important;min-width:0!important;min-height:168px!important;height:168px!important;
+  overflow:hidden!important;border-radius:22px!important;padding:0!important;
+  background:#0a0a0a!important;isolation:isolate!important;
+}
+#resellHomeMoney #mainAssetsSection .main-tycoon-card.wide{
+  grid-column:1/-1!important;min-height:158px!important;height:158px!important;
+}
+#resellHomeMoney #mainAssetsSection .main-tycoon-card img{
+  position:absolute!important;inset:0!important;width:100%!important;height:100%!important;
+  min-width:0!important;min-height:0!important;max-width:none!important;max-height:none!important;
+  display:block!important;object-fit:cover!important;object-position:center!important;
+  transform:none!important;transform-origin:center!important;opacity:1!important;
+  background:#050505!important;filter:saturate(.78) contrast(1.06) brightness(.66)!important;
+}
+#resellHomeMoney #mainAssetsSection .main-tycoon-card-copy{
+  position:absolute!important;left:12px!important;right:12px!important;bottom:12px!important;
+  z-index:3!important;display:flex!important;align-items:flex-end!important;
+  justify-content:space-between!important;gap:10px!important;min-width:0!important;
+}
+@media(max-width:390px){
+  #resellHomeMoney #mainAssetsSection .main-tycoon-grid{gap:8px!important}
+  #resellHomeMoney #mainAssetsSection .main-tycoon-card{min-height:158px!important;height:158px!important}
+  #resellHomeMoney #mainAssetsSection .main-tycoon-card.wide{min-height:148px!important;height:148px!important}
+}
+/* Clear, visible page pager. */
+.resell-swipe-hint{height:38px!important;margin:4px 2px 10px!important;display:flex!important;align-items:center!important;justify-content:center!important;gap:8px!important;pointer-events:auto!important}
+.swipe-caption{min-width:0!important;padding:8px 12px!important;display:flex!important;align-items:center!important;justify-content:center!important;gap:9px!important;border-radius:12px!important;background:rgba(12,14,13,.9)!important;border:1px solid rgba(255,255,255,.10)!important;color:#8d948e!important}
+.swipe-caption i{font-size:6px!important;letter-spacing:1.1px!important}
+.swipe-current{color:#f0f3f0!important;font-size:7px!important;letter-spacing:.7px!important}
+.swipe-next{color:#707870!important;font-size:7px!important;letter-spacing:.7px!important}
+.swipe-jump{width:32px!important;height:32px!important;border-radius:10px!important;border:1px solid rgba(255,255,255,.09)!important;background:#111311!important;color:#dce1dd!important;font-size:22px!important;line-height:1!important;padding:0!important;display:grid!important;place-items:center!important}
+.swipe-jump:disabled{opacity:.22!important}
+.resell-swipe-hint.is-more .swipe-current{color:#b7ff6a!important}
+</style>
