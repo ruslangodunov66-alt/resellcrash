@@ -2402,10 +2402,6 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     if(firstRun){
       if(!registrationRequired) openRegistration();
     }
-    if(window.__resellAuthBridgePending && !firstRun){
-      window.__resellAuthBridgePending=false;
-      setTimeout(()=>{try{startResellAuthBridge();}catch(_){}},220);
-    }
   }
 
   async function runLaunchSequence(){
@@ -2796,7 +2792,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     }
   }
 
-  async function waitForTelegramInitData(timeoutMs=5000){
+  async function waitForTelegramInitData(timeoutMs=1800){
     if(telegramIdentityPromise) return telegramIdentityPromise;
     telegramIdentityPromise=(async()=>{
       const started=Date.now();
@@ -2825,27 +2821,61 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     finally{ telegramIdentityPromise=null; }
   }
 
-  async function apiFetch(url, options={}, attempts=3){
+  // V6: secure browser -> bot deep-link challenge. This replaces the old
+  // WebApp.sendData bridge, which only works for Mini Apps opened from a
+  // compatible keyboard context and therefore was never triggered here.
+  let resellAuthBootstrapPromise=null;
+  async function ensureResellServerSession(){
+    const existing=getStoredResellSession();
+    const existingUid=resellSessionUserId(existing);
+    if(existing && userId && existingUid===String(userId)) return existing;
+    if(resellAuthBootstrapPromise) return resellAuthBootstrapPromise;
+    resellAuthBootstrapPromise=(async()=>{
+      try{
+        const c=await fetch(`${API_BASE}/auth/resell/challenge?t=${Date.now()}`,{cache:'no-store'});
+        const challenge=await c.json().catch(()=>({}));
+        if(!c.ok||!challenge?.success||!challenge.nonce||!challenge.browser_key||!challenge.bot_url){
+          throw new Error('Не удалось создать безопасный вход RESSELL');
+        }
+        const openTelegram=()=>{
+          try{
+            const live=window.Telegram?.WebApp||tg;
+            if(typeof live?.openTelegramLink==='function'){ live.openTelegramLink(challenge.bot_url); return true; }
+          }catch(_){ }
+          try{ location.href=challenge.bot_url; return true; }catch(_){ return false; }
+        };
+        if(!openTelegram()) throw new Error('Не удалось открыть Telegram-бота для входа');
+        const deadline=Date.now()+Math.min(5*60*1000,Number(challenge.expires_in||300)*1000);
+        while(Date.now()<deadline){
+          await new Promise(r=>setTimeout(r,1200));
+          const r=await fetch(`${API_BASE}/auth/resell/poll/${encodeURIComponent(challenge.nonce)}?browser_key=${encodeURIComponent(challenge.browser_key)}`,{cache:'no-store'});
+          const d=await r.json().catch(()=>({}));
+          if(d?.success && d.status==='ready' && d.session){
+            setStoredResellSession(d.session);
+            if(d.tg_id){ userId=String(d.tg_id); telegramUserId=String(d.tg_id); }
+            return d.session;
+          }
+          if(d?.status==='expired'||d?.status==='invalid'||d?.status==='missing') break;
+        }
+        throw new Error('Подтверди вход в Telegram-боте и вернись в RESSELL');
+      }finally{
+        resellAuthBootstrapPromise=null;
+      }
+    })();
+    return resellAuthBootstrapPromise;
+  }
+
+  async function apiFetch(url, options={}, attempts=2){
     let lastError=null;
     for(let i=0;i<attempts;i++){
       const controller=new AbortController();
-      const timer=setTimeout(()=>controller.abort(),10000);
+      const timer=setTimeout(()=>controller.abort(),7000);
       try{
         try{ tg?.ready?.(); }catch(_){}
         const isApiRequest=String(url||'').startsWith(API_BASE);
         const needsTelegramAuth=isApiRequest && !/\/tycoon\/media\//i.test(url);
         const authGenerationAtStart=telegramAuthGeneration;
-        const launchTokenEarly=getResellLaunchToken();
-        const launchUidEarly=resellSessionUserId(launchTokenEarly);
-        const unsafeUidEarly=String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id||'').trim();
-        // A launch token is usable immediately only when Telegram's live account
-        // agrees with the account bound into that token. This prevents a copied
-        // owner URL from switching a second account back to the owner's tg_id.
-        if(needsTelegramAuth && launchTokenEarly && launchUidEarly && (!unsafeUidEarly || unsafeUidEarly===launchUidEarly)){
-          userId=launchUidEarly;
-          telegramUserId=launchUidEarly;
-        }
-        const initData=needsTelegramAuth ? await waitForTelegramInitData(1400) : getTelegramInitData();
+        const initData=needsTelegramAuth ? await waitForTelegramInitData(1200) : getTelegramInitData();
         const signedUserId=getSignedTelegramUserId(initData);
         if(needsTelegramAuth && authGenerationAtStart!==telegramAuthGeneration && !signedUserId){
           await new Promise(r=>setTimeout(r,120));
@@ -2882,22 +2912,26 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
         const liveUnsafeId=String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id||'').trim();
         let serverSession='';
 
-        // Never accept a launch/session token for a different live Telegram
-        // account. If the URL was copied from another account, discard it.
+        // A launch/session token is usable only when it belongs to the current
+        // Telegram identity. Never let an old owner's token authenticate a twin.
         if(launchToken && launchUid && (
           (signedUserId && launchUid===signedUserId) ||
-          (!signedUserId && (!liveUnsafeId || launchUid===liveUnsafeId))
+          (!signedUserId && liveUnsafeId && launchUid===liveUnsafeId)
         )){
           serverSession=launchToken;
-        }else if(launchToken && launchUid && (
-          (signedUserId && launchUid!==signedUserId) ||
-          (liveUnsafeId && launchUid!==liveUnsafeId)
-        )){
-          if(launchUid!==String(userId||'')) clearStoredResellSession();
+        }
+
+        // If Telegram temporarily hides initData during WebView startup, a
+        // launch token may establish the identity. This is safe because the
+        // token itself is server-signed and bound to its tg_id.
+        if(needsTelegramAuth && launchUid && !signedUserId && !liveUnsafeId){
+          userId=launchUid;
+          telegramUserId=launchUid;
+          serverSession=launchToken;
         }
 
         // A persisted session is usable only after its uid matches the live
-        // Telegram account. This prevents cross-account localStorage reuse.
+        // Telegram user. This prevents cross-account localStorage reuse.
         if(!serverSession && storedSession){
           const storedUid=resellSessionUserId(storedSession);
           const identityUid=signedUserId || liveUnsafeId;
@@ -2915,13 +2949,6 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
             clearStoredResellSession();
             serverSession='';
           }
-        }
-
-        // A launch URL is a server proof, but only after the current Telegram
-        // account agrees with its bound tg_id.
-        if(needsTelegramAuth && launchUid && !signedUserId && (!liveUnsafeId || liveUnsafeId===launchUid)){
-          userId=launchUid;
-          telegramUserId=launchUid;
         }
 
         if(needsTelegramAuth && serverSession){
@@ -2951,6 +2978,17 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
         clearTimeout(timer);
         if(!resp.ok){
           let payload={}; try{payload=await resp.json();}catch(_){}
+          if(resp.status===401 && needsTelegramAuth && !serverSession){
+            try{
+              const freshSession=await ensureResellServerSession();
+              if(freshSession){
+                lastError=new Error('RESSELL-сессия создана');
+                if(i<attempts-1) continue;
+              }
+            }catch(authErr){
+              throw Object.assign(authErr,{status:401,authBridge:true});
+            }
+          }
           if(resp.status===403 && payload?.banned){ try{ openBanAppealSheet(payload.error||'Аккаунт заблокирован'); }catch(_){} }
           const e=new Error(payload?.error||payload?.message||
             (resp.status===401?'Не удалось подтвердить Telegram-сессию. Перезапусти Mini App из Telegram и попробуй ещё раз.':
@@ -2986,74 +3024,6 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     throw lastError||new Error('Сервер временно недоступен');
   }
 
-
-  // Secure fallback for Mini Apps launched from a different Telegram bot.
-  // The browser never supplies its own tg_id: Telegram's /start message does.
-  let resellAuthBridgeBusy=false;
-  async function startResellAuthBridge(){
-    if(resellAuthBridgeBusy) return;
-    resellAuthBridgeBusy=true;
-    try{
-      const challengeResp=await fetch(`${API_BASE}/auth/resell/challenge?ts=${Date.now()}`,{cache:'no-store'});
-      const challenge=await challengeResp.json().catch(()=>({}));
-      if(!challengeResp.ok||!challenge.success||!challenge.nonce||!challenge.browser_key||!challenge.bot_url){
-        throw new Error('Не удалось запустить безопасную авторизацию');
-      }
-      const old=document.getElementById('resellAuthBridgeSheet'); old?.remove();
-      const sheet=document.createElement('div');
-      sheet.id='resellAuthBridgeSheet';
-      sheet.innerHTML=`<div class="resell-auth-bridge-backdrop"></div>
-        <div class="resell-auth-bridge">
-          <div class="resell-auth-bridge-kicker">RESSELL · TELEGRAM</div>
-          <div class="resell-auth-bridge-title">Подтверди свой аккаунт</div>
-          <div class="resell-auth-bridge-text">Открой бота и нажми START. Telegram сам передаст серверу твой настоящий ID — без ввода ID вручную.</div>
-          <button type="button" id="resellAuthBridgeOpen">ПОДТВЕРДИТЬ В TELEGRAM</button>
-          <button type="button" id="resellAuthBridgeCancel">ПОЗЖЕ</button>
-          <div class="resell-auth-bridge-status" id="resellAuthBridgeStatus">Ожидаем подтверждение…</div>
-        </div>`;
-      document.body.appendChild(sheet);
-      const close=()=>{sheet.remove();resellAuthBridgeBusy=false;};
-      sheet.querySelector('#resellAuthBridgeCancel').onclick=close;
-      sheet.querySelector('.resell-auth-bridge-backdrop').onclick=close;
-      const status=sheet.querySelector('#resellAuthBridgeStatus');
-      let opened=false;
-      sheet.querySelector('#resellAuthBridgeOpen').onclick=()=>{
-        opened=true;
-        try{
-          if(tg?.openTelegramLink) tg.openTelegramLink(challenge.bot_url);
-          else window.open(challenge.bot_url,'_blank','noopener');
-        }catch(_){}
-        status.textContent='Нажми START в боте. Возвращайся сюда — вход завершится автоматически.';
-      };
-      const deadline=Date.now()+60000;
-      while(Date.now()<deadline && document.body.contains(sheet)){
-        await new Promise(r=>setTimeout(r,900));
-        const r=await fetch(`${API_BASE}/auth/resell/poll/${encodeURIComponent(challenge.nonce)}?browser_key=${encodeURIComponent(challenge.browser_key)}&ts=${Date.now()}`,{cache:'no-store'});
-        const d=await r.json().catch(()=>({}));
-        if(d?.success&&d.status==='ready'&&d.session&&d.tg_id){
-          const currentUnsafe=String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id||'').trim();
-          const expected=String(userId||currentUnsafe||'').trim();
-          if(expected && String(d.tg_id)!==expected){
-            status.textContent='Telegram аккаунт изменился. Запусти подтверждение ещё раз.';
-            break;
-          }
-          setStoredResellSession(d.session);
-          userId=String(d.tg_id); telegramUserId=String(d.tg_id);
-          clearTimeout(window.__resellAuthReloadTimer);
-          window.__resellAuthReloadTimer=setTimeout(()=>location.reload(),80);
-          return;
-        }
-        if(opened) status.textContent='Проверяем подтверждение Telegram…';
-      }
-      if(document.body.contains(sheet)) status.textContent='Ссылка истекла. Нажми кнопку ещё раз.';
-    }catch(e){
-      showToast(e.message||'Ошибка авторизации');
-    }finally{
-      if(!document.getElementById('resellAuthBridgeSheet')) resellAuthBridgeBusy=false;
-    }
-  }
-  window.__resellStartAuthBridge=startResellAuthBridge;
-
   async function loadProfile(){
     try{
       invalidateStaleTelegramCache();
@@ -3075,8 +3045,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     const authFailed=Number(lastError?.status||0)===401;
     statusText.textContent=authFailed?'Нужно подтвердить Telegram':'Сервер временно недоступен';
     $('.status-dot').style.background='#777';
-    if(authFailed && userId) window.__resellAuthBridgePending=true;
-    else if(!authFailed) showToast('Сервер RESSELL временно не отвечает. Попробуй обновить через несколько секунд.');
+    if(!authFailed) showToast('Сервер RESSELL временно не отвечает. Попробуй обновить через несколько секунд.');
     return null;
   }
 
