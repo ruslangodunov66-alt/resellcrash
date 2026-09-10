@@ -798,6 +798,19 @@ body::before{
 }
 
 
+/* R-HOLD layout safety: customization never overlaps the income counter. */
+#farmSection .farm-header{position:relative;z-index:2;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:start}
+#farmSection .farm-total{position:relative;z-index:3}
+#farmSection #rholdCustomizeControl{position:relative;z-index:2;display:flex!important;align-items:center;justify-content:space-between;gap:10px;width:100%;margin:10px 0 2px!important;padding:9px 10px!important;border-radius:15px!important;background:rgba(255,255,255,.035)!important;border:1px solid rgba(255,255,255,.07)!important}
+#farmSection #rholdCustomizeControl>div{min-width:0;display:flex;flex-direction:column;gap:3px}
+#farmSection #rholdCustomizeControl .rhold-control-kicker{font-size:6px!important;letter-spacing:1.1px!important;color:#667068!important}
+#farmSection #rholdCustomizeControl #rholdCustomizeLabel{display:block!important;max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:950 8px/1 "Montserrat"!important;color:#eef3ee!important}
+#farmSection #rholdCustomizeControl #rholdCustomizeBtn{position:relative!important;inset:auto!important;min-width:108px!important;flex:0 0 auto;padding:10px 11px!important;border-radius:11px!important;background:#fff!important;color:#070807!important;border:1px solid #fff!important;box-shadow:none!important;font:950 7px/1 "Montserrat"!important;letter-spacing:.5px!important}
+@media(max-width:390px){
+  #farmSection #rholdCustomizeControl{gap:7px;padding:8px!important}
+  #farmSection #rholdCustomizeControl #rholdCustomizeBtn{min-width:98px!important;padding:9px 9px!important}
+}
+
 /* === R-FARM FINAL 30S UX PATCH === */
 #farmSection .farm-header{align-items:flex-start}
 #farmSection .farm-total{
@@ -3978,7 +3991,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     const stage = document.querySelector('#farmSection .farm-stage');
     if(!stage || stage.dataset.bound === '1') return;
     stage.dataset.bound = '1';
-    stage.style.touchAction = 'none';
+    stage.style.touchAction = 'pan-y';
     stage.style.userSelect = 'none';
     stage.style.webkitUserSelect = 'none';
 
@@ -4038,32 +4051,44 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     const begin = (e) => {
       if(e?.pointerType === 'mouse' && e.button !== 0) return;
       if(activeInput || farmCompleting) return;
-      e?.preventDefault?.();
+      // Do not cancel the gesture on pointerdown: the main page owns horizontal
+      // swipe navigation and must remain scrollable while the hold is arming.
       activeInput=true;
       activePointerId=e?.pointerId ?? null;
       holdPointerId=activePointerId;
       pressStartedAt=Date.now();
       holdArmed=false;
       clearArmTimer();
-      try{ if(e?.pointerId != null && stage.setPointerCapture) stage.setPointerCapture(e.pointerId); }catch(_){ }
       armTimer=setTimeout(()=>{
         armTimer=null;
         if(!activeInput || farmCompleting) return;
         holdArmed=true;
+        try{ if(activePointerId != null && activePointerId !== 'touch' && stage.setPointerCapture) stage.setPointerCapture(activePointerId); }catch(_){ }
         stage.classList.add('farm-active');
         startStandaloneFarm();
       },ARM_DELAY);
     };
 
+    const onPointerMove = (e) => {
+      if(!activeInput || holdArmed || activePointerId == null || activePointerId === 'touch' || e.pointerId !== activePointerId) return;
+      const dx = e.clientX - (e.clientX - (e.movementX || 0)); // intentionally cheap; use movement as a signal
+      const ax = Math.abs(e.movementX || 0), ay = Math.abs(e.movementY || 0);
+      if(ax + ay < 1) return;
+      // A moving finger is navigation, not a deliberate R-HOLD.
+      if(ax > 10 || ay > 12){
+        resetPress();
+      }
+    };
     const onPointerUp = (e) => finishHold(e);
-    stage.addEventListener('pointerdown', begin, {passive:false});
+    stage.addEventListener('pointerdown', begin, {passive:true});
+    window.addEventListener('pointermove', onPointerMove, {passive:true});
     window.addEventListener('pointerup', onPointerUp, {passive:false});
     window.addEventListener('pointercancel', ()=>{ if(activeInput && !holdArmed) resetPress(); }, {passive:true});
 
     if(!window.PointerEvent){
+      stage.style.touchAction='pan-y';
       stage.addEventListener('touchstart', e => {
         if(activeInput) return;
-        e.preventDefault();
         activeInput=true; activePointerId='touch'; holdPointerId='touch'; pressStartedAt=Date.now(); holdArmed=false;
         clearArmTimer();
         armTimer=setTimeout(()=>{
@@ -4074,7 +4099,6 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       }, {passive:false});
       window.addEventListener('touchend', e => {
         if(!activeInput || activePointerId!=='touch') return;
-        e.preventDefault();
         finishHold(null);
       }, {passive:false});
       window.addEventListener('touchcancel', ()=>{ if(activeInput && !holdArmed) resetPress(); }, {passive:false});
@@ -4730,23 +4754,12 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   // ==================== BUSINESS CONTROL CENTER ====================
   let businessState = null;
 
-  const BUSINESS_TUTORIAL_KEY='resell_business_tutorial_v1';
+  // Business onboarding was unreliable and could become a blocking overlay.
+  // Keep the first-open experience completely non-blocking.
   let businessTutorialActive=false;
   function maybeStartBusinessTutorial(){
-    if(businessTutorialActive || !document.querySelector('.business-control-v5')) return;
-    const key=`${BUSINESS_TUTORIAL_KEY}_${userId||'guest'}`;
-    if(localStorage.getItem(key)==='1') return;
-    const steps=[
-      {title:'Здесь копится доход',text:'Бизнесы приносят деньги автоматически. Вверху видна общая сумма за день.',target:'.biz-clean-hero'},
-      {title:'Забирай одной кнопкой',text:'Нажми «Забрать» — весь доступный пассивный доход зачислится на баланс.',target:'#businessCollectBtn'},
-      {title:'Таксопарк тоже здесь',text:'Доход таксопарка входит в общий бизнес и отображается отдельной строкой.',target:'.biz-clean-nav'}
-    ];
-    businessTutorialActive=true; let i=0;
-    const old=document.getElementById('businessTutorialOverlay'); if(old) old.remove();
-    const overlay=document.createElement('div'); overlay.id='businessTutorialOverlay'; overlay.innerHTML=`<div class="taxi-tutorial-backdrop"></div><div class="taxi-tutorial-spotlight"></div><div class="taxi-tutorial-card"><div class="taxi-tutorial-step" id="businessTutorialStep"></div><div class="taxi-tutorial-title" id="businessTutorialTitle"></div><div class="taxi-tutorial-text" id="businessTutorialText"></div><div class="taxi-tutorial-actions"><button class="taxi-tutorial-btn" data-business-tutorial-skip>ПРОПУСТИТЬ</button><button class="taxi-tutorial-btn primary" data-business-tutorial-next>ДАЛЕЕ</button></div></div>`; document.body.appendChild(overlay);
-    const paint=()=>{ const st=steps[i]; const t=document.querySelector(st.target)||document.querySelector('.business-hero-v4'); const r=t.getBoundingClientRect(); const spot=overlay.querySelector('.taxi-tutorial-spotlight'); spot.style.left=Math.max(6,r.left-5)+'px';spot.style.top=Math.max(6,r.top-5)+'px';spot.style.width=Math.max(10,r.width+10)+'px';spot.style.height=Math.max(10,r.height+10)+'px'; $('#businessTutorialStep').textContent=`Шаг ${i+1} из ${steps.length}`; $('#businessTutorialTitle').textContent=st.title; $('#businessTutorialText').textContent=st.text; overlay.querySelector('[data-business-tutorial-next]').textContent=i===steps.length-1?'ГОТОВО':'ДАЛЕЕ'; };
-    paint();
-    overlay.addEventListener('click',e=>{ if(e.target.closest('[data-business-tutorial-skip]') || e.target.closest('[data-business-tutorial-next]') && i>=steps.length-1){localStorage.setItem(key,'1');overlay.remove();businessTutorialActive=false;return;} if(e.target.closest('[data-business-tutorial-next]')){i++;paint();} });
+    businessTutorialActive=false;
+    document.getElementById('businessTutorialOverlay')?.remove();
   }
 
   let businessViewTab='overview';
@@ -4855,7 +4868,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   async function openBusiness(){
     haptic('medium');
     openModal('Бизнес-империя','<div class="loading">Загрузка активов…</div>');
-    try{ await fetchBusinessState(); modalBody.innerHTML=renderBusinessModal(); setTimeout(()=>maybeStartBusinessTutorial(),80); }
+    try{ await fetchBusinessState(); modalBody.innerHTML=renderBusinessModal(); maybeStartBusinessTutorial(); }
     catch(err){ modalBody.innerHTML=`<div class="business-empty-v4">${esc(err.message||'Не удалось загрузить бизнес')}</div>`; }
   }
 
