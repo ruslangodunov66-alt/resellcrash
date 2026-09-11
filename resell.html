@@ -1171,6 +1171,7 @@ button.tycoon-card:active{transform:scale(.985);background:rgba(255,255,255,.08)
 @media(max-width:460px){.avx-factor-cards{grid-template-columns:1fr}.avx-demand-summary{grid-template-columns:1fr 1fr 1fr}.tycoon-home-hero{align-items:flex-start;flex-direction:column}.tycoon-home-balance{min-width:0;width:100%}.tycoon-home-grid{grid-template-columns:1fr 1fr}.tycoon-home-grid .tycoon-home-card:last-child{grid-column:span 2}}
 
 .avx-market-event.cold{background:linear-gradient(145deg,rgba(103,167,255,.11),rgba(103,167,255,.03));border-color:rgba(103,167,255,.18)}.avx-market-event.cold .avx-market-event-icon{background:rgba(103,167,255,.12)}.avx-market-event.cold b{color:#a7ceff}.avx-market-event.hot{background:linear-gradient(145deg,rgba(255,164,74,.11),rgba(255,164,74,.03));border-color:rgba(255,164,74,.18)}.avx-market-event.hot .avx-market-event-icon{background:rgba(255,164,74,.12)}.avx-market-event.hot b{color:#ffd2a1}.avx-market-event.wet{background:linear-gradient(145deg,rgba(79,144,178,.11),rgba(79,144,178,.03));border-color:rgba(79,144,178,.18)}.avx-market-event.wet .avx-market-event-icon{background:rgba(79,144,178,.12)}.avx-market-event.wet b{color:#a9d8ea}.avx-market-event.wind{background:linear-gradient(145deg,rgba(163,174,187,.10),rgba(163,174,187,.03));border-color:rgba(163,174,187,.15)}.avx-market-event.wind .avx-market-event-icon{background:rgba(163,174,187,.10)}.avx-market-event.wind b{color:#ced6dd}
+</style>
 <style id="interface-rollback-v1">
 /* Interface rollback: Home asset covers must fill their cards again. */
 .main-tycoon-card img{
@@ -2503,7 +2504,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     const token=referralRegistrationToken();
     if(!token || !userId) return;
     try{
-      const resp=await fetch(`${API_BASE}/referrals/preview/${encodeURIComponent(userId)}?referrer_id=${encodeURIComponent(token)}`,{cache:'no-store',headers:telegramAuthHeaders()});
+      const resp=await resellOptionalFetch(`${API_BASE}/referrals/preview/${encodeURIComponent(userId)}?referrer_id=${encodeURIComponent(token)}`,{cache:'no-store',headers:telegramAuthHeaders()});
       if(!resp.ok) return;
       const data=await resp.json().catch(()=>({}));
       if(data?.success && data?.has_referrer){ registrationReferralPreview=data; }
@@ -3094,7 +3095,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
         const resp=await apiFetch(`${API_BASE}/profile/${encodeURIComponent(userId)}?t=${Date.now()}`,{method:'GET'},1);
         const data=await resp.json(); profileData=data;
         if(data.registration_complete===false||data.registration_complete===0||data.registration_required===true){setBalance(primaryBalance(data));setProgress(0);statusText.textContent='Требуется регистрация';if(!registrationRequired && !launchSequenceActive)openRegistration();return data;}
-        setBalance(primaryBalance(data)); epochData=data.epoch||null; setProgress(Number(data.epoch_progress??epochData?.progress??0)); rcoinData=data.rcoin||null; renderRcoin(); statusText.textContent='Баланс синхронизирован'; $('.status-dot').style.background='var(--success)'; try{if(data.engagement){engagementData=data.engagement;renderEngagement();}await loadEngagement();await loadRcoinStatus();}catch(_){ } return data;
+        setBalance(primaryBalance(data)); epochData=data.epoch||null; setProgress(Number(data.epoch_progress??epochData?.progress??0)); rcoinData=data.rcoin||null; renderRcoin(); statusText.textContent='Баланс синхронизирован'; $('.status-dot').style.background='var(--success)'; try{if(data.engagement){engagementData=data.engagement;renderEngagement();}loadEngagement().catch(()=>{});loadRcoinStatus().catch(()=>{});}catch(_){ } return data;
       }catch(e){lastError=e;if(attempt<2)await new Promise(r=>setTimeout(r,250));}
     }
     console.warn('Profile load failed:',lastError);
@@ -3649,7 +3650,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     referralFriendPromptShown=true;
     let inviterNickname='Игрок';
     try{
-      const resp=await fetch(`${API_BASE}/referrals/preview/${encodeURIComponent(userId)}?referrer_id=${encodeURIComponent('ref_'+id)}`,{cache:'no-store',headers:telegramAuthHeaders()});
+      const resp=await resellOptionalFetch(`${API_BASE}/referrals/preview/${encodeURIComponent(userId)}?referrer_id=${encodeURIComponent('ref_'+id)}`,{cache:'no-store',headers:telegramAuthHeaders()});
       const data=await resp.json().catch(()=>({}));
       inviterNickname=String(data?.invited_by?.nickname||inviterNickname).replace(/^@+/,'').trim()||inviterNickname;
     }catch(_){}
@@ -3752,7 +3753,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     ];
     for(const [endpoint,body] of attempts){
       try{
-        const init=await waitForTelegramInitData(3000); const endpointAuth=endpoint; const resp=await fetch(endpointAuth,{method:'POST',cache:'no-store',headers:telegramAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify(body)});
+        const init=await waitForTelegramInitData(3000); const endpointAuth=endpoint; const resp=await resellOptionalFetch(endpointAuth,{method:'POST',cache:'no-store',headers:telegramAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify(body)},4500);
         if(resp.ok){
           try{
             const payload=await resp.json();
@@ -3762,6 +3763,16 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       }catch(_){ /* optional backend endpoint */ }
     }
     if(done){ try{ sessionStorage.setItem(key,'1'); }catch(_){} }
+  }
+
+  async function resellOptionalFetch(url, options={}, timeoutMs=4500){
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),Math.max(1000,Number(timeoutMs)||4500));
+    try{
+      return await fetch(url,{...options,signal:controller.signal});
+    }finally{
+      clearTimeout(timer);
+    }
   }
 
   async function fetchReferralData(){
@@ -3776,7 +3787,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     ];
     for (const endpoint of endpoints){
       try{
-        const resp = await fetch(endpoint,{cache:'no-store',headers:telegramAuthHeaders()});
+        const resp = await resellOptionalFetch(endpoint,{cache:'no-store',headers:telegramAuthHeaders()},3500);
         if (!resp.ok) continue;
         const payload = await resp.json();
         if (payload && (payload.referral || payload.referrals || payload.invite_link || payload.active !== undefined || payload.total !== undefined)){
@@ -5735,14 +5746,19 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       if(data?.registration_complete===false || data?.registration_required===true) return data;
       try{bindEngagement();}catch(_){ }
       try{initMainTycoonCards();}catch(_){ }
-      try{await attachIncomingReferral();}catch(_){ }
-      try{referralData=await fetchReferralData();updateReferralCard();}catch(_){ }
+      try{attachIncomingReferral().catch(()=>{});}catch(_){ }
+      try{fetchReferralData().then(d=>{referralData=d;updateReferralCard();}).catch(()=>{});}catch(_){ }
       try{setBootWelcome({identified:true});}catch(_){ }
       return data;
     }).catch(()=>null);
     // Keep a short, intentional account-discovery stage before the existing launch sequence.
     await new Promise(r=>setTimeout(r,520));
-    await dataPromise;
+    // The splash must never wait forever on a non-critical network/database stall.
+    // This does not change Telegram auth or session creation in any way.
+    await Promise.race([
+      dataPromise,
+      new Promise(resolve=>setTimeout(resolve,9000))
+    ]);
     if(!bootData){
       setBootWelcome({identified:false});
       setBootState('НЕ УДАЛОСЬ ОПРЕДЕЛИТЬ СЕССИЮ',10);
@@ -6031,6 +6047,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   @media(max-width:390px){.r26-grid{grid-template-columns:1fr}.r26-tabs .r26-tab{font-size:5.7px}.r26-summary{grid-template-columns:1fr 1fr}}
 
 
+</style>
 <style id="resell-v28-visual-system">
 /* V28 PUBLIC COSMETIC SYSTEM */
 .r28-btn{position:relative;overflow:hidden;display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:58px;padding:0 14px;border-radius:18px;border:1px solid rgba(255,255,255,.12);background:linear-gradient(145deg,#171918,#0a0b0a);color:#f3f6f3;box-shadow:0 12px 35px rgba(0,0,0,.34);text-align:left;transition:transform .16s ease,border-color .18s ease,box-shadow .18s ease}
