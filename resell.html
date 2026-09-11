@@ -5725,65 +5725,62 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   resizeCanvas();
   drawParticles();
 
-  // Initial load: identify the account first, then run the cinematic loading sequence.
-  // All existing data warming and gameplay initialization remains unchanged.
+  // Initial load: the cinematic progress must NEVER wait for a slow API/auth request.
+  // Start identity/profile work in the background and finish the blue progress bar
+  // independently. This keeps the original sphere and loading design while avoiding
+  // an infinite/very long progress stage when Telegram or the API is slow.
   (async()=>{
     let bootData=null;
+    let bootResolved=false;
     setBootWelcome({identified:false});
-    setBootState('ОПРЕДЕЛЯЕМ ВАШ АККАУНТ',6);
-    // Wait for Telegram initData BEFORE the first profile request.
-    // The profile endpoint may be readable without auth, while Tycoon/Admin are protected.
-    // This ordering keeps one canonical Telegram identity for the whole Mini App session.
-    try{
-      invalidateStaleTelegramCache();
-      const launchBoot=getResellLaunchToken();
-      const launchBootUid=resellSessionUserId(launchBoot);
-      let bootInit='';
-      if(launchBoot&&launchBootUid){
-        userId=launchBootUid; telegramUserId=launchBootUid;
-        isOwner=String(userId)===ADMIN_OWNER_ID; if(isOwner) isAdmin=true;
-      }else{
-        bootInit=await waitForTelegramInitData(5000);
-        syncTelegramUserId();
-        if(bootInit&&userId){try{await ensureResellServerSession(bootInit,userId);}catch(_){} }
-      }
-      if(!isOwner){
-        try{
-          const meUrl=`${API_BASE}/admin/me/${encodeURIComponent(userId)}`;
-          const r=await apiFetch(meUrl,{cache:'no-store'},1);
-          if(r.ok){ const d=await r.json().catch(()=>({})); if(d?.success) isAdmin=true; }
-        }catch(_){}
-      }
-      if(isOwner) isAdmin=true;
-      if(isAdmin) $('#adminBtn')?.classList.add('visible');
-    }catch(_){}
-    const dataPromise=loadProfile().then(async(data)=>{
-      bootData=data;
-      try{setBootWelcome({identified:true});}catch(_){ }
-      if(data?.registration_complete===false || data?.registration_required===true) return data;
-      try{bindEngagement();}catch(_){ }
-      try{initMainTycoonCards();}catch(_){ }
-      try{await attachIncomingReferral();}catch(_){ }
-      try{referralData=await fetchReferralData();updateReferralCard();}catch(_){ }
-      try{setBootWelcome({identified:true});}catch(_){ }
-      return data;
-    }).catch(()=>null);
-    // Keep a short, intentional account-discovery stage before the existing launch sequence.
-    await new Promise(r=>setTimeout(r,520));
-    await dataPromise;
-    if(!bootData){
-      setBootWelcome({identified:false});
-      setBootState('НЕ УДАЛОСЬ ОПРЕДЕЛИТЬ СЕССИЮ',10);
-      await new Promise(r=>setTimeout(r,280));
-    }
-    setBootWelcome({identified:Boolean(bootData)});
-    const sequence=runLaunchSequence();
-    await sequence;
-    // Make sure slow endpoints do not keep a player behind the splash forever.
-    if(!bootData){ setBootState('ВОССТАНАВЛИВАЕМ СЕССИЮ',96); await new Promise(r=>setTimeout(r,260)); }
+    setBootState('ПОДКЛЮЧАЕМ RESSELL',6);
+
+    const backgroundBoot=(async()=>{
+      try{
+        invalidateStaleTelegramCache();
+        const launchBoot=getResellLaunchToken();
+        const launchBootUid=resellSessionUserId(launchBoot);
+        if(launchBoot&&launchBootUid){
+          userId=launchBootUid; telegramUserId=launchBootUid;
+          isOwner=String(userId)===ADMIN_OWNER_ID; if(isOwner) isAdmin=true;
+        }else{
+          // Do not block the visual boot for 5 seconds. Telegram identity may still
+          // arrive shortly after the interface is already visible.
+          const bootInit=await waitForTelegramInitData(1800);
+          syncTelegramUserId();
+          if(bootInit&&userId){ try{ await ensureResellServerSession(bootInit,userId); }catch(_){} }
+        }
+        const data=await loadProfile();
+        bootData=data||null;
+        bootResolved=true;
+        if(data){
+          try{setBootWelcome({identified:true});}catch(_){}
+          if(!(data.registration_complete===false || data.registration_required===true)){
+            try{bindEngagement();}catch(_){}
+            try{initMainTycoonCards();}catch(_){}
+            try{await attachIncomingReferral();}catch(_){}
+            try{referralData=await fetchReferralData();updateReferralCard();}catch(_){}
+          }
+        }
+      }catch(_) { bootResolved=true; }
+    })();
+
+    // Preserve the original loading sequence, but cap its dependency on the network.
+    await runLaunchSequence();
     const firstRun=Boolean(bootData && (bootData.registration_complete===false || bootData.registration_required===true));
     if(firstRun) registrationRequired=false;
     await finishLaunch({firstRun});
+
+    // Finish non-critical admin detection only after the app is visible.
+    backgroundBoot.then(async()=>{
+      try{
+        if(!isOwner && userId){
+          const meUrl=`${API_BASE}/admin/me/${encodeURIComponent(userId)}`;
+          const r=await apiFetch(meUrl,{cache:'no-store'},1);
+          if(r.ok){const d=await r.json().catch(()=>({}));if(d?.success){isAdmin=true;$('#adminBtn')?.classList.add('visible');}}
+        } else if(isOwner){isAdmin=true;$('#adminBtn')?.classList.add('visible');}
+      }catch(_){}
+    });
   })();
   setInterval(() => { if (document.visibilityState === 'visible') loadProfile(); }, 60000);
 
@@ -6931,6 +6928,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 #resellHomeMore #resellLaunchBrief,#resellHomeMore #homeEngagementSection{display:none!important}
 @media(max-width:390px){.resell-swipe-hint .swipe-page-btn{padding:0 8px;font-size:5.6px}.resell-swipe-hint .swipe-center-label{min-width:36px}.resell-swipe-hint{gap:5px}}
 </style>
+<!-- RESSELL V20: non-blocking blue-progress bootstrap -->
 </body>
 </html>
 <style id="resell-home-nav-v3">
