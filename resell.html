@@ -1682,43 +1682,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 }
 </style>
 
-<!-- RESSELL V17 FAST-PAINT WATCHDOG: UI/bootstrap safety only. It never calls APIs or changes auth. -->
-<style id="resell-v17-fast-paint-css">
-  /* Never let the cinematic splash block the whole app indefinitely in Telegram/WebView. */
-  html.resell-fast-paint body.resell-booting .app,
-  html.resell-fast-paint body.resell-booting .nav{
-    opacity:1!important;
-    transform:none!important;
-  }
-  html.resell-fast-paint #bootSplash{
-    opacity:0!important;
-    visibility:hidden!important;
-    pointer-events:none!important;
-    transition:none!important;
-  }
-  html.resell-fast-paint body.resell-booting{overflow:auto!important}
-</style>
-<script id="resell-v17-fast-paint-js">
-(function(){
-  'use strict';
-  var fired=false;
-  function reveal(){
-    if(fired)return;
-    fired=true;
-    try{document.documentElement.classList.add('resell-fast-paint')}catch(_){ }
-    try{document.body.classList.remove('resell-booting')}catch(_){ }
-    try{
-      var s=document.getElementById('bootSplash');
-      if(s){s.classList.add('is-done');s.setAttribute('aria-hidden','true')}
-    }catch(_){ }
-  }
-  /* Fast first paint: data/auth hydration keeps running in the background. */
-  setTimeout(reveal,1800);
-  window.addEventListener('error',function(){setTimeout(reveal,80)},{once:true,passive:true});
-  window.addEventListener('unhandledrejection',function(){setTimeout(reveal,80)},{once:true,passive:true});
-  window.addEventListener('load',function(){setTimeout(reveal,900)},{once:true,passive:true});
-})();
-</script>
+
 
 </head>
 <body class="resell-booting">
@@ -2860,6 +2824,21 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     catch(_){return '';}
   }
 
+  // RESSELL AUTH V19: when opened from our bot, the URL already contains a
+  // server-signed session bound to the Telegram user. Use it as the primary
+  // bootstrap identity instead of waiting for Telegram initData. This prevents
+  // transient iOS/WebView initData gaps from turning the first API calls into 401.
+  try{
+    const __launch=getResellLaunchToken();
+    const __launchUid=resellSessionUserId(__launch);
+    if(__launch && __launchUid){
+      userId=__launchUid;
+      telegramUserId=__launchUid;
+      isOwner=String(userId)===ADMIN_OWNER_ID;
+      if(isOwner) isAdmin=true;
+    }
+  }catch(_){}
+
   function getStoredResellSession(){
     try{return String(sessionStorage.getItem(RESSELL_SESSION_KEY)||localStorage.getItem(RESSELL_SESSION_KEY)||'').trim();}
     catch(_){return '';}
@@ -2972,7 +2951,9 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
         const isApiRequest=String(url||'').startsWith(API_BASE);
         const needsTelegramAuth=isApiRequest && !/\/tycoon\/media\//i.test(url);
         const authGenerationAtStart=telegramAuthGeneration;
-        const initData=needsTelegramAuth ? await waitForTelegramInitData(1800) : getTelegramInitData();
+        const launchTokenEarly=getResellLaunchToken();
+        const launchUidEarly=resellSessionUserId(launchTokenEarly);
+        const initData=needsTelegramAuth && !(launchTokenEarly && launchUidEarly) ? await waitForTelegramInitData(1800) : getTelegramInitData();
         const signedUserId=getSignedTelegramUserId(initData);
         if(needsTelegramAuth && authGenerationAtStart!==telegramAuthGeneration && !signedUserId){
           await new Promise(r=>setTimeout(r,120));
@@ -3003,9 +2984,9 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
         // RESSELL server session is the primary auth transport. It is generated
         // by the bot/backend, bound to the Telegram user id and survives all
         // subsequent game API calls without re-validating Telegram signatures.
-        const launchToken=getResellLaunchToken();
+        const launchToken=launchTokenEarly;
         const storedSession=getStoredResellSession();
-        const launchUid=resellSessionUserId(launchToken);
+        const launchUid=launchUidEarly;
         const liveUnsafeId=String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id||'').trim();
         let serverSession='';
 
@@ -5755,9 +5736,17 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     // This ordering keeps one canonical Telegram identity for the whole Mini App session.
     try{
       invalidateStaleTelegramCache();
-      const bootInit=await waitForTelegramInitData(5000);
-      syncTelegramUserId();
-      if(bootInit&&userId){try{await ensureResellServerSession(bootInit,userId);}catch(_){} }
+      const launchBoot=getResellLaunchToken();
+      const launchBootUid=resellSessionUserId(launchBoot);
+      let bootInit='';
+      if(launchBoot&&launchBootUid){
+        userId=launchBootUid; telegramUserId=launchBootUid;
+        isOwner=String(userId)===ADMIN_OWNER_ID; if(isOwner) isAdmin=true;
+      }else{
+        bootInit=await waitForTelegramInitData(5000);
+        syncTelegramUserId();
+        if(bootInit&&userId){try{await ensureResellServerSession(bootInit,userId);}catch(_){} }
+      }
       if(!isOwner){
         try{
           const meUrl=`${API_BASE}/admin/me/${encodeURIComponent(userId)}`;
