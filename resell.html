@@ -3559,14 +3559,12 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
           <div class="friends-hero-title">Твой круг сделок</div>
           <div class="friends-hero-sub">Смотри капитал, бизнесы, машины и прогресс. Ищи игроков и развивай свою сеть.</div>
         </div>
-        <div class="friends-stats-strip"><div class="friends-stat-mini"><small>КОНТАКТЫ</small><b>${list.length}</b></div><div class="friends-stat-mini"><small>СЕЙЧАС В ИГРЕ</small><b>${list.filter(f=>f.recently_active).length}</b></div><div class="friends-stat-mini"><small>СЕТЬ</small><b>RESSELL</b></div></div>
-        <div class="friends-search-title"><b>ПОИСК ИГРОКОВ</b><span>Ник или @ник · от 2 символов</span></div>
-        <div class="friends-toolbar">
-          <input id="friendsSearchMain" maxlength="20" autocomplete="off" placeholder="Например: @monnv">
-          <button type="button" id="friendsSearchMainBtn">НАЙТИ</button>
+        <div class="friend-search-main">
+          <input id="friendsSearchMain" maxlength="20" placeholder="Поиск по никнейму">
+          <button type="button" id="friendsSearchMainBtn">ИСКАТЬ</button>
         </div>
         <div id="friendsSearchMainResults"></div>
-        ${list.length?`<div class="friend-list-head"><b>ТВОЙ КРУГ</b><span>${list.length} контактов</span></div><div class="friends-list" style="margin-top:0">${list.map((f,idx)=>{
+        ${list.length?`<div class="friends-list" style="margin-top:10px">${list.map((f,idx)=>{
           const nick=String(f.nickname||'Игрок').replace(/^@+/,'');
           return `<button type="button" class="friend-row friend-row-button" data-friend-index="${idx}">
             <div class="friend-avatar">${esc(friendInitial(nick))}</div>
@@ -3735,7 +3733,6 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       invitedBy: base?.invited_by || base?.invitedBy || null,
       active,total,earned,pending,directReward,passivePercent,passiveDays,boostMultiplier,inviteeBonus,referralTitle,streak,nextTarget,
       milestones: apiMilestones,
-      invited_users: Array.isArray(base.invited_users) ? base.invited_users : [],
       inviteLink: referralInviteLink()
     };
   }
@@ -3826,8 +3823,6 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       <div class="referral-link-box"><div class="referral-link-input" id="referralLinkText">${esc(d.inviteLink)}</div><button class="referral-copy-btn" id="referralCopyBtn" type="button">Копировать</button></div>
       <div class="referral-action-grid"><button class="referral-action primary" id="referralShareBtn" type="button">Пригласить друга</button><button class="referral-action" id="referralClaimBtn" type="button" disabled>+250 000 ₽ · автоматически</button></div>
       <div class="referral-reward-banner"><div class="referral-reward-banner-title">Почему выгодно приглашать дальше</div><div class="referral-reward-banner-sub">+250 000 ₽ за каждого друга сразу. Дополнительные награды растут каждые 5 друзей: 5 → 150 000 ₽, 10 → 500 000 ₽, дальше сумма увеличивается.</div></div>
-      <div class="profile-section-head-v2"><div class="profile-section-title">Кто пришёл по твоей ссылке</div><div class="profile-pill-v2">${number((d.invited_users||[]).length)} ИГРОКОВ</div></div>
-      <div class="referral-invited-list" id="referralInvitedList">${(d.invited_users||[]).length ? (d.invited_users||[]).map(u=>{const nick=String(u.nickname||'Игрок').replace(/^@+/,''); return `<div class="referral-invited-card"><div class="referral-invited-avatar">${esc(friendInitial(nick))}</div><div class="referral-invited-copy"><b>@${esc(nick)}</b><span>${esc(u.shop_name||'Без магазина')} · ${u.reward_paid?'АКТИВЕН':'ОЖИДАЕТ'}</span><small>${number(u.total_sales||0)} продаж · ${number(u.total_earned||0)} ₽ заработано</small></div><button type="button" class="referral-invited-add ${u.is_friend?'is-friend':''}" data-ref-friend="${Number(u.tg_id||u.id||0)}" ${u.is_friend?'disabled':''}>${u.is_friend?'В ДРУЗЬЯХ':'ДОБАВИТЬ В ДРУЗЬЯ'}</button></div>`;}).join('') : '<div class="referral-invited-empty">Пока никто не активировал твою ссылку. После первого реального действия игрок появится здесь.</div>'}</div>
       <div class="profile-section-head-v2"><div class="profile-section-title">Лестница наград</div><div class="profile-pill-v2">${number(d.active)} АКТИВНЫХ</div></div>
       <div class="referral-milestones">${milestoneHtml}</div>
       <div class="referral-footer-note">X растёт только за проверенных реальных игроков.  Система одноуровневая: без выплат за «цепочки второго круга».</div>
@@ -4195,8 +4190,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       $('#farmTotal').textContent = `+${reward.toLocaleString('ru-RU')} ₽`;
       $('#farmStatus').textContent = `Готово! +${reward.toLocaleString('ru-RU')} ₽ уже на главном балансе. КД снимается в 12:00 по МСК.`;
       $('#farmClaimCount').textContent = `Собрано: ${holdState.claims}`;
-      try{ window.dispatchEvent(new Event('resell:hold-complete')); }catch(_){}
-      for(let i=0;i<8;i) spawnFarmSpark();
+      for(let i=0;i<8;i++) spawnFarmSpark();
       showToast(`+${number(reward)} ₽ зачислено`);
       haptic('heavy');
       try{ await loadProfile(); }catch(_){ }
@@ -4415,7 +4409,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
           $('#farmStatus').textContent = ready
             ? 'Нажми и удерживай R. Награда накапливается.'
             : 'Фарм недоступен до ежедневного сброса в 12:00 по МСК.';
-          $('#farmTotal').textContent = ready ? '10–100k ₽' : '';
+          $('#farmTotal').textContent = ready ? '10–100k ₽' : 'КД';
           document.querySelector('#farmSection .farm-stage')?.classList.toggle('farm-disabled', !ready);
         }
 
@@ -4449,7 +4443,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       holdState.ready = false;
       updateFarmVisuals(left);
       $('#farmStatus').textContent = 'Фарм недоступен до ежедневного сброса в 12:00 по МСК.';
-      $('#farmTotal').textContent = '';
+      $('#farmTotal').textContent = 'КД';
       document.querySelector('#farmSection .farm-stage')?.classList.add('farm-disabled');
     }else if(!holdState.session_id){
       // Never trust a stale in-memory cooldown_remaining once its deadline is gone.
@@ -4539,18 +4533,6 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     if (copyBtn) copyBtn.onclick = copyReferralLink;
     if (shareBtn) shareBtn.onclick = shareReferral;
     if (claimBtn) claimBtn.onclick = claimReferralRewards;
-    modalBody?.querySelectorAll('[data-ref-friend]')?.forEach(btn=>{
-      btn.onclick=async()=>{
-        if(btn.disabled||!userId)return;
-        btn.disabled=true; const old=btn.textContent; btn.textContent='ДОБАВЛЕНИЕ…';
-        try{
-          const r=await apiFetch(`${API_BASE}/friends/add/${encodeURIComponent(userId)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({friend_tg_id:Number(btn.dataset.refFriend||0)})},3);
-          const d=await r.json().catch(()=>({}));
-          if(!r.ok||!d.success) throw new Error(d.error||'Не удалось добавить друга');
-          btn.textContent='В ДРУЗЬЯХ'; showToast('Игрок добавлен в друзья'); await loadFriends();
-        }catch(err){btn.disabled=false;btn.textContent=old;showToast(err.message||'Ошибка');}
-      };
-    });
   }
 
   async function copyReferralLink(){
@@ -7166,7 +7148,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
         img.dataset.edgeFixBound='1';
         img.addEventListener('load',sync,false);
       }
-      img.style.setProperty('object-fit','cover','important');
+      img.style.setProperty('object-fit','contain','important');
       img.style.setProperty('object-position','center center','important');
       img.style.setProperty('transform','none','important');
     });
@@ -7179,115 +7161,6 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',ready,{once:true});
   else ready();
-})();
-</script>
-
-<style id="resell-update-2026-09">
-/* UPDATE 2026-09 · asset art fills the whole tile without leaving letterbox gaps. */
-#resellHomeMoney #mainAssetsSection .main-tycoon-card > img[data-tycoon-cover]{
-  width:100%!important;height:100%!important;inset:0!important;
-  object-fit:cover!important;object-position:center center!important;
-  transform:scale(1.012)!important;transform-origin:center!important;
-  max-width:none!important;max-height:none!important;
-}
-#resellHomeMoney #mainAssetsSection .main-tycoon-card[data-main-tycoon="mining"] > img[data-tycoon-cover]{object-position:center 48%!important}
-#resellHomeMoney #mainAssetsSection .main-tycoon-card[data-main-tycoon="cars"] > img[data-tycoon-cover]{object-position:center 50%!important}
-#resellHomeMoney #mainAssetsSection .main-tycoon-card[data-main-tycoon="property"] > img[data-tycoon-cover]{object-position:center 46%!important}
-#resellHomeMoney #mainAssetsSection .main-tycoon-card[data-main-tycoon="taxi"] > img[data-tycoon-cover]{object-position:center 50%!important}
-#resellHomeMoney #mainAssetsSection .main-tycoon-card[data-main-tycoon="bank"] > img[data-tycoon-cover]{object-position:center 48%!important}
-#resellHomeMoney #mainAssetsSection .main-tycoon-card > .asset-art-bg{opacity:.18!important;filter:blur(16px)!important;transform:scale(1.10)!important}
-
-/* Next step is hidden until we know the user's R-HOLD history. */
-.resell-next-step{display:none!important}
-.resell-next-step.is-newcomer{display:grid!important}
-
-/* KD belongs to the R-HOLD control area, centered directly above it. */
-#farmSection .farm-header-with-kd{padding-right:0!important}
-#farmSection .farm-header-with-kd > .farm-kd{display:none!important}
-#farmSection .farm-stage{position:relative!important;padding-top:27px!important}
-#farmSection .farm-stage > .farm-kd{
-  display:block!important;position:absolute!important;top:0!important;left:50%!important;
-  transform:translateX(-50%)!important;z-index:6!important;
-  color:#8a918b!important;font:950 7px/1 'Montserrat',sans-serif!important;
-  letter-spacing:1px!important;text-transform:uppercase!important;white-space:nowrap!important;
-  padding:6px 9px!important;border:1px solid rgba(255,255,255,.07)!important;
-  border-radius:9px!important;background:rgba(7,9,8,.58)!important;
-  backdrop-filter:blur(9px)!important;-webkit-backdrop-filter:blur(9px)!important;
-}
-
-/* Referral people list. */
-.referral-invited-list{display:grid;gap:7px;margin-top:10px}
-.referral-invited-card{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:9px;align-items:center;padding:10px;border-radius:15px;background:linear-gradient(145deg,#121513,#0b0d0c);border:1px solid rgba(255,255,255,.065)}
-.referral-invited-avatar{width:36px;height:36px;border-radius:11px;display:grid;place-items:center;background:rgba(183,255,106,.09);border:1px solid rgba(183,255,106,.16);color:#b7ff6a;font:950 13px/1 'Montserrat',sans-serif}
-.referral-invited-copy{min-width:0}.referral-invited-copy b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#edf2ed;font:950 9px/1.1 'Montserrat',sans-serif}
-.referral-invited-copy span{display:block;margin-top:4px;color:#69736c;font:800 6.5px/1.25 'Nunito',sans-serif}
-.referral-invited-copy small{display:block;margin-top:4px;color:#4f5952;font:800 6px/1.1 'Nunito',sans-serif}
-.referral-invited-add{min-height:32px;padding:0 9px;border-radius:10px;border:1px solid rgba(183,255,106,.24);background:rgba(183,255,106,.06);color:#b7ff6a;font:950 6.5px/1 'Montserrat',sans-serif}
-.referral-invited-add:disabled{opacity:.5}
-.referral-invited-add.is-friend{opacity:1!important;color:#8e9a91!important;background:rgba(183,255,106,.07)!important;border-color:rgba(183,255,106,.16)!important}
-.referral-invited-empty{padding:13px;border-radius:14px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.05);color:#68716b;font:800 7.5px/1.35 'Nunito',sans-serif;text-align:center}
-
-/* Friends overhaul: richer header, segmented controls and better search results. */
-.friends-sheet{display:grid;gap:9px}
-.friends-sheet .friends-hero{position:relative;overflow:hidden}
-.friends-sheet .friends-hero:after{content:"";position:absolute;width:120px;height:120px;right:-50px;top:-55px;border-radius:50%;background:radial-gradient(circle,rgba(183,255,106,.14),transparent 68%);pointer-events:none}
-.friends-toolbar{display:grid;grid-template-columns:1fr auto;gap:7px;padding:7px;border-radius:15px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.055)}
-.friends-toolbar input{min-width:0;height:42px;border:0;background:transparent;color:#f2f5f2;outline:0;padding:0 7px;font:800 10px 'Nunito',sans-serif}
-.friends-toolbar button{min-width:76px;height:42px;border-radius:11px;background:#b7ff6a;color:#071006;font:950 7px 'Montserrat',sans-serif}
-.friends-stats-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
-.friends-stat-mini{padding:9px;border-radius:13px;background:#101311;border:1px solid rgba(255,255,255,.05)}
-.friends-stat-mini small{display:block;color:#5f6962;font:900 5.7px/1 'Montserrat',sans-serif;letter-spacing:.8px}.friends-stat-mini b{display:block;margin-top:5px;color:#edf3ed;font:950 12px/1 'Montserrat',sans-serif}
-.friends-search-title{display:flex;justify-content:space-between;align-items:end;margin-top:2px}.friends-search-title b{font:950 8px/1 'Montserrat',sans-serif;letter-spacing:.8px}.friends-search-title span{color:#59635c;font:800 6.5px/1 'Nunito',sans-serif}
-.friend-search-results{display:grid;gap:7px;margin-top:7px}
-.friend-search-result{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:9px;align-items:center;padding:9px;border-radius:15px;background:linear-gradient(145deg,#121513,#0b0d0c);border:1px solid rgba(255,255,255,.06)}
-.friend-search-result .friend-copy small{display:block;margin-top:4px;color:#4f5a53;font:800 6px/1.1 'Nunito',sans-serif}
-.friend-add-main{min-height:33px;padding:0 10px;border-radius:10px;border:1px solid rgba(183,255,106,.22);background:rgba(183,255,106,.055);color:#b7ff6a;font:950 6.5px 'Montserrat',sans-serif}
-.friend-add-main:disabled{opacity:.45}
-.friend-list-head{display:flex;justify-content:space-between;align-items:center;margin-top:3px;padding:0 2px}.friend-list-head b{font:950 8px/1 'Montserrat',sans-serif;letter-spacing:.8px}.friend-list-head span{color:#59625c;font:800 6.5px/1 'Nunito',sans-serif}
-.friend-row-button{min-height:65px!important}
-.friend-row-button .friend-avatar{width:38px!important;height:38px!important}
-.friend-network-footer{margin-top:2px!important}
-@media(max-width:390px){.friends-toolbar{grid-template-columns:1fr}.friends-toolbar button{width:100%}.referral-invited-card{grid-template-columns:34px minmax(0,1fr) auto;gap:7px}.referral-invited-avatar{width:34px;height:34px}.referral-invited-add{padding:0 7px}}
-</style>
-<script id="resell-update-2026-09-js">
-(function(){
-  'use strict';
-  function ready(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn,{once:true});else fn();}
-  ready(function(){
-    /* --- Asset art: cover the card while retaining the existing overlay/text layer. --- */
-    function fixAssetImages(){
-      document.querySelectorAll('#resellHomeMoney #mainAssetsSection .main-tycoon-card img[data-tycoon-cover]').forEach(function(img){
-        img.style.setProperty('object-fit','cover','important');
-        img.style.setProperty('transform','scale(1.012)','important');
-        img.style.setProperty('object-position','center center','important');
-      });
-    }
-
-    /* --- Move KD into the central R-HOLD stage. --- */
-    function moveKD(){
-      const farm=document.getElementById('farmSection');
-      const kd=farm?.querySelector('.farm-header-with-kd > .farm-kd');
-      const stage=farm?.querySelector('.farm-stage');
-      if(kd&&stage&&kd.parentElement!==stage) stage.insertBefore(kd,stage.firstChild);
-    }
-
-    /* --- Newcomer card: only before the first successful R-HOLD collection. --- */
-    function syncNextStep(){
-      const card=document.querySelector('#resellHomeMoney .resell-next-step');
-      if(!card)return;
-      const claims=Number(window.holdState?.claims ?? document.getElementById('farmClaimCount')?.textContent?.replace(/[^0-9]/g,'' ) ?? 0)||0;
-      const isNew=claims===0;
-      card.classList.toggle('is-newcomer',isNew);
-      card.setAttribute('aria-hidden',isNew?'false':'true');
-    }
-
-    const observer=new MutationObserver(function(){fixAssetImages();moveKD();syncNextStep();});
-    observer.observe(document.body,{subtree:true,childList:true});
-    fixAssetImages();moveKD();syncNextStep();
-    setTimeout(function(){fixAssetImages();moveKD();syncNextStep();},250);
-    setTimeout(function(){fixAssetImages();moveKD();syncNextStep();},900);
-    window.addEventListener('resell:hold-complete',syncNextStep);
-  });
 })();
 </script>
 </body>
@@ -8025,7 +7898,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 
       /* Ensure no historical transform can zoom the foreground artwork. */
       assets.querySelectorAll('.main-tycoon-card img[data-tycoon-cover]').forEach(img=>{
-        img.style.setProperty('object-fit','cover','important');
+        img.style.setProperty('object-fit','contain','important');
         img.style.setProperty('transform','none','important');
         img.style.setProperty('object-position','center center','important');
       });
