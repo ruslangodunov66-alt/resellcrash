@@ -7109,78 +7109,6 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     const saved=(()=>{try{return sessionStorage.getItem('resell_home_tab')||'money'}catch(_){return 'money'}})();
     if(saved==='more') nav.querySelector('[data-home-tab="more"]')?.click();
 
-    // Swipe pager: two deliberate pages, horizontal only. Vertical scrolling remains native.
-    nav.setAttribute('aria-hidden','true');
-    nav.classList.add('resell-swipe-nav-hidden');
-    const swipeHint=document.createElement('div');
-    swipeHint.id='resellSwipeHint';
-    swipeHint.className='resell-swipe-hint';
-    swipeHint.innerHTML=`<button type="button" class="swipe-page-btn active" data-swipe-page="money"><b>01</b><span>ГЛАВНАЯ</span></button><div class="swipe-center-label"><i>СВАЙП</i><span>›</span></div><button type="button" class="swipe-page-btn" data-swipe-page="more"><b>02</b><span>АКТИВНОСТЬ</span></button>`;
-    nav.insertAdjacentElement('afterend',swipeHint);
-
-    let currentSwipeMode = saved==='more' ? 'more' : 'money';
-    let swipeBusy=false;
-    const updateSwipeIndicator=(mode)=>{
-      currentSwipeMode=mode;
-      swipeHint.classList.toggle('is-more',mode==='more');
-      swipeHint.querySelectorAll('.swipe-page-btn').forEach(b=>b.classList.toggle('active',b.dataset.swipePage===mode));
-      const center=swipeHint.querySelector('.swipe-center-label span'); if(center) center.textContent=mode==='more'?'‹':'›';
-    };
-    const setSwipeMode=(mode,animate=true)=>{
-      if(swipeBusy && animate) return;
-      const moreMode=mode==='more';
-      const current=moreMode?money:more, next=moreMode?more:money;
-      if(current===next) return;
-      if(!animate){ money.hidden=moreMode; more.hidden=!moreMode; updateSwipeIndicator(mode); return; }
-      swipeBusy=true;
-      current.hidden=false; next.hidden=false;
-      current.classList.remove('resell-slide-in','resell-slide-out','is-moving');
-      next.classList.remove('resell-slide-in','resell-slide-out','is-moving');
-      current.classList.add('resell-slide-out');
-      next.classList.add('resell-slide-in');
-      requestAnimationFrame(()=>{current.classList.add('is-moving');next.classList.add('is-moving');});
-      updateSwipeIndicator(mode);
-      haptic('light');
-      window.setTimeout(()=>{
-        current.hidden=true;
-        current.classList.remove('resell-slide-out','is-moving');
-        next.classList.remove('resell-slide-in','is-moving');
-        swipeBusy=false;
-        try{sessionStorage.setItem('resell_home_tab',mode)}catch(_){ }
-      },300);
-    };
-    swipeHint.querySelectorAll('.swipe-page-btn').forEach(btn=>btn.addEventListener('click',()=>setSwipeMode(btn.dataset.swipePage,true)));
-
-    // Pointer swipe is easier to understand and behaves consistently in Telegram iOS/WebView.
-    const swipeTarget=document.querySelector('main.app')||document.querySelector('main')||document.body;
-    swipeTarget.style.touchAction='pan-y';
-    let sx=0,sy=0,tracking=false,ignoreSwipe=false,pointerId=null;
-    const excluded=(el)=>!!el?.closest('input,textarea,select,button,a,[contenteditable="true"],.farm-stage,.modal,.sheet,.bottom-sheet');
-    swipeTarget.addEventListener('pointerdown',e=>{
-      if(e.pointerType==='mouse' && e.button!==0) return;
-      if(excluded(e.target)) return;
-      sx=e.clientX; sy=e.clientY; tracking=true; ignoreSwipe=false; pointerId=e.pointerId;
-    },{passive:true});
-    swipeTarget.addEventListener('pointermove',e=>{
-      if(!tracking || e.pointerId!==pointerId) return;
-      const dx=e.clientX-sx, dy=e.clientY-sy;
-      if(Math.abs(dy)>Math.abs(dx)*1.15 && Math.abs(dy)>12){ignoreSwipe=true;tracking=false;return;}
-      if(Math.abs(dx)>12 && Math.abs(dx)>Math.abs(dy)*1.05) ignoreSwipe=false;
-    },{passive:true});
-    swipeTarget.addEventListener('pointerup',e=>{
-      if(!tracking || e.pointerId!==pointerId) return;
-      tracking=false;
-      if(ignoreSwipe) return;
-      const dx=e.clientX-sx, dy=e.clientY-sy;
-      if(Math.abs(dx)<48 || Math.abs(dx)<Math.abs(dy)*1.15) return;
-      // Left -> activity, right -> home.
-      setSwipeMode(dx<0?'more':'money',true);
-    },{passive:true});
-    swipeTarget.addEventListener('pointercancel',()=>{tracking=false},{passive:true});
-
-    setSwipeMode(currentSwipeMode,false);
-    try{sessionStorage.setItem('resell_home_tab',currentSwipeMode)}catch(_){ }
-
     // Remove the duplicate top-right R-HOLD customization control injected by older V19 code.
     document.querySelectorAll('.rhold-v19-btn').forEach(x=>x.remove());
   }
@@ -7525,3 +7453,118 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 })();
 </script>
 
+<style id="resell-v11-pages-final">
+/* V11: explicit two-page navigation. No swipe UI or swipe pager. */
+.resell-home-nav{display:block!important;margin:10px 0 13px!important}
+.resell-home-nav-track{display:grid!important;grid-template-columns:1fr 1fr!important;gap:6px!important}
+.resell-home-tab{min-height:56px!important;padding:7px 11px!important;border-radius:14px!important;align-items:center!important}
+.resell-home-tab strong{font-size:8.5px!important;letter-spacing:.35px!important}
+.resell-home-tab small{font-size:6.5px!important;color:#626a64!important}
+.resell-home-tab.active{background:linear-gradient(145deg,rgba(255,255,255,.095),rgba(255,255,255,.025))!important;border-color:rgba(255,255,255,.15)!important;color:#f0f3f1!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.045),0 8px 22px rgba(0,0,0,.12)!important}
+.resell-home-tab.active .nav-icon{background:rgba(255,255,255,.11)!important;color:#eef2ef!important;box-shadow:none!important}
+.resell-home-tab:not(.active) .nav-icon{background:rgba(255,255,255,.035)!important;color:#7a827c!important}
+#resellSwipeHint,.resell-swipe-hint{display:none!important}
+/* Keep the same RESSELL POINTS/balance header above both pages. */
+.resell-home-panel{gap:12px!important}
+#resellHomeMoney .resell-home-caption{display:none!important}
+#resellHomeMore .resell-home-caption{display:none!important}
+/* Secondary page starts immediately with its content: games, activity, daily. */
+#resellHomeMore #resellLaunchBrief{display:none!important}
+#resellHomeMore .section{margin-top:0!important}
+/* Never truncate the short economy labels; the text column gets the full line. */
+#resellHomeMoney #mainAssetsSection .main-tycoon-card-copy{min-width:0!important}
+#resellHomeMoney #mainAssetsSection .main-tycoon-card-copy>div:first-child{min-width:0!important;flex:1 1 auto!important}
+#resellHomeMoney #mainAssetsSection .main-tycoon-title,
+#resellHomeMoney #mainAssetsSection .main-tycoon-sub{white-space:nowrap!important;overflow:visible!important;text-overflow:clip!important;word-break:normal!important;overflow-wrap:normal!important}
+</style>
+<script id="resell-v11-pages-final-js">
+(function(){
+  'use strict';
+  function apply(){
+    const nav=document.getElementById('resellHomeNav');
+    const money=document.getElementById('resellHomeMoney');
+    const more=document.getElementById('resellHomeMore');
+    if(!nav||!money||!more) return;
+
+    /* Two clear buttons only. No swipe indicator/hint. */
+    document.querySelectorAll('#resellSwipeHint,.resell-swipe-hint').forEach(el=>el.remove());
+    nav.removeAttribute('aria-hidden');
+    nav.querySelectorAll('.resell-home-tab').forEach(btn=>{
+      const mode=btn.dataset.homeTab;
+      const isMore=mode==='more';
+      const label=btn.querySelector('strong');
+      const sub=btn.querySelector('small');
+      if(mode==='money'){
+        if(label) label.textContent='Главная';
+        if(sub) sub.textContent='Avito · бизнес · активы';
+      }else{
+        if(label) label.textContent='Активность';
+        if(sub) sub.textContent='игры · рейтинг · движуха';
+      }
+      btn.setAttribute('aria-label',isMore?'Активность: игры, рейтинг и движуха':'Главная: Avito, бизнес и активы');
+    });
+
+    /* Remove the old descriptive captions from the actual page flow. */
+    money.querySelectorAll('.resell-home-caption').forEach(el=>el.remove());
+    more.querySelectorAll('.resell-home-caption').forEach(el=>el.remove());
+
+    /* The second page is deliberately content-first: games -> activity -> daily check-in. */
+    const engagement=document.getElementById('homeEngagementSection');
+    const daily=engagement?.querySelector('#dailySeriesBtn');
+    if(engagement && daily && !more.contains(daily)){
+      const dailySection=document.createElement('section');
+      dailySection.className='section reveal resell-daily-secondary';
+      dailySection.innerHTML='<div class="section-head"><div class="section-title">Каждый день</div><div class="section-meta">активность RESSELL</div></div>';
+      dailySection.appendChild(daily);
+      more.appendChild(dailySection);
+    }
+    if(engagement && !money.contains(engagement)) engagement.remove();
+
+    /* Do not place the explanatory brief on page 2. */
+    const brief=document.getElementById('resellLaunchBrief');
+    if(brief) brief.remove();
+
+    /* Kill the old swipe behavior without touching ordinary button/click interactions. */
+    if(!window.__resellV11SwipeBlocked){
+      window.__resellV11SwipeBlocked=true;
+      const app=document.querySelector('main.app');
+      if(app){
+        app.addEventListener('pointerdown',e=>{
+          if(e.target?.closest('input,textarea,select,button,a,[contenteditable="true"],.farm-stage,.modal,.sheet,.bottom-sheet')) return;
+          e.stopImmediatePropagation();
+        },true);
+        app.addEventListener('pointermove',e=>{ e.stopImmediatePropagation(); },true);
+        app.addEventListener('pointerup',e=>{ e.stopImmediatePropagation(); },true);
+        app.addEventListener('pointercancel',e=>{ e.stopImmediatePropagation(); },true);
+      }
+    }
+
+    /* Existing two-button tab handler remains the only page switch mechanism. */
+    if(!window.__resellV11TabBound){
+      window.__resellV11TabBound=true;
+      nav.querySelectorAll('.resell-home-tab').forEach(btn=>btn.addEventListener('click',()=>{
+        const mode=btn.dataset.homeTab;
+        const isMore=mode==='more';
+        money.hidden=isMore;
+        more.hidden=!isMore;
+        nav.querySelectorAll('.resell-home-tab').forEach(b=>{
+          const active=b===btn;
+          b.classList.toggle('active',active);
+          b.setAttribute('aria-selected',String(active));
+        });
+        try{sessionStorage.setItem('resell_home_tab',mode)}catch(_){ }
+        window.scrollTo({top:Math.max(0,nav.getBoundingClientRect().top+window.scrollY-8),behavior:'smooth'});
+      }));
+    }
+
+    /* Ensure the second page really begins at its first content block. */
+    if(!more.hidden){
+      more.scrollIntoView?.({block:'nearest'});
+    }
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',apply,{once:true});
+  else apply();
+  setTimeout(apply,150);
+  setTimeout(apply,700);
+})();
+</script>
