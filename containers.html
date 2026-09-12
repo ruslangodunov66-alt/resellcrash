@@ -219,8 +219,19 @@ function haptic(kind='light'){try{tg?.HapticFeedback?.impactOccurred(kind)}catch
 function toast(t){$('toast').textContent=t;$('toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('show'),2200)}
 function saveStats(){try{localStorage.setItem('resell_containers_stats_'+tgId,JSON.stringify(stats))}catch(_){}}
 function loadStats(){try{stats=JSON.parse(localStorage.getItem('resell_containers_stats_'+tgId)||'null')||stats}catch(_){}}
+function authHeaders(){
+ const h={'Content-Type':'application/json'};
+ try{
+  const raw=String(tg?.initData||'').trim();
+  if(raw){h['X-Telegram-Init-Data']=raw;h['Authorization']='tma '+raw;}
+  const session=String(sessionStorage.getItem('resell_server_session_v4')||localStorage.getItem('resell_server_session_v4')||'').trim();
+  if(session){h['X-Resell-Session']=session;h['Authorization']='Bearer '+session;}
+ }catch(_){}
+ return h;
+}
 async function api(path,opt={}){
- const r=await fetch(API_BASE+path,{cache:'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});
+ const headers={...authHeaders(),...(opt.headers||{})};
+ const r=await fetch(API_BASE+path,{cache:'no-store',...opt,headers});
  let d={};try{d=await r.json()}catch(_){}
  if(!r.ok||d.success===false)throw new Error(d.error||d.message||'Ошибка сервера');
  return d;
@@ -306,7 +317,7 @@ async function buyContainer(id){
  try{
   const d=await containerBuyServer(id);
   balance=Number(d.balance ?? (balance-c.price));
-  stats.opened++;saveStats();render();
+  saveStats();render();
   openModal(c); active.purchase_id=String(d.purchase_id);
   haptic('heavy');
  }catch(e){if(btn)btn.disabled=false;toast(e.message);haptic('medium')}
@@ -325,6 +336,7 @@ async function finishOpen(){
   if(!d?.success)throw new Error(d?.error||'Не удалось открыть контейнер');
   const item=d.item||{}; active.item=item;
   balance=Number(d.balance ?? balance);
+  stats.opened++;saveStats();
   $('ritemIcon').textContent=item.icon||'📦';$('rrarity').textContent=item.rarity||'COMMON';$('rrarity').style.color=rarityColor[item.rarity]||'#fff';
   $('rname').textContent=item.name||'Предмет';$('rvalue').textContent=fmt(item.value||0)+' ₽';
   $('openstage').classList.remove('shake','shake-screen');$('openstage').classList.add('reveal');

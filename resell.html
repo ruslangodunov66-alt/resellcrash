@@ -2473,7 +2473,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     document.body.classList.remove('resell-booting');
     launchSequenceActive=false; launchFinished=true;
     await new Promise(r=>setTimeout(r,260));
-    if(firstRun){
+    if(firstRun || (!bootData && userId)){
       if(!registrationRequired) openRegistration();
     }
   }
@@ -5147,22 +5147,39 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 
   async function fetchBusinessState(){
     if(!userId) return null;
+    const fetchedAt=Math.floor(Date.now()/1000);
     const resp=await apiFetch(`${API_BASE}/business/${encodeURIComponent(userId)}?t=${Date.now()}`,{method:'GET'},3);
     const payload=await resp.json().catch(()=>({}));
     if(!resp.ok||!payload.success) throw new Error(payload.error||'Не удалось загрузить бизнес');
     businessState=payload;
+    businessState.__fetched_at=fetchedAt;
     return payload;
+  }
+
+  function startBusinessLiveTicker(){
+    clearInterval(window.__resellBusinessTicker);
+    window.__resellBusinessTicker=setInterval(()=>{
+      const s=businessState;if(!s||!document.querySelector('.bizsimple-income'))return;
+      const hour=Math.max(0,Number(s.total_per_hour||s.hourly_income||0));
+      const base=Math.max(0,Number(s.pending_collect||0));
+      const elapsed=Math.max(0,Math.floor(Date.now()/1000)-Number(s.__fetched_at||Math.floor(Date.now()/1000)));
+      const pending=Math.floor(base+hour*elapsed/3600);
+      const value=document.querySelector('.bizsimple-income-main b');
+      const btn=document.getElementById('businessCollectBtn');
+      if(value)value.textContent=`${number(pending)} ₽`;
+      if(btn){btn.disabled=pending<=0;btn.textContent=pending>0?`ЗАБРАТЬ +${number(pending)} ₽`:'ЗАБИРАТЬ ПОКА НЕЧЕГО';}
+    },1000);
   }
 
   async function openBusiness(){
     haptic('medium');
     openModal('Бизнес-империя','<div class="loading">Загрузка активов…</div>');
-    try{ await fetchBusinessState(); modalBody.innerHTML=renderBusinessModal(); maybeStartBusinessTutorial(); }
+    try{ await fetchBusinessState(); modalBody.innerHTML=renderBusinessModal(); startBusinessLiveTicker(); maybeStartBusinessTutorial(); }
     catch(err){ modalBody.innerHTML=`<div class="business-empty-v4">${esc(err.message||'Не удалось загрузить бизнес')}</div>`; }
   }
 
   async function refreshBusinessModal(){
-    try{ await fetchBusinessState(); modalBody.innerHTML=renderBusinessModal(); }
+    try{ await fetchBusinessState(); modalBody.innerHTML=renderBusinessModal(); startBusinessLiveTicker(); }
     catch(err){ showToast(err.message||'Не удалось обновить бизнес'); }
   }
 
@@ -6245,7 +6262,22 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     b.querySelectorAll('[data-r28-item]').forEach(x=>x.onclick=()=>act(x.dataset.r28Item));
   }
   async function loadCatalog(){
-    const c=core();if(!c.apiFetch||!uid())return;const r=await c.apiFetch(`${API}/hold/skins/${encodeURIComponent(uid())}?t=${Date.now()}`,{method:'GET'},3);const d=await r.json();if(!r.ok||!d.success)throw new Error(d.error||'Не удалось загрузить кастомизацию');cache=d;const prof=c.getProfile?.();if(prof){prof.customization={equipped:d.equipped_slots||{},rhold:(d.skins||[]).find(x=>x.id===d.equipped_slots?.rhold)||null,nick:(d.skins||[]).find(x=>x.id===d.equipped_slots?.nick)||null,avatar:(d.skins||[]).find(x=>x.id===d.equipped_slots?.avatar)||null,badge:(d.skins||[]).find(x=>x.id===d.equipped_slots?.badge)||null,rating:d.rating||''};}renderShop();applyOwn(d);
+    let lastErr=null;
+    for(let attempt=0;attempt<3;attempt++){
+      const c=core();
+      const u=uid() || String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id||'').trim();
+      if(!c.apiFetch||!u){ lastErr=new Error('Telegram-сессия ещё не готова'); await new Promise(r=>setTimeout(r,180*(attempt+1))); continue; }
+      try{
+        const r=await c.apiFetch(`${API}/hold/skins/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'GET'},3);
+        const d=await r.json().catch(()=>({}));
+        if(!r.ok||!d.success) throw new Error(d.error||`Не удалось загрузить кастомизацию (${r.status||'сервер'})`);
+        cache=d;
+        const prof=c.getProfile?.();
+        if(prof){prof.customization={equipped:d.equipped_slots||{},rhold:(d.skins||[]).find(x=>x.id===d.equipped_slots?.rhold)||null,nick:(d.skins||[]).find(x=>x.id===d.equipped_slots?.nick)||null,avatar:(d.skins||[]).find(x=>x.id===d.equipped_slots?.avatar)||null,badge:(d.skins||[]).find(x=>x.id===d.equipped_slots?.badge)||null,rating:d.rating||''};}
+        renderShop();applyOwn(d);return d;
+      }catch(e){lastErr=e;await new Promise(r=>setTimeout(r,220*(attempt+1)));}
+    }
+    throw lastErr||new Error('Не удалось загрузить кастомизацию');
   }
   function applyOwn(d){
     const r=(d.skins||[]).find(x=>x.id===d.equipped_slots?.rhold)|| (d.skins||[]).find(x=>x.id===d.equipped);
@@ -7104,7 +7136,7 @@ html[lang="en"] #resellHomeMoney #mainAssetsSection .main-tycoon-card[data-main-
     ids.forEach(id=>{
       const old=document.getElementById(id); if(!old||old.dataset.friendsV19Bound==='1')return;
       const fresh=old.cloneNode(true); fresh.dataset.friendsV19Bound='1'; old.replaceWith(fresh);
-      fresh.addEventListener('click',e=>{e.preventDefault();e.stopImmediatePropagation();const fn=window.__resellOpenFriendsV19; if(fn)fn();});
+      fresh.addEventListener('click',e=>{e.preventDefault();e.stopImmediatePropagation();const fn=window.__resellOpenFriends; if(typeof fn==='function') Promise.resolve(fn()).catch(err=>console.error('[Friends]',err));});
     });
   }
   function forceHomeOrder(){
@@ -7182,10 +7214,10 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
       const btn=e.target?.closest?.('#friendsBtn,#friendsNavBtn');
       if(!btn) return;
       e.preventDefault(); e.stopImmediatePropagation();
-      const fn=window.__resellOpenFriendsV19 || window.__resellOpenFriends;
+      const fn=window.__resellOpenFriends;
       if(typeof fn!=='function'){
         setTimeout(()=>{
-          const retry=window.__resellOpenFriendsV19 || window.__resellOpenFriends;
+          const retry=window.__resellOpenFriends;
           if(typeof retry==='function') Promise.resolve(retry()).catch(err=>console.error('[Friends]',err));
           else window.showToast?.('Друзья пока загружаются…');
         },50);
@@ -8104,7 +8136,7 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
       el.dataset.finalFriendsV2='1';
       el.addEventListener('click',function(e){
         e.preventDefault(); e.stopImmediatePropagation();
-        var fn=window.__resellOpenFriendsV19 || window.__resellOpenFriends;
+        var fn=window.__resellOpenFriends;
         if(typeof fn==='function'){ try{ fn(); }catch(err){ console.error('[Friends]',err); } }
       },true);
     });
