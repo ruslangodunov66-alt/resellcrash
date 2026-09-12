@@ -4265,8 +4265,9 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     const stage = document.querySelector('#farmSection .farm-stage');
     if(!stage || stage.dataset.bound === '1') return;
     stage.dataset.bound = '1';
-    stage.style.touchAction = 'pan-y';
-    stage.style.userSelect = 'none';
+    stage.style.touchAction = 'none';
+     stage.style.userSelect = 'none';
+     stage.style.webkitUserSelect = 'none';
     stage.style.webkitUserSelect = 'none';
 
     // Short taps are ignored. The server session is started only after a
@@ -4328,9 +4329,11 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       // Do not cancel the gesture on pointerdown: the main page owns horizontal
       // swipe navigation and must remain scrollable while the hold is arming.
       activeInput=true;
-      activePointerId=e?.pointerId ?? null;
-      holdPointerId=activePointerId;
-      pressStartedAt=Date.now();
+       activePointerId=e?.pointerId ?? null;
+       holdPointerId=activePointerId;
+       pressStartedAt=Date.now();
+       try{ e?.preventDefault?.(); }catch(_){}
+       try{ if(e?.pointerId != null && stage.setPointerCapture) stage.setPointerCapture(e.pointerId); }catch(_){}
       holdArmed=false;
       clearArmTimer();
       armTimer=setTimeout(()=>{
@@ -4354,7 +4357,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       }
     };
     const onPointerUp = (e) => finishHold(e);
-    stage.addEventListener('pointerdown', begin, {passive:true});
+    stage.addEventListener('pointerdown', begin, {passive:false});
     window.addEventListener('pointermove', onPointerMove, {passive:true});
     window.addEventListener('pointerup', onPointerUp, {passive:false, capture:true});
     window.addEventListener('pointercancel', ()=>{ if(activeInput){ if(holdArmed) cancelStandaloneFarm(); else resetPress(); } }, {passive:true, capture:true});
@@ -7138,6 +7141,65 @@ html[lang="en"] #resellHomeMoney #mainAssetsSection .main-tycoon-card[data-main-
 </script>
 
 </body>
+
+<!-- RESSELL FINAL BUGFIX V4: friends / R-HOLD / horizontal swipe -->
+<style id="resell-final-bugfix-v4">
+html,body{overflow-x:hidden!important;overscroll-behavior-x:none!important;max-width:100%!important}
+main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-action:pan-y!important;max-width:100%!important;width:100%!important}
+#resellHomeMoney,#resellHomeMore{max-width:100%!important;overflow-x:hidden!important}
+#farmSection .farm-stage{touch-action:none!important;overscroll-behavior:none!important}
+</style>
+<script id="resell-final-bugfix-v4-js">
+(function(){
+  'use strict';
+  const q=s=>document.querySelector(s);
+  function lockHorizontalSwipe(){
+    if(window.__resellHorizontalLockV4) return;
+    window.__resellHorizontalLockV4=true;
+    const app=q('main.app'); if(!app) return;
+    let sx=0,sy=0,tracking=false,horizontal=false;
+    const excluded=el=>!!el?.closest?.('input,textarea,select,[contenteditable="true"],.modal,.sheet,.bottom-sheet,.farm-stage');
+    app.addEventListener('touchstart',e=>{
+      if(e.touches.length!==1 || excluded(e.target)){tracking=false;horizontal=false;return;}
+      sx=e.touches[0].clientX; sy=e.touches[0].clientY; tracking=true; horizontal=false;
+    },{capture:true,passive:true});
+    app.addEventListener('touchmove',e=>{
+      if(!tracking||e.touches.length!==1) return;
+      const dx=e.touches[0].clientX-sx, dy=e.touches[0].clientY-sy;
+      if(!horizontal && Math.abs(dx)+Math.abs(dy)>8){
+        if(Math.abs(dx)>Math.abs(dy)*1.12) horizontal=true;
+        else tracking=false;
+      }
+      if(horizontal){e.preventDefault();e.stopImmediatePropagation();}
+    },{capture:true,passive:false});
+    app.addEventListener('touchend',()=>{tracking=false;horizontal=false},{capture:true,passive:true});
+    app.addEventListener('touchcancel',()=>{tracking=false;horizontal=false},{capture:true,passive:true});
+  }
+  function bindFriends(){
+    if(window.__resellFriendsOneHandlerV4) return;
+    window.__resellFriendsOneHandlerV4=true;
+    document.addEventListener('click',e=>{
+      const btn=e.target?.closest?.('#friendsBtn,#friendsNavBtn');
+      if(!btn) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      const fn=window.__resellOpenFriendsV19 || window.__resellOpenFriends;
+      if(typeof fn!=='function'){
+        setTimeout(()=>{
+          const retry=window.__resellOpenFriendsV19 || window.__resellOpenFriends;
+          if(typeof retry==='function') Promise.resolve(retry()).catch(err=>console.error('[Friends]',err));
+          else window.showToast?.('Друзья пока загружаются…');
+        },50);
+        return;
+      }
+      try{Promise.resolve(fn()).catch(err=>{console.error('[Friends]',err);window.showToast?.(err?.message||'Не удалось открыть друзей');});}
+      catch(err){console.error('[Friends]',err);window.showToast?.(err?.message||'Не удалось открыть друзей');}
+    },true);
+  }
+  function run(){lockHorizontalSwipe();bindFriends();}
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',run,{once:true}); else run();
+  setTimeout(run,100); setTimeout(run,500); setTimeout(run,1200);
+})();
+</script>
 </html>
 <style id="resell-home-nav-v3">
 /* RESSELL HOME NAV V3 — beginner-first information architecture. */
