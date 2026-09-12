@@ -166,7 +166,7 @@ const tg=window.Telegram?.WebApp||null;
 try{tg?.expand();tg?.setHeaderColor('#050505');tg?.setBackgroundColor('#050505');}catch(_){}
 const API_BASE='https://resellgame.bothost.tech';
 const params=new URLSearchParams(location.search);
-const tgId=tg?.initDataUnsafe?.user?.id||params.get('userId')||'';
+const tgId=params.get('userId')||tg?.initDataUnsafe?.user?.id||'';
 
 const containers=[
  {id:'small_bag',name:'Малый мешок',price:2500,desc:'Мелкая электроника и аксессуары',tag:'START',art:'bag',icon:'🎒'},
@@ -220,28 +220,20 @@ function toast(t){$('toast').textContent=t;$('toast').classList.add('show');clea
 function saveStats(){try{localStorage.setItem('resell_containers_stats_'+tgId,JSON.stringify(stats))}catch(_){}}
 function loadStats(){try{stats=JSON.parse(localStorage.getItem('resell_containers_stats_'+tgId)||'null')||stats}catch(_){}}
 function authHeaders(){
- const h={'Content-Type':'application/json','Accept':'application/json'};
+ const h={'Content-Type':'application/json'};
  try{
-  // Rollback to the previously working raw Telegram initData transport.
-  const raw=String(tg?.initData||window.Telegram?.WebApp?.initData||'').trim();
+  const raw=String(tg?.initData||'').trim();
   if(raw){h['X-Telegram-Init-Data']=raw;h['Authorization']='tma '+raw;}
- }catch(_){ }
+  const session=String(sessionStorage.getItem('resell_server_session_v4')||localStorage.getItem('resell_server_session_v4')||'').trim();
+  if(session){h['X-Resell-Session']=session;h['Authorization']='Bearer '+session;}
+ }catch(_){}
  return h;
 }
 async function api(path,opt={}){
- let headers={...authHeaders(),...(opt.headers||{})};
- let r=await fetch(API_BASE+path,{cache:'no-store',...opt,headers});
- let d={};try{d=await r.json()}catch(_){ }
- if(r.status===401&&tg){
-  try{tg.ready();}catch(_){ }
-  const fresh=String(tg.initData||window.Telegram?.WebApp?.initData||'').trim();
-  if(fresh&&fresh!==headers['X-Telegram-Init-Data']){
-   headers={...headers,'X-Telegram-Init-Data':fresh,'Authorization':'tma '+fresh};
-   r=await fetch(API_BASE+path,{cache:'no-store',...opt,headers});
-   d={};try{d=await r.json()}catch(_){ }
-  }
- }
- if(!r.ok||d.success===false)throw new Error(d.error||d.message||(r.status===401?'Недействительная сессия Telegram. Открой RESSELL из Telegram.':'Ошибка сервера'));
+ const headers={...authHeaders(),...(opt.headers||{})};
+ const r=await fetch(API_BASE+path,{cache:'no-store',...opt,headers});
+ let d={};try{d=await r.json()}catch(_){}
+ if(!r.ok||d.success===false)throw new Error(d.error||d.message||'Ошибка сервера');
  return d;
 }
 

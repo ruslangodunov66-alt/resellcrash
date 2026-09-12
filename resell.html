@@ -1401,6 +1401,11 @@ body.resell-booting .app,body.resell-booting .nav{opacity:0;transform:translateY
 <style id="rhold-simple-control-position">
 #farmSection #rholdCustomizeControl{display:none!important}
 </style>
+<style id="resell-avito-auto-inventory-toggle-v1">
+.avx-auto-stock-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 0 12px;padding:10px 11px;border:1px solid rgba(255,255,255,.07);border-radius:14px;background:linear-gradient(145deg,rgba(255,255,255,.035),rgba(255,255,255,.018));cursor:pointer;user-select:none}
+.avx-auto-stock-toggle>span{min-width:0}.avx-auto-stock-toggle b{display:block;color:#e8eee7;font:950 7px/1.1 Montserrat,sans-serif;letter-spacing:.65px}.avx-auto-stock-toggle small{display:block;margin-top:4px;color:#626a63;font:800 7px/1.2 Nunito,sans-serif}
+.avx-auto-stock-toggle input{position:absolute;opacity:0;pointer-events:none}.avx-auto-stock-toggle i{position:relative;flex:0 0 42px;width:42px;height:24px;border-radius:999px;background:#202421;border:1px solid rgba(255,255,255,.10);box-shadow:inset 0 1px 2px rgba(0,0,0,.35);transition:.18s ease}.avx-auto-stock-toggle i:after{content:"";position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:50%;background:#737a74;box-shadow:0 2px 6px rgba(0,0,0,.35);transition:.18s ease}.avx-auto-stock-toggle input:checked+i{background:rgba(183,255,106,.16);border-color:rgba(183,255,106,.45);box-shadow:0 0 18px rgba(183,255,106,.08),inset 0 1px 2px rgba(0,0,0,.25)}.avx-auto-stock-toggle input:checked+i:after{transform:translateX(18px);background:#b7ff6a;box-shadow:0 0 12px rgba(183,255,106,.22)}
+</style>
 <style id="resell-final-visual-pass-v8">
 /* swipe direction indicators */
 .swipe-caption:before,.swipe-caption:after{position:relative!important}
@@ -2115,101 +2120,180 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   const params = new URLSearchParams(location.search);
 
   // ================================================================
-  // TELEGRAM AUTH — rollback to the previously working Mini App transport
-  // Keep the raw Telegram.WebApp.initData and send it directly to the backend.
-  // Do not create/restore a RESSELL browser session here.
+  // TELEGRAM AUTH — canonical raw-initData transport
+  // AUTH_IMPL: canonical-telegram-auth-v4
   // ================================================================
+  // Keep the exact initData string Telegram gives the WebView. Do not rebuild,
+  // normalize or JSON-stringify the signed payload on the client.
   let telegramInitData = '';
   let telegramUserId = '';
   let telegramAuthGeneration = 0;
   let telegramIdentityPromise = null;
+  let telegramLastLiveUserId = '';
+
+  function captureTelegramInitData(raw){
+    const value=String(raw||'').trim();
+    if(!value) return '';
+    // Telegram initData is signed and account-bound. If the WebView switches
+    // accounts, replace the cached payload instead of ever mixing sessions.
+    if(telegramInitData && telegramInitData===value) return telegramInitData;
+    try{
+      const q=new URLSearchParams(value);
+      const userRaw=q.get('user')||'';
+      let uid='';
+      try{ uid=String(JSON.parse(userRaw||'{}')?.id||'').trim(); }catch(_){
+        const m=String(userRaw).match(/"id"\s*:\s*(\d+)/); uid=m?m[1]:'';
+      }
+      if(uid){
+        telegramInitData=value;
+        telegramUserId=uid;
+        return telegramInitData;
+      }
+    }catch(_){ }
+    return '';
+  }
+
+  function invalidateStaleTelegramCache(){
+    // Authorization must be based only on the signed initData.
+    // initDataUnsafe can be transient during Telegram WebView transitions.
+    try{
+      const live=window.Telegram?.WebApp;
+      const direct=String(live?.initData||'').trim();
+      if(!direct || !telegramInitData || direct===telegramInitData) return;
+      const liveId=getSignedTelegramUserId(direct);
+      const cachedId=String(telegramUserId||'').trim();
+      if(liveId && cachedId && liveId!==cachedId){
+        telegramInitData=direct;
+        telegramUserId=liveId;
+        telegramLastLiveUserId=liveId;
+        userId=liveId;
+        isOwner=String(userId)===ADMIN_OWNER_ID;
+        isAdmin=isOwner;
+        telegramAuthGeneration++;
+      }
+    }catch(_){ }
+  }
 
   function getTelegramInitData(){
     try{
-      const direct=String(tg?.initData || window.Telegram?.WebApp?.initData || '').trim();
-      if(direct) return direct;
-    }catch(_){}
+      // Always prefer the live signed payload supplied by Telegram.
+      const live=window.Telegram?.WebApp || tg;
+      if(live) tg=live;
+      const direct=String(live?.initData||'').trim();
+      if(direct){
+        const captured=captureTelegramInitData(direct);
+        if(captured) return captured;
+      }
+    }catch(_){ }
+
+    // During iOS/Android WebView startup Telegram can expose WebApp while
+    // initData is still temporarily empty. In that case recover the exact
+    // signed launch payload from the URL instead of declaring the session dead.
+    const currentUnsafeId=String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '').trim();
+    const acceptFallback=(raw)=>{
+      const value=String(raw||'').trim();
+      if(!value) return '';
+      const signedId=getSignedTelegramUserId(value);
+      if(!signedId) return '';
+      // When Telegram already exposed a user id, never accept a payload for a
+      // different account. Without an unsafe id, the signed payload itself is
+      // the source of truth.
+      if(currentUnsafeId && signedId!==currentUnsafeId) return '';
+      return captureTelegramInitData(value);
+    };
+
     try{
-      const q=String(params.get('initData') || params.get('tgWebAppData') || '').trim();
-      if(q) return q;
-    }catch(_){}
+      const q=String(params.get('initData')||params.get('tgWebAppData')||'').trim();
+      if(q){
+        const captured=acceptFallback(q);
+        if(captured) return captured;
+      }
+    }catch(_){ }
+
     try{
       const rawHash=String(location.hash||'').replace(/^#\?/,'').replace(/^#/,'');
       const q=new URLSearchParams(rawHash);
-      return String(q.get('tgWebAppData') || q.get('initData') || '').trim();
-    }catch(_){}
+      const raw=String(q.get('tgWebAppData')||q.get('initData')||'').trim();
+      const captured=acceptFallback(raw);
+      if(captured) return captured;
+    }catch(_){ }
+
+    // Reuse a previously captured signed payload only when Telegram is not
+    // exposing a contradictory current account id. This prevents session loss
+    // on transient WebView gaps without allowing account mixing.
+    try{
+      if(telegramInitData){
+        const cachedId=getSignedTelegramUserId(telegramInitData);
+        if(!currentUnsafeId || !cachedId || cachedId===currentUnsafeId) return telegramInitData;
+      }
+    }catch(_){ }
     return '';
   }
+
+  function telegramAuthHeaders(extra={}){
+    const headers={'Accept':'application/json',...extra};
+    const initData=getTelegramInitData();
+    if(initData){
+      // Primary transport: exact Telegram initData, byte-for-byte.
+      headers['X-Telegram-Init-Data']=initData;
+      // Secondary transport for proxies that strip custom headers.
+      headers['Authorization']='tma '+initData;
+    }
+    return headers;
+  }
+
+  function getTelegramUserIdFromInitData(){
+    if(telegramUserId) return telegramUserId;
+    try{
+      const raw=getTelegramInitData();
+      const q=new URLSearchParams(raw||'');
+      const userRaw=q.get('user')||'';
+      try{ telegramUserId=String(JSON.parse(userRaw||'{}')?.id||'').trim(); }
+      catch(_){ const m=String(userRaw).match(/"id"\s*:\s*(\d+)/); telegramUserId=m?m[1]:''; }
+    }catch(_){ }
+    return telegramUserId;
+  }
+
 
   function getSignedTelegramUserId(initData=''){
     try{
       const q=new URLSearchParams(String(initData||''));
-      const u=JSON.parse(q.get('user')||'{}');
-      const id=String(u?.id||'').trim();
-      return /^\d+$/.test(id)?id:'';
-    }catch(_){ return ''; }
+      const raw=q.get('user')||'';
+      const parsed=JSON.parse(raw||'{}');
+      const id=String(parsed?.id||'').trim();
+      return /^\d+$/.test(id) ? id : '';
+    }catch(_){
+      return '';
+    }
   }
 
-  function getTelegramUserIdFromInitData(){
-    const direct=getSignedTelegramUserId(getTelegramInitData());
-    if(direct){ telegramUserId=direct; return direct; }
-    try{
-      const id=String(tg?.initDataUnsafe?.user?.id || window.Telegram?.WebApp?.initDataUnsafe?.user?.id || params.get('userId') || '').trim();
-      if(id) telegramUserId=id;
-    }catch(_){}
-    return telegramUserId;
-  }
-
+  // Canonical player identity comes only from signed Telegram initData.
   let userId = getTelegramUserIdFromInitData() || '';
   const ADMIN_OWNER_ID = '1475910449';
   let isOwner = String(userId) === ADMIN_OWNER_ID;
   let isAdmin = isOwner;
 
-  function captureTelegramInitData(raw){
-    const value=String(raw||'').trim();
-    if(!value) return '';
-    telegramInitData=value;
-    const uid=getSignedTelegramUserId(value);
-    if(uid){ telegramUserId=uid; userId=uid; }
-    return value;
-  }
-
   function syncTelegramUserId(){
-    const uid=getTelegramUserIdFromInitData();
-    if(uid) userId=uid;
+    const signedId=getTelegramUserIdFromInitData();
+    if(signedId) userId=signedId;
     isOwner=String(userId||'')===ADMIN_OWNER_ID;
     if(isOwner) isAdmin=true;
     return String(userId||'');
   }
 
-  async function waitForTelegramInitData(timeoutMs=3000){
-    const started=Date.now();
-    while(Date.now()-started<=timeoutMs){
-      const raw=getTelegramInitData();
-      if(raw){ captureTelegramInitData(raw); syncTelegramUserId(); return raw; }
-      try{ tg?.ready?.(); }catch(_){}
-      await new Promise(r=>setTimeout(r,100));
-    }
-    const raw=getTelegramInitData();
-    if(raw) captureTelegramInitData(raw);
-    syncTelegramUserId();
-    return raw;
-  }
-
   async function ensureTelegramIdentity(timeoutMs=5000){
     const raw=await waitForTelegramInitData(timeoutMs);
-    syncTelegramUserId();
+    const signedId=getTelegramUserIdFromInitData();
+    if(signedId){
+      userId=signedId;
+      isOwner=String(userId)===ADMIN_OWNER_ID;
+      if(isOwner) isAdmin=true;
+    }
     return {initData:raw||'',userId:String(userId||'')};
   }
 
-  function telegramAuthHeaders(extra={}){
-    const headers={'Accept':'application/json',...extra};
-    const raw=getTelegramInitData();
-    if(raw){ headers['X-Telegram-Init-Data']=raw; }
-    return headers;
-  }
-
-  try{ captureTelegramInitData(String(tg?.initData||window.Telegram?.WebApp?.initData||'')); }catch(_){}
+  // Capture Telegram payload immediately when it is already available.
+  try{ captureTelegramInitData(String(window.Telegram?.WebApp?.initData||tg?.initData||'')); }catch(_){ }
   syncTelegramUserId();
 
   let adminState = {players:[], selected:null};
@@ -2816,44 +2900,187 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     finally{ telegramIdentityPromise=null; }
   }
 
-  // Auth rollback compatibility: gameplay uses raw Telegram initData again.
-  // Keep this function so older call sites remain harmless, but never mint or
-  // persist a browser-side RESSELL session.
-  async function ensureResellServerSession(){ return ''; }
+  // RELEASE AUTH: seamless bootstrap. The browser sends Telegram's exact signed
+  // initData once; the server validates it and returns a RESSELL HMAC session.
+  // No /start, no profile confirmation, no deep-link handoff.
+  let resellAuthBootstrapPromise=null;
+  function signedUserIdFromInit(raw){
+    try{const q=new URLSearchParams(String(raw||''));const u=JSON.parse(q.get('user')||'{}');const id=String(u?.id||'').trim();return /^\d+$/.test(id)?id:'';}catch(_){return '';}
+  }
+  async function ensureResellServerSession(initData='',tgUid=''){
+    const existing=getStoredResellSession();
+    const existingUid=resellSessionUserId(existing);
+    const wanted=String(tgUid||signedUserIdFromInit(initData)||userId||'').trim();
+    if(existing&&existingUid&&wanted&&existingUid===wanted)return existing;
+    if(resellAuthBootstrapPromise)return resellAuthBootstrapPromise;
+    const raw=String(initData||'').trim();
+    if(!raw)throw Object.assign(new Error('Telegram-сессия ещё не готова'),{status:401,authBootstrap:true});
+    resellAuthBootstrapPromise=(async()=>{
+      try{
+        const r=await fetch(`${API_BASE}/auth/resell/session`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'application/json','X-Telegram-Init-Data':raw,'Authorization':'tma '+raw},body:'{}'});
+        const d=await r.json().catch(()=>({}));
+        if(!r.ok||!d?.success||!d?.session){const e=new Error(d?.error||'Telegram-сессия не подтверждена');e.status=r.status||401;e.authBootstrap=true;throw e;}
+        const token=String(d.session),uid=resellSessionUserId(token);
+        if(!uid||(wanted&&uid!==wanted))throw Object.assign(new Error('Несовпадение Telegram ID с серверной сессией'),{status:401,authBootstrap:true});
+        setStoredResellSession(token);userId=uid;telegramUserId=uid;isOwner=String(userId)===ADMIN_OWNER_ID;if(isOwner)isAdmin=true;return token;
+      }finally{resellAuthBootstrapPromise=null;}
+    })();
+    return resellAuthBootstrapPromise;
+  }
 
-  async function apiFetch(url, options={}, attempts=3){
+  async function apiFetch(url, options={}, attempts=2){
     let lastError=null;
     for(let i=0;i<attempts;i++){
       const controller=new AbortController();
-      const timer=setTimeout(()=>controller.abort(),9000);
+      const timer=setTimeout(()=>controller.abort(),7000);
       try{
         try{ tg?.ready?.(); }catch(_){}
-        const raw=getTelegramInitData();
-        if(!raw && String(url||'').startsWith(API_BASE)) await waitForTelegramInitData(1200);
-        const auth=getTelegramInitData();
-        syncTelegramUserId();
-        const headers={'Accept':'application/json','Cache-Control':'no-cache',...(options.headers||{})};
-        if(auth){ headers['X-Telegram-Init-Data']=auth; }
-        delete headers['Authorization'];
-        delete headers['X-Resell-Session'];
-        delete headers['x-resell-session'];
-        const resp=await fetch(url,{cache:'no-store',...options,signal:controller.signal,headers});
-        clearTimeout(timer);
-        if(resp.status===401 && i<attempts-1){
-          try{ tg?.ready?.(); }catch(_){}
-          await waitForTelegramInitData(800);
-          await new Promise(r=>setTimeout(r,100));
+        const isApiRequest=String(url||'').startsWith(API_BASE);
+        const needsTelegramAuth=isApiRequest && !/\/tycoon\/media\//i.test(url);
+        const authGenerationAtStart=telegramAuthGeneration;
+        const initData=needsTelegramAuth ? await waitForTelegramInitData(1800) : getTelegramInitData();
+        const signedUserId=getSignedTelegramUserId(initData);
+        if(needsTelegramAuth && authGenerationAtStart!==telegramAuthGeneration && !signedUserId){
+          await new Promise(r=>setTimeout(r,120));
           continue;
         }
+        if(signedUserId){
+          userId=signedUserId;
+          telegramUserId=signedUserId;
+          isOwner=String(userId)===ADMIN_OWNER_ID;
+          if(isOwner) isAdmin=true;
+        }else{
+          syncTelegramUserId();
+        }
+        const secureHeaders={'Accept':'application/json','Cache-Control':'no-cache',...(options.headers||{})};
+        // Never trust a caller-supplied authorization header. Auth is selected
+        // deterministically from the current Telegram identity + RESSELL session.
+        delete secureHeaders['X-Telegram-Init-Data'];
+        delete secureHeaders['x-telegram-init-data'];
+        delete secureHeaders['Authorization'];
+        delete secureHeaders['X-Resell-Session'];
+        delete secureHeaders['x-resell-session'];
+        let requestUrl=url;
+        if(needsTelegramAuth && userId){
+          // Synchronize every protected player-id path with the same signed
+          // Telegram user. Business is included here explicitly.
+          requestUrl=requestUrl.replace(/(\/(?:profile|engagement|quests|passive|tycoon|business|upgrades|epoch|referrals|referral|friends|hold|cars|garage|avito|referr|bank|taxi|rcoin|container|race|poker|game_result)\/)\d+/i, '$1'+userId);
+        }
+        // RESSELL server session is the primary auth transport. It is generated
+        // by the bot/backend, bound to the Telegram user id and survives all
+        // subsequent game API calls without re-validating Telegram signatures.
+        const launchToken=getResellLaunchToken();
+        const storedSession=getStoredResellSession();
+        const launchUid=resellSessionUserId(launchToken);
+        const liveUnsafeId=String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id||'').trim();
+        let serverSession='';
+
+        // A launch/session token is usable only when it belongs to the current
+        // Telegram identity. Never let an old owner's token authenticate a twin.
+        if(launchToken && launchUid){
+          // A RESSELL launch token is already HMAC-signed by our backend and
+          // contains its own Telegram user id. It is the authoritative bearer
+          // when the Mini App was opened from our bot. Do not reject it just
+          // because Telegram's third-party initData signature belongs to a
+          // different WebApp owner/context.
+          serverSession=launchToken;
+          userId=launchUid;
+          telegramUserId=launchUid;
+          isOwner=String(userId)===ADMIN_OWNER_ID;
+          if(isOwner) isAdmin=true;
+        }
+
+        // If Telegram temporarily hides initData during WebView startup, a
+        // launch token may establish the identity. This is safe because the
+        // token itself is server-signed and bound to its tg_id.
+        if(needsTelegramAuth && launchUid && !signedUserId && !liveUnsafeId){
+          userId=launchUid;
+          telegramUserId=launchUid;
+          serverSession=launchToken;
+        }
+
+        // A persisted session is usable only after its uid matches the live
+        // Telegram user. This prevents cross-account localStorage reuse.
+        if(!serverSession && storedSession){
+          const storedUid=resellSessionUserId(storedSession);
+          const identityUid=signedUserId || liveUnsafeId;
+          if(storedUid && identityUid && storedUid===identityUid){
+            serverSession=storedSession;
+          }else if(storedUid && identityUid && storedUid!==identityUid){
+            clearStoredResellSession();
+          }
+        }
+
+        if(serverSession){
+          const sessionUid=resellSessionUserId(serverSession);
+          const identityUid=signedUserId || liveUnsafeId || launchUid;
+          if(sessionUid && identityUid && sessionUid!==identityUid){clearStoredResellSession();serverSession='';}
+        }
+
+        if(needsTelegramAuth && !serverSession && initData && signedUserId){
+          serverSession=await ensureResellServerSession(initData,signedUserId);
+        }
+
+        if(needsTelegramAuth && serverSession){
+          secureHeaders['X-Resell-Session']=serverSession;
+          secureHeaders['Authorization']='Bearer '+serverSession;
+          // Keep a small query copy for deployments where custom auth headers
+          // are removed by an intermediate proxy. This contains only our own
+          // HMAC bearer, never the raw Telegram initData.
+          try{const u=new URL(requestUrl,location.href);u.searchParams.set('resell_session',serverSession);requestUrl=u.toString();}catch(_){}
+          setStoredResellSession(serverSession);
+        }else if(initData){
+          // Bootstrap/fallback path only. After a valid server session exists,
+          // raw Telegram initData is no longer sent on gameplay requests.
+          secureHeaders['X-Telegram-Init-Data']=initData;
+          secureHeaders['Authorization']='tma '+initData;
+        }
+
+        if(!serverSession && initData){
+          // Do not put the huge Telegram payload into URLs anymore. Headers are
+          // preferred; the backend still supports tg_auth_b64 for legacy clients.
+          if(!needsTelegramAuth) requestUrl=appendTelegramAuth(requestUrl,initData);
+        }
+        if(!initData && !serverSession && needsTelegramAuth) {
+          throw Object.assign(new Error('Открой RESSELL через Telegram — Telegram-сессия не передана'), {status:401});
+        }
+        const resp=await fetch(requestUrl,{cache:'no-store',...options,signal:controller.signal,headers:secureHeaders});
+        clearTimeout(timer);
         if(!resp.ok){
-          let p={};try{p=await resp.json();}catch(_){}
-          const e=new Error(p?.error||p?.message||`HTTP ${resp.status}`);e.status=resp.status;throw e;
+          let payload={}; try{payload=await resp.json();}catch(_){}
+          if(resp.status===401 && needsTelegramAuth && initData && !serverSession && i<attempts-1){
+            try{const freshSession=await ensureResellServerSession(initData,signedUserId||userId);if(freshSession)continue;}catch(authErr){throw Object.assign(authErr,{status:401,authBootstrap:true});}
+          }
+          if(resp.status===403 && payload?.banned){ try{ openBanAppealSheet(payload.error||'Аккаунт заблокирован'); }catch(_){} }
+          const e=new Error(payload?.error||payload?.message||
+            (resp.status===401?'Не удалось подтвердить Telegram-сессию. Перезапусти Mini App из Telegram и попробуй ещё раз.':
+             resp.status===404?'Раздел временно недоступен на сервере. Обнови приложение и попробуй ещё раз.':
+             resp.status>=500?'Сервер RESSELL временно не отвечает.':`Операция не выполнена (HTTP ${resp.status})`));
+          e.status=resp.status;
+          throw e;
         }
         return resp;
       }catch(e){
         clearTimeout(timer);
         lastError=e?.name==='AbortError'?new Error('Сервер не ответил вовремя'):e;
-        if(i<attempts-1) await new Promise(r=>setTimeout(r,350*(i+1)));
+        if(e?.authBridge){ throw e; }
+        if(i<attempts-1){
+          if(lastError?.status===401){
+            // NEVER erase the previously captured signed Telegram initData on a
+            // transient 401. Doing so creates a failure cascade: the first
+            // rejected request deletes the only usable session and every next
+            // protected request becomes 401 as well. Keep the exact signed
+            // payload in memory/sessionStorage and give Telegram a moment to
+            // restore its live WebApp object.
+            try{
+              const live=window.Telegram?.WebApp;
+              if(live) tg=live;
+              tg?.ready?.(); tg?.expand?.();
+            }catch(_){}
+            await waitForTelegramInitData(1500);
+          }
+          await new Promise(r=>setTimeout(r,350*(i+1)));
+        }
       }
     }
     throw lastError||new Error('Сервер временно недоступен');
@@ -4686,6 +4913,12 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 
   // ==================== AVITO / RESELL MARKET ====================
   let avitoTab='buy'; let avitoState=null; let avitoPoller=null; let avitoEditing=false;
+  // After buying from suppliers the item is ALWAYS added to the server inventory.
+  // This preference controls only whether the UI automatically switches to the
+  // inventory/sales tab. Default=true preserves the existing behaviour.
+  const AVITO_AUTO_INVENTORY_KEY='resell_avito_auto_inventory';
+  function getAvitoAutoInventory(){ try{return localStorage.getItem(AVITO_AUTO_INVENTORY_KEY)!=='0';}catch(_){return true;} }
+  function setAvitoAutoInventory(v){ try{localStorage.setItem(AVITO_AUTO_INVENTORY_KEY,v?'1':'0');}catch(_){} }
   async function fetchAvito(){ avitoState=await tycoonFetch(`/avito/${encodeURIComponent(userId)}`); const u=Number(avitoState?.unread_count||0); const b=document.getElementById("avitoEntryUnread"); if(b){b.textContent=u;b.style.display=u>0?"inline-grid":"none";} return avitoState; }
   async function refreshAvitoUnreadBadge(){ try{ if(userId && !document.hidden){ const d=await tycoonFetch(`/avito/${encodeURIComponent(userId)}`); const u=Number(d?.unread_count||0); const b=document.getElementById("avitoEntryUnread"); if(b){b.textContent=u;b.style.display=u>0?"inline-grid":"none";} } }catch(_){} }
   setInterval(refreshAvitoUnreadBadge,5000);
@@ -4710,6 +4943,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     if(avitoTab==='buy'){
       content=`<div class="avx-section">
         <div class="avx-section-head"><div><b>Закуп товара</b><span>Купил — товар сразу попадёт в склад.</span></div><span class="avx-count">${suppliers.length}</span></div>
+         <label class="avx-auto-stock-toggle"><span><b>АВТОПЕРЕХОД В СКЛАД</b><small>После покупки открыть «Продажи»</small></span><input type="checkbox" id="avitoAutoInventoryToggle" ${getAvitoAutoInventory()?'checked':''}><i></i></label>
         <div class="avx-grid">${suppliers.slice(0,18).map(x=>{const rc=avitoRarity(x.rarity);return `<div class="avx-product rarity-${rc}" data-rarity="${rc}">
           <div class="avx-product-top"><div class="avx-rarity-icon" aria-hidden="true"></div><div class="avx-product-info"><b>${esc(x.name||'Товар')}</b><span>${esc(x.cat||'Категория')} · спрос ×${Number(x.demand||1).toFixed(2)}</span><small class="avx-rarity-name">${avitoRarityLabel(x.rarity)}</small></div></div>
           <div class="avx-product-bottom"><strong>${number(x.buy_price||0)} ₽</strong><button class="avx-btn buy" data-avito-buy="${esc(x.id)}">КУПИТЬ</button></div>
@@ -4787,9 +5021,13 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     avitoPoller=setInterval(async()=>{ if(avitoEditing || !modal.classList.contains('open') || !document.querySelector('.avito-shell')) return; try{ await fetchAvito(); if(avitoEditing || document.querySelector('[data-avito-chat-sheet="1"]')) return; modalBody.innerHTML=renderAvito(); }catch(_){} },3500);
   }
   $('#avitoBtn')?.addEventListener('click',openAvito);
+  modalBody.addEventListener('change',e=>{
+    const toggle=e.target.closest('#avitoAutoInventoryToggle');
+    if(toggle){ setAvitoAutoInventory(!!toggle.checked); showToast(toggle.checked?'После покупки откроется склад':'После покупки останешься у поставщиков'); }
+  });
   modalBody.addEventListener('click',async(e)=>{
     const tab=e.target.closest('[data-avito-tab]'); if(tab){avitoTab=tab.dataset.avitoTab;try{await fetchAvito();modalBody.innerHTML=renderAvito()}catch(err){showToast(err.message||'Ошибка')}return;}
-    const buy=e.target.closest('[data-avito-buy]'); if(buy){buy.disabled=true;try{const p=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/buy`,{method:'POST',body:JSON.stringify({item_id:buy.dataset.avitoBuy})});profileData.balance=p.balance??profileData.balance;setBalance(profileData.balance);showToast(p.message||'Товар закуплен');avitoTab='sales';await fetchAvito();modalBody.innerHTML=renderAvito()}catch(err){showToast(err.message||'Не удалось купить товар');buy.disabled=false}return;}
+    const buy=e.target.closest('[data-avito-buy]'); if(buy){buy.disabled=true;try{const p=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/buy`,{method:'POST',body:JSON.stringify({item_id:buy.dataset.avitoBuy})});profileData.balance=p.balance??profileData.balance;setBalance(profileData.balance);showToast(p.message||'Товар закуплен');avitoTab=getAvitoAutoInventory()?'sales':'buy';await fetchAvito();modalBody.innerHTML=renderAvito()}catch(err){showToast(err.message||'Не удалось купить товар');buy.disabled=false}return;}
     const pub=e.target.closest('[data-avito-publish]'); if(pub){avitoEditing=true;openModal('Выставить товар',`<div class="avito-shell"><div class="avito-item"><div class="avito-item-name">Выставить товар</div><div class="avito-item-meta">Напиши коротко о состоянии товара и комплекте.</div><textarea class="avito-input" id="avitoDescription" maxlength="1000" rows="5" placeholder="Например: отличное состояние, полный комплект, использовался мало…"></textarea><button class="avito-btn primary" id="avitoPublishConfirm" data-item-uid="${esc(pub.dataset.avitoPublish)}" style="margin-top:8px;width:100%">ОПУБЛИКОВАТЬ</button></div></div>`);return;}
     const conf=e.target.closest('#avitoPublishConfirm'); if(conf){conf.disabled=true;try{const p=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/publish`,{method:'POST',body:JSON.stringify({item_uid:conf.dataset.itemUid,description:$('#avitoDescription')?.value||''})});showToast(p.message||'Объявление опубликовано');avitoEditing=false;avitoTab='chats';await fetchAvito();modalBody.innerHTML=renderAvito()}catch(err){showToast(err.message||'Не удалось опубликовать');conf.disabled=false}return;}
     const openChat=e.target.closest('[data-open-avito-chat],[data-open-avito-chat-btn]'); if(openChat){avitoEditing=true;const key=openChat.dataset.openAvitoChat||openChat.dataset.openAvitoChatBtn;try{await tycoonFetch(`/avito/${encodeURIComponent(userId)}/chat`,{method:'POST',body:JSON.stringify({chat_key:key,action:'read'})});}catch(_){};avitoTab='chats';await fetchAvito();const chat=(avitoState.chats||[]).find(x=>String(x.chat_key)===String(key));if(!chat){showToast('Чат уже завершён');return;}openModal('Покупатель #'+chat.buyer_id,renderAvitoChat(chat));return;}
@@ -5534,7 +5772,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       invalidateStaleTelegramCache();
       const bootInit=await waitForTelegramInitData(5000);
       syncTelegramUserId();
-      if(bootInit){ syncTelegramUserId(); }
+      if(bootInit&&userId){try{await ensureResellServerSession(bootInit,userId);}catch(_){} }
       if(!isOwner){
         try{
           const meUrl=`${API_BASE}/admin/me/${encodeURIComponent(userId)}`;
@@ -6040,22 +6278,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     b.querySelectorAll('[data-r28-item]').forEach(x=>x.onclick=()=>act(x.dataset.r28Item));
   }
   async function loadCatalog(){
-    let lastErr=null;
-    for(let attempt=0;attempt<3;attempt++){
-      const c=core();
-      const u=uid() || String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id||'').trim();
-      if(!c.apiFetch||!u){ lastErr=new Error('Telegram-сессия ещё не готова'); await new Promise(r=>setTimeout(r,180*(attempt+1))); continue; }
-      try{
-        const r=await c.apiFetch(`${API}/hold/skins/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'GET'},3);
-        const d=await r.json().catch(()=>({}));
-        if(!r.ok||!d.success) throw new Error(d.error||`Не удалось загрузить кастомизацию (${r.status||'сервер'})`);
-        cache=d;
-        const prof=c.getProfile?.();
-        if(prof){prof.customization={equipped:d.equipped_slots||{},rhold:(d.skins||[]).find(x=>x.id===d.equipped_slots?.rhold)||null,nick:(d.skins||[]).find(x=>x.id===d.equipped_slots?.nick)||null,avatar:(d.skins||[]).find(x=>x.id===d.equipped_slots?.avatar)||null,badge:(d.skins||[]).find(x=>x.id===d.equipped_slots?.badge)||null,rating:d.rating||''};}
-        renderShop();applyOwn(d);return d;
-      }catch(e){lastErr=e;await new Promise(r=>setTimeout(r,220*(attempt+1)));}
-    }
-    throw lastErr||new Error('Не удалось загрузить кастомизацию');
+    const c=core();if(!c.apiFetch||!uid())return;const r=await c.apiFetch(`${API}/hold/skins/${encodeURIComponent(uid())}?t=${Date.now()}`,{method:'GET'},3);const d=await r.json();if(!r.ok||!d.success)throw new Error(d.error||'Не удалось загрузить кастомизацию');cache=d;const prof=c.getProfile?.();if(prof){prof.customization={equipped:d.equipped_slots||{},rhold:(d.skins||[]).find(x=>x.id===d.equipped_slots?.rhold)||null,nick:(d.skins||[]).find(x=>x.id===d.equipped_slots?.nick)||null,avatar:(d.skins||[]).find(x=>x.id===d.equipped_slots?.avatar)||null,badge:(d.skins||[]).find(x=>x.id===d.equipped_slots?.badge)||null,rating:d.rating||''};}renderShop();applyOwn(d);
   }
   function applyOwn(d){
     const r=(d.skins||[]).find(x=>x.id===d.equipped_slots?.rhold)|| (d.skins||[]).find(x=>x.id===d.equipped);
@@ -6624,7 +6847,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 (function(){
   'use strict';
   function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
-  function session(){return ''}
+  function session(){try{return sessionStorage.getItem('resell_server_session_v4')||localStorage.getItem('resell_server_session_v4')||''}catch(_){return ''}}
   function uid(){return String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id||'').trim()}
   function money(v){return Number(v||0).toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽'}
   function pathFor(points,w,h){
@@ -6635,8 +6858,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   async function render(tg){
     const box=document.getElementById('rcoinUserChart'); if(!box||!tg)return;
     try{
-      const headers={'Accept':'application/json'};
-      try{const raw=String(window.Telegram?.WebApp?.initData||'').trim();if(raw){headers['X-Telegram-Init-Data']=raw;headers['Authorization']='tma '+raw;}}catch(_){}
+      const headers={}; const s=session(); if(s){headers['X-Resell-Session']=s;headers['Authorization']='Bearer '+s;}
       const r=await fetch('https://resellgame.bothost.tech/rcoin/market/'+encodeURIComponent(tg)+'?t='+Date.now(),{headers,cache:'no-store'});
       const d=await r.json().catch(()=>({})); if(!r.ok||!d.success) throw new Error(d.error||'Не удалось загрузить динамику');
       const pts=Array.isArray(d.history)?d.history:[];
@@ -6915,7 +7137,7 @@ html[lang="en"] #resellHomeMoney #mainAssetsSection .main-tycoon-card[data-main-
     ids.forEach(id=>{
       const old=document.getElementById(id); if(!old||old.dataset.friendsV19Bound==='1')return;
       const fresh=old.cloneNode(true); fresh.dataset.friendsV19Bound='1'; old.replaceWith(fresh);
-      fresh.addEventListener('click',e=>{e.preventDefault();e.stopImmediatePropagation();const fn=window.__resellOpenFriends; if(typeof fn==='function') Promise.resolve(fn()).catch(err=>console.error('[Friends]',err));});
+      fresh.addEventListener('click',e=>{e.preventDefault();e.stopImmediatePropagation();const fn=window.__resellOpenFriendsV19; if(fn)fn();});
     });
   }
   function forceHomeOrder(){
@@ -6993,10 +7215,10 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
       const btn=e.target?.closest?.('#friendsBtn,#friendsNavBtn');
       if(!btn) return;
       e.preventDefault(); e.stopImmediatePropagation();
-      const fn=window.__resellOpenFriends;
+      const fn=window.__resellOpenFriends || window.__resellOpenFriendsV19;
       if(typeof fn!=='function'){
         setTimeout(()=>{
-          const retry=window.__resellOpenFriends;
+          const retry=window.__resellOpenFriends || window.__resellOpenFriendsV19;
           if(typeof retry==='function') Promise.resolve(retry()).catch(err=>console.error('[Friends]',err));
           else window.showToast?.('Друзья пока загружаются…');
         },50);
@@ -7915,7 +8137,7 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
       el.dataset.finalFriendsV2='1';
       el.addEventListener('click',function(e){
         e.preventDefault(); e.stopImmediatePropagation();
-        var fn=window.__resellOpenFriends;
+        var fn=window.__resellOpenFriends || window.__resellOpenFriendsV19;
         if(typeof fn==='function'){ try{ fn(); }catch(err){ console.error('[Friends]',err); } }
       },true);
     });
