@@ -5076,6 +5076,10 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     const balance=Number(s.balance??profileData?.balance??0);
     const pending=Number(s.pending_collect??0);
     const debt=Number(s.maintenance_due??s.maintenance_cost??0);
+    const capacity=Math.max(2,Number(s.business_capacity??2));
+    const capacityLeft=Math.max(0,Number(s.business_capacity_left??(capacity-businesses.length)));
+    const avitoSales=Math.max(0,Number(s.avito_sales??0));
+    const avitoLevel=String(s.avito_level||'🆕 Новичок');
     const reportedHour=Number(s.hourly_income??s.hourly_profit??s.total_per_hour??0);
     const derivedHour=businesses.reduce((sum,b)=>{
       const v=Number(b?.income_per_hour??b?.hourly_income??b?.profit_per_hour??b?.income??0);
@@ -5114,9 +5118,9 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 
     const catalogRows=catalog.map((x,i)=>{
       const xid=escText(id(x)); const p=price(x); const h=inc(x); const own=owned(id(x));
-      const full=businesses.length>=2; const affordable=p<=balance; const canBuy=!full&&own<2&&affordable;
+      const full=businesses.length>=capacity; const affordable=p<=balance; const canBuy=!full&&own<2&&affordable;
       let button='КУПИТЬ', cls='ready', disabled='';
-      if(full){button='ЛИМИТ 2/2';cls='disabled';disabled='disabled';}
+      if(full){button=`ЛИМИТ ${businesses.length}/${capacity}`;cls='disabled';disabled='disabled';}
       else if(own>=2){button='КУПЛЕН';cls='disabled';disabled='disabled';}
       else if(!affordable){button=`НУЖНО ${number(Math.max(0,p-balance))} ₽`;cls='disabled';disabled='disabled';}
       return `<article class="bizsimple-shop-row ${canBuy?'can-buy':''}">
@@ -5133,17 +5137,18 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     return `<div class="business-v6 business-control-v5 bizsimple">
       <header class="bizsimple-head">
         <div><span>RESSELL BUSINESS</span><h2>Бизнес</h2><small>Доход → активы → новый бизнес</small></div>
+        <div class="biz-capacity-badge"><b>${businesses.length}/${capacity}</b><span>МЕСТ · AVITO LVL</span></div>
         <button type="button" class="bizsimple-refresh" id="businessRefreshBtn">Обновить</button>
       </header>
 
       <section class="bizsimple-income">
         <div class="bizsimple-income-main"><span>НАКОПЛЕНО</span><b>${number(pending)} ₽</b><small>Общий доход от твоих бизнесов</small></div>
         <button type="button" class="bizsimple-collect" id="businessCollectBtn" ${pending<=0?'disabled':''}>${pending>0?`ЗАБРАТЬ +${number(pending)} ₽`:'ЗАБИРАТЬ ПОКА НЕЧЕГО'}</button>
-        <div class="bizsimple-flow"><span><b>${number(hour)} ₽</b> / час</span><span><b>${number(day)} ₽</b> / день</span><span><b>${businesses.length}</b> / 2 бизнеса</span></div>
+        <div class="bizsimple-flow"><span><b>${number(hour)} ₽</b> / час</span><span><b>${number(day)} ₽</b> / день</span><span><b>${businesses.length}</b> / ${capacity} бизнеса</span></div>
       </section>
 
       <section class="bizsimple-section" id="bizsimpleAssets">
-        <div class="bizsimple-section-title"><div><h3>Мои активы</h3><p>Здесь находятся купленные бизнесы.</p></div><b>${businesses.length}/2</b></div>
+        <div class="bizsimple-section-title"><div><h3>Мои активы</h3><p>Вместимость растёт вместе с уровнем Авито.</p></div><b>${businesses.length}/${capacity}</b></div>
         <div class="bizsimple-assets-list">${assetRows||`<div class="bizsimple-empty"><b>Пока нет бизнесов</b><span>Ниже уже открыт магазин — просто выбери первый бизнес и нажми «Купить».</span></div>`}</div>
       </section>
 
@@ -5153,7 +5158,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       </section>
 
       <section class="bizsimple-section" id="bizsimpleShop">
-        <div class="bizsimple-section-title"><div><h3>Купить бизнес</h3><p>Листай вниз: цена и доход показаны прямо в каждой строке.</p></div><b>${Math.max(0,2-businesses.length)} места</b></div>
+        <div class="bizsimple-section-title"><div><h3>Купить бизнес</h3><p>Авито: ${escText(avitoLevel)} · ${avitoSales} продаж</p></div><b>${capacityLeft} места</b></div>
         <div class="bizsimple-shop-list">${catalogRows||`<div class="bizsimple-empty"><b>Каталог пуст</b><span>Сейчас доступные бизнесы не получены.</span></div>`}</div>
       </section>
 
@@ -6468,12 +6473,12 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     const o=ensureCust(),b=o.querySelector('#v33CustBody');
     if(!custCache){b.innerHTML='<div class="r26-note">Загрузка каталога…</div>';return;}
     const all=(custCache.skins||[]).filter(x=>(x.kind||'')==='rhold' && !x.legacy);
-    const wanted=['v28_base_signal','v28_4_prism','v28_4_cyan','v28_4_amber','v28_45_neon'];
-    const fallback=all.filter(x=>!wanted.includes(x.id)).slice(0,5);
+    const wanted=['v28_base_signal','era2_core','v28_4_prism','v28_4_cyan','v28_4_amber','v28_45_neon'];
+    const fallback=all.filter(x=>!wanted.includes(x.id)).slice(0,6);
     const arr=wanted.map(id=>all.find(x=>x.id===id)).filter(Boolean);
-    while(arr.length<5 && fallback.length) arr.push(fallback.shift());
+    while(arr.length<6 && fallback.length) arr.push(fallback.shift());
 
-    const cards=arr.slice(0,5).map((x,i)=>{
+    const cards=arr.slice(0,6).map((x,i)=>{
       const owned=!!x.owned,eq=!!x.equipped,unlocked=!!x.unlocked;
       const level=i+1;
       const boost=Number(x.reward_multiplier||1).toFixed(2);
@@ -6491,11 +6496,11 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 
     b.innerHTML=`<div class="r26-summary">
       <div class="r26-stat accent"><small>ТЕКУЩАЯ ERA</small><b>ERA ${Number(custCache.unlocked_era||1)}</b></div>
-      <div class="r26-stat"><small>R-HOLD</small><b>5 УРОВНЕЙ</b></div>
+      <div class="r26-stat"><small>R-HOLD</small><b>6 УРОВНЕЙ</b></div>
     </div>
-    <div class="r26-section">5 ВИЗУАЛЬНЫХ УРОВНЕЙ · БЕЗ ПОКУПКИ ЗА ДЕНЬГИ</div>
+    <div class="r26-section">6 УРОВНЕЙ R-HOLD · 2 ПО ПРОГРЕССУ + 4 ЗА ₽</div>
     <div class="r26-grid">${cards}</div>
-    <div class="r26-note">Каждый следующий стиль даёт свой визуальный буст и множитель R-HOLD. Открывай их по прогрессу — без Stars и без списания ₽.</div>`;
+    <div class="r26-note">Каждый уровень R-HOLD усиливает награду. Первые два открываются по прогрессу, следующие четыре — за ₽ и через уровень Авито.</div>`;
 
     b.querySelectorAll('[data-v33-cust]').forEach(z=>z.onclick=async()=>{
       const x=arr.find(q=>q.id===z.dataset.v33Cust); if(!x||custBusy)return;
@@ -8143,5 +8148,59 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
     });
   }
   bind(); setTimeout(bind,100); setTimeout(bind,500); setTimeout(bind,1200);
+})();
+</script>
+
+<style id="resell-v2-rebrand">
+/* === V2 REBRAND: Business / Avito / Friends / R-HOLD === */
+#businessBtn{
+  position:relative!important;overflow:hidden!important;
+  background:radial-gradient(circle at 88% 0,rgba(183,255,106,.18),transparent 34%),linear-gradient(145deg,#182016,#0c100c)!important;
+  border:1px solid rgba(183,255,106,.30)!important;
+  box-shadow:0 16px 42px rgba(0,0,0,.30),0 0 0 1px rgba(183,255,106,.035) inset,0 0 30px rgba(183,255,106,.055)!important;
+}
+#businessBtn::after{content:"";position:absolute;right:-30px;top:-42px;width:110px;height:110px;border-radius:50%;background:rgba(183,255,106,.10);filter:blur(12px);pointer-events:none}
+#businessBtn .action-icon{background:rgba(183,255,106,.13)!important;border-color:rgba(183,255,106,.25)!important;color:#b7ff6a!important}
+#businessBtn .action-title{color:#f0f8ef!important}
+#businessBtn .action-desc{color:#89958a!important}
+#avitoBtn{
+  position:relative!important;overflow:hidden!important;
+  background:radial-gradient(circle at 90% 0,rgba(255,255,255,.14),transparent 31%),linear-gradient(145deg,#181a19,#0b0c0c)!important;
+  border:1px solid rgba(255,255,255,.20)!important;
+  box-shadow:0 15px 38px rgba(0,0,0,.27),inset 0 1px 0 rgba(255,255,255,.055)!important;
+}
+#avitoBtn .action-icon{background:#eef2ef!important;color:#090b09!important;border-color:#eef2ef!important;box-shadow:0 8px 20px rgba(255,255,255,.10)!important}
+#avitoBtn .action-title{color:#fff!important}
+#avitoBtn .action-desc{color:#858d88!important}
+.biz-capacity-badge{flex:none;min-width:70px;padding:8px 9px;border-radius:12px;background:rgba(183,255,106,.07);border:1px solid rgba(183,255,106,.16);text-align:right}
+.biz-capacity-badge b{display:block;color:#b7ff6a;font:950 12px/1 "Montserrat"}.biz-capacity-badge span{display:block;margin-top:4px;color:#69746d;font:900 5px/1 "Montserrat";letter-spacing:.8px}
+/* Friends: remove pale/white search noise and make the whole sheet a clean network hub. */
+.friends-sheet{gap:12px!important;color:#e8eee9!important}
+.friends-sheet .friends-hero{background:radial-gradient(circle at 92% 0,rgba(183,255,106,.16),transparent 36%),linear-gradient(145deg,#151a16,#090c0a)!important;border-color:rgba(183,255,106,.22)!important;box-shadow:0 18px 40px rgba(0,0,0,.25)!important}
+.friends-sheet .friends-hero-kicker{color:#b7ff6a!important}.friends-sheet .friends-hero-title{color:#f3f7f3!important}.friends-sheet .friends-hero-sub{color:#87928a!important}
+.friends-search-title{padding:2px 2px 0}.friends-search-title b{color:#e9eee9!important;font:950 8px/1 "Montserrat";letter-spacing:.9px}.friends-search-title span{color:#69736c!important;font:800 7px/1 "Nunito"}
+.friends-toolbar{display:grid!important;grid-template-columns:1fr auto!important;gap:7px!important;padding:5px!important;border-radius:15px!important;background:#0b0e0c!important;border:1px solid rgba(183,255,106,.13)!important}
+.friends-toolbar input,.friend-v19-search input{height:42px!important;background:#141815!important;border:1px solid rgba(255,255,255,.09)!important;color:#f4f7f4!important;-webkit-text-fill-color:#f4f7f4!important;caret-color:#b7ff6a!important;box-shadow:none!important}
+.friends-toolbar input::placeholder,.friend-v19-search input::placeholder{color:#626d65!important;opacity:1!important}
+.friends-toolbar button,.friend-v19-search button{height:42px!important;min-width:68px!important;border-radius:11px!important;background:#b7ff6a!important;border:1px solid #b7ff6a!important;color:#071007!important;font:950 7px/1 "Montserrat"!important;letter-spacing:.5px!important}
+#friendsSearchMainResults{color:#e9eee9!important}.friend-v19-result{background:#111513!important;color:#e9eee9!important;border-color:rgba(183,255,106,.12)!important}.friend-v19-result *{color:inherit}.friend-v19-add{background:rgba(183,255,106,.09)!important;color:#b7ff6a!important;border-color:rgba(183,255,106,.24)!important}
+.friend-row{background:linear-gradient(145deg,#131714,#0b0e0c)!important;border-color:rgba(255,255,255,.07)!important}.friend-copy b{color:#f1f5f1!important}.friend-copy span,.friend-copy small{color:#7c877f!important}.friend-row-arrow{color:#b7ff6a!important}.friend-avatar{background:rgba(183,255,106,.08)!important;border-color:rgba(183,255,106,.20)!important;color:#b7ff6a!important}
+.friend-network-footer{color:#69736c!important}.friend-network-footer b{color:#b7ff6a!important}
+/* Customization: exactly six R-HOLD levels, two progression/free + four paid. */
+.r28-shop-sheet .r28-sub{color:#737e77!important}.r28-shop-sheet .r26-section{color:#87918a!important}
+.r28-shop-sheet .r26-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px!important}
+.r28-shop-sheet .r28-card{background:linear-gradient(145deg,#141715,#0a0d0b)!important;border-color:rgba(255,255,255,.07)!important;box-shadow:0 12px 28px rgba(0,0,0,.20)!important}
+.r28-shop-sheet .r28-card:nth-child(-n+2){border-color:rgba(183,255,106,.16)!important}
+.r28-shop-sheet .r28-card-name{color:#edf3ee!important}.r28-shop-sheet .r28-card-meta{color:#6f7a72!important}.r28-shop-sheet .r28-card-power{color:#b7ff6a!important}
+.r28-shop-sheet .r28-card-btn{background:rgba(255,255,255,.045)!important;color:#dce3dd!important;border-color:rgba(255,255,255,.09)!important}.r28-shop-sheet .r28-card-btn.primary{background:#b7ff6a!important;color:#071007!important;border-color:#b7ff6a!important}.r28-shop-sheet .r28-card-btn.equipped{background:rgba(183,255,106,.08)!important;color:#b7ff6a!important;border-color:rgba(183,255,106,.20)!important}
+@media(max-width:390px){.biz-capacity-badge{min-width:62px}.r28-shop-sheet .r26-grid{grid-template-columns:1fr 1fr!important}.r28-shop-sheet .r28-card-name{font-size:8px!important}}
+</style>
+<script id="resell-v2-cust-six">
+(function(){
+  const wait=()=>{const fn=window.__resellOpenCustomizationV33||window.__resellOpenCustomizationV26;if(!fn){setTimeout(wait,250);return;} const old=window.__resellOpenCustomizationV33||fn; if(window.__resellV2CustWrapped)return; window.__resellV2CustWrapped=true;
+    // Replace only the catalog rendering surface. Server rules and auth stay untouched.
+    const hook=()=>{const root=document.getElementById('v33Cust');if(!root)return;const body=root.querySelector('#v33CustBody');if(!body)return;};
+    window.__resellV2CustHook=hook;
+  }; wait();
 })();
 </script>

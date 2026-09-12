@@ -356,12 +356,14 @@ async function completeSale(){
   const d=await containerSellServer(item.id);
   if(!d?.success)throw new Error(d?.error||'Не удалось продать лот');
   balance=Number(d.balance ?? balance+(Number(item.value)||0));
-  const value=Number(d.value ?? item.value ?? 0), profit=value-cost;
+  const value=Number(d.value ?? item.value ?? 0);
+  const realCost=Number(d.purchase_price ?? cost);
+  const profit=Number.isFinite(Number(d.profit)) ? Number(d.profit) : value-realCost;
   active.sold=true;selling=false;
   stats.sold++;stats.profit+=profit;
-  stats.sales.unshift({name:item.name,icon:item.icon,rarity:item.rarity,cost,value,profit,ts:Date.now()});
+  stats.sales.unshift({name:item.name,icon:item.icon,rarity:item.rarity,cost:realCost,value,profit,ts:Date.now()});
   stats.sales=stats.sales.slice(0,20);saveStats();
-  $('paidPrice').textContent=fmt(cost)+' ₽';$('salePrice').textContent=fmt(value)+' ₽';
+  $('paidPrice').textContent=fmt(realCost)+' ₽';$('salePrice').textContent=fmt(value)+' ₽';
   $('resultProfit').textContent=(profit>=0?'+':'')+fmt(profit)+' ₽';$('resultProfit').className=profit>=0?'profit':'loss';
   $('resultBalance').textContent=fmt(balance)+' ₽';$('result').classList.add('open');
   $('lotButton').style.display='none';$('actions').style.display='flex';render();
