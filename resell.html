@@ -3290,7 +3290,19 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     }
     haptic('medium');
     const join = url.includes('?') ? '&' : '?';
-    location.href = `${url}${join}userId=${encodeURIComponent(userId)}`;
+    let target = `${url}${join}userId=${encodeURIComponent(userId)}`;
+    // Carry the same server-issued RESSELL session into child Mini Apps.
+    // This avoids the old trading-page key mismatch and does not require
+    // re-validating Telegram initData on every navigation.
+    try{
+      const session = getStoredResellSession();
+      if(session){
+        const u = new URL(target, location.href);
+        u.searchParams.set('resell_session', session);
+        target = u.href;
+      }
+    }catch(_){ }
+    location.href = target;
   }
 
   function openBot(){
@@ -4063,6 +4075,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   }
 
   let farmRafId = null;
+  let holdJustCompletedUntil = 0;
   let farmStatusPollId = null;
   let farmVisualReward = 0;
   let farmVisualProgress = 0;
@@ -4294,7 +4307,11 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       for(let i=0;i<8;i) spawnFarmSpark();
       showToast(`+${number(reward)} ₽ зачислено`);
       haptic('heavy');
-      try{ await loadProfile(); }catch(_){ }
+      // Do not re-bootstrap the whole profile exactly at the completion edge.
+      // The server already returned the authoritative balance above; reloading here
+      // can make Telegram WebView visibly re-initialize the page.
+      holdJustCompletedUntil = Date.now() + 2500;
+      try{ refreshHoldStatusWithRetry().catch(()=>{}); }catch(_){}
     }catch(err){
       farmCompleted = false;
       // Never leave a stale session locked in the UI after a network/WebView hiccup.
@@ -4420,6 +4437,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     };
 
     const begin = (e) => {
+      if(Date.now() < holdJustCompletedUntil) return;
       if(e?.pointerType === 'mouse' && e.button !== 0) return;
       if(activeInput || farmCompleting) return;
       // Do not cancel the gesture on pointerdown: the main page owns horizontal
@@ -4494,6 +4512,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   }
 
   async function initFarm(){
+    if(Date.now() < holdJustCompletedUntil) return;
     if(farmInitPromise) return farmInitPromise;
     farmInitPromise = (async()=>{
       try{
@@ -4567,8 +4586,8 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       try{ await initFarm(); }catch(_){ }
     }
   });
-  window.addEventListener('pageshow',()=>{ if(!holdPointerActive && !farmCompleting) initFarm(); });
-  window.addEventListener('online',()=>{ if(!holdPointerActive && !farmCompleting) initFarm(); });
+  window.addEventListener('pageshow',()=>{ if(Date.now() < holdJustCompletedUntil) return; if(!holdPointerActive && !farmCompleting) initFarm(); });
+  window.addEventListener('online',()=>{ if(Date.now() < holdJustCompletedUntil) return; if(!holdPointerActive && !farmCompleting) initFarm(); });
   document.addEventListener('DOMContentLoaded',initFarm);
 
   // =========================
