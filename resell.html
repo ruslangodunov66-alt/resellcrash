@@ -3129,8 +3129,24 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
         clearTimeout(timer);
         if(!resp.ok){
           let payload={}; try{payload=await resp.json();}catch(_){}
-          if(resp.status===401 && needsTelegramAuth && initData && !serverSession && i<attempts-1){
-            try{const freshSession=await ensureResellServerSession(initData,signedUserId||userId);if(freshSession)continue;}catch(authErr){throw Object.assign(authErr,{status:401,authBootstrap:true});}
+          if(resp.status===401 && needsTelegramAuth && i<attempts-1){
+            /* A persisted RESSELL session can expire while the Telegram
+               identity remains valid. Do not retry the dead bearer forever.
+               Drop it, mint a fresh server session from the same Telegram
+               initData, then retry once. This preserves the stable Telegram
+               auth flow and prevents false "invalid session" errors. */
+            try{
+              clearStoredResellSession();
+              serverSession='';
+              const rawFresh=await waitForTelegramInitData(2500);
+              const freshUid=getSignedTelegramUserId(rawFresh)||signedUserId||userId;
+              if(rawFresh&&freshUid){
+                const freshSession=await ensureResellServerSession(rawFresh,freshUid);
+                if(freshSession)continue;
+              }
+            }catch(authErr){
+              throw Object.assign(authErr,{status:401,authBootstrap:true});
+            }
           }
           if(resp.status===403 && payload?.banned){ try{ openBanAppealSheet(payload.error||'Аккаунт заблокирован'); }catch(_){} }
           const e=new Error(payload?.error||payload?.message||
@@ -6642,7 +6658,41 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   function ensureCust(){let o=document.getElementById('v33Cust');if(o)return o;o=document.createElement('div');o.id='v33Cust';o.className='r28-shop-overlay';o.innerHTML='<div class="r28-shop-sheet"><div class="r28-head"><div><div class="r28-kicker">RESSELL · PUBLIC IDENTITY</div><div class="r28-title">МАГАЗИН СТИЛЯ</div><div class="r28-sub">6 уровней R-HOLD: 2 по прогрессу + 4 за ₽. Чем выше уровень, тем сильнее множитель.</div></div><button class="r28-close" id="v33CustClose">✕</button></div><div id="v33CustBody"></div></div>';document.body.appendChild(o);o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('open');});o.querySelector('#v33CustClose').onclick=()=>o.classList.remove('open');return o;}
   function cat(k){return k==='nick_glow'?'nick':k==='avatar_frame'?'avatar':k==='profile_badge'?'badge':'rhold';}
   function preview(x){const k=x.kind||'';const style=`--r26-accent:${esc(x.accent||'#b7ff6a')};--r26-glow:${esc(x.glow||'rgba(183,255,106,.22)')}`;if(k==='avatar_frame')return `<div class="r26-preview avatar" style="${style}"><span>R</span></div>`;if(k==='nick_glow')return `<div class="r26-preview nick" style="${style}"><span>@RESSELL</span></div>`;if(k==='profile_badge')return `<div class="r26-preview badge" style="${style}"><span>${esc(x.name)}</span></div>`;return `<div class="r26-preview rhold" style="--r26-bg:${esc(x.bg||'linear-gradient(145deg,#101414,#080a0a)')};--r26-border:${esc(x.border||'rgba(183,255,106,.28)')};--r26-accent:${esc(x.accent||'#b7ff6a')};--r26-glow:${esc(x.glow||'rgba(183,255,106,.18)')}"><span>R</span></div>`;}
-  async function loadCust(){const c=core(),u=uid();if(!c.apiFetch||!u)throw new Error('Telegram-сессия не определена');const r=await c.apiFetch(`${API}/hold/skins/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'GET'},3);const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)throw new Error(d.error||'Не удалось загрузить стили');custCache=d;return d;}
+  async function loadCust(){
+    const c=core(),u=uid();
+    if(!c.apiFetch||!u)throw new Error('Telegram-сессия не определена');
+    try{
+      const r=await c.apiFetch(`${API}/hold/skins/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'GET'},3);
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok||!d.success)throw new Error(d.error||'Не удалось загрузить стили');
+      custCache=d; return d;
+    }catch(err){
+      /* Never turn the R-HOLD customization screen into a dead "Load Failed"
+         panel. The server remains authoritative for buy/equip; this fallback
+         only keeps the six known cards visible while the catalog request is
+         retried/when an admin is working during maintenance. */
+      const p=c.getProfile?.()||{};
+      const sales=Number(p.total_sales||0);
+      const era=Number(p.epoch?.current_epoch||p.era||1);
+      const owned=new Set(['era1_core']);
+      const FALL=[
+        {id:'v28_base_signal',name:'BASE SIGNAL',tier:'1',min_sales:0,price:0,reward_multiplier:1.0,accent:'#b7ff6a',bg:'linear-gradient(145deg,#101414,#080a0a)',border:'rgba(183,255,106,.28)',glow:'rgba(183,255,106,.18)'},
+        {id:'era2_core',name:'ERA 2 CORE',tier:'2',min_sales:0,price:250000,reward_multiplier:1.25,accent:'#9fe7ff',bg:'linear-gradient(145deg,#0b1720,#071016 58%,#123040)',border:'rgba(159,231,255,.72)',glow:'rgba(159,231,255,.35)'},
+        {id:'v28_4_prism',name:'PRISM',tier:'4',min_sales:10,price:1500000,reward_multiplier:1.5,accent:'#c8a6ff',bg:'linear-gradient(145deg,#171126,#0b0914 58%,#281846)',border:'rgba(200,166,255,.78)',glow:'rgba(200,166,255,.45)'},
+        {id:'v28_4_cyan',name:'CYBER TIDE',tier:'4',min_sales:10,price:2500000,reward_multiplier:1.6,accent:'#62e9ff',bg:'linear-gradient(145deg,#071b20,#061012 58%,#0c3138)',border:'rgba(98,233,255,.78)',glow:'rgba(98,233,255,.45)'},
+        {id:'v28_4_amber',name:'AMBER CORE',tier:'4',min_sales:25,price:4500000,reward_multiplier:1.75,accent:'#ffc857',bg:'linear-gradient(145deg,#24170a,#0d0a05 58%,#3a2409)',border:'rgba(255,200,87,.78)',glow:'rgba(255,200,87,.52)'},
+        {id:'v28_45_neon',name:'NEON VECTOR',tier:'4.5',min_sales:25,price:7500000,reward_multiplier:2.0,accent:'#6cffb1',bg:'linear-gradient(135deg,#081d16,#07100d 58%,#103426)',border:'rgba(108,255,177,.8)',glow:'rgba(108,255,177,.58)'}
+      ];
+      const fallback=FALL.map(x=>({...x,
+        owned:owned.has(x.id),
+        equipped:(p.customization?.rhold?.id||'era1_core')===x.id,
+        unlocked:x.id==='v28_base_signal'||(x.id==='era2_core'?era>=2:sales>=Number(x.min_sales||0)),
+        lock_reason:x.id==='era2_core'?'Нужно открыть ERA 2':(sales<Number(x.min_sales||0)?`Нужно ${x.min_sales} продаж`:'ДОСТУПНО')
+      }));
+      custCache={success:true,skins:fallback,total_sales:sales,unlocked_era:era,equipped_slots:{rhold:p.customization?.rhold?.id||'era1_core'}};
+      return custCache;
+    }
+  }
   async function buyEraOrEquip(x){
     const c=core(),u=uid();
     if(!x || !x.unlocked) throw new Error('Сначала открой этот уровень');
