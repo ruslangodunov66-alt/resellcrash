@@ -71,19 +71,31 @@ function renderBook(asks,bids){const aa=asks.slice().sort((a,b)=>a[0]-b[0]),bb=b
 async function marketFetch(path){return fetchJSON(API+path)}
 async function fetchDepth(){try{const d=await marketFetch(`/trading/market/depth?symbol=${currentPair}`);renderBook(d.data.asks.map(x=>[+x[0],+x[1]]),d.data.bids.map(x=>[+x[0],+x[1]]))}catch(_){}}
 async function fetch24(){try{const d=await marketFetch(`/trading/market/ticker?symbol=${currentPair}`);const q=d.data||{};marketChange=+q.priceChangePercent||0;e.change.textContent=(marketChange>=0?'+':'')+marketChange.toFixed(2)+'%';e.change.className='market-change '+(marketChange>=0?'up':'down');e.high.textContent=priceText(q.highPrice);e.low.textContent=priceText(q.lowPrice);$('#volume').textContent=Number(q.quoteVolume).toLocaleString('en-US',{notation:'compact',maximumFractionDigits:2})+' USDT'}catch(_){}}
-async function fetchKlines(){try{const d0=await marketFetch(`/trading/market/klines?symbol=${currentPair}&interval=${interval}&limit=200`);const d=d0.data||[];const rows=d.map(x=>({time:Math.floor(Number(x[0])/1000),open:Number(x[1]),high:Number(x[2]),low:Number(x[3]),close:Number(x[4])})).filter(x=>Number.isFinite(x.time)&&x.open>0&&x.high>0&&x.low>0&&x.close>0);if(rows.length<20)throw Error('Недостаточно свечей');candles?.setData(rows);if(rows.length){price=rows[rows.length-1].close;e.price.textContent=priceText(price);e.mid.textContent=priceText(price)}await fetch24();setMarket(true);resize();return true}catch(_){setMarket(false);return false}}
+async function fetchKlines(){
+  const makeRows=d=>(Array.isArray(d)?d:[]).map(x=>({time:Math.floor(Number(x[0])/1000),open:Number(x[1]),high:Number(x[2]),low:Number(x[3]),close:Number(x[4])})).filter(x=>Number.isFinite(x.time)&&x.open>0&&x.high>0&&x.low>0&&x.close>0);
+  try{
+    let d=[];
+    try{const r=await marketFetch(`/trading/market/klines?symbol=${currentPair}&interval=${interval}&limit=200`);d=r.data||[]}catch(_){
+      const hosts=['https://api.binance.com','https://api1.binance.com','https://data-api.binance.vision'];
+      let last;
+      for(const h of hosts){try{const r=await marketJSON(`${h}/api/v3/klines?symbol=${currentPair}&interval=${interval}&limit=200`);d=r;break}catch(e){last=e}}
+      if(!d.length)throw last||Error('market unavailable');
+    }
+    const rows=makeRows(d);if(rows.length<20)throw Error('Недостаточно свечей');
+    candles?.setData(rows);price=rows.at(-1).close;e.price.textContent=priceText(price);e.mid.textContent=priceText(price);
+    await fetch24();setMarket(true);resize();return true
+  }catch(_){setMarket(false);return false}
+}
 let liveBusy=false;
 async function pollLiveCandle(){
   if(liveBusy)return; liveBusy=true;
   try{
-    const d=await marketFetch(`/trading/market/live?symbol=${currentPair}&interval=${interval}`);
-    const k=d.candle;
-    if(k&&candles){
-      candles.update({time:Number(k.time),open:Number(k.open),high:Number(k.high),low:Number(k.low),close:Number(k.close)});
-      price=Number(k.close)||price;
-      e.price.textContent=priceText(price); e.mid.textContent=priceText(price);
-      renderActive(); setMarket(true);
+    let k=null;
+    try{const d=await marketFetch(`/trading/market/live?symbol=${currentPair}&interval=${interval}`);k=d.candle||null}catch(_){
+      const hosts=['https://api.binance.com','https://api1.binance.com','https://data-api.binance.vision'];
+      for(const h of hosts){try{const d=await marketJSON(`${h}/api/v3/klines?symbol=${currentPair}&interval=${interval}&limit=1`);const x=d?.at?.(-1)||d?.[0];if(x){k={time:Math.floor(Number(x[0])/1000),open:Number(x[1]),high:Number(x[2]),low:Number(x[3]),close:Number(x[4])};break}}catch(_){}}
     }
+    if(k&&candles){candles.update({time:Number(k.time),open:Number(k.open),high:Number(k.high),low:Number(k.low),close:Number(k.close)});price=Number(k.close)||price;e.price.textContent=priceText(price);e.mid.textContent=priceText(price);renderActive();setMarket(true)}else throw Error('no live candle');
   }catch(_){setMarket(false)} finally{liveBusy=false}
 }
 function closeSockets(){clearInterval(depthTimer);clearInterval(liveTimer);liveTimer=0}
