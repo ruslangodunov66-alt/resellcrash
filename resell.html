@@ -5173,8 +5173,8 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     const opts=phase===5
       ? `<div class="avx-price-grid">${(Array.isArray(chat.choices)?chat.choices:[]).map(c=>`<button class="avito-btn primary avx-price-btn" data-avito-price="${esc(chat.chat_key)}" data-price="${Number(c.price)||0}" data-risk="${Number(c.risk)||25}"><span class="price-copy"><b>${esc(c.label||'Выбрать цену')}</b><span>${special?'Убеждение + доверие влияют на шанс сделки':'Вероятность зависит от предложения'}</span></span><span class="price-value">${number(c.price||0)} ₽</span></button>`).join('')}</div>`
       : `<div class="avx-chat-actions">${['Показать состояние','Показать выгоду','Закрыть сомнение'].map((t,i)=>`<button class="avx-btn ${i===0?'buy':''}" data-avito-answer="${esc(chat.chat_key)}" data-choice="${i}">${t}</button>`).join('')}</div>`;
-    const shopName=String(avitoState?.shop_name||'Без названия'); const rating=(Number(avitoState?.reviews?.count||0)>0)?`${reviewsStars(avitoState.reviews.average||0)} · ${Number(avitoState.reviews.average||0).toFixed(1)}`:'Нет отзывов';
-    return `<div data-avito-chat-sheet="1" class="avito-shell avx-shell"><div class="avx-section avx-chat-large ${special?'avx-special-chat':''}"><div class="avx-seller-card"><b>${esc(shopName)}</b><span>${esc(rating)}</span></div><div class="avito-chat-head"><div class="avito-chat-buyer">Покупатель #${esc(chat.buyer_id)}</div><div class="avito-chat-stage">${special?'HIGH VALUE · ':''}ЭТАП ${phase} · РАУНД ${chat.round}</div></div><div class="avito-chat-message">${esc(chat.message||'Клиент ждёт ответа.')}</div>${special?`<div class="avx-chat-persuasion"><div class="avx-chat-persuasion-head"><span>УБЕЖДЕНИЕ · ДОВЕРИЕ</span><b>${Math.round((persuasion+trust)/2)}%</b></div><div class="avx-chat-meter"><i style="width:${Math.round((persuasion+trust)/2)}%"></i></div><div class="avx-chat-hint">Твоя репутация усиливает переговоры. Хорошие ответы повышают доверие покупателя.</div></div>`:''}${phase===5?'<div class="avx-section-head" style="margin-top:14px;margin-bottom:0"><div><b>Финальная цена</b><span>Выбери цену. Для дорогих лотов учитываются убеждение и доверие.</span></div></div>':''}${opts}</div></div>`;
+    const shopName=String(avitoState?.shop_name||'Без названия'); const reviewCount=Number(avitoState?.reviews?.count||0); const reviewAverage=Number(avitoState?.reviews?.average||0); const ratingMarkup=reviewCount>0?`${reviewsStars(reviewAverage)} <em class="avx-rating-number">${reviewAverage.toFixed(1)}</em>`:'<span class="avx-no-rating">Нет отзывов</span>';
+    return `<div data-avito-chat-sheet="1" class="avito-shell avx-shell"><div class="avx-section avx-chat-large ${special?'avx-special-chat':''}"><div class="avx-seller-card"><b>${esc(shopName)}</b><span>${ratingMarkup}</span></div><div class="avito-chat-head"><div class="avito-chat-buyer">Покупатель #${esc(chat.buyer_id)}</div><div class="avito-chat-stage">${special?'HIGH VALUE · ':''}ЭТАП ${phase} · РАУНД ${chat.round}</div></div><div class="avito-chat-message">${esc(chat.message||'Клиент ждёт ответа.')}</div>${special?`<div class="avx-chat-persuasion"><div class="avx-chat-persuasion-head"><span>УБЕЖДЕНИЕ · ДОВЕРИЕ</span><b>${Math.round((persuasion+trust)/2)}%</b></div><div class="avx-chat-meter"><i style="width:${Math.round((persuasion+trust)/2)}%"></i></div><div class="avx-chat-hint">Твоя репутация усиливает переговоры. Хорошие ответы повышают доверие покупателя.</div></div>`:''}${phase===5?'<div class="avx-section-head" style="margin-top:14px;margin-bottom:0"><div><b>Финальная цена</b><span>Выбери цену. Для дорогих лотов учитываются убеждение и доверие.</span></div></div>':''}${opts}</div></div>`;
   }
 
   function showSaleToast(text){
@@ -6700,7 +6700,13 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 
   // ---------- unified customization shop ----------
   function ensureCust(){let o=document.getElementById('v33Cust');if(o)return o;o=document.createElement('div');o.id='v33Cust';o.className='r28-shop-overlay';o.innerHTML='<div class="r28-shop-sheet"><div class="r28-head"><div><div class="r28-kicker">RESSELL · PUBLIC IDENTITY</div><div class="r28-title">МАГАЗИН СТИЛЯ</div><div class="r28-sub">6 уровней R-HOLD: 2 по прогрессу + 4 за ₽. Чем выше уровень, тем сильнее множитель.</div></div><button class="r28-close" id="v33CustClose">✕</button></div><div id="v33CustBody"></div></div>';document.body.appendChild(o);o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('open');});o.querySelector('#v33CustClose').onclick=()=>o.classList.remove('open');return o;}
-  function cat(k){const v=String(k||'').toLowerCase();return v==='nick_glow'||v==='nick'?'nick':v==='avatar_frame'||v==='avatar'?'avatar':v==='profile_badge'||v==='badge'?'badge':'rhold';}
+  function cat(k,slot,id){
+    const v=String(k||'').toLowerCase(), s=String(slot||'').toLowerCase(), i=String(id||'').toLowerCase();
+    if(v==='nick_glow'||v==='nick'||s==='nick'||i.startsWith('nick_')) return 'nick';
+    if(v==='avatar_frame'||v==='avatar'||s==='avatar'||i.startsWith('avatar_')) return 'avatar';
+    if(v==='profile_badge'||v==='badge'||s==='badge'||i.startsWith('badge_')) return 'badge';
+    return 'rhold';
+}
   function preview(x){const k=x.kind||'';const style=`--r26-accent:${esc(x.accent||'#b7ff6a')};--r26-glow:${esc(x.glow||'rgba(183,255,106,.22)')}`;if(k==='avatar_frame')return `<div class="r26-preview avatar" style="${style}"><span>R</span></div>`;if(k==='nick_glow')return `<div class="r26-preview nick" style="${style}"><span>@RESSELL</span></div>`;if(k==='profile_badge')return `<div class="r26-preview badge" style="${style}"><span>${esc(x.name)}</span></div>`;return `<div class="r26-preview rhold" style="--r26-bg:${esc(x.bg||'linear-gradient(145deg,#101414,#080a0a)')};--r26-border:${esc(x.border||'rgba(183,255,106,.28)')};--r26-accent:${esc(x.accent||'#b7ff6a')};--r26-glow:${esc(x.glow||'rgba(183,255,106,.18)')}"><span>R</span></div>`;}
   async function loadCust(){
     const c=core(),u=uid();
@@ -6764,8 +6770,10 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     const o=ensureCust(),b=o.querySelector('#v33CustBody');
     if(!custCache){b.innerHTML='<div class="r26-note">Загрузка каталога…</div>';return;}
     const skins=(custCache.skins||[]).filter(x=>!x.legacy);
+    const counts={rhold:0,nick:0,avatar:0,badge:0};
+    skins.forEach(x=>{const k=cat(x.kind,x.slot,x.id);counts[k]=(counts[k]||0)+1;});
     const tabs=[['rhold','R-HOLD'],['nick','НИК'],['avatar','АВАТАР'],['badge','ПРЕФИКС']];
-    const arr=skins.filter(x=>cat(x.kind||x.slot||x.id||'')===custTab);
+    const arr=skins.filter(x=>cat(x.kind,x.slot,x.id)===custTab);
     const ownedCount=skins.filter(x=>x.owned).length;
     const sales=Number(custCache.total_sales||0), era=Number(custCache.unlocked_era||1);
     const title={rhold:'R-HOLD',nick:'ПОДСВЕТКА НИКА',avatar:'РАМКА АВАТАРА',badge:'ПРЕФИКС ПРОФИЛЯ'}[custTab]||'CUSTOMIZATION';
@@ -6808,7 +6816,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
         <div class="r26-stat"><small>ОТКРЫТО</small><b>${ownedCount}/${skins.length||0}</b></div>
         <div class="r26-stat"><small>ПРОДАЖИ</small><b>${money(sales)}</b></div>
       </div>
-      <div class="r28-tabs r33-cust-tabs">${tabs.map(([id,label])=>`<button type="button" class="r28-tab ${custTab===id?'active':''}" data-v33-tab="${id}">${label}</button>`).join('')}</div>
+      <div class="r28-tabs r33-cust-tabs">${tabs.map(([id,label])=>`<button type="button" class="r28-tab ${custTab===id?'active':''}" data-v33-tab="${id}">${label}<small class="r33-cust-count">${counts[id]||0}</small></button>`).join('')}</div>
       <div class="r26-section">${esc(title)}</div>
       <div class="r26-note r33-cust-desc">${esc(desc)}</div>
       <div class="r26-grid r33-cust-grid">${cards||'<div class="r28-empty">В этой категории пока нет предметов.</div>'}</div>`;
@@ -6824,6 +6832,14 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   }
   async function openCust(){const o=ensureCust();o.classList.add('open');document.body.style.overflow='hidden';renderCust();try{await loadCust();renderCust();}catch(e){o.querySelector('#v33CustBody').innerHTML=`<div class="r26-note">${esc(e.message||'Не удалось загрузить')}</div>`;}}
   window.__resellOpenCustomizationV26=openCust;window.__resellOpenCustomizationV33=openCust;
+  // One authoritative customization entry point. The older V26/V28 shops
+  // still exist for data compatibility, but must never capture this button.
+  window.addEventListener('click',e=>{
+    const b=e.target?.closest?.('#rholdCustomizeBtn');
+    if(!b || typeof window.__resellOpenCustomizationV33!=='function') return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    window.__resellOpenCustomizationV33();
+  },true);
   document.addEventListener('click',e=>{const b=e.target?.closest?.('#rholdCustomizeBtn');if(!b)return;e.preventDefault();e.stopImmediatePropagation();openCust();},true);
 
   // ---------- Market Hub: all new features are discoverable from one screen ----------
@@ -8906,7 +8922,6 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
 .avx-review-sheet{display:grid;gap:10px;padding:2px 0 8px}
 .avx-review-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;padding:13px;border-radius:18px;background:linear-gradient(145deg,#171b18,#0b0d0c);border:1px solid rgba(183,255,106,.14)}
 .avx-review-head small{display:block;color:#687169;font:900 6px/1 Montserrat,sans-serif;letter-spacing:1.2px}.avx-review-head b{display:block;margin-top:6px;color:#f0f4f0;font:950 16px/1 Montserrat,sans-serif}.avx-review-score{display:flex;align-items:center;gap:7px;margin-top:8px}.avx-review-score span{color:#ffd36a;font:950 11px/1 Montserrat,sans-serif;letter-spacing:.7px}.avx-review-score strong{color:#f3f5f3;font:950 12px/1 Montserrat,sans-serif}.avx-review-score em{color:#777;font:800 7px/1 Nunito,sans-serif;font-style:normal}.avx-review-list{display:grid;gap:7px}.avx-review-card{padding:12px;border-radius:16px;background:#101211;border:1px solid rgba(255,255,255,.055)}.avx-review-card-top{display:flex;justify-content:space-between;gap:8px;align-items:center}.avx-review-card-top span{color:#ffd36a;font:950 9px/1 Montserrat,sans-serif;letter-spacing:.5px}.avx-review-card-top small{color:#5f6761;font:800 6.5px/1 Nunito,sans-serif}.avx-review-card>b{display:block;margin-top:8px;color:#e9eee9;font:950 8.5px/1.2 Montserrat,sans-serif}.avx-review-card p{margin:6px 0 0;color:#8a938c;font:800 8px/1.4 Nunito,sans-serif}
-<style id="resell-avito-v61-resale">
 .avx-found-product{position:relative}.avx-found-product:before{content:'RARE DROP';position:absolute;right:10px;top:10px;padding:4px 6px;border-radius:7px;background:rgba(183,255,106,.08);border:1px solid rgba(183,255,106,.16);color:#b7ff6a;font:950 5px/1 Montserrat,sans-serif;letter-spacing:.8px}.avx-found-profit{padding:0 12px 11px;color:#69736d;font:800 6.5px/1.2 Nunito,sans-serif}.avx-found-profit::first-letter{color:#b7ff6a}.avx-unlock-overlay{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:18px;background:rgba(0,0,0,.66);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}.avx-unlock-card{width:min(100%,350px);padding:22px 18px 18px;border-radius:24px;background:radial-gradient(circle at 88% 0,rgba(183,255,106,.14),transparent 35%),linear-gradient(145deg,#171b17,#080a09 76%);border:1px solid rgba(183,255,106,.25);box-shadow:0 24px 70px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.05);text-align:left}.avx-unlock-mark{position:relative;width:46px;height:46px;margin-bottom:14px;display:grid;place-items:center;border-radius:14px;background:#f2f5f2;color:#050705;font:950 23px/1 Montserrat,sans-serif}.avx-unlock-mark i{position:absolute;right:-4px;bottom:-4px;width:11px;height:11px;border-radius:50%;background:#b7ff6a;box-shadow:0 0 16px rgba(183,255,106,.7)}.avx-unlock-card>small{color:#6f7a72;font:950 6px/1 Montserrat,sans-serif;letter-spacing:1.5px}.avx-unlock-card h3{margin:7px 0 6px;color:#f1f5f1;font:950 23px/.95 Montserrat,sans-serif;letter-spacing:-.7px}.avx-unlock-card p{margin:0;color:#8b948e;font:800 8px/1.45 Nunito,sans-serif}.avx-unlock-items{display:grid;gap:7px;margin:15px 0}.avx-unlock-item{display:grid;grid-template-columns:26px 1fr;gap:1px 9px;padding:10px 11px;border-radius:14px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.06)}.avx-unlock-item span{grid-row:1/3;color:#b7ff6a;font:950 7px/1 Montserrat,sans-serif}.avx-unlock-item b{color:#eef2ee;font:950 9px/1.15 Montserrat,sans-serif}.avx-unlock-item em{color:#667068;font:800 6.5px/1 Nunito,sans-serif;font-style:normal}.avx-unlock-card .avx-btn{width:100%;min-height:46px}
 </style>
 <style id="resell-avito-v62-polish">
@@ -8923,6 +8938,12 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
 .avx-review-card{transition:transform .18s ease,border-color .18s ease}.avx-review-card:active{transform:scale(.985);border-color:rgba(183,255,106,.16)}.avx-review-card p{font-size:8.2px!important;line-height:1.45!important}.avx-review-item{color:#b7ff6a!important}
 </style>
 
+<style id="resell-v63-bugfix-css">
+.r33-cust-tabs .r28-tab{position:relative;display:flex;align-items:center;justify-content:center;gap:4px}
+.r33-cust-count{display:inline-flex;align-items:center;justify-content:center;min-width:13px;height:13px;padding:0 3px;border-radius:999px;background:rgba(255,255,255,.07);color:#7f8a82;font:950 5px/1 Montserrat,sans-serif}
+.r33-cust-tabs .r28-tab.active .r33-cust-count{background:rgba(183,255,106,.14);color:#b7ff6a}
+.avx-seller-card>span{display:flex;align-items:center;gap:5px}.avx-rating-number{color:#777;font:900 6px/1 Montserrat,sans-serif;font-style:normal}.avx-no-rating{color:#707970;font:800 7px/1 Nunito,sans-serif}
+</style>
 <style id="resell-update-announcement-v63">
 .resell-update-admin{padding:4px 0 2px}.resell-update-mark{width:52px;height:52px;border-radius:17px;display:flex;align-items:center;justify-content:center;background:linear-gradient(145deg,#b7ff6a,#72c93d);color:#071007;font:950 25px/1 Montserrat,sans-serif;box-shadow:0 14px 32px rgba(183,255,106,.16);margin-bottom:12px}.resell-update-kicker{color:#b7ff6a;font:950 7px/1 Montserrat,sans-serif;letter-spacing:1.2px}.resell-update-admin-title{margin-top:8px;color:#f3f7f3;font:950 18px/1.05 Montserrat,sans-serif;letter-spacing:-.4px}.resell-update-admin-sub{margin-top:8px;color:#78837b;font:800 8px/1.45 Nunito,sans-serif}.resell-update-textarea{min-height:170px!important;margin-top:14px!important;resize:vertical!important;line-height:1.45!important;background:#0b0f0c!important;border-color:rgba(183,255,106,.14)!important}.resell-update-counter{display:flex;justify-content:space-between;gap:10px;margin:7px 2px 10px;color:#566159;font:900 6px/1 Montserrat,sans-serif;letter-spacing:.5px}.resell-update-counter b{color:#89968d}.resell-update-publish{width:100%;min-height:46px!important}
 .resell-update-pop{position:relative;overflow:hidden;padding:2px}.resell-update-pop:before{content:"";position:absolute;right:-50px;top:-55px;width:150px;height:150px;border-radius:50%;background:rgba(183,255,106,.10);filter:blur(5px);pointer-events:none}.resell-update-pop-head{display:flex;align-items:center;gap:11px}.resell-update-pop-logo{width:42px;height:42px;flex:0 0 42px;border-radius:14px;display:flex;align-items:center;justify-content:center;background:linear-gradient(145deg,#b7ff6a,#72c93d);color:#071007;font:950 20px/1 Montserrat,sans-serif;box-shadow:0 10px 26px rgba(183,255,106,.14)}.resell-update-pop-kicker{color:#b7ff6a;font:950 6px/1 Montserrat,sans-serif;letter-spacing:1px}.resell-update-pop-title{margin-top:5px;color:#f3f7f3;font:950 17px/1 Montserrat,sans-serif}.resell-update-pop-body{margin-top:14px;padding:13px 14px;border:1px solid rgba(255,255,255,.07);border-radius:15px;background:rgba(255,255,255,.025);color:#dce4dd;font:800 9px/1.55 Nunito,sans-serif;white-space:pre-wrap}.resell-update-pop-foot{margin-top:11px;color:#667269;font:800 7px/1.35 Nunito,sans-serif}.resell-update-pop-btn{width:100%;margin-top:13px;min-height:43px!important}
