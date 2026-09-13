@@ -1738,6 +1738,34 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 .game-live{border-color:rgba(183,255,106,.18)!important}
 @media(max-width:390px){#rholdStyleRailV51 button{font-size:5px!important}#farmSection #rholdCustomizeControl #rholdCustomizeBtn{min-width:104px!important}}
 </style>
+
+<style id="friends-rhold-v52-final">
+/* V52: friends use the same Resell visual language; no white/Avito-like controls. */
+.friends-sheet,.friend-profile-sheet,.friend-compare-sheet{font-family:"Nunito",system-ui,sans-serif!important;color:#edf1ed!important}
+.friends-sheet .friends-hero{background:linear-gradient(145deg,#121512,#090b09)!important;border:1px solid rgba(255,255,255,.075)!important;box-shadow:0 18px 45px rgba(0,0,0,.28)!important}
+.friends-sheet .friends-hero-kicker{color:#6f796f!important}
+.friends-sheet .friends-hero-sub{color:#707970!important}
+.friends-stats-strip{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px!important;margin:0!important}
+.friends-stat-mini{min-width:0!important;padding:10px 8px!important;border-radius:13px!important;background:#101210!important;border:1px solid rgba(255,255,255,.055)!important;box-shadow:none!important}
+.friends-stat-mini small{color:#626a63!important;font:900 6px/1 Montserrat,sans-serif!important;letter-spacing:.7px!important}
+.friends-stat-mini b{display:block!important;margin-top:6px!important;color:#e9eee9!important;font:950 10px/1 Montserrat,sans-serif!important}
+.friends-toolbar{display:grid!important;grid-template-columns:minmax(0,1fr) auto!important;gap:6px!important}
+.friends-toolbar input,.friend-v19-search input{background:#0d0f0e!important;border:1px solid rgba(255,255,255,.07)!important;color:#edf1ed!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.025)!important}
+.friends-toolbar button,.friend-v19-search button{height:40px!important;border-radius:11px!important;background:#b7ff6a!important;border:1px solid #b7ff6a!important;color:#071007!important;box-shadow:0 8px 22px rgba(183,255,106,.08)!important;font:950 6.5px/1 Montserrat,sans-serif!important}
+.friend-row,.friend-v19-result{background:linear-gradient(145deg,#121413,#0b0d0c)!important;border:1px solid rgba(255,255,255,.055)!important;box-shadow:none!important}
+.friend-avatar{background:#0d100e!important;border:1px solid rgba(183,255,106,.22)!important;color:#b7ff6a!important}
+.friend-copy b{color:#e9eee9!important}
+.friend-copy span{color:#656d66!important}
+.friend-empty{background:#0d0f0e!important;border:1px dashed rgba(255,255,255,.08)!important;color:#646c65!important}
+.friend-prompt-card{background:linear-gradient(145deg,#121512,#0a0c0a)!important;border:1px solid rgba(255,255,255,.07)!important}
+.friend-prompt-avatar{background:#b7ff6a!important;color:#071007!important;box-shadow:0 8px 25px rgba(183,255,106,.10)!important}
+.friend-prompt-btn{background:#111311!important;border:1px solid rgba(255,255,255,.07)!important;color:#dce2dc!important}
+.friend-prompt-btn.primary{background:#b7ff6a!important;border-color:#b7ff6a!important;color:#071007!important}
+.friends-sheet .friend-profile-btn,.friends-sheet .friend-compare-btn{background:#111311!important;border:1px solid rgba(255,255,255,.07)!important;color:#dfe5df!important}
+/* R-HOLD: releasing before completion must never visually or locally create a cooldown. */
+#farmSection .farm-stage{touch-action:none!important}
+#farmSection #farmRing{touch-action:none!important}
+</style>
 </head>
 <body class="resell-booting">
 <div aria-hidden="false" id="bootSplash">
@@ -4179,6 +4207,8 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 
         if(holdReleaseQueued || !holdPointerActive){
           await cancelStandaloneFarm();
+          holdState = normalizeHoldState({...holdState,session_id:null,started_at:0,ready:true,cooldown_remaining:0,cooldown_until:0});
+          farmClearLocalCooldown();
           return;
         }
         runFarmAnimation();
@@ -4319,9 +4349,10 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       }, 3);
     }catch(_){ }
 
-    holdState = normalizeHoldState({...holdState,session_id:null,started_at:0,ready:false});
+    holdState = normalizeHoldState({...holdState,session_id:null,started_at:0,ready:true,cooldown_remaining:0,cooldown_until:0});
     holdReleaseQueued = false;
-    updateFarmVisuals(Number(holdState.cooldown_remaining || FARM_DURATION));
+    farmClearLocalCooldown();
+    updateFarmVisuals(0);
     $('#farmTotal').textContent = '10–100k ₽';
     $('#farmStatus').textContent = 'Отпустил раньше времени. Награда не засчитана.';
   }
@@ -4338,7 +4369,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     // Short taps are ignored. The server session is started only after a
     // deliberate hold has lasted long enough to prove the user really intends
     // to start R-HOLD. This prevents accidental taps from activating a cooldown.
-    const ARM_DELAY = 20;
+    const ARM_DELAY = 450;
     let activeInput = false;
     let activePointerId = null;
     let armTimer = null;
@@ -4425,7 +4456,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     stage.addEventListener('pointerdown', begin, {passive:false});
     window.addEventListener('pointermove', onPointerMove, {passive:true});
     window.addEventListener('pointerup', onPointerUp, {passive:false, capture:true});
-    window.addEventListener('pointercancel', ()=>{ if(activeInput){ if(holdArmed) cancelStandaloneFarm(); else resetPress(); } }, {passive:true, capture:true});
+    window.addEventListener('pointercancel', ()=>{ if(activeInput){ if(holdArmed && holdState?.session_id) cancelStandaloneFarm(); else resetPress(); } }, {passive:true, capture:true});
 
     if(!window.PointerEvent){
       stage.style.touchAction='pan-y';
