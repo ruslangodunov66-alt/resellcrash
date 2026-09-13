@@ -4110,6 +4110,13 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       if(Math.abs(farmSnapshotProgress-farmVisualProgress)<0.0005) farmVisualProgress=farmSnapshotProgress;
       updateFarmVisuals(FARM_DURATION*(1-farmVisualProgress));
       renderFarmReward(farmVisualProgress, farmVisualReward);
+      if(farmVisualProgress>=0.999 && !farmCompleting && !farmCompleted){
+        // The server remains authoritative; this only triggers the same normal
+        // completion endpoint at the visual end instead of waiting for another poll.
+        completeStandaloneFarm().catch(()=>{});
+        farmRafId=null;
+        return;
+      }
       farmRafId=requestAnimationFrame(tick);
     };
     farmStatusPollId=setInterval(syncActiveFarmSnapshot,250);
@@ -4139,6 +4146,18 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     holdReleaseQueued = false;
     farmCompleted = false;
     return true;
+  }
+
+  async function cancelHoldSessionDirect(sessionId){
+    if(!sessionId || !userId) return false;
+    try{
+      const resp = await apiFetch(`${API_BASE}/hold/cancel/${encodeURIComponent(userId)}`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json','Accept':'application/json','Cache-Control':'no-cache'},
+        body:JSON.stringify({session_id:sessionId,reason:'release_before_start_finished'})
+      }, 3);
+      return resp.ok;
+    }catch(_){ return false; }
   }
 
   async function startStandaloneFarm(){
@@ -4212,9 +4231,20 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
         );
 
         if(holdReleaseQueued || !holdPointerActive){
-          await cancelStandaloneFarm();
+          // The pointer can be released while /hold/start is still in flight.
+          // Do NOT call cancelStandaloneFarm here because holdStartPromise is
+          // still set and that function intentionally waits for this promise.
+          // Cancel the freshly-created server session directly, otherwise the
+          // next press can see "R Farm already running" forever.
+          await cancelHoldSessionDirect(sessionId);
           holdState = normalizeHoldState({...holdState,session_id:null,started_at:0,ready:true,cooldown_remaining:0,cooldown_until:0});
+          holdPointerActive=false;
+          holdReleaseQueued=false;
           farmClearLocalCooldown();
+          stopFarmAnimation();
+          updateFarmVisuals(FARM_DURATION);
+          $('#farmTotal').textContent='10–100k ₽';
+          $('#farmStatus').textContent='Отпустил раньше времени. Награда не засчитана.';
           return;
         }
         runFarmAnimation();
@@ -4341,23 +4371,46 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     $('#farmRing')?.classList.remove('holding');
     document.querySelector('#farmSection .farm-stage')?.classList.remove('farm-active');
 
-    if(holdStartPromise) return;
+    if(holdStartPromise){
+      // Wait for the server to either create or reject the session. The start
+      // routine itself handles a queued release and performs the server cancel.
+      try{ await holdStartPromise; }catch(_){ }
+      if(!holdState?.session_id){
+        holdReleaseQueued=false;
+        farmClearLocalCooldown();
+        updateFarmVisuals(FARM_DURATION);
+        $('#farmTotal').textContent='10–100k ₽';
+        $('#farmStatus').textContent='Отпустил раньше времени. Награда не засчитана.';
+        return;
+      }
+    }
     const sessionId = holdState?.session_id;
     if(!sessionId){
       holdReleaseQueued = false;
+      holdPointerActive=false;
       updateFarmVisuals(FARM_DURATION);
       $('#farmTotal').textContent = '10–100k ₽';
       $('#farmStatus').textContent = 'Отпустил раньше времени. Награда не засчитана.';
       return;
     }
 
+    let cancelled=false;
     try{
-      await apiFetch(`${API_BASE}/hold/cancel/${encodeURIComponent(userId)}`, {
+      const resp=await apiFetch(`${API_BASE}/hold/cancel/${encodeURIComponent(userId)}`, {
         method:'POST',
         headers:{'Content-Type':'application/json','Accept':'application/json'},
         body:JSON.stringify({session_id:sessionId})
       }, 3);
+      cancelled=resp.ok;
     }catch(_){ }
+    if(!cancelled){
+      try{ await refreshHoldStatusWithRetry(); }catch(_){ }
+      if(holdState?.session_id){
+        holdReleaseQueued=false;
+        $('#farmStatus').textContent='Соединение с сервером потеряно. Нажми ещё раз после восстановления связи.';
+        return;
+      }
+    }
 
     holdState = normalizeHoldState({...holdState,session_id:null,started_at:0,ready:true,cooldown_remaining:0,cooldown_until:0});
     holdReleaseQueued = false;
