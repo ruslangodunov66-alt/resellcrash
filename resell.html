@@ -2385,12 +2385,8 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     }
   }
 
-  // Resolve identity from Telegram or the signed RESSELL launch session immediately.
-  function getResellLaunchToken(){try{return String(new URLSearchParams(location.search).get('resell_session')||'').trim();}catch(_){return '';}}
-  function getStoredResellSession(){try{return String(sessionStorage.getItem('resell_session')||localStorage.getItem('resell_session')||'').trim();}catch(_){return '';}}
-  function resellSessionUserId(token){try{const uid=String(token||'').replace(/^Bearer\s+/i,'').trim().split('.')[0]||'';return /^\d+$/.test(uid)?uid:'';}catch(_){return '';}}
-  const initialLaunchUid=resellSessionUserId(getResellLaunchToken())||resellSessionUserId(getStoredResellSession())||'';
-  let userId = getTelegramUserIdFromInitData() || initialLaunchUid || '';
+  // Canonical player identity comes only from signed Telegram initData.
+  let userId = getTelegramUserIdFromInitData() || '';
   const ADMIN_OWNER_ID = '1475910449';
   let isOwner = String(userId) === ADMIN_OWNER_ID;
   let isAdmin = isOwner;
@@ -2404,8 +2400,6 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   }
 
   async function ensureTelegramIdentity(timeoutMs=5000){
-    const launchUid=resellSessionUserId(getResellLaunchToken())||resellSessionUserId(getStoredResellSession())||'';
-    if(launchUid && !userId){userId=launchUid;telegramUserId=launchUid;isOwner=String(userId)===ADMIN_OWNER_ID;if(isOwner)isAdmin=true;return {initData:'',userId:String(userId)};}
     const raw=await waitForTelegramInitData(timeoutMs);
     const signedId=getTelegramUserIdFromInitData();
     if(signedId){
@@ -6039,9 +6033,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     // This ordering keeps one canonical Telegram identity for the whole Mini App session.
     try{
       invalidateStaleTelegramCache();
-      const launchUid=resellSessionUserId(getResellLaunchToken())||resellSessionUserId(getStoredResellSession())||'';
-      if(launchUid && !userId){userId=launchUid;telegramUserId=launchUid;isOwner=String(userId)===ADMIN_OWNER_ID;if(isOwner)isAdmin=true;}
-      const bootInit=launchUid ? '' : await waitForTelegramInitData(5000);
+      const bootInit=await waitForTelegramInitData(5000);
       syncTelegramUserId();
       if(bootInit&&userId){try{await ensureResellServerSession(bootInit,userId);}catch(_){} }
       if(!isOwner){
