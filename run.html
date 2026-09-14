@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#070a08">
+<title>RESELL RUN</title>
+<style>
+:root{
+  --bg:#070a08;--panel:#0d120f;--panel2:#111812;--line:#28332b;
+  --green:#a8ff63;--green2:#65d936;--text:#edf4ed;--muted:#89948b;
+  --red:#ff6b6b;--gold:#ffd866;--blue:#68d8ff;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#070a08;color:var(--text);
+font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
+body{touch-action:none}
+#app{position:fixed;inset:0;background:#070a08;overflow:hidden}
+canvas{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated;image-rendering:crisp-edges}
+#hud{position:absolute;inset:0;pointer-events:none}
+.topbar{position:absolute;top:max(12px,env(safe-area-inset-top));left:12px;right:12px;height:62px;
+display:flex;align-items:center;justify-content:space-between;gap:8px}
+.logo{display:flex;align-items:center;gap:9px;filter:drop-shadow(0 3px 0 #000)}
+.logoMark{width:34px;height:34px;border:2px solid var(--green);background:#0a110b;display:grid;place-items:center}
+.logoMark span{display:block;width:18px;height:18px;background:var(--green);
+clip-path:polygon(0 22%,22% 22%,22% 0,78% 0,78% 22%,100% 22%,100% 100%,0 100%)}
+.logoText{font-weight:1000;letter-spacing:2px;font-size:16px;line-height:1}
+.logoSub{font-size:8px;color:#718074;letter-spacing:2px;margin-top:4px}
+.stats{display:flex;gap:6px}
+.stat{min-width:78px;background:rgba(7,10,8,.86);border:2px solid #273129;padding:7px 9px;box-shadow:0 3px 0 #000}
+.stat b{display:block;font-size:13px;color:var(--green)}
+.stat small{font-size:7px;color:#78837a;letter-spacing:1px}
+#distance{color:#fff}
+#toast{position:absolute;top:86px;left:50%;transform:translateX(-50%) translateY(-8px);
+background:#0a110b;border:2px solid #35453a;padding:8px 12px;color:var(--green);
+font-size:10px;font-weight:900;opacity:0;transition:.16s;white-space:nowrap;box-shadow:3px 3px 0 #000}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#progressWrap{position:absolute;left:12px;right:12px;bottom:112px;height:7px;border:2px solid #202a23;background:#080c09}
+#progress{height:100%;width:0;background:var(--green);box-shadow:0 0 10px rgba(168,255,99,.45)}
+#controls{position:absolute;left:12px;right:12px;bottom:max(16px,env(safe-area-inset-bottom));height:78px;
+display:flex;align-items:flex-end;justify-content:space-between}
+.pad{display:flex;gap:7px;pointer-events:auto}
+.ctrl{width:62px;height:58px;border:2px solid #344139;background:rgba(9,13,10,.9);color:#c9d3ca;
+box-shadow:3px 3px 0 #000;font:900 12px ui-monospace;display:grid;place-items:center;user-select:none}
+.ctrl:active{transform:translate(2px,2px);box-shadow:1px 1px 0 #000;background:#172019}
+.ctrl.jump{color:var(--green);border-color:#58734e}
+.ctrl.slide{color:var(--blue)}
+#marketBtn{pointer-events:auto;display:none;min-width:112px;height:58px;border:2px solid var(--gold);
+background:#17140a;color:var(--gold);box-shadow:3px 3px 0 #000;font:900 10px ui-monospace}
+#marketBtn:active{transform:translate(2px,2px)}
+.overlay{position:absolute;inset:0;background:rgba(3,5,4,.74);display:none;align-items:center;justify-content:center;padding:20px;pointer-events:auto}
+.overlay.show{display:flex}
+.card{width:min(440px,100%);background:#0b100d;border:2px solid #3a483d;box-shadow:6px 6px 0 #000;padding:18px}
+.card h1{margin:0 0 6px;font-size:25px;letter-spacing:2px;color:var(--green)}
+.card p{margin:7px 0;color:#99a59b;font-size:11px;line-height:1.5}
+.menuBtns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:15px}
+.btn{border:2px solid #334038;background:#121914;color:#eaf2eb;padding:13px 10px;font:900 11px ui-monospace;box-shadow:3px 3px 0 #000}
+.btn.primary{border-color:#729b60;color:var(--green)}
+.btn:active{transform:translate(2px,2px);box-shadow:1px 1px 0 #000}
+.marketGrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:13px}
+.item{border:2px solid #29352d;background:#0f1511;padding:10px}
+.item .icon{font-size:24px;height:30px}
+.item b{display:block;font-size:11px;margin-top:4px}
+.item small{display:block;color:#7f8c82;font-size:8px;margin-top:3px;line-height:1.4}
+.item button{width:100%;margin-top:8px}
+#pauseBtn{pointer-events:auto;width:42px;height:34px;border:2px solid #303b33;background:#0a0f0c;color:#b7c2b9;font:900 10px ui-monospace;box-shadow:2px 2px #000}
+.pausePos{position:absolute;top:max(76px,calc(env(safe-area-inset-top) + 68px));right:12px}
+.legend{margin-top:13px;padding-top:11px;border-top:1px solid #263028;color:#68746b;font-size:8px;line-height:1.6}
+@media(max-width:500px){
+ .stat{min-width:68px;padding:6px 7px}.stat b{font-size:11px}.stat small{font-size:6px}
+ .logoText{font-size:14px}.logoMark{width:31px;height:31px}
+ .ctrl{width:58px}.card{padding:15px}
+}
+</style>
+</head>
+<body>
+<div id="app">
+<canvas id="game"></canvas>
+<div id="hud">
+  <div class="topbar">
+    <div class="logo">
+      <div class="logoMark"><span></span></div>
+      <div><div class="logoText">RESELL RUN</div><div class="logoSub">RUN • BUY • FLIP</div></div>
+    </div>
+    <div class="stats">
+      <div class="stat"><small>₽ КЭШ</small><b id="cash">0</b></div>
+      <div class="stat"><small>МЕТРЫ</small><b id="distance">0 m</b></div>
+    </div>
+  </div>
+  <div id="toast"></div>
+  <button id="pauseBtn" class="pausePos">II</button>
+  <div id="progressWrap"><div id="progress"></div></div>
+  <div id="controls">
+    <div class="pad">
+      <button class="ctrl jump" id="jump">ПРЫЖОК<br>↑</button>
+      <button class="ctrl slide" id="slide">ПОДКАТ<br>↓</button>
+    </div>
+    <button id="marketBtn">ОТКРЫТЬ РЫНОК</button>
+  </div>
+</div>
+
+<div class="overlay show" id="startOverlay">
+ <div class="card">
+   <h1>RESELL RUN</h1>
+   <p>Бесконечная улица перекупа. Беги, собирай товар, ловишь бусты — на рынке покупай выгодно и продавай дороже.</p>
+   <div class="menuBtns">
+     <button class="btn primary" id="startBtn">НАЧАТЬ ЗАБЕГ</button>
+     <button class="btn" id="howBtn">КАК ИГРАТЬ</button>
+   </div>
+   <div class="legend">Свайп вверх — прыжок • свайп вниз — подкат • рынок появляется по ходу маршрута. Всё управление без азартных механик.</div>
+ </div>
+</div>
+
+<div class="overlay" id="marketOverlay">
+ <div class="card">
+   <h1>РЫНОК</h1>
+   <p id="marketInfo">Купи товар сейчас — продай на следующей точке.</p>
+   <div class="marketGrid" id="marketGrid"></div>
+   <button class="btn primary" id="closeMarket" style="width:100%;margin-top:10px">ВЕРНУТЬСЯ НА УЛИЦУ</button>
+ </div>
+</div>
+
+<div class="overlay" id="pauseOverlay">
+ <div class="card">
+   <h1>ПАУЗА</h1>
+   <p>Забег остановлен. Прогресс этой попытки сохранён в памяти устройства.</p>
+   <button class="btn primary" id="resumeBtn" style="width:100%;margin-top:10px">ПРОДОЛЖИТЬ</button>
+   <button class="btn" id="restartBtn" style="width:100%;margin-top:8px">НАЧАТЬ ЗАНОВО</button>
+ </div>
+</div>
+
+<div class="overlay" id="howOverlay">
+ <div class="card">
+   <h1>КАК ИГРАТЬ</h1>
+   <p><b style="color:#a8ff63">БЕГ</b> — персонаж движется сам. Уворачивайся от машин, коробок и ям.</p>
+   <p><b style="color:#ffd866">ТОВАР</b> — подбирай коробки и электронику. У товара есть стоимость.</p>
+   <p><b style="color:#68d8ff">БУСТЫ</b> — магнит собирает товары, щит защищает, ускорение увеличивает темп.</p>
+   <p><b style="color:#ffd866">РЫНОК</b> — покупай партию дёшево и продавай на следующей торговой точке.</p>
+   <p><b style="color:#a8ff63">ДАЛЬШЕ</b> — чем больше расстояние, тем выше скорость, плотнее препятствия и дороже рынок.</p>
+   <button class="btn primary" id="closeHow" style="width:100%;margin-top:10px">ПОНЯТНО</button>
+ </div>
+</div>
+</div>
+
+<script>
+(()=> {
+"use strict";
+const c=document.getElementById('game'), ctx=c.getContext('2d',{alpha:false});
+ctx.imageSmoothingEnabled=false;
+let W=480,H=270,DPR=1, last=0, running=false, paused=false, time=0, distance=0, speed=3.0;
+let cash=0, runCash=0, inventory=[], marketCooldown=0, nextMarket=420, score=0;
+let best=Number(localStorage.getItem('rr_best')||0);
+let player={x:96,y:0,w:18,h:28,vy:0,onGround:true,slide:0,shield:0,magnet:0,boost:0};
+let objects=[], particles=[], popups=[], skyline=[], groundOffset=0;
+let spawnT=0, difficulty=0, shake=0, marketVisible=false;
+
+const $=id=>document.getElementById(id);
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const pick=a=>a[(Math.random()*a.length)|0];
+const fmt=n=>Math.round(n).toLocaleString('ru-RU');
+
+function resize(){
+  const rect=c.getBoundingClientRect();
+  W=Math.max(320,Math.floor(rect.width*0.55));
+  H=Math.max(180,Math.floor(rect.height*0.55));
+  // fixed low-res canvas: intentionally pixelated
+  W=clamp(W,360,640); H=Math.round(W*0.5625);
+  c.width=W;c.height=H;ctx.imageSmoothingEnabled=false;
+}
+window.addEventListener('resize',resize); resize();
+
+function showToast(s){
+  const t=$('toast');t.textContent=s;t.classList.add('show');
+  clearTimeout(showToast.tm);showToast.tm=setTimeout(()=>t.classList.remove('show'),1200);
+}
+function updateHud(){
+  $('cash').textContent=fmt(cash+runCash);
+  $('distance').textContent=Math.floor(distance)+' m';
+  $('progress').style.width=((distance%1000)/10)+'%';
+}
+
+const products=[
+ {id:'phone',name:'СМАРТФОН',buy:80,sell:125,icon:'▣'},
+ {id:'console',name:'КОНСОЛЬ',buy:140,sell:215,icon:'◆'},
+ {id:'sneakers',name:'КРОССОВКИ',buy:110,sell:180,icon:'◇'},
+ {id:'camera',name:'КАМЕРА',buy:190,sell:315,icon:'●'},
+ {id:'laptop',name:'НОУТБУК',buy:260,sell:430,icon:'▰'},
+ {id:'watch',name:'ЧАСЫ',buy:320,sell:540,icon:'◈'}
+];
+
+function save(){
+ localStorage.setItem('rr_best',String(Math.max(best,Math.floor(distance))));
+}
+function resetRun(){
+ distance=0;runCash=0;inventory=[];objects=[];particles=[];popups=[];speed=3;difficulty=0;
+ nextMarket=420;marketCooldown=0;spawnT=0;groundOffset=0;shake=0;
+ player={x:96,y:groundY()-28,w:18,h:28,vy:0,onGround:true,slide:0,shield:0,magnet:0,boost:0};
+ updateHud();
+}
+function groundY(){return H-53}
+function start(){
+ resetRun(); running=true;paused=false; $('startOverlay').classList.remove('show');
+ $('pauseOverlay').classList.remove('show'); last=performance.now(); requestAnimationFrame(loop);
+}
+function endRun(){
+ running=false;save();
+ const gain=Math.max(0,Math.floor(runCash));
+ cash+=gain;
+ showToast('ЗАБЕГ ЗАВЕРШЁН • +₽'+fmt(gain));
+ setTimeout(()=>{
+   $('startOverlay').querySelector('h1').textContent='ЗАБЕГ ЗАВЕРШЁН';
+   $('startOverlay').querySelector('p').textContent=`Дистанция: ${Math.floor(distance)} м • заработано: ₽${fmt(gain)} • рекорд: ${Math.floor(best)} м`;
+   $('startOverlay').classList.add('show');
+ },500);
+}
+
+function jump(){
+ if(!running||paused)return;
+ if(player.onGround){player.vy=-8.3;player.onGround=false;dust(player.x,groundY(),5);}
+}
+function slide(){
+ if(!running||paused)return;
+ if(player.onGround){player.slide=.52;}
+}
+$('jump').onclick=jump;$('slide').onclick=slide;
+$('pauseBtn').onclick=()=>{
+ if(!running)return;
+ paused=true;$('pauseOverlay').classList.add('show');
+};
+$('resumeBtn').onclick=()=>{paused=false;$('pauseOverlay').classList.remove('show');last=performance.now();requestAnimationFrame(loop)};
+$('restartBtn').onclick=()=>{paused=false;$('pauseOverlay').classList.remove('show');start()};
+$('startBtn').onclick=start;
+$('howBtn').onclick=()=>$('howOverlay').classList.add('show');
+$('closeHow').onclick=()=>$('howOverlay').classList.remove('show');
+
+let touchY=0,touchX=0;
+c.addEventListener('touchstart',e=>{let t=e.changedTouches[0];touchX=t.clientX;touchY=t.clientY},{passive:true});
+c.addEventListener('touchend',e=>{
+ if(!running||paused)return;let t=e.changedTouches[0],dy=t.clientY-touchY,dx=t.clientX-touchX;
+ if(Math.abs(dy)>24){dy<0?jump():slide();}
+},{passive:true});
+window.addEventListener('keydown',e=>{
+ if(e.code==='Space'||e.code==='ArrowUp')jump();
+ if(e.code==='ArrowDown')slide();
+ if(e.code==='KeyP')$('pauseBtn').click();
+});
+
+function makeSky(){
+ skyline=[];
+ for(let x=0;x<W+120;x+=rnd(25,55)){
+  const h=rnd(28,92); skyline.push({x,h,w:rnd(18,45),seed:Math.random()});
+ }
+}
+makeSky();
+
+function spawn(type){
+ const gy=groundY();
+ if(type==='obstacle'){
+  const kind=Math.random()<.55?'box':(Math.random()<.5?'car':'barrier');
+  objects.push({type:'obstacle',kind,x:W+25,y:gy-(kind==='car'?18:kind==='barrier'?24:18),
+   w:kind==='car'?40:kind==='barrier'?25:19,h:kind==='car'?18:kind==='barrier'?24:18,passed:false});
+ }else if(type==='item'){
+  const p=pick(products), val=Math.round(p.buy*rnd(.65,1.05)*(1+difficulty*.3));
+  objects.push({type:'item',x:W+20,y:gy-rnd(38,78),w:16,h:16,p:p,val});
+ }else{
+  const kind=pick(['magnet','shield','boost']);
+  objects.push({type:'boost',kind,x:W+20,y:gy-rnd(45,95),w:15,h:15});
+ }
+}
+function spawnMarket(){
+ objects.push({type:'market',x:W+30,y:groundY()-43,w:48,h:43});
+ marketCooldown=2.8;nextMarket=distance+rnd(500,700);
+}
+
+function dust(x,y,n=3){
+ for(let i=0;i<n;i++)particles.push({x,y,vx:rnd(-1,1),vy:rnd(-2,-.4),life:rnd(.25,.5),s:rnd(1,2)});
+}
+function popup(x,y,text,color='#a8ff63'){popups.push({x,y,text,color,life:1.1,vy:-.35})}
+
+function rectHit(a,b){
+ return a.x<a.x+a.w && a.x+a.w>b.x && a.y<a.y+a.h && a.y+a.h>b.y;
+}
+function playerBox(){
+ const h=player.slide>0?15:player.h;
+ return {x:player.x+3,y:player.y+(player.h-h),w:player.w-6,h};
+}
+
+function collect(o){
+ if(o.type==='item'){
+  inventory.push({...o.p,value:o.val});
+  if(inventory.length>8)inventory.shift();
+  runCash+=Math.round(o.val*.08);
+  popup(o.x,o.y,'+'+o.p.name,'#a8ff63');dust(o.x,o.y,5);
+ }else if(o.type==='boost'){
+  player[o.kind]=o.kind==='boost'?4.5:6;
+  popup(o.x,o.y,o.kind==='magnet'?'МАГНИТ':o.kind==='shield'?'ЩИТ':'ТУРБО','#68d8ff');
+  dust(o.x,o.y,8);
+ }else if(o.type==='market'){
+  openMarket();
+ }
+}
+
+function openMarket(){
+ if(!running||paused)return;
+ paused=true;marketVisible=true;$('marketOverlay').classList.add('show');renderMarket();
+}
+function renderMarket(){
+ const grid=$('marketGrid');grid.innerHTML='';
+ const level=Math.min(1.8,difficulty*.18);
+ products.forEach(p=>{
+  const buy=Math.round(p.buy*(1+level*rnd(.72,1.08)));
+  const sell=Math.round(p.sell*(1+level*rnd(.72,1.1)));
+  const d=document.createElement('div');d.className='item';
+  d.innerHTML=`<div class="icon">${p.icon}</div><b>${p.name}</b><small>Вход ₽${buy} → выход ₽${sell}<br>Мест в рюкзаке: ${inventory.length}/8</small>`;
+  const b=document.createElement('button');b.className='btn';b.textContent='КУПИТЬ';
+  b.onclick=()=>{
+   if(cash+runCash<buy){showToast('НЕ ХВАТАЕТ КЭША');return}
+   if(inventory.length>=8){showToast('РЮКЗАК ПОЛОН');return}
+   runCash-=buy;inventory.push({...p,value:buy,sell});
+   showToast('КУПЛЕНО: '+p.name);renderMarket();
+  };
+  d.appendChild(b);grid.appendChild(d);
+ });
+ if(inventory.length){
+  const d=document.createElement('div');d.className='item';d.style.gridColumn='1/-1';
+  const total=inventory.reduce((s,x)=>s+(x.sell||Math.round(x.buy*1.45)),0);
+  d.innerHTML=`<b style="color:#a8ff63">ПРОДАЖА ГРУЗА: ₽${fmt(total)}</b><small>Текущий товар: ${inventory.length}/8. Продажа фиксирует прибыль, но забег продолжается.</small>`;
+  const b=document.createElement('button');b.className='btn primary';b.textContent='ПРОДАТЬ ВСЁ';
+  b.onclick=()=>{runCash+=total;inventory=[];showToast('ГРУЗ ПРОДАН • +₽'+fmt(total));renderMarket()};
+  d.appendChild(b);grid.appendChild(d);
+ }
+}
+$('closeMarket').onclick=()=>{
+ $('marketOverlay').classList.remove('show');marketVisible=false;paused=false;last=performance.now();requestAnimationFrame(loop);
+};
+
+function update(dt){
+ time+=dt;
+ difficulty=Math.min(12,distance/700);
+ speed=3.0+difficulty*.23+(player.boost>0?1.8:0);
+ distance+=speed*dt*7.0;
+ groundOffset=(groundOffset+speed*dt*16)%32;
+ marketCooldown=Math.max(0,marketCooldown-dt);
+ player.magnet=Math.max(0,player.magnet-dt);
+ player.shield=Math.max(0,player.shield-dt);
+ player.boost=Math.max(0,player.boost-dt);
+ if(player.slide>0)player.slide-=dt;
+
+ player.vy+=22*dt;player.y+=player.vy*dt;
+ const gy=groundY();
+ if(player.y>=gy-player.h){player.y=gy-player.h;player.vy=0;player.onGround=true}
+ spawnT-=dt;
+ if(spawnT<=0){
+   const gap=Math.max(.34,1.0-difficulty*.035);
+   spawnT=rnd(gap*.65,gap*1.1);
+   const r=Math.random();
+   if(r<.58)spawn('obstacle');else if(r<.85)spawn('item');else spawn('boost');
+ }
+ if(!marketCooldown && distance>nextMarket)spawnMarket();
+
+ const pb=playerBox();
+ for(let i=objects.length-1;i>=0;i--){
+  const o=objects[i];o.x-=speed*dt*16;
+  if(o.type==='item'&&player.magnet>0){
+    const dx=player.x-o.x,dy=player.y-o.y;
+    if(dx>0&&dx<105){o.x+=dx*.10;o.y+=dy*.10}
+  }
+  if(o.type==='obstacle'&&rectHit(pb,o)){
+    if(player.shield>0){player.shield=0;objects.splice(i,1);shake=.25;popup(player.x,player.y,'ЩИТ СПАС','#68d8ff');continue}
+    endRun();return;
+  }
+  if((o.type==='item'||o.type==='boost')&&rectHit(pb,o)){collect(o);objects.splice(i,1);continue}
+  if(o.type==='market'&&rectHit(pb,o)){objects.splice(i,1);openMarket();continue}
+  if(o.x+o.w<-30)objects.splice(i,1);
+ }
+ for(let i=particles.length-1;i>=0;i--){
+  const p=particles[i];p.x+=p.vx*16*dt;p.y+=p.vy*16*dt;p.vy+=5*dt;p.life-=dt;if(p.life<=0)particles.splice(i,1);
+ }
+ for(let i=popups.length-1;i>=0;i--){const p=popups[i];p.y+=p.vy*16*dt;p.life-=dt;if(p.life<=0)popups.splice(i,1)}
+ shake=Math.max(0,shake-dt);
+ updateHud();
+}
+
+function pxRect(x,y,w,h,fill){ctx.fillStyle=fill;ctx.fillRect(Math.round(x),Math.round(y),Math.round(w),Math.round(h))}
+function drawBackground(){
+ ctx.fillStyle='#070a08';ctx.fillRect(0,0,W,H);
+ // moon / haze
+ pxRect(W-82,52,28,28,'#121b14');pxRect(W-76,46,16,40,'#121b14');
+ // skyline
+ for(const b of skyline){
+  const x=(b.x-groundOffset*.16)% (W+80)-40, y=groundY()-b.h-20;
+  pxRect(x,y,b.w,b.h,'#0c130f');
+  for(let wx=x+5;wx<x+b.w-4;wx+=9)for(let wy=y+7;wy<y+b.h-4;wy+=11)
+    if(((wx*3+wy*7)|0)%4===0)pxRect(wx,wy,3,4,'#18231b');
+ }
+ // distant street
+ pxRect(0,groundY()-20,W,20,'#101710');
+ pxRect(0,groundY(),W,H-groundY(),'#151b17');
+ // lane / curb
+ pxRect(0,groundY()+21,W,3,'#283229');
+ for(let x=-32;x<W+32;x+=32)pxRect(x-groundOffset,groundY()+38,18,2,'#273029');
+ // sidewalk
+ pxRect(0,groundY()+4,W,5,'#1b231e');
+ // tiny pixels
+ for(let x=0;x<W;x+=27) if(((x/27)|0)%2===0)pxRect(x+((time*4)%9),groundY()+8,2,2,'#38463b');
+}
+
+function drawPlayer(){
+ const x=player.x,y=player.y+(player.slide>0?13:0);
+ // shadow
+ pxRect(x-1,groundY()+1,22,3,'#080b09');
+ // backpack
+ pxRect(x-3,y+9,5,12,'#304034');
+ pxRect(x-4,y+12,2,6,'#617061');
+ // legs
+ if(player.slide>0){pxRect(x+4,y+18,16,4,'#a8ff63');pxRect(x+15,y+20,7,3,'#6fb44b')}
+ else {pxRect(x+5,y+19,4,9,'#a8ff63');pxRect(x+13,y+19,4,9,'#7bd94f');pxRect(x+3,y+27,7,3,'#202a22');pxRect(x+12,y+27,7,3,'#202a22')}
+ // body
+ pxRect(x+4,y+7,13,14,'#76a653');pxRect(x+6,y+8,9,11,'#a8ff63');
+ // shirt pixels
+ pxRect(x+9,y+11,4,3,'#152016');
+ // head
+ pxRect(x+5,y,11,9,'#d4a77b');pxRect(x+4,y+2,13,5,'#c08d63');
+ // hair
+ pxRect(x+5,y-1,11,4,'#20251f');pxRect(x+4,y+1,4,5,'#20251f');
+ // eye
+ pxRect(x+14,y+4,2,2,'#070a08');
+ if(player.shield>0){ctx.strokeStyle='#68d8ff';ctx.lineWidth=2;ctx.strokeRect(x-6,y-6,30,38)}
+}
+
+function drawObject(o){
+ const x=o.x,y=o.y;
+ if(o.type==='item'){
+  pxRect(x+2,y+3,o.w-4,o.h-2,'#39463d');pxRect(x,y+5,o.w,8,'#8b9a8c');pxRect(x+3,y,o.w-6,4,'#56645a');
+  pxRect(x+4,y+6,7,2,'#a8ff63');
+ }else if(o.type==='boost'){
+  const col=o.kind==='magnet'?'#68d8ff':o.kind==='shield'?'#d8f4ff':'#ffd866';
+  pxRect(x+4,y,o.w-8,2,col);pxRect(x+1,y+3,o.w-2,o.h-6,col);pxRect(x+4,y+o.h-2,o.w-8,2,col);
+  pxRect(x+5,y+5,5,5,'#07100a');
+ }else if(o.type==='obstacle'){
+  if(o.kind==='car'){
+   pxRect(x+3,y+6,o.w-6,10,'#252e28');pxRect(x+8,y+2,20,8,'#334038');pxRect(x+11,y+4,7,3,'#68d8ff');
+   pxRect(x+6,y+15,7,4,'#070a08');pxRect(x+28,y+15,7,4,'#070a08');
+  }else if(o.kind==='barrier'){
+   pxRect(x+4,y,o.w-8,o.h,'#8a6d2f');for(let yy=3;yy<o.h;yy+=7)pxRect(x+2,yy+y,o.w-4,3,'#ffd866');
+  }else{
+   pxRect(x,y+3,o.w,o.h-3,'#5d3e27');pxRect(x+3,y,o.w-6,5,'#9a6b43');pxRect(x+5,y+7,4,4,'#b7804f');
+  }
+ }else if(o.type==='market'){
+  pxRect(x+3,y+11,o.w-6,32,'#253127');pxRect(x,y+6,o.w,8,'#a8ff63');
+  pxRect(x+8,y+17,10,10,'#111811');pxRect(x+30,y+17,10,10,'#111811');
+  pxRect(x+18,y+29,12,14,'#111811');pxRect(x+9,y+2,4,4,'#ffd866');pxRect(x+35,y+2,4,4,'#ffd866');
+ }
+}
+
+function draw(){
+ ctx.save();
+ if(shake>0)ctx.translate(rnd(-2,2),rnd(-1,1));
+ drawBackground();
+ for(const o of objects)drawObject(o);
+ drawPlayer();
+ for(const p of particles)pxRect(p.x,p.y,p.s,p.s,p.life>.5?'#a8ff63':'#5b7957');
+ for(const p of popups){ctx.globalAlpha=Math.max(0,p.life);ctx.fillStyle=p.color;ctx.font='bold 8px monospace';ctx.fillText(p.text,p.x,p.y);ctx.globalAlpha=1}
+ // inventory strip
+ pxRect(10,H-25,112,15,'#090e0b');ctx.strokeStyle='#29362e';ctx.strokeRect(10.5,H-25.5,112,15);
+ ctx.fillStyle='#829087';ctx.font='7px monospace';ctx.fillText('ГРУЗ '+inventory.length+'/8',16,H-15);
+ if(player.magnet>0){ctx.fillStyle='#68d8ff';ctx.fillText('MAG '+player.magnet.toFixed(1),72,H-15)}
+ if(player.shield>0){ctx.fillStyle='#68d8ff';ctx.fillText('SHIELD',72,H-15)}
+ if(player.boost>0){ctx.fillStyle='#ffd866';ctx.fillText('TURBO',72,H-15)}
+ ctx.restore();
+}
+
+function loop(now){
+ if(!running||paused)return;
+ const dt=Math.min(.035,(now-last)/1000||0);last=now;
+ update(dt);draw();requestAnimationFrame(loop);
+}
+draw();
+
+})();
+</script>
+</body>
+</html>
