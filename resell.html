@@ -4155,7 +4155,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       }
       farmRafId=requestAnimationFrame(tick);
     };
-    farmStatusPollId=setInterval(syncActiveFarmSnapshot,250);
+    farmStatusPollId=setInterval(syncActiveFarmSnapshot,1000);
     syncActiveFarmSnapshot();
     farmRafId=requestAnimationFrame(tick);
   }
@@ -5099,7 +5099,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
           if(n)n.textContent=broken?'Износ 100%. Машина остановлена до ремонта.':'Износ растёт автоматически, пока машина на линии.';
         }
       }catch(_){}
-    },1000);
+    },3000);
   }
   startTaxiWearPoller();
 
@@ -5124,8 +5124,8 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     const root=document.querySelector('.avx-shell'); if(root){root.insertAdjacentHTML('beforeend',html);}
   }
   async function refreshAvitoUnreadBadge(){ try{ if(userId && !document.hidden){ const d=await tycoonFetch(`/avito/${encodeURIComponent(userId)}`); const u=Number(d?.unread_count||0); const b=document.getElementById("avitoEntryUnread"); if(b){b.textContent=u;b.style.display=u>0?"inline-grid":"none";} } }catch(_){} }
-  setInterval(refreshAvitoUnreadBadge,5000);
-  function groupInventory(inv){ const groups=new Map(); for(const item of (inv||[])){ const key=[item.name||'Товар',item.rarity||'',item.buy_price||0,item.market_price||0].join('|'); if(!groups.has(key)) groups.set(key,{...item,count:0,uids:[]}); const g=groups.get(key); g.count++; if(item.uid) g.uids.push(item.uid); } return [...groups.values()].sort((a,b)=>{ const av=Number(a.market_price||a.buy_price||0), bv=Number(b.market_price||b.buy_price||0); if(bv!==av)return bv-av; const ab=Number(a.buy_price||0),bb=Number(b.buy_price||0); if(bb!==ab)return bb-ab; return String(a.name||'').localeCompare(String(b.name||''),'ru'); }); }
+  setInterval(refreshAvitoUnreadBadge,10000);
+  function groupInventory(inv){ const groups=new Map(); for(const item of (inv||[])){ const key=[item.name||'Товар',item.rarity||'',item.buy_price||0,item.market_price||0,item.value||0,item.price||0].join('|'); if(!groups.has(key)) groups.set(key,{...item,count:0,uids:[]}); const g=groups.get(key); g.count++; if(item.uid) g.uids.push(item.uid); } return [...groups.values()].sort((a,b)=>{ const value=x=>Math.max(Number(x.market_price||0),Number(x.value||0),Number(x.price||0),Number(x.buy_price||0)); const av=value(a),bv=value(b); if(bv!==av)return bv-av; const ab=Number(a.buy_price||0),bb=Number(b.buy_price||0); if(bb!==ab)return bb-ab; return String(a.name||'').localeCompare(String(b.name||''),'ru'); }); }
   function avitoRarity(r){ const v=String(r||'').trim().toLowerCase(); if(v.includes('миф')) return 'mythic'; if(v.includes('легенд')) return 'legendary'; if(v.includes('эпич')) return 'epic'; if(v.includes('редк')) return 'rare'; return 'common'; }
   function avitoRarityLabel(r){ const v=String(r||'').trim().toLowerCase(); if(v.includes('миф')) return 'МИФИЧЕСКИЙ'; if(v.includes('легенд')) return 'ЛЕГЕНДАРНЫЙ'; if(v.includes('эпич')) return 'ЭПИЧЕСКИЙ'; if(v.includes('редк')) return 'РЕДКИЙ'; return 'ОБЫЧНЫЙ'; }
 
@@ -5207,7 +5207,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     haptic('light'); avitoTab='buy'; openModal('Avito','<div class="loading">Загрузка площадки…</div>');
     try{ await fetchAvito(); modalBody.innerHTML=renderAvito(); showAvitoUnlockPopup(); }catch(e){ modalBody.innerHTML=`<div class="avito-shell"><div class="avito-hero marketplace"><div class="avito-kicker">AVITO · ERROR</div><div class="avito-title">Площадка недоступна</div><div class="avito-sub">${esc(e.message||'Не удалось загрузить Avito')}</div></div></div>`; }
     clearInterval(avitoPoller);
-    avitoPoller=setInterval(async()=>{ if(avitoEditing || !modal.classList.contains('open') || !document.querySelector('.avito-shell')) return; try{ await fetchAvito(); if(avitoEditing || document.querySelector('[data-avito-chat-sheet="1"]')) return; modalBody.innerHTML=renderAvito(); }catch(_){} },3500);
+    avitoPoller=setInterval(async()=>{ if(avitoEditing || !modal.classList.contains('open') || !document.querySelector('.avito-shell')) return; try{ await fetchAvito(); if(avitoEditing || document.querySelector('[data-avito-chat-sheet="1"]')) return; modalBody.innerHTML=renderAvito(); }catch(_){} },7000);
   }
   $('#avitoBtn')?.addEventListener('click',openAvito);
   modalBody.addEventListener('change',e=>{
@@ -5939,7 +5939,12 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     });
   }
 
+  let particleSleepTimer=0;
   function drawParticles(){
+    if(document.visibilityState !== 'visible'){
+      particleSleepTimer=setTimeout(()=>requestAnimationFrame(drawParticles),500);
+      return;
+    }
     ctx.clearRect(0,0,innerWidth,innerHeight);
     const t=performance.now()/1000;
     for(let i=0;i<particles.length;i++){
@@ -5982,7 +5987,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
         }
       }
     }
-    setTimeout(()=>requestAnimationFrame(drawParticles),33);
+    setTimeout(()=>requestAnimationFrame(drawParticles),50);
   }
 
   addEventListener('resize',resizeCanvas,{passive:true});
@@ -6485,7 +6490,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   // opening the old R-HOLD-only shop before V33 could handle the click.
   // V26 is data-compatible legacy code only. It must never own the customization
   // trigger or re-apply a six-item R-HOLD-only catalog over public cosmetics.
-  bind();setInterval(bind,900);
+  bind();setInterval(()=>{if(document.visibilityState==='visible')bind();},1800);
   // Intentionally no legacy startup load(). V33 owns catalog + equipped cosmetics.
 
 })();
@@ -6559,7 +6564,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   function decorateTrigger(){const b=document.getElementById('rholdCustomizeBtn');const c=document.getElementById('rholdCustomizeControl');if(!b||!c)return;c.classList.add('r28-customize-control');b.textContent='ОТКРЫТЬ СТИЛЬ';b.disabled=false;b.style.pointerEvents='auto';}
   // V28 trigger interception disabled: V33 is the single customization entry point.
   document.addEventListener('click',e=>{const b=e.target?.closest?.('#profileBtn');if(!b)return;e.preventDefault();e.stopImmediatePropagation();renderOwnProfile();},true);
-  function decorateAll(){decorateTrigger();} setTimeout(decorateAll,250);setInterval(decorateAll,1400);
+  function decorateAll(){decorateTrigger();} setTimeout(decorateAll,250);setInterval(()=>{if(document.visibilityState==='visible')decorateAll();},2500);
 
   // Public profile modal using the same authoritative profile payload.
   async function renderOwnProfile(){
@@ -6634,7 +6639,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     });
   }
   window.__resellDecorateFriendSearchPublic=decorateFriendSearchPublic;
-  setInterval(decorateFriendsPublic,700);
+  setInterval(()=>{if(document.visibilityState==='visible')decorateFriendsPublic();},1800);
   document.addEventListener('click',e=>{
     const row=e.target?.closest?.('.friend-row');
     if(!row) return;
@@ -6709,6 +6714,22 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 .v33-car-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.v33-car{padding:13px;border-radius:18px;background:linear-gradient(145deg,#11151b,#08090c);border:1px solid rgba(126,167,255,.12);box-shadow:0 14px 32px rgba(0,0,0,.25)}.v33-car-art{height:74px;border-radius:14px;display:grid;place-items:center;background:radial-gradient(circle at 50% 45%,rgba(126,167,255,.18),transparent 52%),linear-gradient(145deg,#151b26,#080a0e);border:1px solid rgba(255,255,255,.05);color:#dbe5ff;font:950 28px/1 Montserrat;font-style:italic}.v33-car b{display:block;margin-top:10px;font:950 9px/1.15 Montserrat}.v33-car span{display:block;margin-top:5px;color:#707a76;font:800 6.5px/1.3 Nunito}.v33-car .v29-card-action{margin-top:9px}
 .v33-hof-row{display:flex;align-items:center;gap:9px;padding:10px;border-radius:15px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.055)}.v33-hof-rank{width:27px;height:27px;border-radius:9px;display:grid;place-items:center;background:#fff;color:#080908;font:950 8px/1 Montserrat}.v33-hof-main{min-width:0;flex:1}.v33-hof-main b{display:block;font:950 9px/1.1 Montserrat;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.v33-hof-main span{display:block;margin-top:4px;color:#69726d;font:800 6.5px/1.15 Nunito}.v33-hof-value{text-align:right;color:#b7ff6a;font:950 9px/1 Montserrat}.v33-status-card{padding:14px;border-radius:18px;background:radial-gradient(circle at 95% 5%,rgba(183,255,106,.11),transparent 32%),linear-gradient(145deg,#131713,#080a08);border:1px solid rgba(183,255,106,.14)}.v33-status-card b{display:block;margin-top:6px;color:#fff;font:950 22px/1 Montserrat}.v33-status-card span{display:block;margin-top:6px;color:#78827c;font:800 7.5px/1.3 Nunito}.v33-status-meter{height:5px;margin-top:11px;border-radius:99px;background:#090a09;overflow:hidden}.v33-status-meter i{display:block;height:100%;background:linear-gradient(90deg,#fff,#b7ff6a);border-radius:inherit}
 .v33-unlock-overlay{position:fixed;inset:0;z-index:120;display:none;place-items:center;padding:22px;background:rgba(0,0,0,.58);backdrop-filter:blur(13px)}.v33-unlock-overlay.open{display:grid;animation:v33UnlockIn .2s ease both}@keyframes v33UnlockIn{from{opacity:0}to{opacity:1}}.v33-unlock-card{width:min(330px,calc(100vw - 40px));padding:22px;border-radius:26px;background:radial-gradient(circle at 50% -10%,rgba(183,255,106,.15),transparent 42%),linear-gradient(145deg,#151a16,#080a09);border:1px solid rgba(183,255,106,.22);box-shadow:0 35px 100px rgba(0,0,0,.7),0 0 60px rgba(183,255,106,.09);text-align:center}.v33-unlock-icon{width:68px;height:68px;margin:0 auto;border-radius:22px;display:grid;place-items:center;background:rgba(183,255,106,.09);border:1px solid rgba(183,255,106,.24);box-shadow:0 0 35px rgba(183,255,106,.12);font:950 27px/1 Montserrat;color:#b7ff6a}.v33-unlock-kicker{margin-top:14px;color:#69756c;font:900 6px/1 Montserrat;letter-spacing:1.5px}.v33-unlock-title{margin-top:8px;color:#fff;font:950 21px/1.05 Montserrat}.v33-unlock-sub{margin-top:8px;color:#7b847e;font:800 9px/1.4 Nunito}.v33-unlock-tag{display:inline-block;margin-top:13px;padding:7px 10px;border-radius:10px;background:#fff;color:#080a08;font:950 7px/1 Montserrat;letter-spacing:.8px}.v33-unlock-close{width:100%;margin-top:15px;padding:12px;border-radius:13px;background:#fff;color:#080908;font:950 8px/1 Montserrat;letter-spacing:.8px}
+<style id="resell-v66-performance-avito">
+/* V66 performance: same visual design, fewer hot loops / paints. */
+.avx-shell,.avx-section,.avx-chat-large,.avx-seller-card,.avx-stock,.avx-stock-row,.avx-price-grid,.avx-price-btn,.avx-chat-actions{min-width:0!important;max-width:100%!important;box-sizing:border-box!important;overflow-x:hidden!important;}
+.avx-stock-row{width:100%!important;}
+.avx-stock-left{min-width:0!important;max-width:calc(100% - 88px)!important;}
+.avx-stock-left>div:last-child{min-width:0!important;max-width:100%!important;overflow:hidden!important;}
+.avx-stock-left b,.avx-stock-left span,.avx-stock-left small{max-width:100%!important;overflow:hidden!important;text-overflow:ellipsis!important;}
+.avx-stock-left b{white-space:normal!important;overflow-wrap:anywhere!important;}
+.avx-stock-left span{white-space:normal!important;overflow-wrap:anywhere!important;}
+.avx-stock-left .avx-rarity-name{white-space:nowrap!important;}
+.avx-stock-row>.avx-btn{min-width:72px!important;max-width:96px!important;flex:0 0 auto!important;white-space:nowrap!important;}
+.avx-chat-large .avito-chat-head,.avx-chat-large .avito-chat-message,.avx-chat-large .avx-chat-persuasion,.avx-chat-large .avx-section-head{min-width:0!important;max-width:100%!important;}
+.avx-chat-message,.avx-chat-hint,.avx-price-btn .price-copy,.avx-price-btn .price-copy span{overflow-wrap:anywhere!important;word-break:break-word!important;}
+.avx-price-btn .price-copy{min-width:0!important;max-width:calc(100% - 80px)!important;}
+.avx-price-btn .price-value{flex:0 0 auto!important;}
+</style>
 </style>
 <script id="resell-v33-ux">
 (function(){
@@ -6919,7 +6940,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   function paintUnlock(x){unlockShowing=true;const o=unlockRoot();o.querySelector('#v33UnlockIcon').textContent=x.icon;o.querySelector('#v33UnlockKicker').textContent=x.kicker;o.querySelector('#v33UnlockTitle').textContent=x.title;o.querySelector('#v33UnlockSub').textContent=x.sub;o.classList.add('open');try{core().showToast?.(x.toast||x.title)}catch(_){}}
   function queueUnlocks(prev,next){const out=[];const p=prev||{},n=next||{};const pe=new Set(p.epoch_completed||[]),ne=new Set(n.epoch_completed||[]);[...ne].filter(x=>!pe.has(x)).forEach(e=>out.push({icon:'E'+e,kicker:'ERA PROGRESSION',title:`НОВАЯ ERA · ${String(e).padStart(2,'0')}`,sub:'Новая эпоха открыта. Следующие стили и контент теперь доступны.',toast:`Открыта ERA ${e}`}));const pt=new Set(p.sales_reached||[]),nt=new Set(n.sales_reached||[]);[...nt].filter(x=>!pt.has(x)).forEach(s=>out.push({icon:'★',kicker:'AVITO MILESTONE',title:`${money(s)} ПРОДАЖ`,sub:'Достижение открыто. Новый уровень статуса и контента RESSELL.',toast:`Открыто достижение · ${s} продаж`}));return out;}
   async function pollUnlocks(){const c=core(),u=uid();if(!c.apiFetch||!u)return;try{const r=await c.apiFetch(`${API}/unlocks/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'GET'},1);const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)return;const key=`resell_v33_unlock_baseline_${u}`;let base=null;try{base=JSON.parse(localStorage.getItem(key)||'null')}catch(_){}if(!base){localStorage.setItem(key,JSON.stringify(d));lastSnapshot=d;return;}const events=queueUnlocks(base,d);localStorage.setItem(key,JSON.stringify(d));lastSnapshot=d;if(events.length){unlockQueue.push(...events);if(!unlockShowing){const x=unlockQueue.shift();paintUnlock(x);}}}catch(_){}}
-  setTimeout(pollUnlocks,2500);setInterval(pollUnlocks,6500);
+  setTimeout(pollUnlocks,2500);setInterval(()=>{if(document.visibilityState==='visible')pollUnlocks();},10000);
 })();
 </script>
 <script id="resell-rcoin-desk-v6">
