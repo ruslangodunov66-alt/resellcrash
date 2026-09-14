@@ -6765,9 +6765,9 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   function preview(x){
     const kind=cat(x.kind,x.slot,x.id);
     const style=`--accent:${esc(x.accent||'#b7ff6a')};--glow:${esc(x.glow||'rgba(183,255,106,.22)')};--bg:${esc(x.bg||'radial-gradient(circle,#151915,#070907)')};--border:${esc(x.border||'rgba(183,255,106,.35)')}`;
-    if(kind==='avatar')return `<div class="r28-preview avatar" style="${style}"><span>R</span></div>`;
-    if(kind==='nick'){const n=String(core().getProfile?.()?.nickname||'RESSELL').replace(/^@+/,'').slice(0,14)||'RESSELL';return `<div class="r28-preview nick" style="${style}"><span>@${esc(n)}</span></div>`;}
-    if(kind==='badge')return `<div class="r28-preview badge" style="${style}"><span>${esc(x.name||'PRO')}</span></div>`;
+    if(kind==='avatar')return `<div class="r28-preview avatar" data-deco="${esc(x.decoration||'')}" style="${style}"><span>R</span></div>`;
+    if(kind==='nick'){const n=String(core().getProfile?.()?.nickname||'RESSELL').replace(/^@+/,'').slice(0,14)||'RESSELL';return `<div class="r28-preview nick" data-deco="${esc(x.decoration||'')}" style="${style}"><span>@${esc(n)}</span></div>`;}
+    if(kind==='badge')return `<div class="r28-preview badge" data-deco="${esc(x.decoration||'')}" style="${style}"><span>${esc(x.name||'PRO')}</span></div>`;
     return `<div class="r28-preview rhold" data-deco="${esc(x.decoration||x.tier||'R-HOLD')}" style="${style}"><span>${esc(x.symbol||'R')}</span></div>`;
   }
   function normalizeSkin(x){
@@ -6809,24 +6809,26 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     const name=document.querySelector('.balance-name');
     if(name){name.classList.toggle('r26-nick-glow',!!nick);name.style.color=nick?.accent||'';name.style.textShadow=nick?`0 0 18px ${nick.glow||'rgba(255,255,255,.3)'}`:'';}
     document.querySelectorAll('.brand-mark,.profile-avatar-v2,.friend-profile-avatar,.friend-avatar').forEach(el=>{
-      if(av){el.style.border=`2px solid ${av.accent||'#b7ff6a'}`;el.style.boxShadow=`0 0 18px ${av.glow||'rgba(183,255,106,.2)'}`;}
+      if(av){el.style.border=`2px solid ${av.accent||'#b7ff6a'}`;el.style.boxShadow=`0 0 18px ${av.glow||'rgba(183,255,106,.2)'}`;el.dataset.resellAvatarStyle=av.id||'';}
+      else{delete el.dataset.resellAvatarStyle;}
     });
+    document.querySelectorAll('.balance-name').forEach(el=>{el.dataset.resellNickStyle=nick?.id||'';});
+    document.querySelectorAll('.farm-panel,.farm-ring,#farmSection .farm-r').forEach(el=>{el.dataset.resellRholdStyle=r?.id||'';});
     c.getProfile?.() && (c.getProfile().customization={...(c.getProfile().customization||{}),equipped:eq,rhold:r||null,nick:nick||null,avatar:av||null,badge:skins.find(x=>x.id===eq.badge)||null});
   }
   function renderCust(){
     const o=ensureCust(),b=o.querySelector('#v33CustBody');
     if(!custCache){b.innerHTML='<div class="r26-note">Загрузка каталога…</div>';return;}
     const skins=(custCache.skins||[]).map(normalizeSkin).filter(x=>!x.legacy);
-    const V71_RHOLD_VISIBLE=['v28_base_signal','v28_4_prism','v28_4_cyan','v28_4_amber','v28_l_nebula'];
-    const counts={rhold:0,nick:0,avatar:0,badge:0};skins.forEach(x=>{const k=cat(x.kind,x.slot,x.id);if(k!=='rhold'||V71_RHOLD_VISIBLE.includes(x.id))counts[k]++;});
+    const V72_RHOLD_VISIBLE=['v28_base_signal','v28_4_prism','v28_4_cyan','v28_4_amber','v28_l_nebula'];
+    const visibleSkins=skins.filter(x=>cat(x.kind,x.slot,x.id)!=='rhold'||V72_RHOLD_VISIBLE.includes(x.id));
+    const counts={rhold:0,nick:0,avatar:0,badge:0};visibleSkins.forEach(x=>counts[cat(x.kind,x.slot,x.id)]++);
     const tabs=[['rhold','R-HOLD'],['nick','НИК'],['avatar','АВАТАР'],['badge','ПРЕФИКС']];
-    const V71_RHOLD_VISIBLE=['v28_base_signal','v28_4_prism','v28_4_cyan','v28_4_amber','v28_l_nebula'];
-    const arr=skins.filter(x=>cat(x.kind,x.slot,x.id)===custTab && (custTab!=='rhold'||V71_RHOLD_VISIBLE.includes(x.id)));
-    const visibleSkins=skins.filter(x=>cat(x.kind,x.slot,x.id)!=='rhold'||V71_RHOLD_VISIBLE.includes(x.id));
+    const arr=visibleSkins.filter(x=>cat(x.kind,x.slot,x.id)===custTab);
     const sales=Number(custCache.total_sales||0),era=Number(custCache.unlocked_era||1),ownedCount=visibleSkins.filter(x=>x.owned).length;
     const metaTitle={rhold:'СТИЛИ R-HOLD',nick:'СТИЛИ НИКА',avatar:'РАМКИ АВАТАРА',badge:'ПРЕФИКСЫ ПРОФИЛЯ'}[custTab];
     const desc={
-      rhold:'5 актуальных стилей R-HOLD. Последний — премиальный анимированный стиль за 25 ⭐ с повышенной наградой.',
+      rhold:'5 стилей R-HOLD. Последний — анимированный NEBULA OVERDRIVE за 25 ⭐ с повышенной наградой.',
       nick:'Подсветка настоящего никнейма. Выбранный стиль виден в профиле, друзьях и лидерборде.',
       avatar:'Рамка аватара профиля. Она применяется к твоему R и видна другим игрокам.',
       badge:'Публичный префикс рядом с никнеймом. Он виден в профиле, друзьях и лидерборде.'
@@ -6837,7 +6839,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       if(eq)meta='СЕЙЧАС ИСПОЛЬЗУЕТСЯ';
       else if(owned)meta='В КОЛЛЕКЦИИ · МОЖНО ВКЛЮЧИТЬ';
       else if(!unlocked)meta=String(x.lock_reason||((minSales&&sales<minSales)?`Нужно ${minSales} продаж`:`Откроется в ERA ${needEra}`));
-      else if(stars)meta=`TELEGRAM STARS · ${stars} ⭐ · ПРЕМИУМ`;
+      else if(stars)meta=`TELEGRAM STARS · ${stars} ⭐`;
       else if(price)meta=`ЦЕНА · ${money(price)} ₽`;
       else meta='ДОСТУПНО ПО ПРОГРЕССУ';
       let action=eq?'ВКЛЮЧЕНО':owned?'ВКЛЮЧИТЬ':!unlocked?'НЕДОСТУПНО':stars?`КУПИТЬ · ${stars} ⭐`:price?`КУПИТЬ · ${money(price)} ₽`:'ПОЛУЧИТЬ СТИЛЬ';
@@ -7604,20 +7606,6 @@ body{background:radial-gradient(circle at 50% -10%,rgba(183,255,106,.055),transp
 .friend-v19-search input,#friendsSearchMain{background:#1a1e1a!important;color:#fff!important;border-color:rgba(255,255,255,.14)!important}
 .friend-row{background:linear-gradient(145deg,#191d19,#121612)!important;border-color:rgba(255,255,255,.10)!important}
 .friend-copy b{color:#f5f8f5!important}.friend-copy span,.friend-row small{color:#99a49c!important}
-/* V71 animated Stars cosmetics — visual only; no layout/auth changes. */
-<style id="resell-v71-stars-cosmetics">
-@keyframes v71StarPulse{0%,100%{filter:brightness(1);transform:translate3d(0,0,0) scale(1)}50%{filter:brightness(1.35);transform:translate3d(0,-1px,0) scale(1.018)}}
-@keyframes v71StarOrbit{0%{transform:rotate(0deg)}50%{transform:rotate(2deg)}100%{transform:rotate(0deg)}}
-@keyframes v71StarFlux{0%,100%{background-position:0% 50%;filter:brightness(1)}50%{background-position:100% 50%;filter:brightness(1.28)}}
-#v33Cust .r28-card:has([data-deco*="NEBULA"]) .r28-preview,
-#v33Cust .r28-card:has([data-deco*="PULSE"]) .r28-preview,
-#v33Cust .r28-card:has([data-deco*="ORBIT"]) .r28-preview,
-#v33Cust .r28-card:has([data-deco*="FLUX"]) .r28-preview{animation:v71StarPulse 2.8s ease-in-out infinite}
-#v33Cust .r28-card:has([data-deco*="ORBIT"]) .r28-preview{animation:v71StarOrbit 3.2s ease-in-out infinite,v71StarPulse 2.8s ease-in-out infinite}
-#v33Cust .r28-card:has([data-deco*="FLUX"]) .r28-preview{background-size:180% 180%;animation:v71StarFlux 3.4s ease-in-out infinite}
-#v33Cust .r28-card:has([data-deco*="NEBULA"]) .r28-preview{box-shadow:0 0 22px var(--glow),0 0 58px var(--glow),inset 0 0 26px rgba(255,255,255,.08)!important}
-#v33Cust .r28-card:has([data-deco*="25 STARS"]) .r28-card-name:after{content:'  ·  25 ⭐';font-size:.72em;opacity:.9}
-</style>
 /* Six R-HOLD levels */
 #v33Cust .r28-shop-sheet{background:linear-gradient(180deg,#151a16,#0d100e)!important}
 #v33Cust .r26-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:9px!important}
@@ -7939,6 +7927,47 @@ html[lang="en"] #resellHomeMoney #mainAssetsSection .main-tycoon-tag{display:inl
   document.addEventListener('click',e=>{if(e.target.closest?.('#rholdCustomizeBtn'))setTimeout(enforce,50);},true);
 })();
 </script>
+
+<style id="resell-v72-stars-customization-fixed">
+/* V72 — Stars cosmetics, layered on top of the known-working V70 frontend.
+   No Telegram auth or loading bootstrap changes. */
+@keyframes v72StarPulse{0%,100%{opacity:1;transform:translate3d(0,0,0) scale(1)}50%{opacity:.86;transform:translate3d(0,-1px,0) scale(1.014)}}
+@keyframes v72StarOrbit{0%,100%{transform:rotate(0deg)}50%{transform:rotate(2deg)}}
+@keyframes v72StarFlux{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
+#v33Cust .r28-preview[data-deco*="PULSE"],
+#v33Cust .r28-preview[data-deco*="ORBIT"],
+#v33Cust .r28-preview[data-deco*="FLUX"],
+#v33Cust .r28-preview[data-deco*="NEBULA"]{animation:v72StarPulse 2.8s ease-in-out infinite}
+#v33Cust .r28-preview[data-deco*="ORBIT"]{animation:v72StarOrbit 3.2s ease-in-out infinite}
+#v33Cust .r28-preview[data-deco*="FLUX"]{background-size:180% 180%;animation:v72StarFlux 3.4s ease-in-out infinite}
+#v33Cust .r28-preview[data-deco*="NEBULA"]{box-shadow:0 0 22px var(--glow),0 0 58px var(--glow),inset 0 0 26px rgba(255,255,255,.08)!important}
+#v33Cust .r28-card:has([data-deco*="25 STARS"]) .r28-card-name:after{content:' · 25 ⭐';font-size:.72em;opacity:.9}
+#v33Cust .r28-card:has([data-deco*="PULSE"]),
+#v33Cust .r28-card:has([data-deco*="ORBIT"]),
+#v33Cust .r28-card:has([data-deco*="FLUX"]),
+#v33Cust .r28-card:has([data-deco*="NEBULA"]){position:relative;overflow:hidden}
+#v33Cust .r28-card:has([data-deco*="PULSE"]) .r28-card-name,
+#v33Cust .r28-card:has([data-deco*="ORBIT"]) .r28-card-name,
+#v33Cust .r28-card:has([data-deco*="FLUX"]) .r28-card-name,
+#v33Cust .r28-card:has([data-deco*="NEBULA"]) .r28-card-name{letter-spacing:.2px}
+#farmPanel[data-resell-rhold-style="v28_l_nebula"] .farm-ring,
+#farmSection .farm-ring[data-resell-rhold-style="v28_l_nebula"]{animation:v72StarPulse 2.8s ease-in-out infinite}
+.balance-name[data-resell-nick-style="nick_star_pulse"]{animation:v72StarPulse 2.8s ease-in-out infinite}
+.profile-avatar-v2[data-resell-avatar-style="avatar_star_orbit"],
+.friend-profile-avatar[data-resell-avatar-style="avatar_star_orbit"],
+.friend-avatar[data-resell-avatar-style="avatar_star_orbit"]{animation:v72StarOrbit 3.2s ease-in-out infinite}
+@media(prefers-reduced-motion:reduce){
+  #v33Cust .r28-preview[data-deco*="PULSE"],
+  #v33Cust .r28-preview[data-deco*="ORBIT"],
+  #v33Cust .r28-preview[data-deco*="FLUX"],
+  #v33Cust .r28-preview[data-deco*="NEBULA"],
+  #farmPanel[data-resell-rhold-style="v28_l_nebula"] .farm-ring,
+  .balance-name[data-resell-nick-style="nick_star_pulse"],
+  .profile-avatar-v2[data-resell-avatar-style="avatar_star_orbit"],
+  .friend-profile-avatar[data-resell-avatar-style="avatar_star_orbit"],
+  .friend-avatar[data-resell-avatar-style="avatar_star_orbit"]{animation:none!important}
+}
+</style>
 </body>
 
 <!-- RESSELL FINAL BUGFIX V4: friends / R-HOLD / horizontal swipe -->
@@ -8959,7 +8988,7 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
 .r33-cust-grid .r28-card-btn.equipped{background:rgba(183,255,106,.10)!important;color:#b7ff6a!important;border-color:rgba(183,255,106,.30)!important}
 .r33-cust-grid .r28-card-btn:disabled{opacity:.62!important}
 @media(max-width:430px){.r33-cust-tabs .r28-tab{font-size:5.8px!important;letter-spacing:.35px!important}.r33-cust-grid .r28-card-btn{font-size:6.5px!important}}
-/* Customization: exactly six R-HOLD levels, two progression/free + four paid. */
+/* Customization: five visible R-HOLD levels; premium fifth is Stars-only. */
 .r28-shop-sheet .r28-sub{color:#737e77!important}.r28-shop-sheet .r26-section{color:#87918a!important}
 .r28-shop-sheet .r26-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px!important}
 .r28-shop-sheet .r28-card{background:linear-gradient(145deg,#141715,#0a0d0b)!important;border-color:rgba(255,255,255,.07)!important;box-shadow:0 12px 28px rgba(0,0,0,.20)!important}
