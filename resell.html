@@ -5362,22 +5362,18 @@ async function initFarm(){
       try{
         const p=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/publish`,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({item_uid:conf.dataset.itemUid,description})});
         showToast(p.message||'Объявление опубликовано');
-        // Do not immediately re-fetch the whole Avito screen here. The publish
-        // response now contains the newly created chat, so a second GET cannot
-        // race Telegram auth and turn a successful sale listing into Load failed.
+        // After publishing, return to the Avito Chats list like the original flow.
+        // The buyer/chat is already created by the backend and is inserted into the
+        // local chat list, but we do NOT open the dialogue automatically. The player
+        // chooses which buyer to open from Chats.
         if(p.chat){
           avitoState=avitoState||{};
           const oldChats=Array.isArray(avitoState.chats)?avitoState.chats:[];
           avitoState.chats=[p.chat,...oldChats.filter(x=>String(x.chat_key)!==String(p.chat.chat_key))];
           avitoState.unread_count=Number(avitoState.unread_count||0)+1;
-          // The buyer is created synchronously by the backend. Show his first
-          // message immediately instead of waiting for the next poll/GET.
-          avitoEditing=true; avitoTab='chats';
-          modalBody.innerHTML=renderAvitoChat(p.chat);
-        }else{
-          avitoEditing=false; avitoTab='chats';
-          modalBody.innerHTML=renderAvito();
         }
+        avitoEditing=false; avitoTab='chats';
+        modalBody.innerHTML=renderAvito();
       }catch(err){ showToast(err.message||'Не удалось опубликовать товар'); conf.disabled=false; }
       return;
     }
@@ -7030,7 +7026,7 @@ async function initFarm(){
     const o=ensureCust(),b=o.querySelector('#v33CustBody');
     if(!custCache){b.innerHTML='<div class="r26-note">Загрузка каталога…</div>';return;}
     const skins=(custCache.skins||[]).map(normalizeSkin).filter(x=>!x.legacy);
-    const V72_RHOLD_VISIBLE=['v28_base_signal','v28_4_prism','v28_4_cyan','v28_4_amber','v28_l_nebula'];
+    const V72_RHOLD_VISIBLE=['v28_base_signal','v28_4_prism','v28_4_cyan','v28_4_amber','prime_rhold_25'];
     const visibleSkins=skins.filter(x=>cat(x.kind,x.slot,x.id)!=='rhold'||V72_RHOLD_VISIBLE.includes(x.id));
     const counts={rhold:0,nick:0,avatar:0,badge:0};visibleSkins.forEach(x=>counts[cat(x.kind,x.slot,x.id)]++);
     const tabs=[['rhold','R-HOLD'],['nick','НИК'],['avatar','АВАТАР'],['badge','ПРЕФИКС']];
@@ -7038,7 +7034,7 @@ async function initFarm(){
     const sales=Number(custCache.total_sales||0),era=Number(custCache.unlocked_era||1),ownedCount=visibleSkins.filter(x=>x.owned).length;
     const metaTitle={rhold:'СТИЛИ R-HOLD',nick:'СТИЛИ НИКА',avatar:'РАМКИ АВАТАРА',badge:'ПРЕФИКСЫ ПРОФИЛЯ'}[custTab];
     const desc={
-      rhold:'5 стилей R-HOLD. Последний — анимированный NEBULA OVERDRIVE за 25 ⭐ с повышенной наградой.',
+      rhold:'5 стилей R-HOLD. Последний — NEON SOVEREIGN за 25 ⭐ с повышенной наградой.',
       nick:'Подсветка настоящего никнейма. Выбранный стиль виден в профиле, друзьях и лидерборде.',
       avatar:'Рамка аватара профиля. Она применяется к твоему R и видна другим игрокам.',
       badge:'Публичный префикс рядом с никнеймом. Он виден в профиле, друзьях и лидерборде.'
