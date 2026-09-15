@@ -4156,34 +4156,8 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     if(farmStatusPollId){ clearInterval(farmStatusPollId); farmStatusPollId=null; }
   }
 
-  async function syncActiveFarmSnapshot(){
-    if(!holdState?.session_id || farmCompleting) return;
-    try{
-      const d=await fetchHoldStatus({silent:true});
-      if(!d?.session_id){ stopFarmAnimation(); return; }
-      const targetProgress=Math.max(0,Math.min(1,Number(d.progress)||0));
-      const targetReward=Math.max(0,Number(d.current_reward)||0);
-      if(Number(d.target_reward)>0){
-        farmTargetReward=Number(d.target_reward);
-        holdState.target_reward=Number(d.target_reward);
-      }
-      // Server snapshots are authoritative. Keep them monotonic so network
-      // jitter can never make the progress bar move backwards.
-      farmServerProgress=Math.max(farmServerProgress,targetProgress);
-      farmServerReward=Math.max(farmServerReward,targetReward);
-      farmSnapshotProgress=farmServerProgress;
-      farmSnapshotReward=farmServerReward;
-      farmServerSyncAt=performance.now();
-
-      // The server is authoritative, but the UI must not depend on a 1s poll
-      // or on pointerup. If the server says the hidden stop moment is reached,
-      // complete immediately. This also survives iOS/Telegram WebView event
-      // timing quirks while keeping the actual payout protected by the backend.
-      if(d.auto_complete || targetProgress>=0.999 || Number(d.active_remaining||0)<=0){
-        await completeStandaloneFarm();
-      }
-    }catch(_){ }
-  }
+  // R-Farm completion has one authority: completeStandaloneFarm().
+  // No background snapshot poller is used during a hold.
 
   let farmSnapshotReward=0;
   let farmSnapshotProgress=0;
@@ -4374,46 +4348,34 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     farmCompleting = true;
     const sessionId = holdState.session_id;
     try{
+      // CRITICAL: completion is deliberately isolated from the rest of the app.
+      // One request -> server credits the exact stored reward -> tiny local UI update.
+      // No profile reload, no global event, no DOM animation burst, no secondary API call.
       const resp = await apiFetch(`${API_BASE}/hold/complete/${encodeURIComponent(userId)}`, {
         method:'POST',
         headers:{'Content-Type':'application/json','Accept':'application/json','Cache-Control':'no-cache'},
         body:JSON.stringify({session_id:sessionId,duration:FARM_DURATION})
       }, 3);
-      let payload = null;
-      try{ payload = await resp.json(); }catch(_){ payload = null; }
+      let payload=null;
+      try{ payload=await resp.json(); }catch(_){ payload=null; }
       if(!resp.ok || !payload?.success){
         throw new Error(payload?.error || `Не удалось зачислить награду (HTTP ${resp.status})`);
       }
 
-      farmCompleted = true;
-      farmCompleteRetryCount = 0;
-      const reward = Number(payload.reward || farmTargetReward || 0);
-      const now = farmNow();
-      const serverCooldown = farmDurationSeconds(payload.cooldown_remaining ?? payload.cooldown ?? 0);
-      const serverUntil = farmEpochSeconds(payload.cooldown_until ?? payload.cooldownUntil ?? 0);
-      const cooldownUntil = serverUntil > now ? serverUntil : (()=>{
-        const d=new Date(now*1000);
-        const utcMs=Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate(),9,0,0);
-        let reset=Math.floor(utcMs/1000);
-        if(reset<=now) reset+=86400;
-        return reset;
-      })();
-      const cooldown = serverUntil > now ? Math.max(0,serverUntil-now) : (serverCooldown>0 ? serverCooldown : Math.max(0,cooldownUntil-now));
-      const balance = payload.balance !== undefined
-        ? Number(payload.balance)
-        : Number(profileData?.balance || 0) + reward;
+      const reward=Math.max(0,Number(payload.reward||0));
+      const balance=payload.balance!==undefined ? Number(payload.balance) : Math.max(0,Number(profileData?.balance||0)+reward);
+      const now=farmNow();
+      const cooldownUntil=farmEpochSeconds(payload.cooldown_until||payload.cooldownUntil||0);
+      const cooldown=Math.max(0,Number(payload.cooldown_remaining??payload.cooldown??0));
 
-      profileData = profileData || {};
-      profileData.balance = balance;
-      setBalance(balance);
+      // Freeze the farm state first. This prevents any other handler/timer from
+      // touching the finished session while the few UI fields are updated.
+      farmCompleted=true;
       stopFarmAnimation();
-      farmVisualReward = Math.max(farmVisualReward, reward);
-      renderFarmReward(1, reward);
-
-      farmWriteLocalNumber(FARM_LOCAL_LAST_COMPLETED_KEY, now);
-      farmWriteLocalNumber(FARM_LOCAL_COOLDOWN_KEY, cooldownUntil);
-
-      holdState = normalizeHoldState({
+      holdPointerActive=false;
+      holdReleaseQueued=false;
+      holdPointerId=null;
+      holdState=normalizeHoldState({
         ...holdState,
         ...payload,
         session_id:null,
@@ -4421,61 +4383,47 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
         cooldown_until:cooldownUntil,
         cooldown_remaining:cooldown,
         last_completed_at:now,
-        claims:Number(holdState.claims || 0) + 1
+        claims:Number(holdState.claims||0)+1
       });
 
-      holdPointerActive = false;
-      holdReleaseQueued = false;
-      holdPointerId = null;
-      stopFarmAnimation();
+      // Only update the balance and the small farm widgets. Nothing here
+      // rebuilds the page or triggers a global synchronization pass.
+      profileData=profileData||{};
+      profileData.balance=balance;
+      setBalance(balance);
+      farmVisualReward=reward;
+      farmVisualProgress=1;
+      renderFarmReward(1,reward);
       $('#farmRing')?.classList.remove('holding');
       document.querySelector('#farmSection .farm-stage')?.classList.remove('farm-active');
       updateFarmVisuals(cooldown);
-      $('#farmTotal').textContent = `+${reward.toLocaleString('ru-RU')} ₽`;
-      $('#farmStatus').textContent = `Готово! +${reward.toLocaleString('ru-RU')} ₽ уже на главном балансе. КД снимается в 12:00 по МСК.`;
-      $('#farmClaimCount').textContent = `Собрано: ${holdState.claims}`;
-      try{ window.dispatchEvent(new Event('resell:hold-complete')); }catch(_){}
-      for(let i=0;i<8;i) spawnFarmSpark();
-      showToast(`💰 +${number(reward)} ₽ зачислено на баланс`);
-      haptic('heavy');
-      // Do not re-bootstrap the whole profile exactly at the completion edge.
-      // The server already returned the authoritative balance above; reloading here
-      // can make Telegram WebView visibly re-initialize the page.
-      holdJustCompletedUntil = Date.now() + 2500;
-      try{ refreshHoldStatusWithRetry().catch(()=>{}); }catch(_){}
+      $('#farmTotal').textContent=`+${reward.toLocaleString('ru-RU')} ₽`;
+      $('#farmStatus').textContent=`Готово! +${reward.toLocaleString('ru-RU')} ₽ зачислено.`;
+      $('#farmClaimCount').textContent=`Собрано: ${holdState.claims}`;
+
+      farmWriteLocalNumber(FARM_LOCAL_LAST_COMPLETED_KEY,now);
+      if(cooldownUntil>0) farmWriteLocalNumber(FARM_LOCAL_COOLDOWN_KEY,cooldownUntil);
+      holdJustCompletedUntil=Date.now()+1200;
+      // Intentionally no refreshHoldStatusWithRetry(), no event dispatch,
+      // no sparks and no heavy haptic here. The returned server payload is
+      // already authoritative and is enough to finish the UI safely.
     }catch(err){
-      farmCompleted = false;
-      // iOS/Telegram can hit the completion endpoint a few hundred ms before
-      // the backend's clock crosses the exact 30s boundary. Do not make the
-      // player press R again: retry the same session a few times, then fall
-      // back to the normal status recovery below. The backend remains the only
-      // authority that can credit the reward.
-      const elapsedMs = farmSessionElapsedMs();
-      if(holdState?.session_id && farmCompleteRetryCount < 12){
-        farmCompleteRetryCount += 1;
+      farmCompleted=false;
+      const elapsedMs=farmSessionElapsedMs();
+      if(holdState?.session_id && farmCompleteRetryCount<6){
+        farmCompleteRetryCount+=1;
         const retryNo=farmCompleteRetryCount;
         const remainingMs=Math.max(0,FARM_DURATION*1000-elapsedMs);
-        const waitMs=remainingMs>0 ? remainingMs+120 : Math.min(1500,250*retryNo);
-        $('#farmStatus').textContent=remainingMs>0 ? 'ФИНИШ…' : 'ЗАЧИСЛЕНИЕ…';
+        const waitMs=remainingMs>0 ? remainingMs+150 : Math.min(1200,220*retryNo);
+        $('#farmStatus').textContent=remainingMs>0?'ФИНИШ…':'ЗАЧИСЛЕНИЕ…';
         setTimeout(()=>{
           if(holdState?.session_id && !farmCompleted && !farmCompleting) completeStandaloneFarm();
         },waitMs);
-      } else {
-        // Only ask the server for a fresh state after repeated completion
-        // failures. This keeps the normal finish path completely quiet.
-        try{
-          const latest=await fetchHoldStatus({silent:true});
-          if(!latest?.session_id){
-            holdPointerActive=false; holdReleaseQueued=false; holdPointerId=null;
-            stopFarmAnimation();
-            $('#farmRing')?.classList.remove('holding');
-            document.querySelector('#farmSection .farm-stage')?.classList.remove('farm-active');
-          }
-        }catch(_){}
+      }else{
+        $('#farmStatus').textContent=err.message||'Награда не зачислена — попробуй ещё раз.';
       }
-      $('#farmStatus').textContent = err.message || 'Награда не зачислена — повторяю зачисление…';
     }finally{
-      farmCompleting = false;
+      farmCompleting=false;
     }
   }
 
@@ -8167,6 +8115,49 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
   setTimeout(run,100); setTimeout(run,500); setTimeout(run,1200);
 })();
 </script>
+
+<style id="resell-rfarm-avito-hardening-v4">
+/* R-FARM: zero animation/paint burst at payout edge. */
+#farmSection .farm-ring.holding .farm-r,
+#farmSection .farm-ring.holding .farm-glow{animation:none!important;transition:none!important}
+#farmSection .farm-progress-fill{will-change:auto!important}
+
+/* AVITO: cards may wrap internally, but the page can NEVER become wider than the viewport. */
+html,body,#app,.app,main.app,.page,.screen,.section,#modal,.modal,.sheet{
+  max-width:100vw!important;
+  width:100%!important;
+  overflow-x:hidden!important;
+  box-sizing:border-box!important;
+}
+.avx-shell,.avx-section,.avx-grid,.avx-product,.avx-product-top,.avx-product-info,.avx-product-bottom,
+.avx-stock,.avx-stock-row,.avx-stock-left,.avx-chat,.avx-chat-main,.avx-chat-side,.avx-chat-large,
+.avx-chat-large *,.avx-price-grid,.avx-price-btn,.avx-chat-actions{
+  min-width:0!important;max-width:100%!important;box-sizing:border-box!important;
+}
+.avx-grid{width:100%!important;overflow:hidden!important;grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important}
+.avx-product{width:100%!important;overflow:hidden!important}
+.avx-product-info b,.avx-product-info span,.avx-product-info small,
+.avx-stock-left b,.avx-stock-left span,.avx-stock-left small,
+.avx-chat-main b,.avx-chat-main small,.avx-chat-main em,
+.avx-chat-large *{min-width:0!important;max-width:100%!important;overflow-wrap:anywhere!important;word-break:break-word!important}
+.avx-product-bottom{flex-wrap:nowrap!important;overflow:hidden!important}
+.avx-product-bottom strong,.avx-product-bottom .avx-btn{min-width:0!important;max-width:100%!important}
+.avx-product-bottom .avx-btn{overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
+.avx-chat{overflow:hidden!important}
+.avx-chat-main{overflow:hidden!important}
+.avx-chat-main b,.avx-chat-main small,.avx-chat-main em{overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
+.avx-price-btn{overflow:hidden!important}
+@media(max-width:430px){
+  .avx-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;gap:7px!important}
+  .avx-product{padding:9px!important}
+  .avx-product-top{gap:6px!important}
+  .avx-product-icon,.avx-rarity-icon{flex:0 0 30px!important;width:30px!important}
+  .avx-product-info b{font-size:8px!important;line-height:1.16!important}
+  .avx-product-bottom{gap:5px!important}
+  .avx-product-bottom strong{font-size:8.5px!important}
+  .avx-product-bottom .avx-btn{padding-left:6px!important;padding-right:6px!important;font-size:6.5px!important}
+}
+</style>
 </html>
 <style id="resell-home-nav-v3">
 /* RESSELL HOME NAV V3 — beginner-first information architecture. */
