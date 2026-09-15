@@ -4146,6 +4146,10 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       if(!d?.session_id){ stopFarmAnimation(); return; }
       const targetProgress=Math.max(0,Math.min(1,Number(d.progress)||0));
       const targetReward=Math.max(0,Number(d.current_reward)||0);
+      if(Number(d.target_reward)>0){
+        farmTargetReward=Number(d.target_reward);
+        holdState.target_reward=Number(d.target_reward);
+      }
       // Server snapshots are authoritative. Keep them monotonic so network
       // jitter can never make the progress bar move backwards.
       farmServerProgress=Math.max(farmServerProgress,targetProgress);
@@ -4173,46 +4177,44 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     farmSnapshotReward=0; farmSnapshotProgress=0;
     farmServerProgress=0; farmServerReward=0; farmServerSyncAt=performance.now();
 
-    // Hard client-side wake-up at the server start + duration. This is only a
-    // trigger for /hold/complete; the backend still verifies the real session
-    // and elapsed time before paying anything. It prevents a stuck animation
-    // when Telegram throttles timers or pointer events.
     const started=farmEpochSeconds(holdState?.started_at || 0);
+    const targetReward=Math.max(FARM_MIN_REWARD, Number(holdState?.target_reward || farmTargetReward || 30000));
+
+    // Do not wait for a poll or pointerup to finish the farm. Wake the
+    // completion request just after the server start + 30 seconds. The
+    // backend still checks the real elapsed time before paying anything.
     if(started){
-      const delay=Math.max(0,((started+FARM_DURATION)-farmNow())*1000+120);
+      const delay=Math.max(0,((started+FARM_DURATION)-Date.now()/1000)*1000+350);
       farmAutoCompleteTimer=setTimeout(()=>{
         farmAutoCompleteTimer=null;
-        if(holdState?.session_id && !farmCompleting && !farmCompleted) syncActiveFarmSnapshot().catch(()=>{});
+        if(holdState?.session_id && !farmCompleting && !farmCompleted){
+          completeStandaloneFarm();
+        }
       },delay);
     }
 
     const tick=()=>{
       if(!holdState?.session_id || farmCompleting || farmCompleted){ farmRafId=null; return; }
 
-      // Predict smoothly between server snapshots. The server remains the
-      // source of truth; prediction is presentation only.
-      const sinceSync=Math.max(0,(performance.now()-farmServerSyncAt)/1000);
-      const predictedProgress=Math.min(1, farmServerProgress + sinceSync/FARM_DURATION);
-      farmVisualProgress=Math.max(farmVisualProgress,predictedProgress,farmSnapshotProgress);
-
-      // Estimate the reward slope from the latest authoritative snapshot and
-      // interpolate it continuously. This removes visible 1-second jumps.
-      // Never display more than the latest server-authoritative reward.
-      let visualReward=farmServerReward;
-      if(farmServerProgress>0 && farmServerReward>0){
-        const estimatedFinal=farmServerReward/farmServerProgress;
-        visualReward=Math.min(farmServerReward,Math.floor(estimatedFinal*farmVisualProgress));
-      }
-      farmVisualReward=Math.max(farmVisualReward,visualReward,farmSnapshotReward);
-      updateFarmVisuals(FARM_DURATION*(1-farmVisualProgress));
+      // The counter and progress are driven by the exact local wall-clock
+      // elapsed time. This removes the old 750ms/1s step effect completely.
+      // The amount is visual only; /hold/complete is still authoritative.
+      const elapsed=started ? Math.max(0,Date.now()/1000-started) : 0;
+      farmVisualProgress=Math.max(0,Math.min(1,elapsed/FARM_DURATION));
+      const visualReward=Math.min(targetReward,Math.floor(targetReward*farmVisualProgress));
+      farmVisualReward=Math.max(farmVisualReward,visualReward);
+      updateFarmVisuals(Math.max(0,FARM_DURATION-elapsed));
       renderFarmReward(farmVisualProgress,farmVisualReward);
 
-      if(farmVisualProgress>=0.999 && !farmCompleting && !farmCompleted){
-        syncActiveFarmSnapshot().catch(()=>{});
+      // Safety net if Telegram throttles the timeout. At the visual end,
+      // immediately ask the backend to finalize the already-finished session.
+      if(farmVisualProgress>=1 && !farmCompleting && !farmCompleted){
+        completeStandaloneFarm();
       }
       farmRafId=requestAnimationFrame(tick);
     };
-    farmStatusPollId=setInterval(syncActiveFarmSnapshot,750);
+
+    farmStatusPollId=setInterval(syncActiveFarmSnapshot,1000);
     syncActiveFarmSnapshot();
     farmRafId=requestAnimationFrame(tick);
   }
@@ -4322,6 +4324,9 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
           FARM_MIN_REWARD,
           Math.min(FARM_MAX_REWARD, Number(payload.target_reward || payload.base_reward || 30000))
         );
+        // Keep the exact server-selected payout so the visible counter can
+        // climb continuously from 0 to the real final amount. The backend
+        // remains the only authority that actually credits the balance.
 
         if(holdReleaseQueued || !holdPointerActive){
           // The pointer can be released while /hold/start is still in flight.
@@ -4424,7 +4429,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       $('#farmClaimCount').textContent = `Собрано: ${holdState.claims}`;
       try{ window.dispatchEvent(new Event('resell:hold-complete')); }catch(_){}
       for(let i=0;i<8;i) spawnFarmSpark();
-      showToast(`+${number(reward)} ₽ зачислено`);
+      showToast(`💰 +${number(reward)} ₽ зачислено на баланс`);
       haptic('heavy');
       // Do not re-bootstrap the whole profile exactly at the completion edge.
       // The server already returned the authoritative balance above; reloading here
