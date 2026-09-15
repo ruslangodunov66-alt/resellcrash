@@ -1736,6 +1736,12 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 @media(max-width:390px){#farmSection #rholdCustomizeControl #rholdCustomizeBtn{min-width:104px!important}}
 </style>
 
+<style id="friends-customization-v3">
+.friend-copy b{display:flex!important;align-items:center;gap:5px;min-width:0}
+.friend-prefix-chip{display:inline-flex;align-items:center;max-width:92px;padding:3px 5px;border-radius:6px;background:rgba(255,255,255,.045);border:1px solid var(--friend-prefix-border,rgba(183,255,106,.18));color:var(--friend-prefix-accent,#b7ff6a);box-shadow:0 0 12px var(--friend-prefix-glow,rgba(183,255,106,.12));font:950 5.5px/1 Montserrat,sans-serif;letter-spacing:.45px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.friend-profile-prefix{display:inline-flex;align-items:center;margin-top:7px;padding:5px 7px;border-radius:8px;background:rgba(255,255,255,.045);border:1px solid var(--friend-prefix-border,rgba(183,255,106,.18));color:var(--friend-prefix-accent,#b7ff6a);box-shadow:0 0 18px var(--friend-prefix-glow,rgba(183,255,106,.12));font:950 6px/1 Montserrat,sans-serif;letter-spacing:.7px}
+.friend-profile-name{min-width:0}
+</style>
 <style id="friends-rhold-v52-final">
 /* V52: friends use the same Resell visual language; no white/Avito-like controls. */
 .friends-sheet,.friend-profile-sheet,.friend-compare-sheet{font-family:"Nunito",system-ui,sans-serif!important;color:#edf1ed!important}
@@ -4190,42 +4196,32 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 
     const started=farmEpochSeconds(holdState?.started_at || 0);
     const targetReward=Math.max(FARM_MIN_REWARD, Number(holdState?.target_reward || farmTargetReward || 30000));
+    if(!started) return;
 
-    // Do not wait for a poll or pointerup to finish the farm. Wake the
-    // completion request just after the server start + 30 seconds. The
-    // backend still checks the real elapsed time before paying anything.
-    if(started){
-      const delay=Math.max(0,((started+FARM_DURATION)-Date.now()/1000)*1000+120);
-      farmAutoCompleteTimer=setTimeout(()=>{
-        farmAutoCompleteTimer=null;
-        if(holdState?.session_id && !farmCompleting && !farmCompleted){
-          completeStandaloneFarm();
-        }
-      },delay);
-    }
-
-    let lastPaint=0;
-    const tick=(ts)=>{
-      if(!holdState?.session_id || farmCompleting || farmCompleted){ farmRafId=null; return; }
-      // Do not repaint the whole farm card 60 times/sec on iPhone Telegram WebView.
-      // Ten visual updates/sec are more than smooth enough and avoid the CPU/GPU
-      // spike that was freezing the WebView near the end of a large payout.
-      if(ts-lastPaint>=90){
-        lastPaint=ts;
-        const elapsed=started ? Math.max(0,Date.now()/1000-started) : 0;
-        farmVisualProgress=Math.max(0,Math.min(1,elapsed/FARM_DURATION));
-        const visualReward=Math.min(targetReward,Math.floor(targetReward*farmVisualProgress));
-        farmVisualReward=Math.max(farmVisualReward,visualReward);
-        updateFarmVisuals(Math.max(0,FARM_DURATION-elapsed));
-        renderFarmReward(farmVisualProgress,farmVisualReward);
-      }
-      farmRafId=requestAnimationFrame(tick);
+    // R-Farm is intentionally simple: one server-selected reward, one local
+    // countdown, one completion request. No requestAnimationFrame and no
+    // per-second status polling while the player is holding R.
+    const finishAt=(started+FARM_DURATION)*1000;
+    const paint=()=>{
+      if(!holdState?.session_id || farmCompleting || farmCompleted) return;
+      const now=Date.now();
+      const progress=Math.max(0,Math.min(1,(now-(started*1000))/(FARM_DURATION*1000)));
+      farmVisualProgress=progress;
+      farmVisualReward=Math.max(farmVisualReward,Math.min(targetReward,Math.floor(targetReward*progress)));
+      updateFarmVisuals(Math.max(0,FARM_DURATION-progress*FARM_DURATION));
+      renderFarmReward(progress,farmVisualReward);
     };
+    paint();
+    farmStatusPollId=setInterval(paint,250);
 
-    // No per-second API polling while the finger is held. The completion request
-    // is the single authoritative server write; this keeps the server and WebView
-    // quiet during the 30-second hold.
-    farmRafId=requestAnimationFrame(tick);
+    const delay=Math.max(0,finishAt-Date.now()+80);
+    farmAutoCompleteTimer=setTimeout(()=>{
+      farmAutoCompleteTimer=null;
+      if(holdState?.session_id && !farmCompleting && !farmCompleted){
+        paint();
+        completeStandaloneFarm();
+      }
+    },delay);
   }
 
   function farmSessionElapsedMs(){
@@ -4455,39 +4451,29 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       // back to the normal status recovery below. The backend remains the only
       // authority that can credit the reward.
       const elapsedMs = farmSessionElapsedMs();
-      if(holdState?.session_id && farmCompleteRetryCount < 6){
+      if(holdState?.session_id && farmCompleteRetryCount < 12){
         farmCompleteRetryCount += 1;
-        const retryNo = farmCompleteRetryCount;
-        const remainingMs = Math.max(0, FARM_DURATION*1000 - elapsedMs);
-        const waitMs = remainingMs > 0 ? remainingMs + 120 : Math.min(900, 180 * retryNo);
-        $('#farmStatus').textContent = remainingMs > 0 ? 'ФИНИШ…' : 'ЗАЧИСЛЕНИЕ…';
+        const retryNo=farmCompleteRetryCount;
+        const remainingMs=Math.max(0,FARM_DURATION*1000-elapsedMs);
+        const waitMs=remainingMs>0 ? remainingMs+120 : Math.min(1500,250*retryNo);
+        $('#farmStatus').textContent=remainingMs>0 ? 'ФИНИШ…' : 'ЗАЧИСЛЕНИЕ…';
         setTimeout(()=>{
-          if(holdState?.session_id && !farmCompleted && !farmCompleting){
-            completeStandaloneFarm();
+          if(holdState?.session_id && !farmCompleted && !farmCompleting) completeStandaloneFarm();
+        },waitMs);
+      } else {
+        // Only ask the server for a fresh state after repeated completion
+        // failures. This keeps the normal finish path completely quiet.
+        try{
+          const latest=await fetchHoldStatus({silent:true});
+          if(!latest?.session_id){
+            holdPointerActive=false; holdReleaseQueued=false; holdPointerId=null;
+            stopFarmAnimation();
+            $('#farmRing')?.classList.remove('holding');
+            document.querySelector('#farmSection .farm-stage')?.classList.remove('farm-active');
           }
-        }, waitMs);
+        }catch(_){}
       }
-      // Never leave a stale session locked in the UI after a network/WebView hiccup.
-      try{
-        await refreshHoldStatusWithRetry();
-        if(!holdState?.session_id){
-          holdPointerActive = false;
-          holdReleaseQueued = false;
-          holdPointerId = null;
-          stopFarmAnimation();
-          $('#farmRing')?.classList.remove('holding');
-          document.querySelector('#farmSection .farm-stage')?.classList.remove('farm-active');
-        }
-      }catch(_){
-        holdPointerActive = false;
-        holdReleaseQueued = false;
-        holdPointerId = null;
-        stopFarmAnimation();
-        $('#farmRing')?.classList.remove('holding');
-        document.querySelector('#farmSection .farm-stage')?.classList.remove('farm-active');
-      }
-      $('#farmStatus').textContent = err.message || 'Награда не зачислена';
-      showToast(err.message || 'Награда не зачислена');
+      $('#farmStatus').textContent = err.message || 'Награда не зачислена — повторяю зачисление…';
     }finally{
       farmCompleting = false;
     }
@@ -4717,6 +4703,12 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
         // Bind the R-Farm control immediately. The button must be usable/visible
         // even while the first server synchronization is still in flight.
         bindFarmButton();
+        // Paint from the already-loaded profile customization first, then
+        // replace it with the authoritative /hold/status snapshot.
+        try{
+          const cachedR=window.resellCustomization?.rhold || getProfile?.()?.customization?.rhold;
+          if(cachedR) applyFarmRholdStatusStyle(cachedR);
+        }catch(_){}
         await refreshHoldStatusWithRetry();
         // Paint the real equipped R-HOLD immediately from /hold/status.
         // No temporary green/default style while the rest of the UI is loading.
@@ -6388,7 +6380,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     await loadFriends();
     const list=Array.isArray(friendsData?.friends)?friendsData.friends:[];
     const active=list.filter(f=>f.recently_active).length;
-    modalBody.innerHTML=`<div class="friends-sheet"><div class="friends-hero"><div class="friends-hero-kicker">RESSELL NETWORK</div><div class="friends-hero-title">${currentLang==='en'?'Your circle':'Твой круг'}</div><div class="friends-hero-sub">${currentLang==='en'?'See who is playing, add people and compare progress.':'Смотри, кто сейчас играет, и добавляй знакомых в свой круг.'}</div></div><div class="friend-v19-search"><input id="friendV19Search" maxlength="20" placeholder="${currentLang==='en'?'Search by nickname':'Поиск по никнейму'}"><button id="friendV19SearchBtn">${currentLang==='en'?'SEARCH':'ИСКАТЬ'}</button></div><div id="friendV19Results"></div><div class="friend-v19-pulse"><i>◉</i><div><b>${currentLang==='en'?'ONLINE NOW':'СИГНАЛ СЕТИ'}</b><span>${active} ${currentLang==='en'?'friends online now':'друзей сейчас в игре'} · ${currentLang==='en'?'support a friend for +10 XP':'поддержи друга и получи +10 XP'}</span></div><strong>+10 XP</strong></div>${list.length?`<div class="friends-list" style="margin-top:10px">${list.map((f,idx)=>`<button type="button" class="friend-row friend-row-button-v19" data-friend-index-v19="${idx}"><div class="friend-avatar">${esc(firstLetter(f.nickname))}</div><div class="friend-copy"><b>@${esc(String(f.nickname||'Игрок').replace(/^@+/,''))}</b><span>${esc(f.shop_name||'Без магазина')} · ${f.recently_active?(currentLang==='en'?'ONLINE':'В ИГРЕ'):(currentLang==='en'?'IN RESSELL':'В RESSELL')}</span><small>${esc(fmtFriendMoney(f.balance))} · ${Number(f.business_count||0)} ${currentLang==='en'?'biz':'бизнесов'} · ${Number(f.car_count||0)} ${currentLang==='en'?'cars':'машин'}</small></div><strong class="friend-row-arrow">›</strong></button>`).join('')}</div>`:'<div class="friend-empty">Пока никого нет. Добавь первого партнёра через поиск.</div>'}<div class="friend-network-footer"><b>RESSELL CIRCLE</b><span>${currentLang==='en'?'Search → add → compare → support':'Поиск → добавление → сравнение → поддержка'}</span></div></div>`;
+    modalBody.innerHTML=`<div class="friends-sheet"><div class="friends-hero"><div class="friends-hero-kicker">RESSELL NETWORK</div><div class="friends-hero-title">${currentLang==='en'?'Your circle':'Твой круг'}</div><div class="friends-hero-sub">${currentLang==='en'?'See who is playing, add people and compare progress.':'Смотри, кто сейчас играет, и добавляй знакомых в свой круг.'}</div></div><div class="friend-v19-search"><input id="friendV19Search" maxlength="20" placeholder="${currentLang==='en'?'Search by nickname':'Поиск по никнейму'}"><button id="friendV19SearchBtn">${currentLang==='en'?'SEARCH':'ИСКАТЬ'}</button></div><div id="friendV19Results"></div><div class="friend-v19-pulse"><i>◉</i><div><b>${currentLang==='en'?'ONLINE NOW':'СИГНАЛ СЕТИ'}</b><span>${active} ${currentLang==='en'?'friends online now':'друзей сейчас в игре'} · ${currentLang==='en'?'support a friend for +10 XP':'поддержи друга и получи +10 XP'}</span></div><strong>+10 XP</strong></div>${list.length?`<div class="friends-list" style="margin-top:10px">${list.map((f,idx)=>`<button type="button" class="friend-row friend-row-button-v19" data-friend-index-v19="${idx}"><div class="friend-avatar">${esc(firstLetter(f.nickname))}</div><div class="friend-copy"><b style="color:${esc(f.customization?.nick?.accent||'')} ;text-shadow:${f.customization?.nick?`0 0 12px ${f.customization.nick.glow||'rgba(255,255,255,.2)'}`:''}">@${esc(String(f.nickname||'Игрок').replace(/^@+/,''))}${f.customization?.badge?`<span class="friend-prefix-chip" style="--friend-prefix-accent:${esc(f.customization.badge.accent||'#b7ff6a')};--friend-prefix-border:${esc(f.customization.badge.border||'rgba(183,255,106,.18)')};--friend-prefix-glow:${esc(f.customization.badge.glow||'rgba(183,255,106,.12)')}">${esc(f.customization.badge.prefix||f.customization.badge.name||'PREFIX')}</span>`:''}</b><span>${esc(f.shop_name||'Без магазина')} · ${f.recently_active?(currentLang==='en'?'ONLINE':'В ИГРЕ'):(currentLang==='en'?'IN RESSELL':'В RESSELL')}</span><small>${esc(fmtFriendMoney(f.balance))} · ${Number(f.business_count||0)} ${currentLang==='en'?'biz':'бизнесов'} · ${Number(f.car_count||0)} ${currentLang==='en'?'cars':'машин'}</small></div><strong class="friend-row-arrow">›</strong></button>`).join('')}</div>`:'<div class="friend-empty">Пока никого нет. Добавь первого партнёра через поиск.</div>'}<div class="friend-network-footer"><b>RESSELL CIRCLE</b><span>${currentLang==='en'?'Search → add → compare → support':'Поиск → добавление → сравнение → поддержка'}</span></div></div>`;
     function runSearch(){const q=String($('#friendV19Search')?.value||'').trim().replace(/^@+/,'');if(q.length<2){$('#friendV19Results').innerHTML='';return;}fetch(`${API_BASE}/friends/search/${encodeURIComponent(userId)}?q=${encodeURIComponent(q)}&t=${Date.now()}`,{cache:'no-store',headers:telegramAuthHeaders()}).then(r=>r.json()).then(d=>{$('#friendV19Results').innerHTML=friendSearchMarkup(d?.players||[]);$('#friendV19Results').__r28SearchPlayers=d?.players||[];window.__resellDecorateFriendSearchPublic?.();}).catch(()=>{});}
     $('#friendV19SearchBtn')?.addEventListener('click',runSearch);$('#friendV19Search')?.addEventListener('keydown',e=>{if(e.key==='Enter')runSearch();});
     $('#friendV19Results')?.addEventListener('click',async e=>{const b=e.target.closest('[data-friend-search-add]');if(!b||b.disabled)return;b.disabled=true;try{const r=await apiFetch(`${API_BASE}/friends/add/${encodeURIComponent(userId)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({friend_tg_id:Number(b.dataset.friendTg)})},3);const d=await r.json();if(!r.ok||!d.success)throw new Error(d.error||'Не удалось добавить друга');showToast(currentLang==='en'?'Friend added':'Друг добавлен');await loadFriends();runSearch();}catch(err){b.disabled=false;showToast(err.message||'Ошибка');}});
@@ -6397,7 +6389,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   function friendStatRowsV19(f){return `<div class="friend-profile-stats"><div class="friend-stat"><small>${currentLang==='en'?'BALANCE':'БАЛАНС'}</small><b>${esc(fmtFriendMoney(f.balance))}</b></div><div class="friend-stat"><small>${currentLang==='en'?'BUSINESSES':'БИЗНЕСЫ'}</small><b>${Number(f.business_count||0)}</b></div><div class="friend-stat"><small>${currentLang==='en'?'GARAGE':'ГАРАЖ'}</small><b>${Number(f.car_count||0)}</b></div><div class="friend-stat"><small>${currentLang==='en'?'TAXI':'ТАКСИ'}</small><b>${Number(f.taxi_car_count||0)}</b></div><div class="friend-stat"><small>${currentLang==='en'?'DEALS':'СДЕЛКИ'}</small><b>${esc(fmtFriendMoney(f.total_sales))}</b></div><div class="friend-stat"><small>${currentLang==='en'?'PROFIT':'ПРИБЫЛЬ'}</small><b>${esc(fmtFriendMoney(f.total_profit))}</b></div><div class="friend-stat"><small>${currentLang==='en'?'EARNED':'ЗАРАБОТАНО'}</small><b>${esc(fmtFriendMoney(f.total_earned))}</b></div><div class="friend-stat"><small>${currentLang==='en'?'REP':'РЕПУТАЦИЯ'}</small><b>${Number(f.reputation_score||0)}</b></div></div>`;}
   async function openFriendProfileV19(f){
     const nick=String(f.nickname||'Игрок').replace(/^@+/,'').trim();
-    openModal(currentLang==='en'?'Player profile':'Профиль игрока',`<div class="friends-sheet friend-profile-sheet"><div class="friend-profile-hero"><div class="friend-profile-avatar">${esc(firstLetter(nick))}</div><div class="friend-profile-head-copy"><div class="friends-hero-kicker">${f.recently_active?(currentLang==='en'?'ONLINE NOW':'СЕЙЧАС В ИГРЕ'):'RESSELL-PROFILE'}</div><div class="friend-profile-name">@${esc(nick)}</div><div class="friend-profile-shop">${esc(f.shop_name||'Без магазина')}</div></div></div><div class="friend-profile-tagline">${Number(f.business_count||0)} · ${Number(f.car_count||0)} · ${Number(f.total_sales||0)}</div>${friendStatRowsV19(f)}<button type="button" class="friend-v19-signal" id="friendV19Signal">${currentLang==='en'?'SEND SUPPORT · +10 XP':'ПОДДЕРЖАТЬ · +10 XP'}</button><div class="friend-profile-actions" style="margin-top:8px"><button type="button" class="friend-profile-btn primary" id="friendCompareBtnV19">${currentLang==='en'?'COMPARE WITH ME':'СРАВНИТЬ С СОБОЙ'}</button><button type="button" class="friend-profile-btn" id="friendBackBtnV19">← ${currentLang==='en'?'FRIENDS':'К ДРУЗЬЯМ'}</button></div><div class="friend-profile-note">${currentLang==='en'?'Здесь видны только игровые показатели. Личные данные Telegram не показываются.':'Здесь видны только игровые показатели. Личные данные Telegram не показываются.'}</div></div>`);
+    openModal(currentLang==='en'?'Player profile':'Профиль игрока',`<div class="friends-sheet friend-profile-sheet"><div class="friend-profile-hero"><div class="friend-profile-avatar">${esc(firstLetter(nick))}</div><div class="friend-profile-head-copy"><div class="friends-hero-kicker">${f.recently_active?(currentLang==='en'?'ONLINE NOW':'СЕЙЧАС В ИГРЕ'):'RESSELL-PROFILE'}</div><div class="friend-profile-name" style="color:${esc(f.customization?.nick?.accent||'')} ;text-shadow:${f.customization?.nick?`0 0 16px ${f.customization.nick.glow||'rgba(255,255,255,.2)'}`:''}">@${esc(nick)}</div><div class="friend-profile-shop">${esc(f.shop_name||'Без магазина')}</div>${f.customization?.badge?`<div class="friend-profile-prefix" style="--friend-prefix-accent:${esc(f.customization.badge.accent||'#b7ff6a')};--friend-prefix-border:${esc(f.customization.badge.border||'rgba(183,255,106,.18)')};--friend-prefix-glow:${esc(f.customization.badge.glow||'rgba(183,255,106,.12)')}">${esc(f.customization.badge.prefix||f.customization.badge.name||'PREFIX')}</div>`:''}</div></div><div class="friend-profile-tagline">${Number(f.business_count||0)} · ${Number(f.car_count||0)} · ${Number(f.total_sales||0)}</div>${friendStatRowsV19(f)}<button type="button" class="friend-v19-signal" id="friendV19Signal">${currentLang==='en'?'SEND SUPPORT · +10 XP':'ПОДДЕРЖАТЬ · +10 XP'}</button><div class="friend-profile-actions" style="margin-top:8px"><button type="button" class="friend-profile-btn primary" id="friendCompareBtnV19">${currentLang==='en'?'COMPARE WITH ME':'СРАВНИТЬ С СОБОЙ'}</button><button type="button" class="friend-profile-btn" id="friendBackBtnV19">← ${currentLang==='en'?'FRIENDS':'К ДРУЗЬЯМ'}</button></div><div class="friend-profile-note">${currentLang==='en'?'Здесь видны только игровые показатели. Личные данные Telegram не показываются.':'Здесь видны только игровые показатели. Личные данные Telegram не показываются.'}</div></div>`);
     $('#friendBackBtnV19')?.addEventListener('click',openFriendsV19);$('#friendCompareBtnV19')?.addEventListener('click',()=>openFriendCompare(f));$('#friendV19Signal')?.addEventListener('click',async e=>{const btn=e.currentTarget;btn.disabled=true;try{const r=await apiFetch(`${API_BASE}/friends/signal/${encodeURIComponent(userId)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({friend_tg_id:Number(f.tg_id||0)})},3);const d=await r.json();if(!r.ok||!d.success)throw new Error(d.error||'Ошибка');showToast(d.already?(currentLang==='en'?'Already supported today':'Сегодня уже поддерживал'):(currentLang==='en'?'Support sent · +10 XP':'Поддержка отправлена · +10 XP'));if(!d.already)btn.textContent=currentLang==='en'?'SENT TODAY':'ОТПРАВЛЕНО СЕГОДНЯ';}catch(err){btn.disabled=false;showToast(err.message||'Ошибка');}});
   }
 
@@ -6990,20 +6982,9 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       let action=eq?'ВКЛЮЧЕНО':owned?'ВКЛЮЧИТЬ':!unlocked?'НЕДОСТУПНО':stars?`КУПИТЬ · ${stars} ⭐`:price?`КУПИТЬ · ${money(price)} ₽`:'ПОЛУЧИТЬ СТИЛЬ';
       return `<div class="r28-card ${unlocked?'':'locked'} ${eq?'is-equipped':''}">${preview(x)}<div class="r28-card-name">${esc(x.name||metaTitle)}</div><div class="r28-card-meta">${esc(meta)}</div>${custTab==='rhold'&&Number(x.reward_multiplier||1)>1?`<div class="r28-card-power">НАГРАДА ×${Number(x.reward_multiplier).toFixed(2)}</div>`:''}<button type="button" class="r28-card-btn ${(!eq&&unlocked)?'primary':''} ${eq?'equipped':''}" data-v33-cust="${esc(x.id)}" ${eq||!unlocked||custBusy?'disabled':''}>${esc(action)}</button></div>`;
     }).join('');
-    const premium=premiumByCat[custTab];
-    const premiumItem=visibleSkins.find(x=>x.id===premium?.id);
-    const premiumCard=premiumItem?`<div class="v33-prime-button-slot"><button type="button" class="v33-prime-buy" data-v33-prime="${esc(premiumItem.id)}" ${premiumItem.owned||custBusy?'disabled':''}>${premiumItem.owned?(premiumItem.equipped?'ВКЛЮЧЕНО':'В КОЛЛЕКЦИИ'):'КУПИТЬ · 25 ⭐'}</button></div>`:'';
-    b.innerHTML=`<div class="r26-summary"><div class="r26-stat accent"><small>ERA</small><b>${era}</b></div><div class="r26-stat"><small>ПРЕДМЕТОВ</small><b>${ownedCount}/${skins.length}</b></div><div class="r26-stat"><small>ПРОДАЖИ</small><b>${money(sales)}</b></div></div><div class="r28-tabs r33-cust-tabs">${tabs.map(([id,label])=>`<button type="button" class="r28-tab ${custTab===id?'active':''}" data-v33-tab="${id}">${label}<small class="r33-cust-count">${counts[id]||0}</small></button>`).join('')}</div><div class="r26-section">${metaTitle}</div><div class="r26-note r33-cust-desc">${esc(desc)}</div><div class="r26-grid r33-cust-grid">${cards||'<div class="r28-empty">В этой категории пока нет предметов.</div>'}${premiumCard}</div>`;
-    const primeBtn=b.querySelector('[data-v33-prime]');
-    primeBtn?.addEventListener('click',async()=>{
-      const itemId=primeBtn.dataset.v33Prime;
-      const x=visibleSkins.find(q=>q.id===itemId);
-      if(!x||custBusy||x.owned)return;
-      custBusy=true; primeBtn.classList.add('flash'); primeBtn.disabled=true;
-      try{ await buyEraOrEquip(x); core().showToast?.('✨ Эксклюзив за 25 ⭐ получен'); haptic('heavy'); }
-      catch(e){ core().showToast?.(e.message||'Ошибка оплаты'); }
-      finally{ custBusy=false; renderCust(); }
-    });
+    // The 25 ⭐ exclusive is already the final normal card in each category.
+    // Do not render a second promotional button underneath the grid.
+    b.innerHTML=`<div class="r26-summary"><div class="r26-stat accent"><small>ERA</small><b>${era}</b></div><div class="r26-stat"><small>ПРЕДМЕТОВ</small><b>${ownedCount}/${skins.length}</b></div><div class="r26-stat"><small>ПРОДАЖИ</small><b>${money(sales)}</b></div></div><div class="r28-tabs r33-cust-tabs">${tabs.map(([id,label])=>`<button type="button" class="r28-tab ${custTab===id?'active':''}" data-v33-tab="${id}">${label}<small class="r33-cust-count">${counts[id]||0}</small></button>`).join('')}</div><div class="r26-section">${metaTitle}</div><div class="r26-note r33-cust-desc">${esc(desc)}</div><div class="r26-grid r33-cust-grid">${cards||'<div class="r28-empty">В этой категории пока нет предметов.</div>'}</div>`;
     b.querySelectorAll('[data-v33-tab]').forEach(z=>z.onclick=()=>{custTab=z.dataset.v33Tab||'rhold';renderCust();});
     b.querySelectorAll('[data-v33-cust]').forEach(z=>z.onclick=async()=>{
       const x=arr.find(q=>q.id===z.dataset.v33Cust);if(!x||custBusy)return;
