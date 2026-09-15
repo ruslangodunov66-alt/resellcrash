@@ -2,12 +2,12 @@
 
 <html lang="ru">
 <head>
-<meta name="resell-build" content="V67">
+<meta name="resell-build" content="V51">
 <meta charset="utf-8"/>
 <meta content="width=device-width,initial-scale=1.0,user-scalable=no,viewport-fit=cover" name="viewport"/>
 <meta content="#050505" name="theme-color"/>
 <meta content="dark" name="color-scheme"/>
-<title>RESELL | Home · V67</title>
+<title>RESELL | Home · V65</title>
 <link href="https://fonts.googleapis.com" rel="preconnect"/>
 <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,700;0,800;0,900;1,800&amp;family=Nunito:wght@500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
@@ -4066,8 +4066,6 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
   let farmInitPromise = null;
   let farmLastSync = 0;
   let farmStatusRetry = 0;
-  let farmCompleteRetryTimer = null;
-  let farmCompletionReleased = false;
 
   function formatClock(seconds){
     seconds = Math.max(0, Math.ceil(Number(seconds) || 0));
@@ -4195,7 +4193,6 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     if(holdTimer){ clearTimeout(holdTimer); holdTimer=null; }
     if(farmRafId){ cancelAnimationFrame(farmRafId); farmRafId=null; }
     if(farmStatusPollId){ clearInterval(farmStatusPollId); farmStatusPollId=null; }
-    if(farmCompleteRetryTimer){ clearTimeout(farmCompleteRetryTimer); farmCompleteRetryTimer=null; }
   }
 
   async function syncActiveFarmSnapshot(){
@@ -4420,27 +4417,10 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
       let payload = null;
       try{ payload = await resp.json(); }catch(_){ payload = null; }
       if(!resp.ok || !payload?.success){
-        /* At the completion edge the Telegram/iOS clock and the server clock can
-           differ by a few hundred milliseconds. Never cancel a valid session or
-           make the UI look stuck because of that race. */
-        const remaining=Math.max(0,Number(payload?.remaining||0));
-        if(resp.status===409 && remaining>0 && holdPointerActive && !farmCompletionReleased && holdState?.session_id===sessionId){
-          farmCompleting=false;
-          if(farmCompleteRetryTimer) clearTimeout(farmCompleteRetryTimer);
-          farmCompleteRetryTimer=setTimeout(()=>{
-            farmCompleteRetryTimer=null;
-            if(holdPointerActive && !farmCompletionReleased && holdState?.session_id===sessionId && !farmCompleted){
-              completeStandaloneFarm().catch(()=>{});
-            }
-          },Math.min(1800,Math.max(80,remaining*1000+120)));
-          $('#farmStatus').textContent='Фиксируем завершение…';
-          return;
-        }
         throw new Error(payload?.error || `Не удалось зачислить награду (HTTP ${resp.status})`);
       }
 
       farmCompleted = true;
-      farmCompletionReleased = false;
       const reward = Number(payload.reward || farmTargetReward || 0);
       const now = farmNow();
       const serverCooldown = farmDurationSeconds(payload.cooldown_remaining ?? payload.cooldown ?? 0);
@@ -4638,15 +4618,8 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
         if(farmCompleting || farmCompleted) return;
 
         const elapsed = farmSessionElapsedMs();
-        const completionZone = FARM_DURATION * 1000 - 1200;
-        if(holdState?.session_id && elapsed >= completionZone){
-          farmCompletionReleased = true;
+        if(holdState?.session_id && elapsed >= FARM_DURATION * 1000){
           await completeStandaloneFarm();
-          /* If the server still says the session is early, do not keep earning
-             after the user has already released the button. */
-          if(!farmCompleted && holdState?.session_id){
-            await cancelStandaloneFarm();
-          }
         }else if(holdPointerActive || holdStartPromise || holdState?.session_id){
           await cancelStandaloneFarm();
         }else{
@@ -4679,7 +4652,6 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
       try{ e?.preventDefault?.(); }catch(_){ }
 
       activeInput=true;
-      farmCompletionReleased=false;
       activePointerId=e?.pointerId ?? null;
       holdPointerId=activePointerId;
       pressStartedAt=Date.now();
@@ -7049,19 +7021,11 @@ async function initFarm(){
   async function loadCust(){
     const c=core(),u=uid();
     if(!c.apiFetch||!u)throw new Error('Telegram-сессия не определена');
-    /* The server is authoritative, but normalize the historical era1_core
-       placeholder so an old row can never blank the first-launch skin. */
     const r=await c.apiFetch(`${API}/hold/skins/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'GET'},3);
     const d=await r.json().catch(()=>({}));
     if(!r.ok||!d.success)throw new Error(d.error||'Не удалось загрузить кастомизацию');
     const skins=(Array.isArray(d.skins)?d.skins:[]).map(normalizeSkin).filter(x=>!x.legacy);
     // Keep every server item. Expected current catalog: 14 R-HOLD + 3 nick + 3 avatar + 3 prefix = 23.
-    const validRhold=new Set(skins.filter(x=>cat(x.kind,x.slot,x.id)==='rhold').map(x=>String(x.id)));
-    if(!validRhold.has(String(d?.equipped_slots?.rhold||''))){
-      d.equipped_slots={...(d.equipped_slots||{}),rhold:'v28_base_signal'};
-      d.equipped='v28_base_signal';
-      skins.forEach(x=>{if(cat(x.kind,x.slot,x.id)==='rhold')x.equipped=String(x.id)==='v28_base_signal';});
-    }
     custCache={...d,skins};
     const prof=c.getProfile?.();
     if(prof){
@@ -7256,7 +7220,7 @@ async function initFarm(){
       <div class="rdm-grid"><div><small>АЛЛОКАЦИЯ</small><b>1 RCOIN</b><span>= ${m(points)} TP</span></div><div><small>ДОЛЯ</small><b>${share.toFixed(2)}%</b><span>${ready?'доступ активен':'доступ не оформлен'}</span></div></div>
       ${exchange&&!ready?`<button class="rdm-action" id="rcoinEntryV6">ОТКРЫТЬ ДОСТУП · ${m(5000000)} ₽</button>`:''}
       ${exchange&&ready&&next?`<div class="rdm-next"><div><small>СЛЕДУЮЩИЙ УРОВЕНЬ</small><b>${esc(next.name||'UPGRADE')}</b></div><strong>${m(next.price)} ₽</strong></div><button class="rdm-action secondary" id="rcoinUpgradeV6">ПОВЫСИТЬ ДОЛЮ</button>`:''}
-      <section class="rcoin-listing-panel"><div class="rcoin-listing-head"><div><small>RCOIN · MARKET WATCH</small><b>RCOIN preparation</b></div><span class="rcoin-listing-badge">INFRASTRUCTURE</span></div><div class="rcoin-chart" id="rcoinUserChart"><div class="rcoin-chart-grid"></div><div class="rcoin-chart-empty">Загрузка динамики игроков…</div></div><div class="rcoin-chart-note" id="rcoinChartNote">Follow RCOIN progress and player activity here.</div><div class="rcoin-road"><div class="done"><i></i><b>Актив</b><span>учёт RCOIN</span></div><div class="done"><i></i><b>Аллокация</b><span>готово</span></div><div class="current"><i></i><b>Инфраструктура</b><span>готовим</span></div><div><i></i><b>Листинг</b><span>после запуска</span></div></div></section>
+      <section class="rcoin-listing-panel"><div class="rcoin-listing-head"><div><small>RCOIN · MARKET WATCH</small><b>RCOIN market</b></div><span class="rcoin-listing-badge">INFRASTRUCTURE</span></div><div class="rcoin-chart" id="rcoinUserChart"><div class="rcoin-chart-grid"></div><div class="rcoin-chart-empty">Загрузка почасовой цены…</div></div><div class="rcoin-chart-note" id="rcoinChartNote">Цена обновляется один раз в час.</div><div class="rcoin-road"><div class="done"><i></i><b>Актив</b><span>учёт RCOIN</span></div><div class="done"><i></i><b>Аллокация</b><span>готово</span></div><div class="current"><i></i><b>Инфраструктура</b><span>готовим</span></div><div><i></i><b>Листинг</b><span>после запуска</span></div></div></section>
       <div class="rdm-note">Реальный on-chain вывод появится после запуска биржевой инфраструктуры. Сейчас раздел работает как игровой RCOIN-кабинет.</div>
       <button class="rdm-history" id="rcoinHistoryV6">ОПЕРАЦИИ</button><div id="rcoinHistoryBox"></div>
     </div>`;
@@ -7493,37 +7457,94 @@ async function initFarm(){
 })();
 </script>
 
-<script id="resell-rcoin-market-v7">
+<script id="resell-rcoin-market-v8">
 (function(){
   'use strict';
-  function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
-  function session(){try{return sessionStorage.getItem('resell_server_session_v4')||localStorage.getItem('resell_server_session_v4')||''}catch(_){return ''}}
-  function uid(){return String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id||'').trim()}
-  function money(v){return Number(v||0).toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽'}
-  function pathFor(points,w,h){
-    if(!points.length) return '';
-    const vals=points.map(p=>Number(p.price)||0), min=Math.min(...vals), max=Math.max(...vals), span=Math.max(1,max-min);
-    return points.map((p,i)=>{const x=points.length===1?w/2:(i/(points.length-1))*w; const y=h-8-((Number(p.price)-min)/span)*(h-20); return (i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1)}).join(' ');
+  // RCOIN market is an hourly game-market snapshot. The displayed price is
+  // stable for the whole hour; the graph contains only those hourly prices.
+  const HOUR=60*60*1000;
+  const KEY='resell_rcoin_hourly_market_v8';
+  const API='https://resellgame.bothost.tech';
+  const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
+  const money=v=>Number(v||0).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2})+' ₽';
+  const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  const hourBucket=()=>Math.floor(Date.now()/HOUR)*HOUR;
+  function loadState(){try{return JSON.parse(localStorage.getItem(KEY)||'null')}catch(_){return null}}
+  function saveState(x){try{localStorage.setItem(KEY,JSON.stringify(x))}catch(_){}}
+  function normalizePrice(v,fallback=10.50){
+    const n=Number(v); return Number.isFinite(n)&&n>=9&&n<=12 ? Number(n.toFixed(2)) : fallback;
+  }
+  function seedStep(bucket){
+    // Deterministic per-hour movement: no redraw on every open, no frame-by-frame random points.
+    let x=(bucket/3600000)|0; x=Math.imul(x^0x6D2B79F5,0x45d9f3b); x=Math.imul(x^(x>>>16),0x45d9f3b); x^=x>>>16;
+    const r=(x>>>0)/4294967296;
+    return Number(((r-.5)*0.44).toFixed(2));
+  }
+  function smoothPath(points,w,h){
+    if(!points.length)return '';
+    const vals=points.map(p=>p.price), min=Math.min(...vals), max=Math.max(...vals), span=Math.max(.18,max-min);
+    const pad=9, usable=h-pad*2;
+    const xy=points.map((p,i)=>({x:points.length===1?w/2:(i/(points.length-1))*w,y:pad+(1-(p.price-min)/span)*usable}));
+    if(xy.length===1)return `M ${xy[0].x.toFixed(1)} ${xy[0].y.toFixed(1)}`;
+    let d=`M ${xy[0].x.toFixed(1)} ${xy[0].y.toFixed(1)}`;
+    for(let i=0;i<xy.length-1;i++){
+      const a=xy[i-1]||xy[i], b=xy[i], c=xy[i+1], e=xy[i+2]||c;
+      const cp1x=b.x+(c.x-a.x)/6, cp1y=b.y+(c.y-a.y)/6;
+      const cp2x=c.x-(e.x-b.x)/6, cp2y=c.y-(e.y-b.y)/6;
+      d+=` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${c.x.toFixed(1)} ${c.y.toFixed(1)}`;
+    }
+    return d;
+  }
+  async function fetchServerPrice(tg){
+    try{
+      const headers={};
+      let session=''; try{session=sessionStorage.getItem('resell_server_session_v4')||localStorage.getItem('resell_server_session_v4')||''}catch(_){}
+      if(session){headers['X-Resell-Session']=session;headers['Authorization']='Bearer '+session;}
+      const r=await fetch(`${API}/rcoin/market/${encodeURIComponent(tg)}?t=${Date.now()}`,{headers,cache:'no-store'});
+      const d=await r.json().catch(()=>({}));
+      if(r.ok&&d.success)return normalizePrice(d.price,10.50);
+    }catch(_){}
+    return null;
+  }
+  async function getState(tg){
+    const bucket=hourBucket(); let state=loadState();
+    if(!state||!Array.isArray(state.points)||!state.points.length){
+      const p=await fetchServerPrice(tg)||10.50;
+      state={bucket,price:p,points:[{bucket,price:p}]}; saveState(state); return state;
+    }
+    state.points=state.points.filter(x=>Number.isFinite(Number(x.price))&&Number(x.bucket));
+    let current=state.points[state.points.length-1];
+    if(Number(current.bucket)!==bucket){
+      const server=await fetchServerPrice(tg);
+      const base=Number(current.price)||10.50;
+      let next=server==null ? base+seedStep(bucket) : base+clamp(server-base,-0.32,0.32);
+      // If the backend is flat, still make the hourly market breathe a little.
+      if(Math.abs(next-base)<0.01)next=base+seedStep(bucket);
+      next=Number(clamp(next,9,12).toFixed(2));
+      state.points.push({bucket,price:next});
+      state.points=state.points.slice(-24);
+      state.bucket=bucket;state.price=next;saveState(state);
+    }else{state.bucket=bucket;state.price=Number(current.price);}
+    return state;
   }
   async function render(tg){
     const box=document.getElementById('rcoinUserChart'); if(!box||!tg)return;
     try{
-      const headers={}; const s=session(); if(s){headers['X-Resell-Session']=s;headers['Authorization']='Bearer '+s;}
-      const r=await fetch('https://resellgame.bothost.tech/rcoin/market/'+encodeURIComponent(tg)+'?t='+Date.now(),{headers,cache:'no-store'});
-      const d=await r.json().catch(()=>({})); if(!r.ok||!d.success) throw new Error(d.error||'Не удалось загрузить динамику');
-      const pts=Array.isArray(d.history)?d.history:[];
-      const currentUsers=Number(d.users_count||0), currentPrice=Number(d.price||0);
-      const all=pts.length?pts:[{users_count:currentUsers,price:currentPrice}];
-      const path=pathFor(all,340,90);
-      const area=path+' L 340 90 L 0 90 Z';
-      box.innerHTML=`<div class="rcoin-chart-grid"></div><svg viewBox="0 0 340 90" preserveAspectRatio="none" aria-label="Динамика цены RCOIN"><path d="${area}" fill="rgba(23,26,27,.055)"></path><path d="${path}" fill="none" stroke="#171a1b" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"></path></svg><div class="rcoin-chart-live"><span>ИГРОКОВ: <b>${currentUsers.toLocaleString('ru-RU')}</b></span><span>ЦЕНА: <b>${money(currentPrice)}</b></span></div>`;
-      const note=document.getElementById('rcoinChartNote'); if(note) note.textContent='Больше игроков → выше расчётная цена RCOIN. Меньше игроков → ниже.';
-    }catch(e){
+      const state=await getState(tg), pts=state.points.slice(-12), current=Number(state.price)||10.50;
+      const path=smoothPath(pts,340,90);
+      const area=path+` L 340 90 L 0 90 Z`;
+      const first=Number(pts[0]?.price||current), diff=current-first;
+      const dir=diff>0.004?'↑':diff<-0.004?'↓':'→';
+      box.innerHTML=`<div class="rcoin-chart-grid"></div><svg viewBox="0 0 340 90" preserveAspectRatio="none" aria-label="Почасовая динамика цены RCOIN"><path d="${area}" fill="rgba(23,26,27,.055)"></path><path d="${path}" fill="none" stroke="#171a1b" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"></path></svg><div class="rcoin-chart-live"><span>ЦЕНА ЗА 1 RCOIN</span><b>${money(current)} ${dir}</b></div>`;
+      const note=document.getElementById('rcoinChartNote');
+      if(note)note.textContent='Цена обновляется один раз в час. График показывает почасовую динамику RCOIN.';
+    }catch(_){
       box.innerHTML='<div class="rcoin-chart-grid"></div><div class="rcoin-chart-empty">Динамика пока не накоплена.</div>';
-      const note=document.getElementById('rcoinChartNote'); if(note) note.textContent='График строится по числу игроков в RESSELL.';
+      const note=document.getElementById('rcoinChartNote'); if(note)note.textContent='Почасовая динамика RCOIN появится после первого обновления.';
     }
   }
   window.__resellRenderRcoinMarketV7=render;
+  window.__resellRenderRcoinMarketV8=render;
 })();
 </script>
 <style id="resell-rcoin-market-v7-css">
@@ -8246,53 +8267,42 @@ html[lang="en"] #resellHomeMoney #mainAssetsSection .main-tycoon-tag{display:inl
 }
 </style>
 
-<style id="resell-v67-mobile-layout-fix">
-/* V67 MOBILE LAYOUT FIX — iPhone / Telegram WebView.
-   Content cards are single-column on narrow screens so no card can become a
-   half-width overflowed panel. Compact stat rows remain multi-column. */
-@media (max-width:430px){
-  /* Avito: supplier / purchase cards must be full width. */
-  .avx-shell,.avx-section,.avx-grid,.avx-product,.avx-product-top,.avx-product-bottom,
-  .avx-stock,.avx-chats,.avx-chat,.avx-active,.avx-section-head{min-width:0!important;max-width:100%!important;box-sizing:border-box!important}
-  .avx-grid{grid-template-columns:1fr!important;gap:9px!important}
-  .avx-product{width:100%!important}
-
-  /* Avito chats: keep buyer/message/price inside the card. */
-  .avx-chat{width:100%!important;display:grid!important;grid-template-columns:38px minmax(0,1fr) auto!important;align-items:center!important;gap:8px!important;overflow:hidden!important}
-  .avx-chat-main{min-width:0!important;max-width:100%!important;overflow:hidden!important}
-  .avx-chat-main b,.avx-chat-main small,.avx-chat-main em{max-width:100%!important;overflow:hidden!important;text-overflow:ellipsis!important}
-  .avx-chat-side{min-width:0!important;max-width:70px!important;overflow:hidden!important}
-  .avx-chat-side strong{max-width:70px!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
-  .avx-section-head>div{min-width:0!important;flex:1 1 auto!important}
-  .avx-section-head>div b,.avx-section-head>div span{max-width:100%!important;overflow-wrap:anywhere!important}
-
-  /* Legacy Avito surfaces used by older render paths. */
-  .avito-buy-grid{grid-template-columns:1fr!important}
-  .avito-supply-strip{display:grid!important;grid-template-columns:1fr!important;overflow:visible!important}
-  .avito-supply-strip .avito-item{min-width:0!important;width:100%!important;flex:0 0 auto!important}
-
-  /* Taxi / Auto: one full-width car per row on phones. */
-  .v33-car-grid{grid-template-columns:1fr!important}
-  .v33-car{width:100%!important;min-width:0!important}
-  .taxi-garage{grid-template-columns:1fr!important}
-  .taxi-garage .taxi-card{grid-template-columns:minmax(0,1fr) auto!important;min-width:0!important}
-  .taxi-car-card{width:100%!important;min-width:0!important}
-
-  /* Garage/action cards: don't allow an internal grid to push the sheet wider. */
-  .garage-actions,.taxi-actions{grid-template-columns:1fr!important}
-  .garage-actions .tycoon-btn,.taxi-actions .tycoon-btn{width:100%!important;min-width:0!important}
-
-  /* Keep the modal itself mathematically bounded by the visual viewport. */
-  .modal,.sheet,.sheet-body,.modal-content{width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important;overflow-x:hidden!important}
-}
-
-/* Hard containment for every Avito render path, independent of later modules. */
-.avx-shell,.avx-section,.avx-hero,.avx-tabs,.avx-grid,.avx-product,.avx-stock,.avx-stock-row,.avx-chats,.avx-chat,.avx-chat-large{box-sizing:border-box!important;min-width:0!important;max-width:100%!important}
-.avx-product-info,.avx-stock-left,.avx-chat-main{min-width:0!important}
-.avx-product-bottom{min-width:0!important}
-.avx-product-bottom .avx-btn{min-width:0!important;max-width:100%!important}
-</style>
-<!-- V67 R-HOLD completion stability is handled in the main hold state machine above. -->
+<script id="resell-rhold-final-hourly-guard-v22">
+(function(){
+  'use strict';
+  const KEY1='resell_rhold_skin_v20',KEY2='resell_rhold_skin_v19',API='https://resellgame.bothost.tech';
+  function read(){try{const raw=localStorage.getItem(KEY1)||localStorage.getItem(KEY2);return raw?JSON.parse(raw):null}catch(_){return null}}
+  function paint(x){
+    if(!x||!x.id)return false; const panel=document.getElementById('farmPanel')||document.querySelector('.farm-panel'); if(!panel)return false;
+    for(const [k,v] of Object.entries({bg:x.bg,border:x.border,accent:x.accent,glow:x.glow})){if(v!=null&&v!=='')panel.style.setProperty('--rhold-'+k,String(v),'important')}
+    panel.dataset.rholdSkin=String(x.id); return true;
+  }
+  function applyLocal(){const x=read();return paint(x)}
+  function saveAndPaint(x){try{const data={id:String(x.id),bg:String(x.bg||''),border:String(x.border||''),accent:String(x.accent||''),glow:String(x.glow||'')};localStorage.setItem(KEY1,JSON.stringify(data));localStorage.setItem(KEY2,JSON.stringify(data));return paint(data)}catch(_){return paint(x)}}
+  async function syncServer(){
+    const core=window.__resellCoreV26; const u=core?.getUserId?.(); if(!u||!core?.apiFetch)return false;
+    try{
+      const r=await core.apiFetch(`${API}/hold/skins/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'GET'},2);
+      const d=await r.json().catch(()=>({})); if(!r.ok||!d.success)return false;
+      const eq=String(d.equipped_slots?.rhold||d.equipped||'');
+      const item=(d.skins||[]).find(x=>String(x.id)===eq); if(!item)return false;
+      // During Telegram bootstrap the server can briefly answer with BASE SIGNAL.
+      // Keep a known non-base local choice until the next sync confirms the real slot.
+      const local=read(); if(eq==='v28_base_signal'&&local?.id&&local.id!=='v28_base_signal')return paint(local);
+      saveAndPaint(item); return true;
+    }catch(_){return false}
+  }
+  applyLocal();
+  let tries=0;
+  const timer=setInterval(async()=>{
+    applyLocal();
+    const ok=await syncServer();
+    if(ok||++tries>=12)clearInterval(timer);
+  },500);
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){applyLocal();syncServer()}},{passive:true});
+  window.addEventListener('pageshow',()=>{applyLocal();syncServer()},{passive:true});
+})();
+</script>
 </body>
 
 <!-- RESSELL FINAL BUGFIX V4: friends / R-HOLD / horizontal swipe -->
@@ -9368,155 +9378,3 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
 .resell-update-admin{padding:4px 0 2px}.resell-update-mark{width:52px;height:52px;border-radius:17px;display:flex;align-items:center;justify-content:center;background:linear-gradient(145deg,#b7ff6a,#72c93d);color:#071007;font:950 25px/1 Montserrat,sans-serif;box-shadow:0 14px 32px rgba(183,255,106,.16);margin-bottom:12px}.resell-update-kicker{color:#b7ff6a;font:950 7px/1 Montserrat,sans-serif;letter-spacing:1.2px}.resell-update-admin-title{margin-top:8px;color:#f3f7f3;font:950 18px/1.05 Montserrat,sans-serif;letter-spacing:-.4px}.resell-update-admin-sub{margin-top:8px;color:#78837b;font:800 8px/1.45 Nunito,sans-serif}.resell-update-textarea{min-height:170px!important;margin-top:14px!important;resize:vertical!important;line-height:1.45!important;background:#0b0f0c!important;border-color:rgba(183,255,106,.14)!important}.resell-update-counter{display:flex;justify-content:space-between;gap:10px;margin:7px 2px 10px;color:#566159;font:900 6px/1 Montserrat,sans-serif;letter-spacing:.5px}.resell-update-counter b{color:#89968d}.resell-update-publish{width:100%;min-height:46px!important}
 .resell-update-pop{position:relative;overflow:hidden;padding:2px}.resell-update-pop:before{content:"";position:absolute;right:-50px;top:-55px;width:150px;height:150px;border-radius:50%;background:rgba(183,255,106,.10);filter:blur(5px);pointer-events:none}.resell-update-pop-head{display:flex;align-items:center;gap:11px}.resell-update-pop-logo{width:42px;height:42px;flex:0 0 42px;border-radius:14px;display:flex;align-items:center;justify-content:center;background:linear-gradient(145deg,#b7ff6a,#72c93d);color:#071007;font:950 20px/1 Montserrat,sans-serif;box-shadow:0 10px 26px rgba(183,255,106,.14)}.resell-update-pop-kicker{color:#b7ff6a;font:950 6px/1 Montserrat,sans-serif;letter-spacing:1px}.resell-update-pop-title{margin-top:5px;color:#f3f7f3;font:950 17px/1 Montserrat,sans-serif}.resell-update-pop-body{margin-top:14px;padding:13px 14px;border:1px solid rgba(255,255,255,.07);border-radius:15px;background:rgba(255,255,255,.025);color:#dce4dd;font:800 9px/1.55 Nunito,sans-serif;white-space:pre-wrap}.resell-update-pop-foot{margin-top:11px;color:#667269;font:800 7px/1.35 Nunito,sans-serif}.resell-update-pop-btn{width:100%;margin-top:13px;min-height:43px!important}
 </style>
-
-<!-- V68: RCOIN Desk market polish + first-paint R-HOLD authority -->
-<style id="resell-v68-rcoin-rhold-fix">
-/* RCOIN Desk: stronger hierarchy */
-.rcoin-desk-modern .rdm-head{position:relative;overflow:hidden;padding:16px 15px!important;border-radius:20px!important;background:radial-gradient(circle at 92% 8%,rgba(183,255,106,.20),transparent 32%),linear-gradient(145deg,#191d19,#090b09 72%)!important;border:1px solid rgba(183,255,106,.25)!important;box-shadow:0 16px 42px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.055)!important}
-.rcoin-desk-modern .rdm-head>div:first-child{position:relative;z-index:1}
-.rcoin-desk-modern .rdm-head small{color:#9aae9a!important;font-weight:950!important;letter-spacing:1.7px!important}
-.rcoin-desk-modern .rdm-head b{display:block!important;margin-top:7px!important;color:#f4f8f3!important;font-size:25px!important;line-height:.96!important;letter-spacing:-.9px!important;text-shadow:0 0 24px rgba(183,255,106,.14)!important}
-.rcoin-desk-modern .rdm-head b::after{content:'';display:block;width:54px;height:3px;margin-top:8px;border-radius:99px;background:#b7ff6a;box-shadow:0 0 16px rgba(183,255,106,.48)}
-.rcoin-desk-modern .rdm-head span{color:#8b958e!important;margin-top:7px!important;font-size:8px!important}
-.rcoin-desk-modern .rdm-mark{background:linear-gradient(145deg,#b7ff6a,#79c94b)!important;color:#081007!important;box-shadow:0 0 28px rgba(183,255,106,.20)!important;border-color:rgba(255,255,255,.32)!important}
-/* Only one market metric: current price. */
-.rcoin-listing-panel{position:relative!important;overflow:hidden!important}
-.rcoin-listing-head b{color:#eef2ee!important;font-size:11px!important}
-.rcoin-chart-price{position:absolute;right:10px;top:10px;z-index:3;font:950 13px/1 "Montserrat",sans-serif;color:#171a1b;letter-spacing:-.3px}
-.rcoin-chart-price small{font-size:6px;letter-spacing:.5px;color:#7a8182;margin-right:4px}
-.rcoin-chart-live{justify-content:flex-end!important}
-.rcoin-chart-live span:first-child{display:none!important}
-.rcoin-chart-live span:last-child{display:none!important}
-.rcoin-chart-live:after{content:'ЦЕНА ЗА 1 RCOIN';font:900 6px/1 "Montserrat";color:#858b8d;letter-spacing:.4px}
-.rcoin-chart svg path{transition:d .7s ease,opacity .7s ease}
-.rcoin-chart-live{display:none!important}
-.rcoin-chart-note{color:#747b78!important}
-.rcoin-price-delta{position:absolute;right:10px;bottom:7px;z-index:3;font:900 6px/1 "Montserrat";color:#6d756f}
-.rcoin-listing-badge{background:rgba(183,255,106,.13)!important;color:#4d6a49!important;border-color:rgba(183,255,106,.25)!important}
-@media(max-width:390px){.rcoin-desk-modern .rdm-head b{font-size:22px!important}.rcoin-chart-price{font-size:12px!important}}
-
-/* R-HOLD: never paint the classic green style over an already equipped custom style. */
-#farmSection .farm-panel[data-rhold-locked="1"] .farm-ring{background:var(--rhold-bg)!important;border-color:var(--rhold-border)!important;box-shadow:0 0 0 1px rgba(255,255,255,.03),0 0 70px var(--rhold-glow),inset 0 0 40px rgba(255,255,255,.035)!important}
-#farmSection .farm-panel[data-rhold-locked="1"] .farm-r{color:var(--rhold-accent)!important;-webkit-text-fill-color:var(--rhold-accent)!important;text-shadow:0 0 24px var(--rhold-glow),0 0 60px var(--rhold-glow)!important}
-</style>
-<script id="resell-v68-rcoin-rhold-fix-js">
-(function(){
-  'use strict';
-  const API='https://resellgame.bothost.tech';
-  const CORE=()=>window.__resellCoreV26||{};
-  const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-
-  /* ---------- RCOIN: simulated game-market price, 9.00–12.00 ₽, smooth and alive ---------- */
-  const market={timer:null,phase:Math.random()*Math.PI*2,points:[]};
-  function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
-  function priceAt(t){
-    /* Slow waves + tiny deterministic-looking movement. Never leaves 9–12. */
-    const wave=.92*Math.sin(t*.19+market.phase)+.43*Math.sin(t*.071+1.7)+.18*Math.sin(t*.43+3.1);
-    return clamp(10.55 + wave,9,12);
-  }
-  function smoothPath(vals,w,h){
-    if(!vals.length)return '';
-    const pts=vals.map((v,i)=>({x:vals.length===1?w/2:(i/(vals.length-1))*w,y:h-8-((v-9)/3)*(h-20)}));
-    if(pts.length===1)return `M ${pts[0].x} ${pts[0].y}`;
-    let d=`M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
-    for(let i=1;i<pts.length;i++){
-      const p0=pts[i-1],p1=pts[i];
-      const dx=(p1.x-p0.x)*.42;
-      d+=` C ${(p0.x+dx).toFixed(1)} ${p0.y.toFixed(1)}, ${(p1.x-dx).toFixed(1)} ${p1.y.toFixed(1)}, ${p1.x.toFixed(1)} ${p1.y.toFixed(1)}`;
-    }
-    return d;
-  }
-  function renderPriceChart(){
-    const box=document.getElementById('rcoinUserChart'); if(!box)return;
-    const now=Date.now()/1000;
-    const vals=[];
-    for(let i=0;i<12;i++) vals.push(priceAt(now-(11-i)*8));
-    const current=priceAt(now);
-    const path=smoothPath(vals,340,90);
-    const area=path+` L 340 90 L 0 90 Z`;
-    const prev=Number(box.dataset.rcoinPrice||current);
-    const delta=current-prev;
-    box.dataset.rcoinPrice=String(current);
-    box.innerHTML=`<div class="rcoin-chart-grid"></div><svg viewBox="0 0 340 90" preserveAspectRatio="none" aria-label="Живая динамика цены RCOIN"><defs><linearGradient id="rcoinAreaV68" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#171a1b" stop-opacity=".13"></stop><stop offset="1" stop-color="#171a1b" stop-opacity=".025"></stop></linearGradient></defs><path d="${area}" fill="url(#rcoinAreaV68)" opacity=".9"></path><path d="${path}" fill="none" stroke="#171a1b" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path></svg><div class="rcoin-chart-price"><small>1 RCOIN</small>${current.toFixed(2)} ₽</div><div class="rcoin-price-delta">${delta>=0?'↑':'↓'} ${Math.abs(delta).toFixed(2)} ₽ за движение</div>`;
-    const note=document.getElementById('rcoinChartNote');
-    if(note)note.textContent='Цена обновляется в реальном времени и держится в диапазоне 9–12 ₽ за 1 RCOIN.';
-  }
-  function startPrice(){
-    if(market.timer)clearInterval(market.timer);
-    renderPriceChart();
-    market.timer=setInterval(()=>{if(document.visibilityState==='visible')renderPriceChart();},3500);
-  }
-  window.__resellRenderRcoinMarketV7=function(){startPrice();};
-  window.__resellRenderRcoinMarketV68=renderPriceChart;
-
-  /* ---------- R-HOLD: first paint from local cache, then authoritative server state ---------- */
-  function parseLocal(){
-    const keys=['resell_rhold_skin_v20','resell_rhold_skin_v19'];
-    for(const key of keys){
-      try{
-        const raw=localStorage.getItem(key); if(!raw)continue;
-        const x=JSON.parse(raw); if(x&&x.id)return x;
-      }catch(_){ }
-    }
-    return null;
-  }
-  function applyVisual(x,source){
-    const panel=document.getElementById('farmPanel');
-    if(!panel||!x?.id)return false;
-    panel.style.setProperty('--rhold-bg',String(x.bg||'radial-gradient(circle,#111,#090909 70%)'),'important');
-    panel.style.setProperty('--rhold-border',String(x.border||'rgba(183,255,106,.45)'),'important');
-    panel.style.setProperty('--rhold-accent',String(x.accent||'#b7ff6a'),'important');
-    panel.style.setProperty('--rhold-glow',String(x.glow||'rgba(183,255,106,.22)'),'important');
-    panel.dataset.rholdSkin=String(x.id);
-    panel.dataset.rholdLocked='1';
-    const label=document.getElementById('rholdCustomizeLabel');
-    if(label&&x.name)label.innerHTML=`${esc(x.name)}<span class="r28-power-chip">×${Number(x.reward_multiplier||1).toFixed(2)} НАГРАДЫ</span>`;
-    if(source==='local')panel.dataset.rholdPaint='local';
-    else panel.dataset.rholdPaint='server';
-    return true;
-  }
-  function saveLocal(x){
-    if(!x?.id)return;
-    try{
-      const data={id:String(x.id),name:String(x.name||''),reward_multiplier:Number(x.reward_multiplier||1),bg:String(x.bg||''),border:String(x.border||''),accent:String(x.accent||''),glow:String(x.glow||'')};
-      localStorage.setItem('resell_rhold_skin_v20',JSON.stringify(data));
-      localStorage.setItem('resell_rhold_skin_v19',JSON.stringify(data));
-    }catch(_){ }
-  }
-  async function syncRhold(){
-    const panel=document.getElementById('farmPanel');
-    if(!panel)return false;
-    /* Local custom skin is painted before any network response. */
-    const local=parseLocal();
-    if(local)applyVisual(local,'local');
-    const c=CORE(),u=String(c.getUserId?.()||'');
-    if(!c.apiFetch||!u)return !!local;
-    try{
-      const r=await c.apiFetch(`${API}/hold/skins/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'GET'},3);
-      const d=await r.json().catch(()=>({}));
-      if(!r.ok||!d.success)return !!local;
-      const skins=Array.isArray(d.skins)?d.skins:[];
-      const equippedId=String(d.equipped_slots?.rhold||d.equipped||'');
-      let chosen=skins.find(x=>String(x.id)===equippedId);
-      /* If backend temporarily omits the equipped item, retain the locally equipped custom style. */
-      if(!chosen&&local)chosen=skins.find(x=>String(x.id)===String(local.id))||local;
-      if(chosen){applyVisual(chosen,'server');saveLocal(chosen);return true;}
-      return !!local;
-    }catch(_){return !!local;}
-  }
-  function bootRhold(){
-    /* Repeat only until the farm exists; afterwards sync periodically for Telegram navigation/re-render. */
-    let attempts=0;
-    const tick=async()=>{
-      const panel=document.getElementById('farmPanel');
-      if(panel){await syncRhold();return;}
-      if(++attempts<30)setTimeout(tick,120);
-    };
-    tick();
-    [800,1800,3500].forEach(ms=>setTimeout(syncRhold,ms));
-  }
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bootRhold,{once:true});else bootRhold();
-  window.addEventListener('pageshow',()=>setTimeout(syncRhold,80));
-  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')setTimeout(syncRhold,80);});
-})();
-</script>
