@@ -4677,6 +4677,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   }
 
   async function initFarm(){
+    restoreRholdSkinLocalV19();
     if(Date.now() < holdJustCompletedUntil) return;
     if(farmInitPromise) return farmInitPromise;
     farmInitPromise = (async()=>{
@@ -6144,6 +6145,9 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     // Keep a short, intentional account-discovery stage before the existing launch sequence.
     await new Promise(r=>setTimeout(r,520));
     await dataPromise;
+    // By this point Telegram identity/profile bootstrap is complete. Re-read the
+    // equipped R-HOLD skin now, even if initFarm ran earlier before userId existed.
+    try{ restoreRholdSkinLocalV19(); await loadRholdSkinV19(); }catch(_){ }
     if(!bootData){
       setBootWelcome({identified:false});
       setBootState('НЕ УДАЛОСЬ ОПРЕДЕЛИТЬ СЕССИЮ',10);
@@ -6381,7 +6385,22 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       modalBody.querySelectorAll('[data-rhold-id]').forEach(btn=>btn.addEventListener('click',async()=>{if(btn.disabled)return;const id=btn.dataset.rholdId,kind=btn.dataset.rholdKind;btn.disabled=true;const old=btn.textContent;btn.textContent=currentLang==='en'?'UPDATING…':'ОБНОВЛЕНИЕ…';try{if(btn.classList.contains('primary')||kind==='era'||kind==='network'){const already=skins.find(x=>x.id===id)?.owned;if(!already){const r=await apiFetch(`${API_BASE}/hold/skins/${encodeURIComponent(userId)}/buy`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skin_id:id})},3);const d=await r.json();if(!r.ok||!d.success)throw new Error(d.error||'Ошибка покупки');if(d.balance!==undefined){profileData=profileData||{};profileData.balance=d.balance;setBalance(d.balance);}}const r2=await apiFetch(`${API_BASE}/hold/skins/${encodeURIComponent(userId)}/equip`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skin_id:id})},3);const d2=await r2.json();if(!r2.ok||!d2.success)throw new Error(d2.error||'Ошибка активации');showToast(currentLang==='en'?'R-HOLD style equipped':'Стиль R-HOLD включён');applyRholdSkinById(id,skins);await openRholdShopV19();}}catch(err){btn.disabled=false;btn.textContent=old;showToast(err.message||'Ошибка');}}));
     }catch(err){modalBody.innerHTML=`<div class="friend-empty">${esc(err.message||'Не удалось загрузить магазин')}</div>`;}
   }
-  function applyRholdSkinById(id,list){const x=(list||[]).find(v=>v.id===id);if(!x)return;const panel=document.querySelector('#farmPanel')||document.querySelector('.farm-panel');if(!panel)return;panel.style.setProperty('--rhold-bg',x.bg);panel.style.setProperty('--rhold-border',x.border);panel.style.setProperty('--rhold-accent',x.accent);panel.style.setProperty('--rhold-glow',x.glow);panel.dataset.rholdSkin=id;}
+  function applyRholdSkinById(id,list){
+    const x=(list||[]).find(v=>v.id===id);if(!x)return;
+    const panel=document.querySelector('#farmPanel')||document.querySelector('.farm-panel');if(!panel)return;
+    panel.style.setProperty('--rhold-bg',x.bg);panel.style.setProperty('--rhold-border',x.border);panel.style.setProperty('--rhold-accent',x.accent);panel.style.setProperty('--rhold-glow',x.glow);panel.dataset.rholdSkin=id;
+    // Keep the last confirmed appearance locally so a fresh Telegram WebView
+    // never flashes the BASE SIGNAL skin while the server state is loading.
+    try{localStorage.setItem('resell_rhold_skin_v19',JSON.stringify({id:String(id),bg:String(x.bg||''),border:String(x.border||''),accent:String(x.accent||''),glow:String(x.glow||'')}));}catch(_){ }
+  }
+  function restoreRholdSkinLocalV19(){
+    try{
+      const raw=localStorage.getItem('resell_rhold_skin_v19');if(!raw)return;
+      const x=JSON.parse(raw||'{}');if(!x?.id)return;
+      const panel=document.querySelector('#farmPanel')||document.querySelector('.farm-panel');if(!panel)return;
+      if(x.bg)panel.style.setProperty('--rhold-bg',x.bg);if(x.border)panel.style.setProperty('--rhold-border',x.border);if(x.accent)panel.style.setProperty('--rhold-accent',x.accent);if(x.glow)panel.style.setProperty('--rhold-glow',x.glow);panel.dataset.rholdSkin=x.id;
+    }catch(_){ }
+  }
   async function loadRholdSkinV19(){if(!userId)return;try{const r=await apiFetch(`${API_BASE}/hold/skins/${encodeURIComponent(userId)}?t=${Date.now()}`,{method:'GET'},2);const d=await r.json();if(r.ok&&d.success)applyRholdSkinById(d.equipped,d.skins||[]);}catch(_){} }
   function ensureRholdButtonV19(){
     document.querySelectorAll('.rhold-v19-btn').forEach(x=>x.remove());
