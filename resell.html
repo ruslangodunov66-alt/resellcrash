@@ -2,12 +2,12 @@
 
 <html lang="ru">
 <head>
-<meta name="resell-build" content="V51">
+<meta name="resell-build" content="V67">
 <meta charset="utf-8"/>
 <meta content="width=device-width,initial-scale=1.0,user-scalable=no,viewport-fit=cover" name="viewport"/>
 <meta content="#050505" name="theme-color"/>
 <meta content="dark" name="color-scheme"/>
-<title>RESELL | Home · V65</title>
+<title>RESELL | Home · V67</title>
 <link href="https://fonts.googleapis.com" rel="preconnect"/>
 <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,700;0,800;0,900;1,800&amp;family=Nunito:wght@500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
@@ -4066,6 +4066,8 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
   let farmInitPromise = null;
   let farmLastSync = 0;
   let farmStatusRetry = 0;
+  let farmCompleteRetryTimer = null;
+  let farmCompletionReleased = false;
 
   function formatClock(seconds){
     seconds = Math.max(0, Math.ceil(Number(seconds) || 0));
@@ -4193,6 +4195,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     if(holdTimer){ clearTimeout(holdTimer); holdTimer=null; }
     if(farmRafId){ cancelAnimationFrame(farmRafId); farmRafId=null; }
     if(farmStatusPollId){ clearInterval(farmStatusPollId); farmStatusPollId=null; }
+    if(farmCompleteRetryTimer){ clearTimeout(farmCompleteRetryTimer); farmCompleteRetryTimer=null; }
   }
 
   async function syncActiveFarmSnapshot(){
@@ -4417,10 +4420,27 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
       let payload = null;
       try{ payload = await resp.json(); }catch(_){ payload = null; }
       if(!resp.ok || !payload?.success){
+        /* At the completion edge the Telegram/iOS clock and the server clock can
+           differ by a few hundred milliseconds. Never cancel a valid session or
+           make the UI look stuck because of that race. */
+        const remaining=Math.max(0,Number(payload?.remaining||0));
+        if(resp.status===409 && remaining>0 && holdPointerActive && !farmCompletionReleased && holdState?.session_id===sessionId){
+          farmCompleting=false;
+          if(farmCompleteRetryTimer) clearTimeout(farmCompleteRetryTimer);
+          farmCompleteRetryTimer=setTimeout(()=>{
+            farmCompleteRetryTimer=null;
+            if(holdPointerActive && !farmCompletionReleased && holdState?.session_id===sessionId && !farmCompleted){
+              completeStandaloneFarm().catch(()=>{});
+            }
+          },Math.min(1800,Math.max(80,remaining*1000+120)));
+          $('#farmStatus').textContent='Фиксируем завершение…';
+          return;
+        }
         throw new Error(payload?.error || `Не удалось зачислить награду (HTTP ${resp.status})`);
       }
 
       farmCompleted = true;
+      farmCompletionReleased = false;
       const reward = Number(payload.reward || farmTargetReward || 0);
       const now = farmNow();
       const serverCooldown = farmDurationSeconds(payload.cooldown_remaining ?? payload.cooldown ?? 0);
@@ -4618,8 +4638,15 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
         if(farmCompleting || farmCompleted) return;
 
         const elapsed = farmSessionElapsedMs();
-        if(holdState?.session_id && elapsed >= FARM_DURATION * 1000){
+        const completionZone = FARM_DURATION * 1000 - 1200;
+        if(holdState?.session_id && elapsed >= completionZone){
+          farmCompletionReleased = true;
           await completeStandaloneFarm();
+          /* If the server still says the session is early, do not keep earning
+             after the user has already released the button. */
+          if(!farmCompleted && holdState?.session_id){
+            await cancelStandaloneFarm();
+          }
         }else if(holdPointerActive || holdStartPromise || holdState?.session_id){
           await cancelStandaloneFarm();
         }else{
@@ -4652,6 +4679,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
       try{ e?.preventDefault?.(); }catch(_){ }
 
       activeInput=true;
+      farmCompletionReleased=false;
       activePointerId=e?.pointerId ?? null;
       holdPointerId=activePointerId;
       pressStartedAt=Date.now();
@@ -7021,11 +7049,19 @@ async function initFarm(){
   async function loadCust(){
     const c=core(),u=uid();
     if(!c.apiFetch||!u)throw new Error('Telegram-сессия не определена');
+    /* The server is authoritative, but normalize the historical era1_core
+       placeholder so an old row can never blank the first-launch skin. */
     const r=await c.apiFetch(`${API}/hold/skins/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'GET'},3);
     const d=await r.json().catch(()=>({}));
     if(!r.ok||!d.success)throw new Error(d.error||'Не удалось загрузить кастомизацию');
     const skins=(Array.isArray(d.skins)?d.skins:[]).map(normalizeSkin).filter(x=>!x.legacy);
     // Keep every server item. Expected current catalog: 14 R-HOLD + 3 nick + 3 avatar + 3 prefix = 23.
+    const validRhold=new Set(skins.filter(x=>cat(x.kind,x.slot,x.id)==='rhold').map(x=>String(x.id)));
+    if(!validRhold.has(String(d?.equipped_slots?.rhold||''))){
+      d.equipped_slots={...(d.equipped_slots||{}),rhold:'v28_base_signal'};
+      d.equipped='v28_base_signal';
+      skins.forEach(x=>{if(cat(x.kind,x.slot,x.id)==='rhold')x.equipped=String(x.id)==='v28_base_signal';});
+    }
     custCache={...d,skins};
     const prof=c.getProfile?.();
     if(prof){
@@ -8209,6 +8245,54 @@ html[lang="en"] #resellHomeMoney #mainAssetsSection .main-tycoon-tag{display:inl
   .friend-avatar[data-resell-avatar-style="avatar_star_orbit"]{animation:none!important}
 }
 </style>
+
+<style id="resell-v67-mobile-layout-fix">
+/* V67 MOBILE LAYOUT FIX — iPhone / Telegram WebView.
+   Content cards are single-column on narrow screens so no card can become a
+   half-width overflowed panel. Compact stat rows remain multi-column. */
+@media (max-width:430px){
+  /* Avito: supplier / purchase cards must be full width. */
+  .avx-shell,.avx-section,.avx-grid,.avx-product,.avx-product-top,.avx-product-bottom,
+  .avx-stock,.avx-chats,.avx-chat,.avx-active,.avx-section-head{min-width:0!important;max-width:100%!important;box-sizing:border-box!important}
+  .avx-grid{grid-template-columns:1fr!important;gap:9px!important}
+  .avx-product{width:100%!important}
+
+  /* Avito chats: keep buyer/message/price inside the card. */
+  .avx-chat{width:100%!important;display:grid!important;grid-template-columns:38px minmax(0,1fr) auto!important;align-items:center!important;gap:8px!important;overflow:hidden!important}
+  .avx-chat-main{min-width:0!important;max-width:100%!important;overflow:hidden!important}
+  .avx-chat-main b,.avx-chat-main small,.avx-chat-main em{max-width:100%!important;overflow:hidden!important;text-overflow:ellipsis!important}
+  .avx-chat-side{min-width:0!important;max-width:70px!important;overflow:hidden!important}
+  .avx-chat-side strong{max-width:70px!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
+  .avx-section-head>div{min-width:0!important;flex:1 1 auto!important}
+  .avx-section-head>div b,.avx-section-head>div span{max-width:100%!important;overflow-wrap:anywhere!important}
+
+  /* Legacy Avito surfaces used by older render paths. */
+  .avito-buy-grid{grid-template-columns:1fr!important}
+  .avito-supply-strip{display:grid!important;grid-template-columns:1fr!important;overflow:visible!important}
+  .avito-supply-strip .avito-item{min-width:0!important;width:100%!important;flex:0 0 auto!important}
+
+  /* Taxi / Auto: one full-width car per row on phones. */
+  .v33-car-grid{grid-template-columns:1fr!important}
+  .v33-car{width:100%!important;min-width:0!important}
+  .taxi-garage{grid-template-columns:1fr!important}
+  .taxi-garage .taxi-card{grid-template-columns:minmax(0,1fr) auto!important;min-width:0!important}
+  .taxi-car-card{width:100%!important;min-width:0!important}
+
+  /* Garage/action cards: don't allow an internal grid to push the sheet wider. */
+  .garage-actions,.taxi-actions{grid-template-columns:1fr!important}
+  .garage-actions .tycoon-btn,.taxi-actions .tycoon-btn{width:100%!important;min-width:0!important}
+
+  /* Keep the modal itself mathematically bounded by the visual viewport. */
+  .modal,.sheet,.sheet-body,.modal-content{width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important;overflow-x:hidden!important}
+}
+
+/* Hard containment for every Avito render path, independent of later modules. */
+.avx-shell,.avx-section,.avx-hero,.avx-tabs,.avx-grid,.avx-product,.avx-stock,.avx-stock-row,.avx-chats,.avx-chat,.avx-chat-large{box-sizing:border-box!important;min-width:0!important;max-width:100%!important}
+.avx-product-info,.avx-stock-left,.avx-chat-main{min-width:0!important}
+.avx-product-bottom{min-width:0!important}
+.avx-product-bottom .avx-btn{min-width:0!important;max-width:100%!important}
+</style>
+<!-- V67 R-HOLD completion stability is handled in the main hold state machine above. -->
 </body>
 
 <!-- RESSELL FINAL BUGFIX V4: friends / R-HOLD / horizontal swipe -->
