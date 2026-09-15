@@ -4125,6 +4125,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   let farmRafId = null;
   let holdJustCompletedUntil = 0;
   let farmStatusPollId = null;
+  let farmAutoCompleteTimer = null;
   let farmVisualReward = 0;
   let farmVisualProgress = 0;
   let farmServerProgress = 0;
@@ -4133,12 +4134,13 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 
   function stopFarmAnimation(){
     if(holdTimer){ clearTimeout(holdTimer); holdTimer=null; }
+    if(farmAutoCompleteTimer){ clearTimeout(farmAutoCompleteTimer); farmAutoCompleteTimer=null; }
     if(farmRafId){ cancelAnimationFrame(farmRafId); farmRafId=null; }
     if(farmStatusPollId){ clearInterval(farmStatusPollId); farmStatusPollId=null; }
   }
 
   async function syncActiveFarmSnapshot(){
-    if(!holdState?.session_id || !holdPointerActive || farmCompleting) return;
+    if(!holdState?.session_id || farmCompleting) return;
     try{
       const d=await fetchHoldStatus({silent:true});
       if(!d?.session_id){ stopFarmAnimation(); return; }
@@ -4151,7 +4153,14 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       farmSnapshotProgress=farmServerProgress;
       farmSnapshotReward=farmServerReward;
       farmServerSyncAt=performance.now();
-      if(d.auto_complete || targetProgress>=0.999) await completeStandaloneFarm();
+
+      // The server is authoritative, but the UI must not depend on a 1s poll
+      // or on pointerup. If the server says the hidden stop moment is reached,
+      // complete immediately. This also survives iOS/Telegram WebView event
+      // timing quirks while keeping the actual payout protected by the backend.
+      if(d.auto_complete || targetProgress>=0.999 || Number(d.active_remaining||0)<=0){
+        await completeStandaloneFarm();
+      }
     }catch(_){ }
   }
 
@@ -4163,30 +4172,47 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     farmVisualReward=0; farmVisualProgress=0;
     farmSnapshotReward=0; farmSnapshotProgress=0;
     farmServerProgress=0; farmServerReward=0; farmServerSyncAt=performance.now();
-    const tick=()=>{
-      if(!holdPointerActive || !holdState?.session_id || farmCompleting || farmCompleted){ farmRafId=null; return; }
 
-      // Predict smoothly between server snapshots using the last known
-      // server progress. This removes the old "stair-step / wobble" effect.
-      // The server still decides whether the final reward is valid.
+    // Hard client-side wake-up at the server start + duration. This is only a
+    // trigger for /hold/complete; the backend still verifies the real session
+    // and elapsed time before paying anything. It prevents a stuck animation
+    // when Telegram throttles timers or pointer events.
+    const started=farmEpochSeconds(holdState?.started_at || 0);
+    if(started){
+      const delay=Math.max(0,((started+FARM_DURATION)-farmNow())*1000+120);
+      farmAutoCompleteTimer=setTimeout(()=>{
+        farmAutoCompleteTimer=null;
+        if(holdState?.session_id && !farmCompleting && !farmCompleted) syncActiveFarmSnapshot().catch(()=>{});
+      },delay);
+    }
+
+    const tick=()=>{
+      if(!holdState?.session_id || farmCompleting || farmCompleted){ farmRafId=null; return; }
+
+      // Predict smoothly between server snapshots. The server remains the
+      // source of truth; prediction is presentation only.
       const sinceSync=Math.max(0,(performance.now()-farmServerSyncAt)/1000);
       const predictedProgress=Math.min(1, farmServerProgress + sinceSync/FARM_DURATION);
       farmVisualProgress=Math.max(farmVisualProgress,predictedProgress,farmSnapshotProgress);
 
-      // Reward is displayed smoothly but never exceeds the last server value.
-      farmVisualReward=Math.max(farmVisualReward,farmSnapshotReward);
+      // Estimate the reward slope from the latest authoritative snapshot and
+      // interpolate it continuously. This removes visible 1-second jumps.
+      // Never display more than the latest server-authoritative reward.
+      let visualReward=farmServerReward;
+      if(farmServerProgress>0 && farmServerReward>0){
+        const estimatedFinal=farmServerReward/farmServerProgress;
+        visualReward=Math.min(farmServerReward,Math.floor(estimatedFinal*farmVisualProgress));
+      }
+      farmVisualReward=Math.max(farmVisualReward,visualReward,farmSnapshotReward);
       updateFarmVisuals(FARM_DURATION*(1-farmVisualProgress));
       renderFarmReward(farmVisualProgress,farmVisualReward);
 
-      // Do not depend on pointerup or on a perfectly timed 1s poll.
-      // Once the server reports completion, completeStandaloneFarm() is called
-      // by syncActiveFarmSnapshot; this visual edge only keeps the UI responsive.
       if(farmVisualProgress>=0.999 && !farmCompleting && !farmCompleted){
         syncActiveFarmSnapshot().catch(()=>{});
       }
       farmRafId=requestAnimationFrame(tick);
     };
-    farmStatusPollId=setInterval(syncActiveFarmSnapshot,1000);
+    farmStatusPollId=setInterval(syncActiveFarmSnapshot,750);
     syncActiveFarmSnapshot();
     farmRafId=requestAnimationFrame(tick);
   }
@@ -4368,6 +4394,9 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       profileData = profileData || {};
       profileData.balance = balance;
       setBalance(balance);
+      stopFarmAnimation();
+      farmVisualReward = Math.max(farmVisualReward, reward);
+      renderFarmReward(1, reward);
 
       farmWriteLocalNumber(FARM_LOCAL_LAST_COMPLETED_KEY, now);
       farmWriteLocalNumber(FARM_LOCAL_COOLDOWN_KEY, cooldownUntil);
