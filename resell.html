@@ -4316,6 +4316,20 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
         }
         runFarmAnimation();
         haptic('medium');
+        // Safety net for Telegram/iOS: pointerup can be delayed or lost exactly
+        // at the 100% edge. The server remains authoritative; we only attempt
+        // completion after the stored server start time + full duration.
+        try{
+          const startedMs=Number(holdState?.started_at||0)*1000;
+          const waitMs=Math.max(50, startedMs + FARM_DURATION*1000 + 180 - Date.now());
+          if(holdTimer) clearTimeout(holdTimer);
+          holdTimer=setTimeout(()=>{
+            holdTimer=null;
+            if(holdPointerActive && holdState?.session_id && !farmCompleting && !farmCompleted){
+              completeStandaloneFarm().catch(()=>{});
+            }
+          },waitMs);
+        }catch(_){ }
       }catch(err){
         holdPointerActive = false;
         holdReleaseQueued = false;
@@ -4386,6 +4400,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       holdPointerActive = false;
       holdReleaseQueued = false;
       holdPointerId = null;
+      if(holdTimer){ clearTimeout(holdTimer); holdTimer=null; }
       stopFarmAnimation();
       $('#farmRing')?.classList.remove('holding');
       document.querySelector('#farmSection .farm-stage')?.classList.remove('farm-active');
@@ -5209,7 +5224,14 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     const d=avitoState||{};
     const inv=Array.isArray(d.inventory)?d.inventory:[];
     const grouped=groupInventory(inv);
-    const suppliers=Array.isArray(d.suppliers)?d.suppliers:[];
+    const suppliers=(Array.isArray(d.suppliers)?d.suppliers:[]).slice().sort((a,b)=>{
+      const ap=Number(a.buy_price||a.price||0), bp=Number(b.buy_price||b.price||0);
+      if(bp!==ap) return bp-ap;
+      const am=Number(a.market_price||a.value||0), bm=Number(b.market_price||b.value||0);
+      if(bm!==am) return bm-am;
+      const ax=Number(a.margin_pct||0), bx=Number(b.margin_pct||0);
+      return bx-ax;
+    });
     const chats=Array.isArray(d.chats)?d.chats:[];
     const unread=Number(d.unread_count||0);
     const pub=d.published;
@@ -5290,7 +5312,18 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     const tab=e.target.closest('[data-avito-tab]'); if(tab){avitoTab=tab.dataset.avitoTab;try{await fetchAvito();modalBody.innerHTML=renderAvito();showAvitoUnlockPopup()}catch(err){showToast(err.message||'Ошибка')}return;}
     const buy=e.target.closest('[data-avito-buy]'); if(buy){buy.disabled=true;try{const p=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/buy`,{method:'POST',body:JSON.stringify({item_id:buy.dataset.avitoBuy})});profileData.balance=p.balance??profileData.balance;setBalance(profileData.balance);showToast(p.message||'Товар закуплен');avitoTab=getAvitoAutoInventory()?'sales':'buy';await fetchAvito();modalBody.innerHTML=renderAvito();showAvitoUnlockPopup()}catch(err){showToast(err.message||'Не удалось купить товар');buy.disabled=false}return;}
     const pub=e.target.closest('[data-avito-publish]'); if(pub){avitoEditing=true;openModal('Выставить товар',`<div class="avito-shell"><div class="avito-item"><div class="avito-item-name">Выставить товар</div><div class="avito-item-meta">Напиши коротко о состоянии товара и комплекте.</div><textarea class="avito-input" id="avitoDescription" maxlength="1000" rows="5" placeholder="Например: отличное состояние, полный комплект, использовался мало…"></textarea><button class="avito-btn primary" id="avitoPublishConfirm" data-item-uid="${esc(pub.dataset.avitoPublish)}" style="margin-top:8px;width:100%">ОПУБЛИКОВАТЬ</button></div></div>`);return;}
-    const conf=e.target.closest('#avitoPublishConfirm'); if(conf){conf.disabled=true;try{const p=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/publish`,{method:'POST',body:JSON.stringify({item_uid:conf.dataset.itemUid,description:$('#avitoDescription')?.value||''})});showToast(p.message||'Объявление опубликовано');avitoEditing=false;avitoTab='chats';await fetchAvito();modalBody.innerHTML=renderAvito()}catch(err){showToast(err.message||'Не удалось опубликовать');conf.disabled=false}return;}
+    const conf=e.target.closest('#avitoPublishConfirm'); if(conf){
+      const description=String($('#avitoDescription')?.value||'').trim();
+      if(description.length<10){ showToast('Напиши описание минимум из 10 символов: состояние, размер, комплект или нюансы.'); return; }
+      conf.disabled=true;
+      try{
+        const p=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/publish`,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({item_uid:conf.dataset.itemUid,description})});
+        showToast(p.message||'Объявление опубликовано');
+        avitoEditing=false; avitoTab='chats';
+        await fetchAvito(); modalBody.innerHTML=renderAvito();
+      }catch(err){ showToast(err.message||'Не удалось опубликовать товар'); conf.disabled=false; }
+      return;
+    }
     const openChat=e.target.closest('[data-open-avito-chat],[data-open-avito-chat-btn]'); if(openChat){avitoEditing=true;const key=openChat.dataset.openAvitoChat||openChat.dataset.openAvitoChatBtn;try{await tycoonFetch(`/avito/${encodeURIComponent(userId)}/chat`,{method:'POST',body:JSON.stringify({chat_key:key,action:'read'})});}catch(_){};avitoTab='chats';await fetchAvito();const chat=(avitoState.chats||[]).find(x=>String(x.chat_key)===String(key));if(!chat){showToast('Чат уже завершён');return;}openModal('Покупатель #'+chat.buyer_id,renderAvitoChat(chat));return;}
     const ans=e.target.closest('[data-avito-answer]'); if(ans){ans.disabled=true;try{const p=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/chat`,{method:'POST',body:JSON.stringify({chat_key:ans.dataset.avitoAnswer,action:'answer',choice_idx:Number(ans.dataset.choice||0)})});avitoEditing=true;const chat=p.chat||null;if(chat){modalBody.innerHTML=renderAvitoChat(chat);}else{showToast(p.message||'Ответ отправлен');}}catch(err){showToast(err.message||'Не удалось отправить ответ');ans.disabled=false}return;}
     const price=e.target.closest('[data-avito-price]'); if(price){
