@@ -1803,7 +1803,7 @@ html,body{max-width:100%;overflow-x:hidden!important}
 .avx-chat-actions .avx-btn{width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important;white-space:normal!important;overflow-wrap:anywhere!important;word-break:break-word!important}
 .avx-price-grid,.avx-price-btn{width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important}
 </style>
-</head>
+<style id="avito-v8-absolute-width-lock">html,body{width:100%!important;max-width:100%!important;overflow-x:hidden!important;overscroll-behavior-x:none!important}.modal,.sheet,.sheet-body{width:100%!important;max-width:100%!important;min-width:0!important;overflow-x:hidden!important;overscroll-behavior-x:none!important;box-sizing:border-box!important}.avito-shell,.avx-shell,.avx-section,.avx-chat-large{width:100%!important;max-width:100%!important;min-width:0!important;overflow-x:hidden!important;overscroll-behavior-x:none!important;box-sizing:border-box!important;contain:layout paint!important}.avx-chat-large{touch-action:pan-y!important}.avx-chat-large *{min-width:0!important;max-width:100%!important;box-sizing:border-box!important}.avx-chat-large .avito-chat-head,.avx-chat-large .avito-chat-message,.avx-chat-large .avx-chat-actions,.avx-chat-large .avx-price-grid{width:100%!important;min-width:0!important;max-width:100%!important}.avx-chat-large .avito-chat-message,.avx-chat-large .avito-chat-buyer,.avx-chat-large .avito-chat-stage,.avx-chat-large .avx-chat-hint,.avx-chat-large .avx-section-head{overflow-wrap:anywhere!important;word-break:break-word!important;white-space:normal!important}.avx-chat-large .avx-chat-actions .avx-btn,.avx-chat-large .avx-price-btn{width:100%!important;min-width:0!important;max-width:100%!important;touch-action:manipulation!important}</style></head>
 <body class="resell-booting">
 <div aria-hidden="false" id="bootSplash">
 <div class="boot-splash-bg"></div>
@@ -4319,7 +4319,7 @@ html,body{max-width:100%;overflow-x:hidden!important}
         });
         farmTargetReward = Math.max(
           FARM_MIN_REWARD,
-          Math.min(FARM_MAX_REWARD, Number(payload.target_reward || payload.base_reward || 30000))
+          Number(payload.target_reward || payload.base_reward || 30000)
         );
 
         if(holdReleaseQueued || !holdPointerActive){
@@ -6622,10 +6622,16 @@ async function initFarm(){
     {id:'v28_45_neon',name:'NEON VECTOR',tier:'4.5',min_sales:25,price:7500000,unlocked:false,kind:'rhold',reward_multiplier:2.0,accent:'#6cffb1',bg:'linear-gradient(135deg,#081d16,#07100d 58%,#103426)',border:'rgba(108,255,177,.8)',glow:'rgba(108,255,177,.58)'}
   ];
   function mergeFallback(d){
-    const sales=Number(d?.total_sales||0), era=Number(d?.unlocked_era||1), owned=new Set(d?.owned||[]), equipped=d?.equipped_slots?.rhold||d?.equipped||'era1_core';
+    const sales=Number(d?.total_sales||0), era=Number(d?.unlocked_era||1), owned=new Set(d?.owned||[]);
+    let equipped=d?.equipped_slots?.rhold||d?.equipped||'era1_core';
+    try{const raw=localStorage.getItem('resell_rhold_skin_v20')||localStorage.getItem('resell_rhold_skin_v19');const saved=raw?JSON.parse(raw):null;if(saved?.id&&FALLBACK_RHOLD.some(x=>x.id===String(saved.id)))equipped=String(saved.id);}catch(_){}
     return FALLBACK_RHOLD.map(x=>{const y={...x}; y.owned=owned.has(y.id)||(y.id==='v28_base_signal'); y.equipped=equipped===y.id; y.unlocked=(y.id==='v28_base_signal')||(y.id==='era2_core'?era>=2:sales>=Number(y.min_sales||0)); y.lock_reason=y.id==='era2_core'?'Нужно открыть ERA 2':(y.min_sales&&sales<y.min_sales?`Нужно ${y.min_sales} продаж`:'ДОСТУПНО'); return y;});
   }
+  function applySavedRholdVisualImmediately(){
+    try{const raw=localStorage.getItem('resell_rhold_skin_v20')||localStorage.getItem('resell_rhold_skin_v19');if(!raw)return;const x=JSON.parse(raw||'{}');if(!x?.id)return;const panel=document.querySelector('#farmPanel')||document.querySelector('.farm-panel');if(panel){panel.style.setProperty('--rhold-bg',String(x.bg||''),'important');panel.style.setProperty('--rhold-border',String(x.border||''),'important');panel.style.setProperty('--rhold-accent',String(x.accent||''),'important');panel.style.setProperty('--rhold-glow',String(x.glow||''),'important');panel.dataset.rholdSkin=String(x.id);}}catch(_){}
+  }
   async function load(){
+    applySavedRholdVisualImmediately();
     const core=CORE(); if(!core?.apiFetch)return;
     const uid=core.getUserId(); if(!uid)return;
     try{
@@ -6633,18 +6639,19 @@ async function initFarm(){
       const d=await r.json(); if(!r.ok||!d.success)throw new Error(d.error||'catalog');
       const wanted=['v28_base_signal','era2_core','v28_4_prism','v28_4_cyan','v28_4_amber','v28_45_neon'];
       d.skins=(d.skins||[]).filter(x=>wanted.includes(x.id));
-      cache=d; render(); applyAllEquipped(d);
+      cache=d; render(); applyAllEquipped(d); try{const rr=(d.skins||[]).find(x=>String(x.id)===String(d.equipped_slots?.rhold||d.equipped));if(rr){const data={id:String(rr.id),bg:String(rr.bg||''),border:String(rr.border||''),accent:String(rr.accent||''),glow:String(rr.glow||'')};localStorage.setItem('resell_rhold_skin_v20',JSON.stringify(data));localStorage.setItem('resell_rhold_skin_v19',JSON.stringify(data));applySavedRholdVisualImmediately();}}catch(_){}
     }catch(_){
       // Never leave the customization button on a dead "Не удалось загрузить" screen.
       // The six controls are rendered locally; buy/equip remains server-authoritative.
       const d={success:true,skins:mergeFallback(null),total_sales:Number(core.getProfile?.()?.total_sales||0),unlocked_era:Number(core.getProfile?.()?.epoch?.current_epoch||1),equipped_slots:{rhold:'v28_base_signal'}};
-      cache=d; render();
+      cache=d; render(); applySavedRholdVisualImmediately();
     }
   }
   function applyAllEquipped(d){
     const panel=document.querySelector('#farmPanel')||document.querySelector('.farm-panel');
-    const r=(d.skins||[]).find(x=>x.id===d.equipped_slots?.rhold) || (d.skins||[]).find(x=>x.id===d.equipped);
-    if(panel&&r){panel.style.setProperty('--rhold-bg',r.bg||'');panel.style.setProperty('--rhold-border',r.border||'');panel.style.setProperty('--rhold-accent',r.accent||'');panel.style.setProperty('--rhold-glow',r.glow||'');panel.dataset.rholdSkin=r.id;}
+    let r=(d.skins||[]).find(x=>String(x.id)===String(d.equipped_slots?.rhold)) || (d.skins||[]).find(x=>String(x.id)===String(d.equipped));
+    if(!r){try{const raw=localStorage.getItem('resell_rhold_skin_v20')||localStorage.getItem('resell_rhold_skin_v19');const saved=raw?JSON.parse(raw):null;r=(d.skins||[]).find(x=>String(x.id)===String(saved?.id));}catch(_){} }
+    if(panel&&r){panel.style.setProperty('--rhold-bg',r.bg||'','important');panel.style.setProperty('--rhold-border',r.border||'','important');panel.style.setProperty('--rhold-accent',r.accent||'','important');panel.style.setProperty('--rhold-glow',r.glow||'','important');panel.dataset.rholdSkin=r.id;} else {applySavedRholdVisualImmediately();}
     const nick=(d.skins||[]).find(x=>x.id===d.equipped_slots?.nick);
     const avatar=(d.skins||[]).find(x=>x.id===d.equipped_slots?.avatar);
     const badge=(d.skins||[]).find(x=>x.id===d.equipped_slots?.badge);
@@ -7623,8 +7630,10 @@ async function initFarm(){
     function syncNextStep(){
       const card=document.querySelector('#resellHomeMoney .resell-next-step');
       if(!card)return;
+      const profileSales=Number(window.__resellCoreV26?.getProfile?.()?.total_sales ?? window.profileData?.total_sales ?? 0)||0;
       const claims=Number(window.holdState?.claims ?? document.getElementById('farmClaimCount')?.textContent?.replace(/[^0-9]/g,'' ) ?? 0)||0;
-      const isNew=claims===0;
+      const sales=Math.max(profileSales,Number(window.__resellAvitoSales||0));
+      const isNew=sales<=5;
       card.classList.toggle('is-newcomer',isNew);
       card.setAttribute('aria-hidden',isNew?'false':'true');
     }
