@@ -4004,6 +4004,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   let holdReleaseQueued = false;
   let farmTargetReward = 0;
   let farmCompleting = false;
+  let farmCompleteRetryCount = 0;
   let farmCompleted = false;
   let farmInitPromise = null;
   let farmLastSync = 0;
@@ -4107,20 +4108,12 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     const f = $('#farmProgressFill');
     const p = $('#farmPanel');
     if(!t || !f) return;
-    const cooldownActive=!holdState?.ready && !holdState?.session_id && Number(holdState?.cooldown_remaining || 0)>0;
-    const remNum=Math.max(0,Number(remaining)||0);
-    if(cooldownActive){
-      t.textContent=`КД ${formatClock(remNum)}`;
-      f.style.width='100%';
-      p?.classList.add('cooldown');
-      return;
-    }
     const d = FARM_DURATION;
-    const rem = Math.max(0, Math.min(d, remNum));
+    const rem = Math.max(0, Math.min(d, Number(remaining) || 0));
     const pr = Math.min(100, Math.max(0, ((d - rem) / d) * 100));
-    t.textContent = formatClock(rem);
+    if(t) t.textContent = formatClock(rem);
     f.style.width = `${pr}%`;
-    p?.classList.remove('cooldown');
+    p?.classList.toggle('cooldown', !holdState?.ready && !holdState?.session_id && Number(holdState?.cooldown_remaining || 0) > 0);
   }
 
   function renderFarmReward(progress,earned){
@@ -4192,7 +4185,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     // completion request just after the server start + 30 seconds. The
     // backend still checks the real elapsed time before paying anything.
     if(started){
-      const delay=Math.max(0,((started+FARM_DURATION)-Date.now()/1000)*1000+80);
+      const delay=Math.max(0,((started+FARM_DURATION)-Date.now()/1000)*1000+500);
       farmAutoCompleteTimer=setTimeout(()=>{
         farmAutoCompleteTimer=null;
         if(holdState?.session_id && !farmCompleting && !farmCompleted){
@@ -4202,18 +4195,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     }
 
     const tick=()=>{
-      if(farmCompleted){ farmRafId=null; return; }
-      if(farmCompleting){
-        // Once payout starts, lock the visual at the completed state. Never
-        // let the animation continue racing while the server is answering.
-        farmVisualProgress=1;
-        farmVisualReward=Math.max(farmVisualReward,targetReward);
-        updateFarmVisuals(0);
-        renderFarmReward(1,farmVisualReward);
-        farmRafId=null;
-        return;
-      }
-      if(!holdState?.session_id){ farmRafId=null; return; }
+      if(!holdState?.session_id || farmCompleting || farmCompleted){ farmRafId=null; return; }
 
       // The counter and progress are driven by the exact local wall-clock
       // elapsed time. This removes the old 750ms/1s step effect completely.
@@ -4305,6 +4287,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     }
 
     farmCompleted = false;
+    farmCompleteRetryCount = 0;
     holdPointerActive = true;
     holdReleaseQueued = false;
     $('#farmRing')?.classList.add('holding');
@@ -4382,28 +4365,10 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     await holdStartPromise;
   }
 
-  function showFarmRewardPopup(reward,cooldown){
-    const old=document.getElementById('farmRewardPopup'); if(old) old.remove();
-    const el=document.createElement('div');
-    el.id='farmRewardPopup'; el.className='farm-reward-popup';
-    el.innerHTML=`<div class="farm-reward-popup-card">
-      <div class="farm-reward-popup-kicker">R-FARM · НАГРАДА ЗАЧИСЛЕНА</div>
-      <div class="farm-reward-popup-amount">+${Number(reward||0).toLocaleString('ru-RU')} ₽</div>
-      <div class="farm-reward-popup-sub">Деньги уже на главном балансе</div>
-      <div class="farm-reward-popup-cd">КД · ${formatClock(cooldown)} · следующий сбор в 12:00 МСК</div>
-    </div>`;
-    document.body.appendChild(el);
-    requestAnimationFrame(()=>el.classList.add('show'));
-    setTimeout(()=>{el.classList.remove('show');setTimeout(()=>el.remove(),260);},3200);
-  }
-
   async function completeStandaloneFarm(){
     if(farmCompleting || farmCompleted || !holdState?.session_id) return;
     farmCompleting = true;
     const sessionId = holdState.session_id;
-    const farmStatusEl=$('#farmStatus');
-    if(farmStatusEl) farmStatusEl.textContent='30 секунд завершены · зачисляем награду…';
-    $('#farmPanel')?.classList.add('farm-payout-pending');
     try{
       const resp = await apiFetch(`${API_BASE}/hold/complete/${encodeURIComponent(userId)}`, {
         method:'POST',
@@ -4417,6 +4382,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       }
 
       farmCompleted = true;
+      farmCompleteRetryCount = 0;
       const reward = Number(payload.reward || farmTargetReward || 0);
       const now = farmNow();
       const serverCooldown = farmDurationSeconds(payload.cooldown_remaining ?? payload.cooldown ?? 0);
@@ -4456,7 +4422,6 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 
       holdPointerActive = false;
       holdReleaseQueued = false;
-      $('#farmPanel')?.classList.remove('farm-payout-pending');
       holdPointerId = null;
       stopFarmAnimation();
       $('#farmRing')?.classList.remove('holding');
@@ -4468,14 +4433,30 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       try{ window.dispatchEvent(new Event('resell:hold-complete')); }catch(_){}
       for(let i=0;i<8;i) spawnFarmSpark();
       showToast(`💰 +${number(reward)} ₽ зачислено на баланс`);
-      showFarmRewardPopup(reward,cooldown);
       haptic('heavy');
       // Do not re-bootstrap the whole profile exactly at the completion edge.
       // The server already returned the authoritative balance above; reloading here
       // can make Telegram WebView visibly re-initialize the page.
-      holdJustCompletedUntil = Date.now() + 1200;
+      holdJustCompletedUntil = Date.now() + 2500;
+      try{ refreshHoldStatusWithRetry().catch(()=>{}); }catch(_){}
     }catch(err){
       farmCompleted = false;
+      // iOS/Telegram can hit the completion endpoint a few hundred ms before
+      // the backend's clock crosses the exact 30s boundary. Do not make the
+      // player press R again: retry the same session a few times, then fall
+      // back to the normal status recovery below. The backend remains the only
+      // authority that can credit the reward.
+      const elapsedMs = farmSessionElapsedMs();
+      if(holdState?.session_id && elapsedMs >= FARM_DURATION*1000 && farmCompleteRetryCount < 4){
+        farmCompleteRetryCount += 1;
+        const retryNo = farmCompleteRetryCount;
+        $('#farmStatus').textContent = retryNo < 4 ? 'ЗАЧИСЛЕНИЕ…' : 'ПРОВЕРКА НАГРАДЫ…';
+        setTimeout(()=>{
+          if(holdState?.session_id && !farmCompleted && !farmCompleting){
+            completeStandaloneFarm();
+          }
+        }, 350 * retryNo);
+      }
       // Never leave a stale session locked in the UI after a network/WebView hiccup.
       try{
         await refreshHoldStatusWithRetry();
@@ -4498,7 +4479,6 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       $('#farmStatus').textContent = err.message || 'Награда не зачислена';
       showToast(err.message || 'Награда не зачислена');
     }finally{
-      $('#farmPanel')?.classList.remove('farm-payout-pending');
       farmCompleting = false;
     }
   }
@@ -4572,7 +4552,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     // Short taps are ignored. The server session is started only after a
     // deliberate hold has lasted long enough to prove the user really intends
     // to start R-HOLD. This prevents accidental taps from activating a cooldown.
-    const ARM_DELAY = 450;
+    const ARM_DELAY = 300;
     let activeInput = false;
     let activePointerId = null;
     let armTimer = null;
@@ -4709,7 +4689,6 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       try{
         await refreshHoldStatusWithRetry();
         bindFarmButton();
-        try{ await loadRholdSkinV19(); }catch(_){ }
 
         if(holdState?.session_id){
           await recoverStaleSession();
@@ -6671,7 +6650,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   function decorateTrigger(){const b=document.getElementById('rholdCustomizeBtn');const c=document.getElementById('rholdCustomizeControl');if(!b||!c)return;c.classList.add('r28-customize-control');b.textContent='ОТКРЫТЬ СТИЛЬ';b.disabled=false;b.style.pointerEvents='auto';}
   // V28 trigger interception disabled: V33 is the single customization entry point.
   document.addEventListener('click',e=>{const b=e.target?.closest?.('#profileBtn');if(!b)return;e.preventDefault();e.stopImmediatePropagation();renderOwnProfile();},true);
-  function decorateAll(){decorateTrigger();} decorateAll(); setInterval(()=>{if(document.visibilityState==='visible')decorateAll();},1200);
+  function decorateAll(){decorateTrigger();} setTimeout(decorateAll,250);setInterval(()=>{if(document.visibilityState==='visible')decorateAll();},2500);
 
   // Public profile modal using the same authoritative profile payload.
   async function renderOwnProfile(){
@@ -6890,7 +6869,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     const d=await r.json().catch(()=>({}));
     if(!r.ok||!d.success)throw new Error(d.error||'Не удалось загрузить кастомизацию');
     const skins=(Array.isArray(d.skins)?d.skins:[]).map(normalizeSkin).filter(x=>!x.legacy);
-    // Keep every server item. Expected current catalog: 14 R-HOLD + 3 nick + 3 avatar + 3 prefix = 23.
+    // Keep every server item. Expected current catalog: 14 R-HOLD + 3 nick + 3 avatar + 4 prefix = 24.
     custCache={...d,skins};
     const prof=c.getProfile?.();
     if(prof){
@@ -6924,7 +6903,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     const o=ensureCust(),b=o.querySelector('#v33CustBody');
     if(!custCache){b.innerHTML='<div class="r26-note">Загрузка каталога…</div>';return;}
     const skins=(custCache.skins||[]).map(normalizeSkin).filter(x=>!x.legacy);
-    const V72_RHOLD_VISIBLE=['v28_base_signal','era2_core','v28_4_prism','v28_4_cyan','v28_4_amber','v28_45_neon','v28_45_ultra','v28_45_magenta','v28_5_gold','v28_5_ruby','v28_5_aurora','v28_l_chrome','v28_l_emerald','v28_l_nebula'];
+    const V72_RHOLD_VISIBLE=['v28_base_signal','era2_core','v28_4_prism','v28_4_cyan','v28_4_amber','v28_45_neon'];
     const visibleSkins=skins.filter(x=>cat(x.kind,x.slot,x.id)!=='rhold'||V72_RHOLD_VISIBLE.includes(x.id));
     const counts={rhold:0,nick:0,avatar:0,badge:0};visibleSkins.forEach(x=>counts[cat(x.kind,x.slot,x.id)]++);
     const tabs=[['rhold','R-HOLD'],['nick','НИК'],['avatar','АВАТАР'],['badge','ПРЕФИКС']];
@@ -6932,7 +6911,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     const sales=Number(custCache.total_sales||0),era=Number(custCache.unlocked_era||1),ownedCount=visibleSkins.filter(x=>x.owned).length;
     const metaTitle={rhold:'СТИЛИ R-HOLD',nick:'СТИЛИ НИКА',avatar:'РАМКИ АВАТАРА',badge:'ПРЕФИКСЫ ПРОФИЛЯ'}[custTab];
     const desc={
-      rhold:'Коллекция R-HOLD. Прогрессивные стили открываются по продажам, а эксклюзивные стили можно взять за 25 ⭐.',
+      rhold:'6 стилей R-HOLD. Каждый следующий стиль открывается по прогрессу продаж и усиливает награду.',
       nick:'Подсветка настоящего никнейма. Выбранный стиль виден в профиле, друзьях и лидерборде.',
       avatar:'Рамка аватара профиля. Она применяется к твоему R и видна другим игрокам.',
       badge:'Публичный префикс рядом с никнеймом. Он виден в профиле, друзьях и лидерборде.'
@@ -8072,47 +8051,6 @@ html[lang="en"] #resellHomeMoney #mainAssetsSection .main-tycoon-tag{display:inl
   .friend-avatar[data-resell-avatar-style="avatar_star_orbit"]{animation:none!important}
 }
 </style>
-
-<style id="resell-rfarm-v3-payout-popup">
-.farm-reward-popup{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 18px);z-index:10050;width:min(92vw,390px);pointer-events:none;opacity:0;transform:translate(-50%,-18px) scale(.97);transition:opacity .22s ease,transform .28s cubic-bezier(.2,.8,.2,1)}
-.farm-reward-popup.show{opacity:1;transform:translate(-50%,0) scale(1)}
-.farm-reward-popup-card{padding:17px 18px 16px;border-radius:20px;background:linear-gradient(145deg,#171c17,#080a09 78%);border:1px solid rgba(183,255,106,.28);box-shadow:0 20px 60px rgba(0,0,0,.52),0 0 32px rgba(183,255,106,.10);text-align:left}
-.farm-reward-popup-kicker{color:#748074;font:950 6px/1 "Montserrat";letter-spacing:1.4px}
-.farm-reward-popup-amount{margin-top:7px;color:#b7ff6a;font:950 27px/1 "Montserrat";letter-spacing:-.5px;text-shadow:0 0 18px rgba(183,255,106,.25)}
-.farm-reward-popup-sub{margin-top:6px;color:#e8eee8;font:900 8px/1.2 "Nunito"}
-.farm-reward-popup-cd{margin-top:11px;padding-top:10px;border-top:1px solid rgba(255,255,255,.07);color:#707a72;font:850 6.5px/1.25 "Nunito"}
-#farmPanel.farm-payout-pending .farm-ring{animation:payoutPulse .7s ease-in-out infinite alternate}
-@keyframes payoutPulse{from{filter:brightness(1)}to{filter:brightness(1.14)}}
-</style>
-
-<style id="resell-rhold-final-trigger-v5">
-#rholdCustomizeControl,#rholdCustomizeControl *{pointer-events:auto!important}
-#rholdCustomizeBtn{cursor:pointer!important;touch-action:manipulation!important}
-</style>
-<script id="resell-rhold-final-trigger-v5">
-(function(){
-  function open(){
-    try{
-      const fn=window.__resellOpenCustomizationV33||window.__resellOpenCustomizationV28||window.__resellOpenCustomizationV26;
-      if(typeof fn==='function'){Promise.resolve(fn()).catch(e=>window.__resellCoreV26?.showToast?.(e?.message||'Не удалось открыть стиль'));return true;}
-    }catch(e){window.__resellCoreV26?.showToast?.(e?.message||'Не удалось открыть стиль');}
-    return false;
-  }
-  function bind(){
-    const b=document.getElementById('rholdCustomizeBtn');
-    if(!b||b.dataset.rholdFinalV5)return;
-    b.dataset.rholdFinalV5='1';b.type='button';b.disabled=false;b.removeAttribute('disabled');
-    const go=e=>{e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();open();return false;};
-    b.addEventListener('click',go,true);
-    b.addEventListener('pointerup',go,true);
-    b.addEventListener('touchend',go,{capture:true,passive:false});
-    b.onclick=go;
-  }
-  bind();
-  const mo=new MutationObserver(bind);mo.observe(document.documentElement,{subtree:true,childList:true});
-  setInterval(bind,1000);
-})();
-</script>
 </body>
 
 <!-- RESSELL FINAL BUGFIX V4: friends / R-HOLD / horizontal swipe -->
