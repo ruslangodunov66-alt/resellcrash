@@ -4107,20 +4107,12 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     const f = $('#farmProgressFill');
     const p = $('#farmPanel');
     if(!t || !f) return;
-    const cooldownActive=!holdState?.ready && !holdState?.session_id && Number(holdState?.cooldown_remaining || 0)>0;
-    const remNum=Math.max(0,Number(remaining)||0);
-    if(cooldownActive){
-      t.textContent=`КД ${formatClock(remNum)}`;
-      f.style.width='100%';
-      p?.classList.add('cooldown');
-      return;
-    }
     const d = FARM_DURATION;
-    const rem = Math.max(0, Math.min(d, remNum));
+    const rem = Math.max(0, Math.min(d, Number(remaining) || 0));
     const pr = Math.min(100, Math.max(0, ((d - rem) / d) * 100));
-    t.textContent = formatClock(rem);
+    if(t) t.textContent = formatClock(rem);
     f.style.width = `${pr}%`;
-    p?.classList.remove('cooldown');
+    p?.classList.toggle('cooldown', !holdState?.ready && !holdState?.session_id && Number(holdState?.cooldown_remaining || 0) > 0);
   }
 
   function renderFarmReward(progress,earned){
@@ -4133,7 +4125,6 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   let farmRafId = null;
   let holdJustCompletedUntil = 0;
   let farmStatusPollId = null;
-  let farmAutoCompleteTimer = null;
   let farmVisualReward = 0;
   let farmVisualProgress = 0;
   let farmServerProgress = 0;
@@ -4142,22 +4133,17 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 
   function stopFarmAnimation(){
     if(holdTimer){ clearTimeout(holdTimer); holdTimer=null; }
-    if(farmAutoCompleteTimer){ clearTimeout(farmAutoCompleteTimer); farmAutoCompleteTimer=null; }
     if(farmRafId){ cancelAnimationFrame(farmRafId); farmRafId=null; }
     if(farmStatusPollId){ clearInterval(farmStatusPollId); farmStatusPollId=null; }
   }
 
   async function syncActiveFarmSnapshot(){
-    if(!holdState?.session_id || farmCompleting) return;
+    if(!holdState?.session_id || !holdPointerActive || farmCompleting) return;
     try{
       const d=await fetchHoldStatus({silent:true});
       if(!d?.session_id){ stopFarmAnimation(); return; }
       const targetProgress=Math.max(0,Math.min(1,Number(d.progress)||0));
       const targetReward=Math.max(0,Number(d.current_reward)||0);
-      if(Number(d.target_reward)>0){
-        farmTargetReward=Number(d.target_reward);
-        holdState.target_reward=Number(d.target_reward);
-      }
       // Server snapshots are authoritative. Keep them monotonic so network
       // jitter can never make the progress bar move backwards.
       farmServerProgress=Math.max(farmServerProgress,targetProgress);
@@ -4165,14 +4151,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       farmSnapshotProgress=farmServerProgress;
       farmSnapshotReward=farmServerReward;
       farmServerSyncAt=performance.now();
-
-      // The server is authoritative, but the UI must not depend on a 1s poll
-      // or on pointerup. If the server says the hidden stop moment is reached,
-      // complete immediately. This also survives iOS/Telegram WebView event
-      // timing quirks while keeping the actual payout protected by the backend.
-      if(d.auto_complete || targetProgress>=0.999 || Number(d.active_remaining||0)<=0){
-        await completeStandaloneFarm();
-      }
+      if(d.auto_complete || targetProgress>=0.999) await completeStandaloneFarm();
     }catch(_){ }
   }
 
@@ -4184,44 +4163,29 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     farmVisualReward=0; farmVisualProgress=0;
     farmSnapshotReward=0; farmSnapshotProgress=0;
     farmServerProgress=0; farmServerReward=0; farmServerSyncAt=performance.now();
-
-    const started=farmEpochSeconds(holdState?.started_at || 0);
-    const targetReward=Math.max(FARM_MIN_REWARD, Number(holdState?.target_reward || farmTargetReward || 30000));
-
-    // Do not wait for a poll or pointerup to finish the farm. Wake the
-    // completion request just after the server start + 30 seconds. The
-    // backend still checks the real elapsed time before paying anything.
-    if(started){
-      const delay=Math.max(0,((started+FARM_DURATION)-Date.now()/1000)*1000+80);
-      farmAutoCompleteTimer=setTimeout(()=>{
-        farmAutoCompleteTimer=null;
-        if(holdState?.session_id && !farmCompleting && !farmCompleted){
-          completeStandaloneFarm();
-        }
-      },delay);
-    }
-
     const tick=()=>{
-      if(!holdState?.session_id || farmCompleted){ farmRafId=null; return; }
+      if(!holdPointerActive || !holdState?.session_id || farmCompleting || farmCompleted){ farmRafId=null; return; }
 
-      // The counter and progress are driven by the exact local wall-clock
-      // elapsed time. This removes the old 750ms/1s step effect completely.
-      // The amount is visual only; /hold/complete is still authoritative.
-      const elapsed=started ? Math.max(0,Date.now()/1000-started) : 0;
-      farmVisualProgress=Math.max(0,Math.min(1,elapsed/FARM_DURATION));
-      const visualReward=Math.min(targetReward,Math.floor(targetReward*farmVisualProgress));
-      farmVisualReward=Math.max(farmVisualReward,visualReward);
-      updateFarmVisuals(Math.max(0,FARM_DURATION-elapsed));
+      // Predict smoothly between server snapshots using the last known
+      // server progress. This removes the old "stair-step / wobble" effect.
+      // The server still decides whether the final reward is valid.
+      const sinceSync=Math.max(0,(performance.now()-farmServerSyncAt)/1000);
+      const predictedProgress=Math.min(1, farmServerProgress + sinceSync/FARM_DURATION);
+      farmVisualProgress=Math.max(farmVisualProgress,predictedProgress,farmSnapshotProgress);
+
+      // Reward is displayed smoothly but never exceeds the last server value.
+      farmVisualReward=Math.max(farmVisualReward,farmSnapshotReward);
+      updateFarmVisuals(FARM_DURATION*(1-farmVisualProgress));
       renderFarmReward(farmVisualProgress,farmVisualReward);
 
-      // Safety net if Telegram throttles the timeout. At the visual end,
-      // immediately ask the backend to finalize the already-finished session.
-      if(farmVisualProgress>=1 && !farmCompleting && !farmCompleted){
-        completeStandaloneFarm();
+      // Do not depend on pointerup or on a perfectly timed 1s poll.
+      // Once the server reports completion, completeStandaloneFarm() is called
+      // by syncActiveFarmSnapshot; this visual edge only keeps the UI responsive.
+      if(farmVisualProgress>=0.999 && !farmCompleting && !farmCompleted){
+        syncActiveFarmSnapshot().catch(()=>{});
       }
       farmRafId=requestAnimationFrame(tick);
     };
-
     farmStatusPollId=setInterval(syncActiveFarmSnapshot,1000);
     syncActiveFarmSnapshot();
     farmRafId=requestAnimationFrame(tick);
@@ -4332,9 +4296,6 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
           FARM_MIN_REWARD,
           Math.min(FARM_MAX_REWARD, Number(payload.target_reward || payload.base_reward || 30000))
         );
-        // Keep the exact server-selected payout so the visible counter can
-        // climb continuously from 0 to the real final amount. The backend
-        // remains the only authority that actually credits the balance.
 
         if(holdReleaseQueued || !holdPointerActive){
           // The pointer can be released while /hold/start is still in flight.
@@ -4371,28 +4332,10 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     await holdStartPromise;
   }
 
-  function showFarmRewardPopup(reward,cooldown){
-    const old=document.getElementById('farmRewardPopup'); if(old) old.remove();
-    const el=document.createElement('div');
-    el.id='farmRewardPopup'; el.className='farm-reward-popup';
-    el.innerHTML=`<div class="farm-reward-popup-card">
-      <div class="farm-reward-popup-kicker">R-FARM · НАГРАДА ЗАЧИСЛЕНА</div>
-      <div class="farm-reward-popup-amount">+${Number(reward||0).toLocaleString('ru-RU')} ₽</div>
-      <div class="farm-reward-popup-sub">Деньги уже на главном балансе</div>
-      <div class="farm-reward-popup-cd">КД · ${formatClock(cooldown)} · следующий сбор в 12:00 МСК</div>
-    </div>`;
-    document.body.appendChild(el);
-    requestAnimationFrame(()=>el.classList.add('show'));
-    setTimeout(()=>{el.classList.remove('show');setTimeout(()=>el.remove(),260);},3200);
-  }
-
   async function completeStandaloneFarm(){
     if(farmCompleting || farmCompleted || !holdState?.session_id) return;
     farmCompleting = true;
     const sessionId = holdState.session_id;
-    const farmStatusEl=$('#farmStatus');
-    if(farmStatusEl) farmStatusEl.textContent='30 секунд завершены · зачисляем награду…';
-    $('#farmPanel')?.classList.add('farm-payout-pending');
     try{
       const resp = await apiFetch(`${API_BASE}/hold/complete/${encodeURIComponent(userId)}`, {
         method:'POST',
@@ -4425,9 +4368,6 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       profileData = profileData || {};
       profileData.balance = balance;
       setBalance(balance);
-      stopFarmAnimation();
-      farmVisualReward = Math.max(farmVisualReward, reward);
-      renderFarmReward(1, reward);
 
       farmWriteLocalNumber(FARM_LOCAL_LAST_COMPLETED_KEY, now);
       farmWriteLocalNumber(FARM_LOCAL_COOLDOWN_KEY, cooldownUntil);
@@ -4445,7 +4385,6 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 
       holdPointerActive = false;
       holdReleaseQueued = false;
-      $('#farmPanel')?.classList.remove('farm-payout-pending');
       holdPointerId = null;
       stopFarmAnimation();
       $('#farmRing')?.classList.remove('holding');
@@ -4456,13 +4395,13 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       $('#farmClaimCount').textContent = `Собрано: ${holdState.claims}`;
       try{ window.dispatchEvent(new Event('resell:hold-complete')); }catch(_){}
       for(let i=0;i<8;i) spawnFarmSpark();
-      showToast(`💰 +${number(reward)} ₽ зачислено на баланс`);
-      showFarmRewardPopup(reward,cooldown);
+      showToast(`+${number(reward)} ₽ зачислено`);
       haptic('heavy');
       // Do not re-bootstrap the whole profile exactly at the completion edge.
       // The server already returned the authoritative balance above; reloading here
       // can make Telegram WebView visibly re-initialize the page.
-      holdJustCompletedUntil = Date.now() + 1200;
+      holdJustCompletedUntil = Date.now() + 2500;
+      try{ refreshHoldStatusWithRetry().catch(()=>{}); }catch(_){}
     }catch(err){
       farmCompleted = false;
       // Never leave a stale session locked in the UI after a network/WebView hiccup.
@@ -4487,7 +4426,6 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       $('#farmStatus').textContent = err.message || 'Награда не зачислена';
       showToast(err.message || 'Награда не зачислена');
     }finally{
-      $('#farmPanel')?.classList.remove('farm-payout-pending');
       farmCompleting = false;
     }
   }
@@ -6659,7 +6597,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   function decorateTrigger(){const b=document.getElementById('rholdCustomizeBtn');const c=document.getElementById('rholdCustomizeControl');if(!b||!c)return;c.classList.add('r28-customize-control');b.textContent='ОТКРЫТЬ СТИЛЬ';b.disabled=false;b.style.pointerEvents='auto';}
   // V28 trigger interception disabled: V33 is the single customization entry point.
   document.addEventListener('click',e=>{const b=e.target?.closest?.('#profileBtn');if(!b)return;e.preventDefault();e.stopImmediatePropagation();renderOwnProfile();},true);
-  function decorateAll(){decorateTrigger();} decorateAll(); setInterval(()=>{if(document.visibilityState==='visible')decorateAll();},1200);
+  function decorateAll(){decorateTrigger();} setTimeout(decorateAll,250);setInterval(()=>{if(document.visibilityState==='visible')decorateAll();},2500);
 
   // Public profile modal using the same authoritative profile payload.
   async function renderOwnProfile(){
@@ -8059,18 +7997,6 @@ html[lang="en"] #resellHomeMoney #mainAssetsSection .main-tycoon-tag{display:inl
   .friend-profile-avatar[data-resell-avatar-style="avatar_star_orbit"],
   .friend-avatar[data-resell-avatar-style="avatar_star_orbit"]{animation:none!important}
 }
-</style>
-
-<style id="resell-rfarm-v3-payout-popup">
-.farm-reward-popup{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 18px);z-index:10050;width:min(92vw,390px);pointer-events:none;opacity:0;transform:translate(-50%,-18px) scale(.97);transition:opacity .22s ease,transform .28s cubic-bezier(.2,.8,.2,1)}
-.farm-reward-popup.show{opacity:1;transform:translate(-50%,0) scale(1)}
-.farm-reward-popup-card{padding:17px 18px 16px;border-radius:20px;background:linear-gradient(145deg,#171c17,#080a09 78%);border:1px solid rgba(183,255,106,.28);box-shadow:0 20px 60px rgba(0,0,0,.52),0 0 32px rgba(183,255,106,.10);text-align:left}
-.farm-reward-popup-kicker{color:#748074;font:950 6px/1 "Montserrat";letter-spacing:1.4px}
-.farm-reward-popup-amount{margin-top:7px;color:#b7ff6a;font:950 27px/1 "Montserrat";letter-spacing:-.5px;text-shadow:0 0 18px rgba(183,255,106,.25)}
-.farm-reward-popup-sub{margin-top:6px;color:#e8eee8;font:900 8px/1.2 "Nunito"}
-.farm-reward-popup-cd{margin-top:11px;padding-top:10px;border-top:1px solid rgba(255,255,255,.07);color:#707a72;font:850 6.5px/1.25 "Nunito"}
-#farmPanel.farm-payout-pending .farm-ring{animation:payoutPulse .7s ease-in-out infinite alternate}
-@keyframes payoutPulse{from{filter:brightness(1)}to{filter:brightness(1.14)}}
 </style>
 </body>
 
