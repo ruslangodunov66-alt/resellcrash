@@ -4678,6 +4678,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 
   async function initFarm(){
     restoreRholdSkinLocalV19();
+    watchRholdPanelV20();
     if(Date.now() < holdJustCompletedUntil) return;
     if(farmInitPromise) return farmInitPromise;
     farmInitPromise = (async()=>{
@@ -5320,8 +5321,17 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       try{
         const p=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/publish`,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({item_uid:conf.dataset.itemUid,description})});
         showToast(p.message||'Объявление опубликовано');
+        // Do not immediately re-fetch the whole Avito screen here. The publish
+        // response now contains the newly created chat, so a second GET cannot
+        // race Telegram auth and turn a successful sale listing into Load failed.
+        if(p.chat){
+          avitoState=avitoState||{};
+          const oldChats=Array.isArray(avitoState.chats)?avitoState.chats:[];
+          avitoState.chats=[p.chat,...oldChats.filter(x=>String(x.chat_key)!==String(p.chat.chat_key))];
+          avitoState.unread_count=Number(avitoState.unread_count||0)+1;
+        }
         avitoEditing=false; avitoTab='chats';
-        await fetchAvito(); modalBody.innerHTML=renderAvito();
+        modalBody.innerHTML=renderAvito();
       }catch(err){ showToast(err.message||'Не удалось опубликовать товар'); conf.disabled=false; }
       return;
     }
@@ -6386,19 +6396,48 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     }catch(err){modalBody.innerHTML=`<div class="friend-empty">${esc(err.message||'Не удалось загрузить магазин')}</div>`;}
   }
   function applyRholdSkinById(id,list){
-    const x=(list||[]).find(v=>v.id===id);if(!x)return;
-    const panel=document.querySelector('#farmPanel')||document.querySelector('.farm-panel');if(!panel)return;
-    panel.style.setProperty('--rhold-bg',x.bg);panel.style.setProperty('--rhold-border',x.border);panel.style.setProperty('--rhold-accent',x.accent);panel.style.setProperty('--rhold-glow',x.glow);panel.dataset.rholdSkin=id;
-    // Keep the last confirmed appearance locally so a fresh Telegram WebView
-    // never flashes the BASE SIGNAL skin while the server state is loading.
-    try{localStorage.setItem('resell_rhold_skin_v19',JSON.stringify({id:String(id),bg:String(x.bg||''),border:String(x.border||''),accent:String(x.accent||''),glow:String(x.glow||'')}));}catch(_){ }
+    const x=(list||[]).find(v=>String(v.id)===String(id));if(!x)return;
+    // Persist first, even if the farm panel has not been mounted yet. On a
+    // Telegram WebView the initialization order can briefly be: auth -> skin
+    // request -> farm DOM. The old code returned early and lost the style.
+    const data={id:String(id),bg:String(x.bg||''),border:String(x.border||''),accent:String(x.accent||''),glow:String(x.glow||'')};
+    try{localStorage.setItem('resell_rhold_skin_v20',JSON.stringify(data));localStorage.setItem('resell_rhold_skin_v19',JSON.stringify(data));}catch(_){ }
+    applyRholdSkinVarsV20(data);
+  }
+  function applyRholdSkinVarsV20(x){
+    if(!x||!x.id)return;
+    const cssId='resell-rhold-skin-v20';
+    let tag=document.getElementById(cssId);
+    if(!tag){tag=document.createElement('style');tag.id=cssId;(document.head||document.documentElement).appendChild(tag);}
+    const escCss=(v)=>String(v||'').replace(/</g,'');
+    tag.textContent=`#farmPanel.farm-panel{--rhold-bg:${escCss(x.bg)} !important;--rhold-border:${escCss(x.border)} !important;--rhold-accent:${escCss(x.accent)} !important;--rhold-glow:${escCss(x.glow)} !important;}`;
+    const panel=document.querySelector('#farmPanel')||document.querySelector('.farm-panel');
+    if(panel){
+      panel.style.setProperty('--rhold-bg',x.bg,'important');
+      panel.style.setProperty('--rhold-border',x.border,'important');
+      panel.style.setProperty('--rhold-accent',x.accent,'important');
+      panel.style.setProperty('--rhold-glow',x.glow,'important');
+      panel.dataset.rholdSkin=String(x.id);
+    }
   }
   function restoreRholdSkinLocalV19(){
     try{
-      const raw=localStorage.getItem('resell_rhold_skin_v19');if(!raw)return;
+      const raw=localStorage.getItem('resell_rhold_skin_v20')||localStorage.getItem('resell_rhold_skin_v19');
+      if(!raw)return;
       const x=JSON.parse(raw||'{}');if(!x?.id)return;
-      const panel=document.querySelector('#farmPanel')||document.querySelector('.farm-panel');if(!panel)return;
-      if(x.bg)panel.style.setProperty('--rhold-bg',x.bg);if(x.border)panel.style.setProperty('--rhold-border',x.border);if(x.accent)panel.style.setProperty('--rhold-accent',x.accent);if(x.glow)panel.style.setProperty('--rhold-glow',x.glow);panel.dataset.rholdSkin=x.id;
+      applyRholdSkinVarsV20(x);
+    }catch(_){ }
+  }
+  function watchRholdPanelV20(){
+    try{
+      const root=document.documentElement;
+      if(window.__rholdSkinObserverV20)return;
+      window.__rholdSkinObserverV20=new MutationObserver(()=>{
+        const raw=localStorage.getItem('resell_rhold_skin_v20')||localStorage.getItem('resell_rhold_skin_v19');
+        if(!raw)return;
+        try{applyRholdSkinVarsV20(JSON.parse(raw));}catch(_){}
+      });
+      window.__rholdSkinObserverV20.observe(root,{childList:true,subtree:true});
     }catch(_){ }
   }
   async function loadRholdSkinV19(){if(!userId)return;try{const r=await apiFetch(`${API_BASE}/hold/skins/${encodeURIComponent(userId)}?t=${Date.now()}`,{method:'GET'},2);const d=await r.json();if(r.ok&&d.success)applyRholdSkinById(d.equipped,d.skins||[]);}catch(_){} }
