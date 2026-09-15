@@ -4195,9 +4195,9 @@ main.app,.resell-home,.resell-home-panel{overflow-x:hidden!important;}
       // or on pointerup. If the server says the hidden stop moment is reached,
       // complete immediately. This also survives iOS/Telegram WebView event
       // timing quirks while keeping the actual payout protected by the backend.
-      if(d.auto_complete || targetProgress>=0.999 || Number(d.active_remaining||0)<=0){
-        await completeStandaloneFarm();
-      }
+      // Never auto-complete from a background/status snapshot. A payout is only
+      // possible while the current pointer is continuously held down.
+      if(!holdPointerActive) return;
     }catch(_){ }
   }
 
@@ -4214,12 +4214,12 @@ main.app,.resell-home,.resell-home-panel{overflow-x:hidden!important;}
     const targetReward=Math.max(FARM_MIN_REWARD, Number(holdState?.target_reward || farmTargetReward || 30000));
     if(!started) return;
 
-    // R-Farm is intentionally simple: one server-selected reward, one local
-    // countdown, one completion request. No requestAnimationFrame and no
-    // per-second status polling while the player is holding R.
+    // The reward may only finish while the finger is STILL on the button.
+    // Releasing the button always invalidates the current attempt locally;
+    // a stale timer can never complete it afterwards.
     const finishAt=(started+FARM_DURATION)*1000;
     const paint=()=>{
-      if(!holdState?.session_id || farmCompleting || farmCompleted) return;
+      if(!holdState?.session_id || !holdPointerActive || farmCompleting || farmCompleted) return;
       const now=Date.now();
       const progress=Math.max(0,Math.min(1,(now-(started*1000))/(FARM_DURATION*1000)));
       farmVisualProgress=progress;
@@ -4233,9 +4233,10 @@ main.app,.resell-home,.resell-home-panel{overflow-x:hidden!important;}
     const delay=Math.max(0,finishAt-Date.now()+80);
     farmAutoCompleteTimer=setTimeout(()=>{
       farmAutoCompleteTimer=null;
-      if(holdState?.session_id && !farmCompleting && !farmCompleted){
+      // IMPORTANT: no finger = no completion. The attempt is simply cancelled.
+      if(holdState?.session_id && holdPointerActive && !farmCompleting && !farmCompleted){
         paint();
-        completeStandaloneFarm();
+        if(farmSessionElapsedMs()>=FARM_DURATION*1000) completeStandaloneFarm();
       }
     },delay);
   }
@@ -4386,7 +4387,7 @@ main.app,.resell-home,.resell-home-panel{overflow-x:hidden!important;}
   }
 
   async function completeStandaloneFarm(){
-    if(farmCompleting || farmCompleted || !holdState?.session_id) return;
+    if(farmCompleting || farmCompleted || !holdState?.session_id || !holdPointerActive) return;
     farmCompleting=true;
     const sessionId=holdState.session_id;
     try{
@@ -4500,8 +4501,8 @@ main.app,.resell-home,.resell-home-panel{overflow-x:hidden!important;}
 
   function bindFarmButton(){
     const stage=document.querySelector('#farmSection .farm-stage');
-    if(!stage || stage.dataset.bound==='v5') return;
-    stage.dataset.bound='v5';
+    if(!stage || stage.dataset.bound==='v6') return;
+    stage.dataset.bound='v6';
     stage.style.touchAction='none';
     stage.style.userSelect='none'; stage.style.webkitUserSelect='none';
 
@@ -4511,48 +4512,74 @@ main.app,.resell-home,.resell-home-panel{overflow-x:hidden!important;}
       stage.classList.remove('farm-active');
       $('#farmRing')?.classList.remove('holding');
     };
-    const reset=()=>{active=false;pointerId=null;holdPointerId=null;clearVisual();};
+    const resetAttemptVisual=()=>{
+      stopFarmAnimation();
+      farmVisualReward=0; farmVisualProgress=0;
+      farmSnapshotReward=0; farmSnapshotProgress=0;
+      updateFarmVisuals(FARM_DURATION);
+      renderFarmReward(0,0);
+      $('#farmTotal').textContent='10–100k ₽';
+      $('#farmStatus').textContent='Отпустил раньше времени. Награда не засчитана.';
+    };
 
     const down=async e=>{
       if(Date.now()<holdJustCompletedUntil || farmCompleting) return;
       if(e.pointerType==='mouse' && e.button!==0) return;
       if(active) return;
       active=true; pointerId=e.pointerId; pressAt=Date.now(); holdPointerId=pointerId;
+      holdPointerActive=true;
+      holdReleaseQueued=false;
       try{e.preventDefault()}catch(_){ }
       try{stage.setPointerCapture?.(pointerId)}catch(_){ }
       stage.classList.add('farm-active'); $('#farmRing')?.classList.add('holding');
       haptic('light');
-      // Start immediately after a tiny debounce, so re-pressing feels instant.
       startPromiseLocal=new Promise(resolve=>setTimeout(resolve,ARM_DELAY)).then(()=>{
-        if(!active || farmCompleting) return;
+        if(!active || !holdPointerActive || farmCompleting) return;
         return startStandaloneFarm();
       }).catch(()=>{});
     };
-    const up=async e=>{
+
+    const release=async e=>{
       if(!active || (e.pointerId!=null && pointerId!=null && e.pointerId!==pointerId)) return;
       const held=Date.now()-pressAt;
       active=false; pointerId=null; holdPointerId=null;
+      // The finger is OFF the button: immediately kill the attempt.
+      // Completion is allowed only when release happens after the full 30 sec.
+      const completedReady=Boolean(holdState?.session_id && held>=FARM_DURATION*1000);
+      holdPointerActive=false;
       clearVisual();
-      // Do not make the user wait for a network cancellation. If a start request is still
-      // pending, the existing queued-release logic safely cancels the new session.
       if(farmCompleted || farmCompleting) return;
-      if(holdState?.session_id && farmSessionElapsedMs()>=FARM_DURATION*1000){
-        completeStandaloneFarm();
-      }else if(held>=ARM_DELAY && (holdState?.session_id || holdStartPromise)){
-        cancelStandaloneFarm();
+      if(completedReady){
+        // Keep the active flag true only for the single completion request.
+        holdPointerActive=true;
+        await completeStandaloneFarm();
+        holdPointerActive=false;
+        return;
+      }
+      if(holdState?.session_id || holdStartPromise || startPromiseLocal){
+        holdReleaseQueued=true;
+        // Reset the UI immediately; cancellation is deliberately fire-and-forget
+        // so the next press never waits for the network.
+        resetAttemptVisual();
+        cancelStandaloneFarm().catch(()=>{});
       }else{
         holdReleaseQueued=false;
+        resetAttemptVisual();
       }
+      startPromiseLocal=null;
     };
+
     const cancel=e=>{
       if(!active) return;
-      active=false; pointerId=null; holdPointerId=null; clearVisual();
-      if(holdState?.session_id || holdStartPromise) cancelStandaloneFarm();
+      release(e).catch(()=>{});
     };
     stage.addEventListener('pointerdown',down,{passive:false});
-    stage.addEventListener('pointerup',up,{passive:false});
-    stage.addEventListener('pointercancel',cancel,{passive:true});
-    stage.addEventListener('lostpointercapture',()=>{}, {passive:true});
+    stage.addEventListener('pointerup',release,{passive:false});
+    stage.addEventListener('pointercancel',cancel,{passive:false});
+    stage.addEventListener('lostpointercapture',()=>{
+      // iOS/Telegram may lose capture without a normal pointerup.
+      if(active) release({pointerId}).catch(()=>{});
+    }, {passive:true});
     stage.addEventListener('contextmenu',e=>e.preventDefault());
   }
 
@@ -6409,7 +6436,7 @@ main.app,.resell-home,.resell-home-panel{overflow-x:hidden!important;}
     if(!cache){body.innerHTML='<div class="r26-note">Загрузка каталога…</div>';return;}
     const sales=Number(cache.total_sales||0);
     const tabs=['rhold','nick','avatar','badge'];
-    const allowed=['v28_base_signal','era2_core','v28_4_prism','v28_4_cyan','v28_4_amber','v28_45_neon']; const arr=(cache.skins||[]).filter(x=>allowed.includes(x.id) && (activeTab==='rhold' ? true : false));
+    const allowed=['v28_base_signal','era2_core','v28_4_prism','v28_4_cyan','v28_4_amber','prime_rhold_25']; const arr=(cache.skins||[]).filter(x=>allowed.includes(x.id) && (activeTab==='rhold' ? true : false));
     const cards=arr.map(item=>{
       const owned=Boolean(item.owned), equipped=Boolean(item.equipped), unlocked=Boolean(item.unlocked);
       let req=item.lock_reason||'';
@@ -6843,7 +6870,7 @@ main.app,.resell-home,.resell-home-panel{overflow-x:hidden!important;}
     if(!custCache){b.innerHTML='<div class="r26-note">Загрузка каталога…</div>';return;}
     const skins=(custCache.skins||[]).map(normalizeSkin).filter(x=>!x.legacy);
     const premiumByCat={
-      rhold:{id:'prime_rhold_25',title:'NEON SOVEREIGN',kicker:'R-HOLD · EXCLUSIVE',desc:'Новый флагманский R-HOLD с отдельной анимацией и ×2.25 награды.'},
+      rhold:{id:'prime_rhold_25',title:'NEON SOVEREIGN',kicker:'R-HOLD · EXCLUSIVE',desc:'Новый флагманский R-HOLD с отдельной анимацией и ×2.50 награды.'},
       nick:{id:'prime_nick_25',title:'NEON SOVEREIGN',kicker:'НИК · EXCLUSIVE',desc:'Сверхяркий неоновый ник с мягким живым свечением.'},
       avatar:{id:'prime_avatar_25',title:'SOVEREIGN FRAME',kicker:'АВАТАР · EXCLUSIVE',desc:'Премиальная анимированная рамка вокруг аватара.'},
       badge:{id:'prime_badge_25',title:'SOVEREIGN',kicker:'ПРЕФИКС · EXCLUSIVE',desc:'Новый статусный префикс для профиля и лидерборда.'}
