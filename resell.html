@@ -1778,6 +1778,17 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 @media(max-width:390px){#v33Cust .r33-cust-tabs .r28-tab{font-size:5.7px!important}#v33Cust .r33-cust-grid{gap:7px!important}#v33Cust .r28-card{padding:8px!important}}
 </style>
 <!-- RESSELL V74: RESELL RUN added to Game Center; Telegram auth unchanged. -->
+<style id="resell-premium-responsive-fix">
+.r33-cust-grid .r28-card{min-width:0;display:flex;flex-direction:column;height:100%;}
+.r33-cust-grid .r28-card-name{min-height:20px;overflow-wrap:anywhere;word-break:break-word;}
+.r33-cust-grid .r28-card-meta{min-height:36px;overflow-wrap:anywhere;word-break:break-word;}
+.r33-cust-grid .r28-card-btn{margin-top:auto;white-space:normal;min-height:42px;padding:7px 6px;line-height:1.15;}
+@media(min-width:391px){.r33-cust-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}.r33-cust-grid .r28-card{padding:9px}.r33-cust-grid .r28-preview{height:112px}.r33-cust-grid .r28-card-name{font-size:8.5px;line-height:1.15}.r33-cust-grid .r28-card-meta{font-size:7px;line-height:1.3;min-height:38px}.r33-cust-grid .r28-card-btn{font-size:6.7px;min-height:40px}}
+.v33-prime-single{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:11px;margin-top:12px;padding:10px;border-radius:20px;overflow:hidden;background:linear-gradient(145deg,rgba(138,255,234,.10),rgba(145,108,255,.06) 48%,rgba(255,255,255,.02));border:1px solid rgba(138,255,234,.34);box-shadow:0 14px 40px rgba(0,0,0,.28),0 0 34px rgba(138,255,234,.08);}
+.v33-prime-single::before{content:"";position:absolute;inset:-80%;background:conic-gradient(from 90deg,transparent 0 68%,rgba(138,255,234,.24) 74%,rgba(145,108,255,.20) 78%,transparent 84%);animation:primeOrbit 5.5s linear infinite;pointer-events:none;}
+.v33-prime-single>*{position:relative;z-index:1}.v33-prime-single .r28-preview{height:132px}.v33-prime-single-copy{display:flex;flex-direction:column;justify-content:center;min-width:0}.v33-prime-kicker{color:#8affea;font:950 6px/1 "Montserrat";letter-spacing:1.4px}.v33-prime-title{margin-top:6px;color:#f5fffc;font:950 12px/1.05 "Montserrat"}.v33-prime-desc{margin-top:6px;color:#87938e;font:800 8px/1.35 "Nunito"}.v33-prime-price{margin-top:9px;color:#8affea;font:950 10px/1 "Montserrat"}.v33-prime-buy{margin-top:8px;min-height:40px;border-radius:12px;background:linear-gradient(135deg,#eafff9,#8affea 45%,#b49aff);color:#06100e;border:1px solid rgba(255,255,255,.65);font:950 7px/1 "Montserrat";letter-spacing:.7px;box-shadow:0 0 24px rgba(138,255,234,.12)}.v33-prime-buy:disabled{opacity:.58}.v33-prime-buy.flash{animation:primeFlash .55s ease-in-out 2}@keyframes primeOrbit{to{transform:rotate(360deg)}}@keyframes primeFlash{50%{transform:scale(1.025);filter:brightness(1.3)}}
+@media(max-width:390px){.v33-prime-single{grid-template-columns:1fr}.v33-prime-single .r28-preview{height:118px}}
+</style>
 </head>
 <body class="resell-booting">
 <div aria-hidden="false" id="bootSplash">
@@ -2814,6 +2825,8 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     if(alloc) alloc.textContent=`Аллокация: 1 RCOIN / ${number(d.points_per_token||1000000)} TP`;
     const badge=$('#rcoinNetworkBadge');
     if(badge) badge.textContent=String(d.network||'testnet').toUpperCase();
+    const price=$('#rcoinPrice');
+    if(price) price.textContent=Number(d.price_rub||0).toFixed(2).replace('.',',')+' ₽';
   }
 
   async function loadRcoinStatus(){
@@ -4004,6 +4017,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   let holdReleaseQueued = false;
   let farmTargetReward = 0;
   let farmCompleting = false;
+  let farmCompleteRetryCount = 0;
   let farmCompleted = false;
   let farmInitPromise = null;
   let farmLastSync = 0;
@@ -4125,6 +4139,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   let farmRafId = null;
   let holdJustCompletedUntil = 0;
   let farmStatusPollId = null;
+  let farmAutoCompleteTimer = null;
   let farmVisualReward = 0;
   let farmVisualProgress = 0;
   let farmServerProgress = 0;
@@ -4133,17 +4148,22 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 
   function stopFarmAnimation(){
     if(holdTimer){ clearTimeout(holdTimer); holdTimer=null; }
+    if(farmAutoCompleteTimer){ clearTimeout(farmAutoCompleteTimer); farmAutoCompleteTimer=null; }
     if(farmRafId){ cancelAnimationFrame(farmRafId); farmRafId=null; }
     if(farmStatusPollId){ clearInterval(farmStatusPollId); farmStatusPollId=null; }
   }
 
   async function syncActiveFarmSnapshot(){
-    if(!holdState?.session_id || !holdPointerActive || farmCompleting) return;
+    if(!holdState?.session_id || farmCompleting) return;
     try{
       const d=await fetchHoldStatus({silent:true});
       if(!d?.session_id){ stopFarmAnimation(); return; }
       const targetProgress=Math.max(0,Math.min(1,Number(d.progress)||0));
       const targetReward=Math.max(0,Number(d.current_reward)||0);
+      if(Number(d.target_reward)>0){
+        farmTargetReward=Number(d.target_reward);
+        holdState.target_reward=Number(d.target_reward);
+      }
       // Server snapshots are authoritative. Keep them monotonic so network
       // jitter can never make the progress bar move backwards.
       farmServerProgress=Math.max(farmServerProgress,targetProgress);
@@ -4151,7 +4171,14 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       farmSnapshotProgress=farmServerProgress;
       farmSnapshotReward=farmServerReward;
       farmServerSyncAt=performance.now();
-      if(d.auto_complete || targetProgress>=0.999) await completeStandaloneFarm();
+
+      // The server is authoritative, but the UI must not depend on a 1s poll
+      // or on pointerup. If the server says the hidden stop moment is reached,
+      // complete immediately. This also survives iOS/Telegram WebView event
+      // timing quirks while keeping the actual payout protected by the backend.
+      if(d.auto_complete || targetProgress>=0.999 || Number(d.active_remaining||0)<=0){
+        await completeStandaloneFarm();
+      }
     }catch(_){ }
   }
 
@@ -4163,29 +4190,44 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     farmVisualReward=0; farmVisualProgress=0;
     farmSnapshotReward=0; farmSnapshotProgress=0;
     farmServerProgress=0; farmServerReward=0; farmServerSyncAt=performance.now();
+
+    const started=farmEpochSeconds(holdState?.started_at || 0);
+    const targetReward=Math.max(FARM_MIN_REWARD, Number(holdState?.target_reward || farmTargetReward || 30000));
+
+    // Do not wait for a poll or pointerup to finish the farm. Wake the
+    // completion request just after the server start + 30 seconds. The
+    // backend still checks the real elapsed time before paying anything.
+    if(started){
+      const delay=Math.max(0,((started+FARM_DURATION)-Date.now()/1000)*1000+120);
+      farmAutoCompleteTimer=setTimeout(()=>{
+        farmAutoCompleteTimer=null;
+        if(holdState?.session_id && !farmCompleting && !farmCompleted){
+          completeStandaloneFarm();
+        }
+      },delay);
+    }
+
     const tick=()=>{
-      if(!holdPointerActive || !holdState?.session_id || farmCompleting || farmCompleted){ farmRafId=null; return; }
+      if(!holdState?.session_id || farmCompleting || farmCompleted){ farmRafId=null; return; }
 
-      // Predict smoothly between server snapshots using the last known
-      // server progress. This removes the old "stair-step / wobble" effect.
-      // The server still decides whether the final reward is valid.
-      const sinceSync=Math.max(0,(performance.now()-farmServerSyncAt)/1000);
-      const predictedProgress=Math.min(1, farmServerProgress + sinceSync/FARM_DURATION);
-      farmVisualProgress=Math.max(farmVisualProgress,predictedProgress,farmSnapshotProgress);
-
-      // Reward is displayed smoothly but never exceeds the last server value.
-      farmVisualReward=Math.max(farmVisualReward,farmSnapshotReward);
-      updateFarmVisuals(FARM_DURATION*(1-farmVisualProgress));
+      // The counter and progress are driven by the exact local wall-clock
+      // elapsed time. This removes the old 750ms/1s step effect completely.
+      // The amount is visual only; /hold/complete is still authoritative.
+      const elapsed=started ? Math.max(0,Date.now()/1000-started) : 0;
+      farmVisualProgress=Math.max(0,Math.min(1,elapsed/FARM_DURATION));
+      const visualReward=Math.min(targetReward,Math.floor(targetReward*farmVisualProgress));
+      farmVisualReward=Math.max(farmVisualReward,visualReward);
+      updateFarmVisuals(Math.max(0,FARM_DURATION-elapsed));
       renderFarmReward(farmVisualProgress,farmVisualReward);
 
-      // Do not depend on pointerup or on a perfectly timed 1s poll.
-      // Once the server reports completion, completeStandaloneFarm() is called
-      // by syncActiveFarmSnapshot; this visual edge only keeps the UI responsive.
-      if(farmVisualProgress>=0.999 && !farmCompleting && !farmCompleted){
-        syncActiveFarmSnapshot().catch(()=>{});
+      // Safety net if Telegram throttles the timeout. At the visual end,
+      // immediately ask the backend to finalize the already-finished session.
+      if(farmVisualProgress>=1 && !farmCompleting && !farmCompleted){
+        completeStandaloneFarm();
       }
       farmRafId=requestAnimationFrame(tick);
     };
+
     farmStatusPollId=setInterval(syncActiveFarmSnapshot,1000);
     syncActiveFarmSnapshot();
     farmRafId=requestAnimationFrame(tick);
@@ -4258,6 +4300,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     }
 
     farmCompleted = false;
+    farmCompleteRetryCount = 0;
     holdPointerActive = true;
     holdReleaseQueued = false;
     $('#farmRing')?.classList.add('holding');
@@ -4296,6 +4339,9 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
           FARM_MIN_REWARD,
           Math.min(FARM_MAX_REWARD, Number(payload.target_reward || payload.base_reward || 30000))
         );
+        // Keep the exact server-selected payout so the visible counter can
+        // climb continuously from 0 to the real final amount. The backend
+        // remains the only authority that actually credits the balance.
 
         if(holdReleaseQueued || !holdPointerActive){
           // The pointer can be released while /hold/start is still in flight.
@@ -4349,6 +4395,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       }
 
       farmCompleted = true;
+      farmCompleteRetryCount = 0;
       const reward = Number(payload.reward || farmTargetReward || 0);
       const now = farmNow();
       const serverCooldown = farmDurationSeconds(payload.cooldown_remaining ?? payload.cooldown ?? 0);
@@ -4368,6 +4415,9 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       profileData = profileData || {};
       profileData.balance = balance;
       setBalance(balance);
+      stopFarmAnimation();
+      farmVisualReward = Math.max(farmVisualReward, reward);
+      renderFarmReward(1, reward);
 
       farmWriteLocalNumber(FARM_LOCAL_LAST_COMPLETED_KEY, now);
       farmWriteLocalNumber(FARM_LOCAL_COOLDOWN_KEY, cooldownUntil);
@@ -4395,7 +4445,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       $('#farmClaimCount').textContent = `Собрано: ${holdState.claims}`;
       try{ window.dispatchEvent(new Event('resell:hold-complete')); }catch(_){}
       for(let i=0;i<8;i) spawnFarmSpark();
-      showToast(`+${number(reward)} ₽ зачислено`);
+      showToast(`💰 +${number(reward)} ₽ зачислено на баланс`);
       haptic('heavy');
       // Do not re-bootstrap the whole profile exactly at the completion edge.
       // The server already returned the authoritative balance above; reloading here
@@ -4404,6 +4454,24 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       try{ refreshHoldStatusWithRetry().catch(()=>{}); }catch(_){}
     }catch(err){
       farmCompleted = false;
+      // iOS/Telegram can hit the completion endpoint a few hundred ms before
+      // the backend's clock crosses the exact 30s boundary. Do not make the
+      // player press R again: retry the same session a few times, then fall
+      // back to the normal status recovery below. The backend remains the only
+      // authority that can credit the reward.
+      const elapsedMs = farmSessionElapsedMs();
+      if(holdState?.session_id && farmCompleteRetryCount < 6){
+        farmCompleteRetryCount += 1;
+        const retryNo = farmCompleteRetryCount;
+        const remainingMs = Math.max(0, FARM_DURATION*1000 - elapsedMs);
+        const waitMs = remainingMs > 0 ? remainingMs + 120 : Math.min(900, 180 * retryNo);
+        $('#farmStatus').textContent = remainingMs > 0 ? 'ФИНИШ…' : 'ЗАЧИСЛЕНИЕ…';
+        setTimeout(()=>{
+          if(holdState?.session_id && !farmCompleted && !farmCompleting){
+            completeStandaloneFarm();
+          }
+        }, waitMs);
+      }
       // Never leave a stale session locked in the UI after a network/WebView hiccup.
       try{
         await refreshHoldStatusWithRetry();
@@ -4499,7 +4567,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     // Short taps are ignored. The server session is started only after a
     // deliberate hold has lasted long enough to prove the user really intends
     // to start R-HOLD. This prevents accidental taps from activating a cooldown.
-    const ARM_DELAY = 450;
+    const ARM_DELAY = 300;
     let activeInput = false;
     let activePointerId = null;
     let armTimer = null;
@@ -4629,13 +4697,35 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     setTimeout(()=>el.remove(),1250);
   }
 
+  function applyFarmRholdStatusStyle(style){
+    const panel=document.getElementById('farmPanel');
+    if(!panel || !style) return;
+    const bg=style.bg || 'radial-gradient(circle,rgba(183,255,106,.12),rgba(0,0,0,.22) 65%)';
+    const border=style.border || 'rgba(183,255,106,.45)';
+    const accent=style.accent || '#b7ff6a';
+    const glow=style.glow || 'rgba(183,255,106,.22)';
+    panel.style.setProperty('--rhold-bg',bg);
+    panel.style.setProperty('--rhold-border',border);
+    panel.style.setProperty('--rhold-accent',accent);
+    panel.style.setProperty('--rhold-glow',glow);
+    panel.dataset.rholdSkin=style.id||'';
+    document.querySelectorAll('.farm-ring,.farm-r').forEach(el=>el.dataset.resellRholdStyle=style.id||'');
+    const label=document.getElementById('rholdCustomizeLabel');
+    if(label && style.name){ label.innerHTML=`${esc(style.name)}<span class="r28-power-chip">×${Number(style.multiplier||1).toFixed(2)} НАГРАДЫ</span>`; }
+  }
+
   async function initFarm(){
     if(Date.now() < holdJustCompletedUntil) return;
     if(farmInitPromise) return farmInitPromise;
     farmInitPromise = (async()=>{
       try{
-        await refreshHoldStatusWithRetry();
+        // Bind the R-Farm control immediately. The button must be usable/visible
+        // even while the first server synchronization is still in flight.
         bindFarmButton();
+        await refreshHoldStatusWithRetry();
+        // Paint the real equipped R-HOLD immediately from /hold/status.
+        // No temporary green/default style while the rest of the UI is loading.
+        applyFarmRholdStatusStyle(holdState?.rhold_style);
 
         if(holdState?.session_id){
           await recoverStaleSession();
@@ -4702,7 +4792,9 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   });
   window.addEventListener('pageshow',()=>{ if(Date.now() < holdJustCompletedUntil) return; if(!holdPointerActive && !farmCompleting) initFarm(); });
   window.addEventListener('online',()=>{ if(Date.now() < holdJustCompletedUntil) return; if(!holdPointerActive && !farmCompleting) initFarm(); });
-  document.addEventListener('DOMContentLoaded',initFarm);
+  // R-Farm control is wired immediately; status/style sync may finish later.
+  try{ bindFarmButton(); }catch(_){ }
+  document.addEventListener('DOMContentLoaded',initFarm,{once:true});
 
   // =========================
   // Upgrades
@@ -5173,7 +5265,11 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     const d=avitoState||{};
     const inv=Array.isArray(d.inventory)?d.inventory:[];
     const grouped=groupInventory(inv);
-    const suppliers=Array.isArray(d.suppliers)?d.suppliers:[];
+    const suppliers=(Array.isArray(d.suppliers)?d.suppliers:[]).slice().sort((a,b)=>{
+      const ap=Number(a.buy_price||a.market_price||a.price||0), bp=Number(b.buy_price||b.market_price||b.price||0);
+      if(bp!==ap) return bp-ap;
+      return String(a.name||'').localeCompare(String(b.name||''),'ru');
+    });
     const chats=Array.isArray(d.chats)?d.chats:[];
     const unread=Number(d.unread_count||0);
     const pub=d.published;
@@ -5194,7 +5290,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
         <div class="avx-grid">${suppliers.slice(0,20).map(x=>{const rc=avitoRarity(x.rarity);const found=x.item_type==='avito_found';const buy=Number(x.buy_price||0);const market=Number(x.market_price||0);const margin=Math.max(0,market-buy);return `<div class="avx-product rarity-${rc} ${found?'avx-found-product':''}" data-rarity="${rc}"><div class="avx-product-top"><div class="avx-rarity-icon" aria-hidden="true"></div><div class="avx-product-info"><b>${esc(x.name||'Товар')}</b><span>${esc(x.cat||'Категория')}${found?' · редкий лот в поставке':' · спрос ×'+Number(x.demand||1).toFixed(2)}</span><small class="avx-rarity-name">${avitoRarityLabel(x.rarity)}${found?' · ПОВЕЗЛО В ПОСТАВКЕ':''}</small></div></div><div class="avx-product-bottom"><strong>${number(buy)} ₽</strong><button class="avx-btn buy" data-avito-buy="${esc(x.id)}">КУПИТЬ · ${number(buy)} ₽</button></div>${found?`<div class="avx-found-profit">рынок ~ ${number(market)} ₽ · запас перепродажи +${number(margin)} ₽</div>`:''}</div>`}).join('')||'<div class="avx-empty">Поставщики временно недоступны.</div>'}</div>
       </div>`;
     } else if(avitoTab==='sales'){
-      const special=inv.filter(x=>x.item_type==='avito_found' || x.item_type==='avito_hunt');
+      const special=inv.filter(x=>x.item_type==='avito_found' || x.item_type==='avito_hunt').slice().sort((a,b)=>Number(b.market_price||b.value||b.price||0)-Number(a.market_price||a.value||a.price||0));
       content=`<div class="avx-section">
         <div class="avx-section-head"><div><b>Продажи</b><span>Склад — обычные товары и пойманные дорогие лоты.</span></div><span class="avx-count">${inv.length}</span></div>
         ${pub?`<div class="avx-active"><div><small>АКТИВНОЕ ОБЪЯВЛЕНИЕ</small><b>${esc(pub.item?.name||'Товар')}</b><span>${number(pub.item?.market_price||0)} ₽ · качество ${number(pub.quality||0)}/10</span></div><button class="avx-btn ghost" id="avitoUnpublishBtn">СНЯТЬ</button></div>`:''}
@@ -5526,7 +5622,8 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   function renderAdminHome(data){
     const players=data?.players||[];
     return `<div class="admin-profile">
-      <div class="admin-note">Приватный раздел владельца. Сервер дополнительно проверяет права администратора — скрытие кнопки в HTML не является защитой.</div><div class="admin-action-grid"><button class="admin-btn primary" id="adminAppealsBtn">ОБРАЩЕНИЯ ПО БЛОКИРОВКАМ</button><button class="admin-btn" id="adminMaintenanceBtn">ТЕХНИЧЕСКИЕ РАБОТЫ</button><button class="admin-btn" id="adminUpdateAnnouncementBtn">ОБЪЯВИТЬ ОБ ОБНОВЛЕНИИ</button></div><div id="adminMaintenanceCard" class="admin-note" style="margin-top:8px">Состояние системы загружается…</div>
+      <div class="admin-note">Приватный раздел владельца.
+      <div class="admin-kpi-grid" style="margin:8px 0"><div class="admin-kpi"><b>${number(data?.stats?.participants||0)}</b><span>УЧАСТНИКОВ</span></div><div class="admin-kpi"><b>${number(data?.stats?.total_players||0)}</b><span>ВСЕГО АККАУНТОВ</span></div></div> Сервер дополнительно проверяет права администратора — скрытие кнопки в HTML не является защитой.</div><div class="admin-action-grid"><button class="admin-btn primary" id="adminAppealsBtn">ОБРАЩЕНИЯ ПО БЛОКИРОВКАМ</button><button class="admin-btn" id="adminMaintenanceBtn">ТЕХНИЧЕСКИЕ РАБОТЫ</button><button class="admin-btn" id="adminUpdateAnnouncementBtn">ОБЪЯВИТЬ ОБ ОБНОВЛЕНИИ</button></div><div id="adminMaintenanceCard" class="admin-note" style="margin-top:8px">Состояние системы загружается…</div>
       <div class="admin-section-title">Поиск игрока</div>
       <div class="admin-search"><input id="adminSearchInput" placeholder="ID, никнейм или магазин" value="${esc(data?.q||'')}"><button class="admin-btn primary" id="adminSearchBtn">НАЙТИ</button></div>
       <div class="admin-player-list">${players.length?players.map(p=>`<div class="admin-player"><div class="admin-player-main"><div class="admin-player-name">${esc(p.nickname||'Без никнейма')}</div><div class="admin-player-meta">TG ${p.tg_id} · ${number(p.balance)} ₽ · ${p.is_banned?'ЗАБАНЕН':''}${p.warning_count?' · ⚠ '+p.warning_count:''}</div></div><div class="admin-player-actions"><button class="admin-mini" data-admin-open="${p.tg_id}">ОТКРЫТЬ</button></div></div>`).join(''):'<div class="profile-empty">Найди игрока по Telegram ID, никнейму или магазину.</div>'}</div>
@@ -5561,7 +5658,8 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       const data=await adminFetch(`/admin/players/${ADMIN_OWNER_ID}?limit=30`);
       const logs=(await adminFetch(`/admin/player/${ADMIN_OWNER_ID}/${ADMIN_OWNER_ID}/logs?limit=30`).catch(()=>({logs:[]}))).logs||[];
       const maintenance=await adminFetch(`/admin/maintenance/${ADMIN_OWNER_ID}`).catch(()=>({enabled:false}));
-      modalBody.innerHTML=renderAdminHome({players:data.players||[],logs,maintenance});
+      const stats=await adminFetch(`/admin/stats/${ADMIN_OWNER_ID}`).catch(()=>({participants:0,total_players:0}));
+      modalBody.innerHTML=renderAdminHome({players:data.players||[],logs,maintenance,stats});
       const mc=document.getElementById('adminMaintenanceCard'); if(mc) mc.innerHTML=maintenance.enabled?'🟢 <b style="color:#b7ff6a">ВКЛЮЧЕНЫ</b> · игроки не допускаются':'⚪ <b>ВЫКЛЮЧЕНЫ</b> · игра доступна всем';
       const mb=document.getElementById('adminMaintenanceBtn'); if(mb){mb.textContent=maintenance.enabled?'ВЫКЛЮЧИТЬ ТЕХ. РАБОТЫ':'ВКЛЮЧИТЬ ТЕХ. РАБОТЫ';mb.dataset.enabled=maintenance.enabled?'1':'0';}
 
@@ -5580,6 +5678,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
         <div class="admin-section-title">Выдать машину</div><div class="admin-action-grid"><select class="admin-select" id="adminCarSelect">${(d.cars||[]).map(c=>`<option value="${esc(c.id)}">${esc(c.name)} · ${number(c.price)} ₽</option>`).join('')}</select><button class="admin-btn primary" id="adminGiveCar">ВЫДАТЬ</button></div>
         <div class="admin-section-title">Выдать бизнес</div><div class="admin-action-grid"><select class="admin-select" id="adminBusinessSelect">${(d.catalog||[]).map(c=>`<option value="${esc(c.id)}">${esc(c.name)} · ${number(c.price)} ₽</option>`).join('')}</select><button class="admin-btn primary" id="adminGiveBusiness">ВЫДАТЬ</button></div>
         <div class="admin-section-title">Выдать скин</div><div class="admin-action-grid"><select class="admin-select" id="adminSkinSelect">${(d.skins||[]).map(c=>`<option value="${esc(c.id)}">${esc(c.name)} · ${number(c.price)} ₽</option>`).join('')}</select><button class="admin-btn primary" id="adminGiveSkin">ВЫДАТЬ</button></div>
+        <div class="admin-section-title">R-Farm</div><div class="admin-note">Снять ежедневное КД игроку и сразу разрешить новый запуск R-Farm.</div><button class="admin-btn primary" id="adminRfarmReset" style="width:100%;min-height:42px;margin-top:8px">СНЯТЬ КД R-FARM</button>
         <div class="admin-section-title">Модерация</div><input class="admin-input" id="adminReason" placeholder="Причина / комментарий">
         <div class="admin-action-grid" style="margin-top:8px"><button class="admin-btn" id="adminWarn">ПРЕДУПРЕДИТЬ</button><button class="admin-btn ${p.is_banned?'':'danger'}" id="adminBan">${p.is_banned?'РАЗБЛОКИРОВАТЬ':'ЗАБЛОКИРОВАТЬ'}</button></div>
         <div class="admin-section-title">Сброс аккаунта</div>
@@ -5764,6 +5863,12 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       const banned=modalBody.dataset.adminBanned==='1'; const reason=($('#adminReason')?.value||'Решение администратора').trim();
       if(!confirm(banned?'Снять блокировку с игрока?':'Заблокировать игрока?')) return;
       try{await adminFetch(`/admin/player/${ADMIN_OWNER_ID}/${target}/${banned?'unban':'ban'}`,{method:'POST',body:JSON.stringify({reason})});showToast(banned?'Блокировка снята':'Игрок заблокирован');await openAdminPlayer(target);}catch(err){showToast(err.message||'Ошибка');} return;
+    }
+    if(target && e.target.closest('#adminRfarmReset')){
+      const btn=e.target.closest('#adminRfarmReset'); btn.disabled=true; const oldText=btn.textContent; btn.textContent='СНЯТИЕ КД…';
+      try{ const d=await adminFetch(`/admin/player/${ADMIN_OWNER_ID}/${target}/rfarm-reset`,{method:'POST'}); showToast(d.message||'КД R-Farm снят'); await openAdminPlayer(target); }
+      catch(err){ showToast(err.message||'Не удалось снять КД R-Farm'); btn.disabled=false; btn.textContent=oldText; }
+      return;
     }
     if(target && e.target.closest('#adminResetAccount')){
       if(String(target)===String(ADMIN_OWNER_ID)){showToast('Нельзя удалить аккаунт владельца');return;}
@@ -6764,6 +6869,15 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 .avx-price-btn .price-value{flex:0 0 auto!important;}
 </style>
 </style>
+<style id="resell-prime-bundle-css">
+.v33-prime-bundle{position:relative;overflow:hidden;margin:0 0 12px;padding:15px;border-radius:20px;background:linear-gradient(135deg,rgba(255,255,255,.075),rgba(160,120,255,.09) 42%,rgba(91,241,255,.055));border:1px solid rgba(216,182,255,.34);box-shadow:0 14px 42px rgba(0,0,0,.28),0 0 34px rgba(180,130,255,.08);isolation:isolate}
+.v33-prime-bundle:before{content:"";position:absolute;inset:-60%;background:conic-gradient(from 0deg,transparent 0 28%,rgba(255,255,255,.10) 35%,transparent 43%,rgba(183,255,106,.08) 57%,transparent 66%);animation:primeSpin 7s linear infinite;pointer-events:none;z-index:-1}
+.v33-prime-bundle:after{content:"";position:absolute;top:-35px;right:-35px;width:110px;height:110px;border-radius:50%;background:radial-gradient(circle,rgba(216,182,255,.25),transparent 68%);animation:primePulse 2.2s ease-in-out infinite;pointer-events:none}
+.v33-prime-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}.v33-prime-kicker{color:#d8b6ff;font:950 6px/1 "Montserrat";letter-spacing:1.4px}.v33-prime-title{margin-top:5px;color:#fff;font:950 15px/1 "Montserrat";letter-spacing:-.2px}.v33-prime-desc{margin-top:6px;color:#9b95a7;font:800 7px/1.35 "Nunito"}.v33-prime-price{flex:0 0 auto;padding:7px 8px;border-radius:10px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);color:#fff;font:950 7px/1 "Montserrat";box-shadow:0 0 18px rgba(216,182,255,.13)}
+.v33-prime-items{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-top:11px}.v33-prime-item{padding:8px 5px;border-radius:10px;background:rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.07);text-align:center}.v33-prime-item b{display:block;color:#f2eff8;font:950 5px/1.1 "Montserrat";letter-spacing:.35px}.v33-prime-item span{display:block;margin-top:4px;color:#777181;font:800 5px/1 "Montserrat"}.v33-prime-buy{position:relative;z-index:2;width:100%;margin-top:10px;padding:11px;border:0;border-radius:12px;background:linear-gradient(100deg,#fff,#e8dcff,#fff);background-size:220% 100%;animation:primeButton 3.2s ease-in-out infinite;color:#08080b;font:950 7px/1 "Montserrat";letter-spacing:.7px;box-shadow:0 9px 25px rgba(216,182,255,.15)}.v33-prime-buy:disabled{opacity:.55;animation:none}.v33-prime-buy.flash{animation:primeBuyFlash .65s ease both}
+@keyframes primeSpin{to{transform:rotate(360deg)}}@keyframes primePulse{0%,100%{transform:scale(.82);opacity:.55}50%{transform:scale(1.12);opacity:1}}@keyframes primeButton{0%,100%{background-position:0 0}50%{background-position:100% 0}}@keyframes primeBuyFlash{0%{transform:scale(1)}35%{transform:scale(.97);box-shadow:0 0 0 8px rgba(216,182,255,.14),0 0 40px rgba(216,182,255,.35)}100%{transform:scale(1)}}
+@media(max-width:390px){.v33-prime-items{gap:4px}.v33-prime-item{padding:7px 3px}}
+</style>
 <script id="resell-v33-ux">
 (function(){
   const API='https://resellgame.bothost.tech';
@@ -6816,7 +6930,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     const d=await r.json().catch(()=>({}));
     if(!r.ok||!d.success)throw new Error(d.error||'Не удалось загрузить кастомизацию');
     const skins=(Array.isArray(d.skins)?d.skins:[]).map(normalizeSkin).filter(x=>!x.legacy);
-    // Keep every server item. Expected current catalog: 14 R-HOLD + 3 nick + 3 avatar + 3 prefix = 23.
+    // Keep every server item. Expected current catalog: 14 R-HOLD + 3 nick + 3 avatar + 4 prefix = 24.
     custCache={...d,skins};
     const prof=c.getProfile?.();
     if(prof){
@@ -6850,7 +6964,13 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     const o=ensureCust(),b=o.querySelector('#v33CustBody');
     if(!custCache){b.innerHTML='<div class="r26-note">Загрузка каталога…</div>';return;}
     const skins=(custCache.skins||[]).map(normalizeSkin).filter(x=>!x.legacy);
-    const V72_RHOLD_VISIBLE=['v28_base_signal','v28_4_prism','v28_4_cyan','v28_4_amber','v28_l_nebula'];
+    const premiumByCat={
+      rhold:{id:'prime_rhold_25',title:'NEON SOVEREIGN',kicker:'R-HOLD · EXCLUSIVE',desc:'Новый флагманский R-HOLD с отдельной анимацией и ×2.25 награды.'},
+      nick:{id:'prime_nick_25',title:'NEON SOVEREIGN',kicker:'НИК · EXCLUSIVE',desc:'Сверхяркий неоновый ник с мягким живым свечением.'},
+      avatar:{id:'prime_avatar_25',title:'SOVEREIGN FRAME',kicker:'АВАТАР · EXCLUSIVE',desc:'Премиальная анимированная рамка вокруг аватара.'},
+      badge:{id:'prime_badge_25',title:'SOVEREIGN',kicker:'ПРЕФИКС · EXCLUSIVE',desc:'Новый статусный префикс для профиля и лидерборда.'}
+    };
+    const V72_RHOLD_VISIBLE=['v28_base_signal','era2_core','v28_4_prism','v28_4_cyan','v28_4_amber','prime_rhold_25'];
     const visibleSkins=skins.filter(x=>cat(x.kind,x.slot,x.id)!=='rhold'||V72_RHOLD_VISIBLE.includes(x.id));
     const counts={rhold:0,nick:0,avatar:0,badge:0};visibleSkins.forEach(x=>counts[cat(x.kind,x.slot,x.id)]++);
     const tabs=[['rhold','R-HOLD'],['nick','НИК'],['avatar','АВАТАР'],['badge','ПРЕФИКС']];
@@ -6858,7 +6978,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     const sales=Number(custCache.total_sales||0),era=Number(custCache.unlocked_era||1),ownedCount=visibleSkins.filter(x=>x.owned).length;
     const metaTitle={rhold:'СТИЛИ R-HOLD',nick:'СТИЛИ НИКА',avatar:'РАМКИ АВАТАРА',badge:'ПРЕФИКСЫ ПРОФИЛЯ'}[custTab];
     const desc={
-      rhold:'5 стилей R-HOLD. Последний — анимированный NEBULA OVERDRIVE за 25 ⭐ с повышенной наградой.',
+      rhold:'6 стилей R-HOLD. Каждый следующий стиль открывается по прогрессу продаж и усиливает награду.',
       nick:'Подсветка настоящего никнейма. Выбранный стиль виден в профиле, друзьях и лидерборде.',
       avatar:'Рамка аватара профиля. Она применяется к твоему R и видна другим игрокам.',
       badge:'Публичный префикс рядом с никнеймом. Он виден в профиле, друзьях и лидерборде.'
@@ -6875,7 +6995,20 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       let action=eq?'ВКЛЮЧЕНО':owned?'ВКЛЮЧИТЬ':!unlocked?'НЕДОСТУПНО':stars?`КУПИТЬ · ${stars} ⭐`:price?`КУПИТЬ · ${money(price)} ₽`:'ПОЛУЧИТЬ СТИЛЬ';
       return `<div class="r28-card ${unlocked?'':'locked'} ${eq?'is-equipped':''}">${preview(x)}<div class="r28-card-name">${esc(x.name||metaTitle)}</div><div class="r28-card-meta">${esc(meta)}</div>${custTab==='rhold'&&Number(x.reward_multiplier||1)>1?`<div class="r28-card-power">НАГРАДА ×${Number(x.reward_multiplier).toFixed(2)}</div>`:''}<button type="button" class="r28-card-btn ${(!eq&&unlocked)?'primary':''} ${eq?'equipped':''}" data-v33-cust="${esc(x.id)}" ${eq||!unlocked||custBusy?'disabled':''}>${esc(action)}</button></div>`;
     }).join('');
-    b.innerHTML=`<div class="r26-summary"><div class="r26-stat accent"><small>ERA</small><b>${era}</b></div><div class="r26-stat"><small>ПРЕДМЕТОВ</small><b>${ownedCount}/${skins.length}</b></div><div class="r26-stat"><small>ПРОДАЖИ</small><b>${money(sales)}</b></div></div><div class="r28-tabs r33-cust-tabs">${tabs.map(([id,label])=>`<button type="button" class="r28-tab ${custTab===id?'active':''}" data-v33-tab="${id}">${label}<small class="r33-cust-count">${counts[id]||0}</small></button>`).join('')}</div><div class="r26-section">${metaTitle}</div><div class="r26-note r33-cust-desc">${esc(desc)}</div><div class="r26-grid r33-cust-grid">${cards||'<div class="r28-empty">В этой категории пока нет предметов.</div>'}</div>`;
+    const premium=premiumByCat[custTab];
+    const premiumItem=visibleSkins.find(x=>x.id===premium?.id);
+    const premiumHtml=premiumItem?`<div class="v33-prime-single">${preview(premiumItem)}<div class="v33-prime-single-copy"><div class="v33-prime-kicker">${esc(premium.kicker)}</div><div class="v33-prime-title">${esc(premium.title)}</div><div class="v33-prime-desc">${esc(premium.desc)}</div><div class="v33-prime-price">25 ⭐</div><button type="button" class="v33-prime-buy" data-v33-prime="${esc(premiumItem.id)}" ${premiumItem.owned||custBusy?'disabled':''}>${premiumItem.owned?(premiumItem.equipped?'ВКЛЮЧЕНО':'В КОЛЛЕКЦИИ'):'КУПИТЬ · 25 ⭐'}</button></div></div>`:'';
+    b.innerHTML=`<div class="r26-summary"><div class="r26-stat accent"><small>ERA</small><b>${era}</b></div><div class="r26-stat"><small>ПРЕДМЕТОВ</small><b>${ownedCount}/${skins.length}</b></div><div class="r26-stat"><small>ПРОДАЖИ</small><b>${money(sales)}</b></div></div><div class="r28-tabs r33-cust-tabs">${tabs.map(([id,label])=>`<button type="button" class="r28-tab ${custTab===id?'active':''}" data-v33-tab="${id}">${label}<small class="r33-cust-count">${counts[id]||0}</small></button>`).join('')}</div><div class="r26-section">${metaTitle}</div><div class="r26-note r33-cust-desc">${esc(desc)}</div><div class="r26-grid r33-cust-grid">${cards||'<div class="r28-empty">В этой категории пока нет предметов.</div>'}</div>${premiumHtml}`;
+    const primeBtn=b.querySelector('[data-v33-prime]');
+    primeBtn?.addEventListener('click',async()=>{
+      const itemId=primeBtn.dataset.v33Prime;
+      const x=visibleSkins.find(q=>q.id===itemId);
+      if(!x||custBusy||x.owned)return;
+      custBusy=true; primeBtn.classList.add('flash'); primeBtn.disabled=true;
+      try{ await buyEraOrEquip(x); core().showToast?.('✨ Эксклюзив за 25 ⭐ получен'); haptic('heavy'); }
+      catch(e){ core().showToast?.(e.message||'Ошибка оплаты'); }
+      finally{ custBusy=false; renderCust(); }
+    });
     b.querySelectorAll('[data-v33-tab]').forEach(z=>z.onclick=()=>{custTab=z.dataset.v33Tab||'rhold';renderCust();});
     b.querySelectorAll('[data-v33-cust]').forEach(z=>z.onclick=async()=>{
       const x=arr.find(q=>q.id===z.dataset.v33Cust);if(!x||custBusy)return;
@@ -7008,10 +7141,10 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     return `<div class="rcoin-desk-modern">
       <header class="rdm-head"><div><small>RESSELL / RCOIN</small><b>RCOIN Desk</b><span>Кабинет RCOIN и динамики проекта</span></div><div class="rdm-mark">R</div></header>
       <section class="rdm-balance"><div><small>ТВОЙ БАЛАНС</small><strong>${tokens.toLocaleString('ru-RU',{maximumFractionDigits:9})}</strong><em>RCOIN</em></div><span>${esc(String(rc.network||'TESTNET').toUpperCase())}</span></section>
-      <div class="rdm-grid"><div><small>АЛЛОКАЦИЯ</small><b>1 RCOIN</b><span>= ${m(points)} TP</span></div><div><small>ДОЛЯ</small><b>${share.toFixed(2)}%</b><span>${ready?'доступ активен':'доступ не оформлен'}</span></div></div>
+      <div class="rdm-grid"><div><small>КУРС RCOIN</small><b id="rcoinPrice">${Number(rc.price_rub||0).toFixed(2).replace('.',',')} ₽</b><span>обновляется каждый час · 10–12 ₽</span></div><div><small>АЛЛОКАЦИЯ</small><b>1 RCOIN</b><span>= ${m(points)} TP</span></div></div>
       ${exchange&&!ready?`<button class="rdm-action" id="rcoinEntryV6">ОТКРЫТЬ ДОСТУП · ${m(5000000)} ₽</button>`:''}
       ${exchange&&ready&&next?`<div class="rdm-next"><div><small>СЛЕДУЮЩИЙ УРОВЕНЬ</small><b>${esc(next.name||'UPGRADE')}</b></div><strong>${m(next.price)} ₽</strong></div><button class="rdm-action secondary" id="rcoinUpgradeV6">ПОВЫСИТЬ ДОЛЮ</button>`:''}
-      <section class="rcoin-listing-panel"><div class="rcoin-listing-head"><div><small>RCOIN · MARKET WATCH</small><b>RCOIN preparation</b></div><span class="rcoin-listing-badge">INFRASTRUCTURE</span></div><div class="rcoin-chart" id="rcoinUserChart"><div class="rcoin-chart-grid"></div><div class="rcoin-chart-empty">Загрузка динамики игроков…</div></div><div class="rcoin-chart-note" id="rcoinChartNote">Follow RCOIN progress and player activity here.</div><div class="rcoin-road"><div class="done"><i></i><b>Актив</b><span>учёт RCOIN</span></div><div class="done"><i></i><b>Аллокация</b><span>готово</span></div><div class="current"><i></i><b>Инфраструктура</b><span>готовим</span></div><div><i></i><b>Листинг</b><span>после запуска</span></div></div></section>
+      <section class="rcoin-listing-panel"><div class="rcoin-listing-head"><div><small>RCOIN · MARKET WATCH</small><b>RCOIN preparation</b></div><span class="rcoin-listing-badge">INFRASTRUCTURE</span></div><div class="rcoin-chart" id="rcoinUserChart"><div class="rcoin-chart-grid"></div><div class="rcoin-chart-empty">Загрузка курса RCOIN…</div></div><div class="rcoin-chart-note" id="rcoinChartNote">Follow RCOIN progress and player activity here.</div><div class="rcoin-road"><div class="done"><i></i><b>Актив</b><span>учёт RCOIN</span></div><div class="done"><i></i><b>Аллокация</b><span>готово</span></div><div class="current"><i></i><b>Инфраструктура</b><span>готовим</span></div><div><i></i><b>Листинг</b><span>после запуска</span></div></div></section>
       <div class="rdm-note">Реальный on-chain вывод появится после запуска биржевой инфраструктуры. Сейчас раздел работает как игровой RCOIN-кабинет.</div>
       <button class="rdm-history" id="rcoinHistoryV6">ОПЕРАЦИИ</button><div id="rcoinHistoryBox"></div>
     </div>`;
@@ -7267,15 +7400,15 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       const r=await fetch('https://resellgame.bothost.tech/rcoin/market/'+encodeURIComponent(tg)+'?t='+Date.now(),{headers,cache:'no-store'});
       const d=await r.json().catch(()=>({})); if(!r.ok||!d.success) throw new Error(d.error||'Не удалось загрузить динамику');
       const pts=Array.isArray(d.history)?d.history:[];
-      const currentUsers=Number(d.users_count||0), currentPrice=Number(d.price||0);
-      const all=pts.length?pts:[{users_count:currentUsers,price:currentPrice}];
+      const currentPrice=Number(d.price||0);
+      const all=pts.length?pts:[{price:currentPrice}];
       const path=pathFor(all,340,90);
       const area=path+' L 340 90 L 0 90 Z';
-      box.innerHTML=`<div class="rcoin-chart-grid"></div><svg viewBox="0 0 340 90" preserveAspectRatio="none" aria-label="Динамика цены RCOIN"><path d="${area}" fill="rgba(23,26,27,.055)"></path><path d="${path}" fill="none" stroke="#171a1b" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"></path></svg><div class="rcoin-chart-live"><span>ИГРОКОВ: <b>${currentUsers.toLocaleString('ru-RU')}</b></span><span>ЦЕНА: <b>${money(currentPrice)}</b></span></div>`;
-      const note=document.getElementById('rcoinChartNote'); if(note) note.textContent='Больше игроков → выше расчётная цена RCOIN. Меньше игроков → ниже.';
+      box.innerHTML=`<div class="rcoin-chart-grid"></div><svg viewBox="0 0 340 90" preserveAspectRatio="none" aria-label="Динамика цены RCOIN"><path d="${area}" fill="rgba(23,26,27,.055)"></path><path d="${path}" fill="none" stroke="#171a1b" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"></path></svg><div class="rcoin-chart-live"><span>КУРС: <b>${money(currentPrice)}</b></span><span>ОБНОВЛЕНИЕ: <b>КАЖДЫЙ ЧАС</b></span></div>`;
+      const note=document.getElementById('rcoinChartNote'); if(note) note.textContent='Курс RCOIN случайно меняется раз в час в диапазоне 10–12 ₽.';
     }catch(e){
       box.innerHTML='<div class="rcoin-chart-grid"></div><div class="rcoin-chart-empty">Динамика пока не накоплена.</div>';
-      const note=document.getElementById('rcoinChartNote'); if(note) note.textContent='График строится по числу игроков в RESSELL.';
+      const note=document.getElementById('rcoinChartNote'); if(note) note.textContent='Курс RCOIN обновляется раз в час. Диапазон: 10–12 ₽.';
     }
   }
   window.__resellRenderRcoinMarketV7=render;
