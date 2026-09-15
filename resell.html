@@ -4175,8 +4175,9 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
 
   function renderFarmReward(progress,earned){
     const el=$('#farmTotal'); if(!el) return;
-    const amount=Math.max(0,Math.floor(Number(earned)||0));
-    const next=amount>0 ? `+${amount.toLocaleString('ru-RU')} ₽` : 'Награда накапливается';
+    const raw=Math.max(0,Number(earned)||0);
+    const amount = progress > 0 && progress < 1 ? Math.round(raw*10)/10 : Math.round(raw);
+    const next=amount>0 ? `+${amount.toLocaleString('ru-RU',{minimumFractionDigits:(progress>0&&progress<1)?1:0,maximumFractionDigits:1})} ₽` : 'Награда накапливается';
     if(el.textContent!==next) el.textContent=next;
   }
 
@@ -4188,8 +4189,28 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
   let farmServerProgress = 0;
   let farmServerReward = 0;
   let farmServerSyncAt = 0;
+  let farmHapticId = null;
+  let farmHapticLast = 0;
+
+  function startFarmHaptics(){
+    if(farmHapticId) clearInterval(farmHapticId);
+    farmHapticLast = Date.now();
+    farmHapticId = setInterval(()=>{
+      if(!holdPointerActive || farmCompleting || farmCompleted){
+        clearInterval(farmHapticId); farmHapticId=null; return;
+      }
+      // Soft periodic ticks while the finger is held, without hammering the
+      // Taptic/Vibrator API.
+      try{ haptic('light'); }catch(_){}
+    }, 850);
+  }
+
+  function stopFarmHaptics(){
+    if(farmHapticId){ clearInterval(farmHapticId); farmHapticId=null; }
+  }
 
   function stopFarmAnimation(){
+    stopFarmHaptics();
     if(holdTimer){ clearTimeout(holdTimer); holdTimer=null; }
     if(farmRafId){ cancelAnimationFrame(farmRafId); farmRafId=null; }
     if(farmStatusPollId){ clearInterval(farmStatusPollId); farmStatusPollId=null; }
@@ -4373,6 +4394,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
           return;
         }
         runFarmAnimation();
+        startFarmHaptics();
         haptic('medium');
         // Safety net for Telegram/iOS: pointerup can be delayed or lost exactly
         // at the 100% edge. The server remains authoritative; we only attempt
@@ -4657,6 +4679,9 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
       pressStartedAt=Date.now();
       holdArmed=false;
       clearArmTimer();
+      // Immediate tactile confirmation: the user must feel the press even
+      // before the network request / 450ms hold-arm delay completes.
+      haptic('light');
 
       try{
         if(e?.pointerId != null && stage.setPointerCapture) stage.setPointerCapture(e.pointerId);
@@ -4668,6 +4693,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
         if(!activeInput || farmCompleting) return;
         holdArmed=true;
         stage.classList.add('farm-active');
+        haptic('medium');
         try{
           if(activePointerId != null && activePointerId !== 'touch' && stage.setPointerCapture){
             stage.setPointerCapture(activePointerId);
@@ -4708,11 +4734,13 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
         pressStartedAt=Date.now();
         holdArmed=false;
         clearArmTimer();
+        haptic('light');
         armTimer=setTimeout(()=>{
           armTimer=null;
           if(!activeInput || farmCompleting) return;
           holdArmed=true;
           stage.classList.add('farm-active');
+          haptic('medium');
           startStandaloneFarm();
         },ARM_DELAY);
       }, {passive:false});
@@ -4771,6 +4799,7 @@ async function initFarm(){
         }else{
           const ready = Boolean(holdState?.ready);
           const left = Number(holdState?.cooldown_remaining || 0);
+          if(ready && left <= 0) farmClearLocalCooldown();
           updateFarmVisuals(ready ? FARM_DURATION : left);
           $('#farmStatus').textContent = ready
             ? 'Нажми и удерживай R. Награда накапливается.'
