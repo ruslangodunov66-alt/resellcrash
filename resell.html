@@ -5680,8 +5680,18 @@ async function initFarm(){
 
   function renderAdminHome(data){
     const players=data?.players||[];
+    const stats=data?.stats||{};
+    const totalUsers=Number(stats.total_players ?? stats.total_users ?? 0);
+    const activeUsers=Number(stats.participants ?? stats.active_users ?? 0);
+    const bannedUsers=Math.max(0,totalUsers-activeUsers);
     return `<div class="admin-profile">
-      <div class="admin-note">Приватный раздел владельца. Сервер дополнительно проверяет права администратора — скрытие кнопки в HTML не является защитой.</div><div class="admin-action-grid"><button class="admin-btn primary" id="adminAppealsBtn">ОБРАЩЕНИЯ ПО БЛОКИРОВКАМ</button><button class="admin-btn" id="adminMaintenanceBtn">ТЕХНИЧЕСКИЕ РАБОТЫ</button><button class="admin-btn" id="adminUpdateAnnouncementBtn">ОБЪЯВИТЬ ОБ ОБНОВЛЕНИИ</button></div><div id="adminMaintenanceCard" class="admin-note" style="margin-top:8px">Состояние системы загружается…</div>
+      <div class="admin-note">Приватный раздел владельца. Сервер дополнительно проверяет права администратора — скрытие кнопки в HTML не является защитой.</div>
+      <div class="admin-kpi-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));">
+        <div class="admin-kpi"><b id="adminTotalUsers">${number(totalUsers)}</b><span>Пользователей</span></div>
+        <div class="admin-kpi"><b>${number(activeUsers)}</b><span>Активных</span></div>
+        <div class="admin-kpi"><b>${number(bannedUsers)}</b><span>Заблокировано</span></div>
+      </div>
+      <div class="admin-action-grid"><button class="admin-btn primary" id="adminAppealsBtn">ОБРАЩЕНИЯ ПО БЛОКИРОВКАМ</button><button class="admin-btn" id="adminMaintenanceBtn">ТЕХНИЧЕСКИЕ РАБОТЫ</button><button class="admin-btn" id="adminUpdateAnnouncementBtn">ОБЪЯВИТЬ ОБ ОБНОВЛЕНИИ</button></div><div id="adminMaintenanceCard" class="admin-note" style="margin-top:8px">Состояние системы загружается…</div>
       <div class="admin-section-title">Поиск игрока</div>
       <div class="admin-search"><input id="adminSearchInput" placeholder="ID, никнейм или магазин" value="${esc(data?.q||'')}"><button class="admin-btn primary" id="adminSearchBtn">НАЙТИ</button></div>
       <div class="admin-player-list">${players.length?players.map(p=>`<div class="admin-player"><div class="admin-player-main"><div class="admin-player-name">${esc(p.nickname||'Без никнейма')}</div><div class="admin-player-meta">TG ${p.tg_id} · ${number(p.balance)} ₽ · ${p.is_banned?'ЗАБАНЕН':''}${p.warning_count?' · ⚠ '+p.warning_count:''}</div></div><div class="admin-player-actions"><button class="admin-mini" data-admin-open="${p.tg_id}">ОТКРЫТЬ</button></div></div>`).join(''):'<div class="profile-empty">Найди игрока по Telegram ID, никнейму или магазину.</div>'}</div>
@@ -5716,7 +5726,8 @@ async function initFarm(){
       const data=await adminFetch(`/admin/players/${ADMIN_OWNER_ID}?limit=30`);
       const logs=(await adminFetch(`/admin/player/${ADMIN_OWNER_ID}/${ADMIN_OWNER_ID}/logs?limit=30`).catch(()=>({logs:[]}))).logs||[];
       const maintenance=await adminFetch(`/admin/maintenance/${ADMIN_OWNER_ID}`).catch(()=>({enabled:false}));
-      modalBody.innerHTML=renderAdminHome({players:data.players||[],logs,maintenance});
+      const stats=await adminFetch(`/admin/stats/${ADMIN_OWNER_ID}`).catch(()=>({total_players:0,participants:0}));
+      modalBody.innerHTML=renderAdminHome({players:data.players||[],logs,maintenance,stats});
       const mc=document.getElementById('adminMaintenanceCard'); if(mc) mc.innerHTML=maintenance.enabled?'🟢 <b style="color:#b7ff6a">ВКЛЮЧЕНЫ</b> · игроки не допускаются':'⚪ <b>ВЫКЛЮЧЕНЫ</b> · игра доступна всем';
       const mb=document.getElementById('adminMaintenanceBtn'); if(mb){mb.textContent=maintenance.enabled?'ВЫКЛЮЧИТЬ ТЕХ. РАБОТЫ':'ВКЛЮЧИТЬ ТЕХ. РАБОТЫ';mb.dataset.enabled=maintenance.enabled?'1':'0';}
 
@@ -5737,6 +5748,9 @@ async function initFarm(){
         <div class="admin-section-title">Выдать скин</div><div class="admin-action-grid"><select class="admin-select" id="adminSkinSelect">${(d.skins||[]).map(c=>`<option value="${esc(c.id)}">${esc(c.name)} · ${number(c.price)} ₽</option>`).join('')}</select><button class="admin-btn primary" id="adminGiveSkin">ВЫДАТЬ</button></div>
         <div class="admin-section-title">Модерация</div><input class="admin-input" id="adminReason" placeholder="Причина / комментарий">
         <div class="admin-action-grid" style="margin-top:8px"><button class="admin-btn" id="adminWarn">ПРЕДУПРЕДИТЬ</button><button class="admin-btn ${p.is_banned?'':'danger'}" id="adminBan">${p.is_banned?'РАЗБЛОКИРОВАТЬ':'ЗАБЛОКИРОВАТЬ'}</button></div>
+        <div class="admin-section-title">R-Farm</div>
+        <div class="admin-note">Снимает только ежедневный CD R-Farm. Баланс, награды, активы и остальной прогресс игрока не изменяются.</div>
+        <button class="admin-btn primary" id="adminResetRFarm" style="width:100%;min-height:44px;margin-top:8px">СНЯТЬ КД R-FARM</button>
         <div class="admin-section-title">Сброс аккаунта</div>
         <div class="admin-note">Полностью удаляет профиль, активы, майнинг, бизнесы, квесты и старые реферальные связи. После этого этот Telegram ID сможет пройти регистрацию заново.</div>
         <button class="admin-btn danger" id="adminResetAccount" style="width:100%;min-height:44px;margin-top:8px">ПОЛНОСТЬЮ СБРОСИТЬ АККАУНТ</button>
@@ -5919,6 +5933,17 @@ async function initFarm(){
       const banned=modalBody.dataset.adminBanned==='1'; const reason=($('#adminReason')?.value||'Решение администратора').trim();
       if(!confirm(banned?'Снять блокировку с игрока?':'Заблокировать игрока?')) return;
       try{await adminFetch(`/admin/player/${ADMIN_OWNER_ID}/${target}/${banned?'unban':'ban'}`,{method:'POST',body:JSON.stringify({reason})});showToast(banned?'Блокировка снята':'Игрок заблокирован');await openAdminPlayer(target);}catch(err){showToast(err.message||'Ошибка');} return;
+    }
+    if(target && e.target.closest('#adminResetRFarm')){
+      const btn=e.target.closest('#adminResetRFarm');
+      if(!confirm('Снять ежедневный CD R-Farm у этого игрока?\n\nИгрок сможет сразу запустить новый раунд.')) return;
+      btn.disabled=true; const oldText=btn.textContent; btn.textContent='СНЯТИЕ КД…';
+      try{
+        const d=await adminFetch(`/admin/player/${ADMIN_OWNER_ID}/${target}/rfarm-reset`,{method:'POST'});
+        showToast(d.message||'CD R-Farm снят');
+        await openAdminPlayer(target);
+      }catch(err){showToast(err.message||'Не удалось снять CD R-Farm');btn.disabled=false;btn.textContent=oldText;}
+      return;
     }
     if(target && e.target.closest('#adminResetAccount')){
       if(String(target)===String(ADMIN_OWNER_ID)){showToast('Нельзя удалить аккаунт владельца');return;}
