@@ -1792,7 +1792,23 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 @media(min-width:391px){.r33-cust-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}.r33-cust-grid .r28-card{padding:9px}.r33-cust-grid .r28-preview{height:112px}.r33-cust-grid .r28-card-name{font-size:8.5px;line-height:1.15}.r33-cust-grid .r28-card-meta{font-size:7px;line-height:1.3;min-height:38px}.r33-cust-grid .r28-card-btn{font-size:6.7px;min-height:40px}}
 .v33-prime-button-slot{grid-column:1/-1;position:relative;overflow:hidden;padding:2px;border-radius:13px;background:linear-gradient(135deg,rgba(138,255,234,.18),rgba(145,108,255,.14));}.v33-prime-button-slot::before{content:"";position:absolute;inset:-120%;background:conic-gradient(from 90deg,transparent 0 72%,rgba(138,255,234,.32) 77%,transparent 82%);animation:primeOrbit 5.5s linear infinite;pointer-events:none}.v33-prime-buy{position:relative;z-index:1;width:100%;min-height:42px!important;border-radius:11px;background:linear-gradient(135deg,#eafff9,#8affea 45%,#b49aff)!important;color:#06100e!important;border:1px solid rgba(255,255,255,.65)!important;box-shadow:0 0 22px rgba(138,255,234,.13)!important;font:950 7.5px/1 "Montserrat";letter-spacing:.7px}.v33-prime-buy.flash{animation:primeFlash .55s ease-in-out 2}@keyframes primeOrbit{to{transform:rotate(360deg)}}@keyframes primeFlash{50%{transform:scale(1.025);filter:brightness(1.3)}}
 </style>
-</head>
+<style id="resell-v5-rfarm-avito-guard">
+html,body,#app,main.app,.resell-home,.resell-home-panel,#farmSection,#farmSection .farm-panel,#farmSection .farm-stage,#rholdCustomizeControl,.avx-shell,.avx-section,.avx-grid,.avx-product,.avx-stock,.avx-chats,.avx-chat{max-width:100%!important;min-width:0!important;box-sizing:border-box!important;}
+html,body{width:100%!important;overflow-x:hidden!important;overscroll-behavior-x:none!important;}
+main.app,.resell-home,.resell-home-panel{overflow-x:hidden!important;}
+#farmSection .farm-panel{overflow:hidden!important;}
+#farmSection .farm-stage{overflow:hidden!important;overscroll-behavior:contain!important;}
+#rholdCustomizeControl,#rholdCustomizeControl *{overflow-x:hidden!important;overscroll-behavior-x:none!important;}
+#rholdCustomizeControl{touch-action:pan-y!important;}
+#farmSection .farm-ring{touch-action:none!important;}
+#farmSection .farm-ring.farm-finish{animation:rfarmFinish .62s ease-out!important;}
+@keyframes rfarmFinish{0%{transform:scale(1);box-shadow:0 0 0 0 rgba(183,255,106,.0),0 0 70px rgba(183,255,106,.1)}35%{transform:scale(1.045);box-shadow:0 0 0 14px rgba(183,255,106,.08),0 0 100px rgba(183,255,106,.34)}100%{transform:scale(1);box-shadow:0 0 0 0 rgba(183,255,106,.0),0 0 70px rgba(183,255,106,.1)}}
+#farmSection .farm-ring.holding{transition:transform .12s ease,box-shadow .16s ease!important;}
+.avx-shell,.avx-section,.avx-grid,.avx-product,.avx-product-top,.avx-product-info,.avx-product-bottom,.avx-stock-row,.avx-stock-left,.avx-chat,.avx-chat>div{min-width:0!important;max-width:100%!important;}
+.avx-product-info b,.avx-product-info span,.avx-stock-left b,.avx-stock-left span,.avx-chat b,.avx-chat span{overflow-wrap:anywhere!important;word-break:break-word!important;}
+.avx-product-bottom{flex-wrap:wrap!important;}
+.avx-btn{max-width:100%!important;}
+</style></head>
 <body class="resell-booting">
 <div aria-hidden="false" id="bootSplash">
 <div class="boot-splash-bg"></div>
@@ -4156,8 +4172,34 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
     if(farmStatusPollId){ clearInterval(farmStatusPollId); farmStatusPollId=null; }
   }
 
-  // R-Farm completion has one authority: completeStandaloneFarm().
-  // No background snapshot poller is used during a hold.
+  async function syncActiveFarmSnapshot(){
+    if(!holdState?.session_id || farmCompleting) return;
+    try{
+      const d=await fetchHoldStatus({silent:true});
+      if(!d?.session_id){ stopFarmAnimation(); return; }
+      const targetProgress=Math.max(0,Math.min(1,Number(d.progress)||0));
+      const targetReward=Math.max(0,Number(d.current_reward)||0);
+      if(Number(d.target_reward)>0){
+        farmTargetReward=Number(d.target_reward);
+        holdState.target_reward=Number(d.target_reward);
+      }
+      // Server snapshots are authoritative. Keep them monotonic so network
+      // jitter can never make the progress bar move backwards.
+      farmServerProgress=Math.max(farmServerProgress,targetProgress);
+      farmServerReward=Math.max(farmServerReward,targetReward);
+      farmSnapshotProgress=farmServerProgress;
+      farmSnapshotReward=farmServerReward;
+      farmServerSyncAt=performance.now();
+
+      // The server is authoritative, but the UI must not depend on a 1s poll
+      // or on pointerup. If the server says the hidden stop moment is reached,
+      // complete immediately. This also survives iOS/Telegram WebView event
+      // timing quirks while keeping the actual payout protected by the backend.
+      if(d.auto_complete || targetProgress>=0.999 || Number(d.active_remaining||0)<=0){
+        await completeStandaloneFarm();
+      }
+    }catch(_){ }
+  }
 
   let farmSnapshotReward=0;
   let farmSnapshotProgress=0;
@@ -4302,7 +4344,7 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
         });
         farmTargetReward = Math.max(
           FARM_MIN_REWARD,
-          Math.min(FARM_MAX_REWARD, Number(payload.target_reward || payload.base_reward || 30000))
+          Math.min(FARM_MAX_REWARD * 8, Number(payload.target_reward || payload.base_reward || 30000))
         );
         // Keep the exact server-selected payout so the visible counter can
         // climb continuously from 0 to the real final amount. The backend
@@ -4345,86 +4387,58 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 
   async function completeStandaloneFarm(){
     if(farmCompleting || farmCompleted || !holdState?.session_id) return;
-    farmCompleting = true;
-    const sessionId = holdState.session_id;
+    farmCompleting=true;
+    const sessionId=holdState.session_id;
     try{
-      // CRITICAL: completion is deliberately isolated from the rest of the app.
-      // One request -> server credits the exact stored reward -> tiny local UI update.
-      // No profile reload, no global event, no DOM animation burst, no secondary API call.
-      const resp = await apiFetch(`${API_BASE}/hold/complete/${encodeURIComponent(userId)}`, {
+      const resp=await apiFetch(`${API_BASE}/hold/complete/${encodeURIComponent(userId)}`,{
         method:'POST',
         headers:{'Content-Type':'application/json','Accept':'application/json','Cache-Control':'no-cache'},
-        body:JSON.stringify({session_id:sessionId,duration:FARM_DURATION})
-      }, 3);
-      let payload=null;
-      try{ payload=await resp.json(); }catch(_){ payload=null; }
-      if(!resp.ok || !payload?.success){
-        throw new Error(payload?.error || `Не удалось зачислить награду (HTTP ${resp.status})`);
-      }
+        body:JSON.stringify({session_id:sessionId})
+      },2);
+      let payload=null; try{payload=await resp.json()}catch(_){ }
+      if(!resp.ok || !payload?.success) throw new Error(payload?.error || `Не удалось зачислить награду (HTTP ${resp.status})`);
 
       const reward=Math.max(0,Number(payload.reward||0));
-      const balance=payload.balance!==undefined ? Number(payload.balance) : Math.max(0,Number(profileData?.balance||0)+reward);
+      const balance=payload.balance!==undefined ? Number(payload.balance) : Number(profileData?.balance||0)+reward;
       const now=farmNow();
-      const cooldownUntil=farmEpochSeconds(payload.cooldown_until||payload.cooldownUntil||0);
-      const cooldown=Math.max(0,Number(payload.cooldown_remaining??payload.cooldown??0));
+      const cooldown=Math.max(0,Number(payload.cooldown_remaining ?? payload.cooldown ?? 0));
+      const until=Math.max(now+cooldown,Number(payload.cooldown_until||0));
 
-      // Freeze the farm state first. This prevents any other handler/timer from
-      // touching the finished session while the few UI fields are updated.
-      farmCompleted=true;
+      // Critical finish path: stop all timers first, then do only cheap local DOM/state work.
       stopFarmAnimation();
-      holdPointerActive=false;
-      holdReleaseQueued=false;
-      holdPointerId=null;
-      holdState=normalizeHoldState({
-        ...holdState,
-        ...payload,
-        session_id:null,
-        ready:false,
-        cooldown_until:cooldownUntil,
-        cooldown_remaining:cooldown,
-        last_completed_at:now,
-        claims:Number(holdState.claims||0)+1
-      });
-
-      // Only update the balance and the small farm widgets. Nothing here
-      // rebuilds the page or triggers a global synchronization pass.
-      profileData=profileData||{};
-      profileData.balance=balance;
-      setBalance(balance);
-      farmVisualReward=reward;
-      farmVisualProgress=1;
-      renderFarmReward(1,reward);
+      farmCompleted=true;
+      holdPointerActive=false; holdReleaseQueued=false; holdPointerId=null;
+      holdJustCompletedUntil=0;
+      holdState=normalizeHoldState({...holdState,...payload,session_id:null,started_at:0,ready:false,last_completed_at:now,cooldown_until:until,cooldown_remaining:cooldown,claims:Number(holdState.claims||0)+1});
+      profileData=profileData||{}; profileData.balance=balance; setBalance(balance);
       $('#farmRing')?.classList.remove('holding');
       document.querySelector('#farmSection .farm-stage')?.classList.remove('farm-active');
       updateFarmVisuals(cooldown);
-      $('#farmTotal').textContent=`+${reward.toLocaleString('ru-RU')} ₽`;
-      $('#farmStatus').textContent=`Готово! +${reward.toLocaleString('ru-RU')} ₽ зачислено.`;
+      farmVisualReward=reward; renderFarmReward(1,reward);
       $('#farmClaimCount').textContent=`Собрано: ${holdState.claims}`;
-
+      $('#farmStatus').textContent=`Зачислено +${reward.toLocaleString('ru-RU')} ₽ · КД запущен`;
+      $('#farmTotal').textContent=`+${reward.toLocaleString('ru-RU')} ₽`;
       farmWriteLocalNumber(FARM_LOCAL_LAST_COMPLETED_KEY,now);
-      if(cooldownUntil>0) farmWriteLocalNumber(FARM_LOCAL_COOLDOWN_KEY,cooldownUntil);
-      holdJustCompletedUntil=Date.now()+1200;
-      // Intentionally no refreshHoldStatusWithRetry(), no event dispatch,
-      // no sparks and no heavy haptic here. The returned server payload is
-      // already authoritative and is enough to finish the UI safely.
+      farmWriteLocalNumber(FARM_LOCAL_COOLDOWN_KEY,until);
+
+      // Small, isolated feedback only. No rebootstrap, no status refresh, no event bus.
+      const ring=$('#farmRing');
+      if(ring){ ring.classList.remove('farm-finish'); void ring.offsetWidth; ring.classList.add('farm-finish'); setTimeout(()=>ring.classList.remove('farm-finish'),700); }
+      showToast(`💰 +${reward.toLocaleString('ru-RU')} ₽ зачислено на баланс`);
+      haptic('medium');
     }catch(err){
       farmCompleted=false;
-      const elapsedMs=farmSessionElapsedMs();
-      if(holdState?.session_id && farmCompleteRetryCount<6){
-        farmCompleteRetryCount+=1;
-        const retryNo=farmCompleteRetryCount;
-        const remainingMs=Math.max(0,FARM_DURATION*1000-elapsedMs);
-        const waitMs=remainingMs>0 ? remainingMs+150 : Math.min(1200,220*retryNo);
-        $('#farmStatus').textContent=remainingMs>0?'ФИНИШ…':'ЗАЧИСЛЕНИЕ…';
-        setTimeout(()=>{
-          if(holdState?.session_id && !farmCompleted && !farmCompleting) completeStandaloneFarm();
-        },waitMs);
+      const elapsed=farmSessionElapsedMs();
+      const remaining=Math.max(0,FARM_DURATION*1000-elapsed);
+      if(holdState?.session_id && farmCompleteRetryCount<10){
+        farmCompleteRetryCount++;
+        const wait=Math.min(1200,Math.max(120,remaining+100));
+        $('#farmStatus').textContent=remaining>0?'ФИНИШ…':'ЗАЧИСЛЕНИЕ…';
+        setTimeout(()=>{ if(holdState?.session_id && !farmCompleted && !farmCompleting) completeStandaloneFarm(); },wait);
       }else{
-        $('#farmStatus').textContent=err.message||'Награда не зачислена — попробуй ещё раз.';
+        $('#farmStatus').textContent=err.message||'Не удалось подтвердить зачисление';
       }
-    }finally{
-      farmCompleting=false;
-    }
+    }finally{ farmCompleting=false; }
   }
 
   async function cancelStandaloneFarm(){
@@ -4485,134 +4499,63 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   }
 
   function bindFarmButton(){
-    const stage = document.querySelector('#farmSection .farm-stage');
-    if(!stage || stage.dataset.bound === '1') return;
-    stage.dataset.bound = '1';
-    stage.style.touchAction = 'none';
-     stage.style.userSelect = 'none';
-     stage.style.webkitUserSelect = 'none';
-    stage.style.webkitUserSelect = 'none';
+    const stage=document.querySelector('#farmSection .farm-stage');
+    if(!stage || stage.dataset.bound==='v5') return;
+    stage.dataset.bound='v5';
+    stage.style.touchAction='none';
+    stage.style.userSelect='none'; stage.style.webkitUserSelect='none';
 
-    // Short taps are ignored. The server session is started only after a
-    // deliberate hold has lasted long enough to prove the user really intends
-    // to start R-HOLD. This prevents accidental taps from activating a cooldown.
-    const ARM_DELAY = 300;
-    let activeInput = false;
-    let activePointerId = null;
-    let armTimer = null;
-    let holdArmed = false;
-    let pressStartedAt = 0;
-    let ending = false;
-
-    const clearArmTimer=()=>{ if(armTimer){ clearTimeout(armTimer); armTimer=null; } };
-
-    const resetPress=()=>{
-      clearArmTimer();
-      activeInput=false;
-      activePointerId=null;
-      holdPointerId=null;
-      holdArmed=false;
-      pressStartedAt=0;
+    let active=false, pointerId=null, pressAt=0, startPromiseLocal=null;
+    const ARM_DELAY=90;
+    const clearVisual=()=>{
       stage.classList.remove('farm-active');
       $('#farmRing')?.classList.remove('holding');
     };
+    const reset=()=>{active=false;pointerId=null;holdPointerId=null;clearVisual();};
 
-    const finishHold = async (e) => {
-      if(ending || !activeInput) return;
-      if(e?.pointerId != null && activePointerId != null && activePointerId !== 'touch' && e.pointerId !== activePointerId) return;
-      ending=true;
-      const heldMs=Date.now()-pressStartedAt;
-      clearArmTimer();
-      activeInput=false;
-      activePointerId=null;
-      holdPointerId=null;
-
-      // Anything released before the arming threshold is a simple tap.
-      // Do not call cancel/start endpoints and do not show cooldown UI.
-      if(!holdArmed || heldMs < ARM_DELAY){
-        resetPress();
-        ending=false;
-        return;
+    const down=async e=>{
+      if(Date.now()<holdJustCompletedUntil || farmCompleting) return;
+      if(e.pointerType==='mouse' && e.button!==0) return;
+      if(active) return;
+      active=true; pointerId=e.pointerId; pressAt=Date.now(); holdPointerId=pointerId;
+      try{e.preventDefault()}catch(_){ }
+      try{stage.setPointerCapture?.(pointerId)}catch(_){ }
+      stage.classList.add('farm-active'); $('#farmRing')?.classList.add('holding');
+      haptic('light');
+      // Start immediately after a tiny debounce, so re-pressing feels instant.
+      startPromiseLocal=new Promise(resolve=>setTimeout(resolve,ARM_DELAY)).then(()=>{
+        if(!active || farmCompleting) return;
+        return startStandaloneFarm();
+      }).catch(()=>{});
+    };
+    const up=async e=>{
+      if(!active || (e.pointerId!=null && pointerId!=null && e.pointerId!==pointerId)) return;
+      const held=Date.now()-pressAt;
+      active=false; pointerId=null; holdPointerId=null;
+      clearVisual();
+      // Do not make the user wait for a network cancellation. If a start request is still
+      // pending, the existing queued-release logic safely cancels the new session.
+      if(farmCompleted || farmCompleting) return;
+      if(holdState?.session_id && farmSessionElapsedMs()>=FARM_DURATION*1000){
+        completeStandaloneFarm();
+      }else if(held>=ARM_DELAY && (holdState?.session_id || holdStartPromise)){
+        cancelStandaloneFarm();
+      }else{
+        holdReleaseQueued=false;
       }
-
-      stage.classList.remove('farm-active');
-      if(farmCompleting || farmCompleted){ ending=false; return; }
-      const elapsed = farmSessionElapsedMs();
-      if(holdState?.session_id && elapsed >= FARM_DURATION * 1000){
-        await completeStandaloneFarm();
-      }else if(holdPointerActive || holdStartPromise || holdState?.session_id){
-        await cancelStandaloneFarm();
-      }
-      setTimeout(()=>{ending=false;},0);
     };
-
-    const begin = (e) => {
-      if(Date.now() < holdJustCompletedUntil) return;
-      if(e?.pointerType === 'mouse' && e.button !== 0) return;
-      if(activeInput || farmCompleting) return;
-      // The farm stage is a dedicated hold control. Capture the pointer
-      // immediately so leaving the circle cannot turn a valid hold into a
-      // pointercancel/pointerup race.
-      activeInput=true;
-      activePointerId=e?.pointerId ?? null;
-      holdPointerId=activePointerId;
-      pressStartedAt=Date.now();
-      try{ e?.preventDefault?.(); }catch(_){}
-      try{ if(e?.pointerId != null && stage.setPointerCapture) stage.setPointerCapture(e.pointerId); }catch(_){}
-      holdArmed=false;
-      clearArmTimer();
-      armTimer=setTimeout(()=>{
-        armTimer=null;
-        if(!activeInput || farmCompleting) return;
-        holdArmed=true;
-        try{ if(activePointerId != null && activePointerId !== 'touch' && stage.setPointerCapture) stage.setPointerCapture(activePointerId); }catch(_){ }
-        stage.classList.add('farm-active');
-        startStandaloneFarm();
-      },ARM_DELAY);
+    const cancel=e=>{
+      if(!active) return;
+      active=false; pointerId=null; holdPointerId=null; clearVisual();
+      if(holdState?.session_id || holdStartPromise) cancelStandaloneFarm();
     };
-
-    const onPointerMove = (e) => {
-      if(!activeInput || activePointerId == null || activePointerId === 'touch' || e.pointerId !== activePointerId) return;
-      // DO NOT cancel R-HOLD because the finger moves.
-      // On iOS Telegram WebView a normal finger hold produces pointermove
-      // events from tiny hand drift; the old 10/12px threshold cancelled the
-      // session around the middle of the 30s hold, so the reward was never
-      // credited. The stage has touch-action:none and pointer capture, so the
-      // gesture is safely owned by the farm control.
-      try{ e.preventDefault?.(); }catch(_){}
-    };
-    const onPointerUp = (e) => finishHold(e);
-    stage.addEventListener('pointerdown', begin, {passive:false});
-    window.addEventListener('pointermove', onPointerMove, {passive:true});
-    window.addEventListener('pointerup', onPointerUp, {passive:false, capture:true});
-    window.addEventListener('pointercancel', ()=>{ 
-      if(!activeInput) return;
-      if(holdArmed && holdState?.session_id) cancelStandaloneFarm();
-      else resetPress();
-    }, {passive:true, capture:true});
-
-    if(!window.PointerEvent){
-      stage.style.touchAction='pan-y';
-      stage.addEventListener('touchstart', e => {
-        if(activeInput) return;
-        activeInput=true; activePointerId='touch'; holdPointerId='touch'; pressStartedAt=Date.now(); holdArmed=false;
-        clearArmTimer();
-        armTimer=setTimeout(()=>{
-          armTimer=null;
-          if(!activeInput || farmCompleting) return;
-          holdArmed=true; stage.classList.add('farm-active'); startStandaloneFarm();
-        },ARM_DELAY);
-      }, {passive:false});
-      window.addEventListener('touchend', e => {
-        if(!activeInput || activePointerId!=='touch') return;
-        finishHold(null);
-      }, {passive:false});
-      window.addEventListener('touchcancel', ()=>{ if(activeInput && !holdArmed) resetPress(); }, {passive:false});
-    }
-
-    stage.addEventListener('contextmenu', e => e.preventDefault());
-    stage.addEventListener('dragstart', e => e.preventDefault());
+    stage.addEventListener('pointerdown',down,{passive:false});
+    stage.addEventListener('pointerup',up,{passive:false});
+    stage.addEventListener('pointercancel',cancel,{passive:true});
+    stage.addEventListener('lostpointercapture',()=>{}, {passive:true});
+    stage.addEventListener('contextmenu',e=>e.preventDefault());
   }
+
 
   function spawnFarmSpark(){
     const box = $('#farmCoins'); if(!box) return;
@@ -8115,49 +8058,6 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
   setTimeout(run,100); setTimeout(run,500); setTimeout(run,1200);
 })();
 </script>
-
-<style id="resell-rfarm-avito-hardening-v4">
-/* R-FARM: zero animation/paint burst at payout edge. */
-#farmSection .farm-ring.holding .farm-r,
-#farmSection .farm-ring.holding .farm-glow{animation:none!important;transition:none!important}
-#farmSection .farm-progress-fill{will-change:auto!important}
-
-/* AVITO: cards may wrap internally, but the page can NEVER become wider than the viewport. */
-html,body,#app,.app,main.app,.page,.screen,.section,#modal,.modal,.sheet{
-  max-width:100vw!important;
-  width:100%!important;
-  overflow-x:hidden!important;
-  box-sizing:border-box!important;
-}
-.avx-shell,.avx-section,.avx-grid,.avx-product,.avx-product-top,.avx-product-info,.avx-product-bottom,
-.avx-stock,.avx-stock-row,.avx-stock-left,.avx-chat,.avx-chat-main,.avx-chat-side,.avx-chat-large,
-.avx-chat-large *,.avx-price-grid,.avx-price-btn,.avx-chat-actions{
-  min-width:0!important;max-width:100%!important;box-sizing:border-box!important;
-}
-.avx-grid{width:100%!important;overflow:hidden!important;grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important}
-.avx-product{width:100%!important;overflow:hidden!important}
-.avx-product-info b,.avx-product-info span,.avx-product-info small,
-.avx-stock-left b,.avx-stock-left span,.avx-stock-left small,
-.avx-chat-main b,.avx-chat-main small,.avx-chat-main em,
-.avx-chat-large *{min-width:0!important;max-width:100%!important;overflow-wrap:anywhere!important;word-break:break-word!important}
-.avx-product-bottom{flex-wrap:nowrap!important;overflow:hidden!important}
-.avx-product-bottom strong,.avx-product-bottom .avx-btn{min-width:0!important;max-width:100%!important}
-.avx-product-bottom .avx-btn{overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
-.avx-chat{overflow:hidden!important}
-.avx-chat-main{overflow:hidden!important}
-.avx-chat-main b,.avx-chat-main small,.avx-chat-main em{overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
-.avx-price-btn{overflow:hidden!important}
-@media(max-width:430px){
-  .avx-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;gap:7px!important}
-  .avx-product{padding:9px!important}
-  .avx-product-top{gap:6px!important}
-  .avx-product-icon,.avx-rarity-icon{flex:0 0 30px!important;width:30px!important}
-  .avx-product-info b{font-size:8px!important;line-height:1.16!important}
-  .avx-product-bottom{gap:5px!important}
-  .avx-product-bottom strong{font-size:8.5px!important}
-  .avx-product-bottom .avx-btn{padding-left:6px!important;padding-right:6px!important;font-size:6.5px!important}
-}
-</style>
 </html>
 <style id="resell-home-nav-v3">
 /* RESSELL HOME NAV V3 — beginner-first information architecture. */
