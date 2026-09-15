@@ -1778,6 +1778,17 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 @media(max-width:390px){#v33Cust .r33-cust-tabs .r28-tab{font-size:5.7px!important}#v33Cust .r33-cust-grid{gap:7px!important}#v33Cust .r28-card{padding:8px!important}}
 </style>
 <!-- RESSELL V74: RESELL RUN added to Game Center; Telegram auth unchanged. -->
+<style id="avito-v5-chat-fix">
+.avx-chat-large .avito-chat-message{font-size:9px!important;line-height:1.42!important;padding:10px!important;min-height:0!important;max-height:180px!important;overflow:auto!important;overflow-wrap:anywhere!important;word-break:break-word!important}
+.avx-chat-large{padding:13px!important}
+.avx-price-grid{margin-top:10px!important}
+.avx-price-btn{min-height:52px!important;padding:9px 12px!important;font-size:8px!important}
+.avx-price-btn .price-copy b{font-size:9px!important}
+.avx-price-btn .price-copy span{font-size:7px!important}
+.avx-price-btn .price-value{font-size:10px!important}
+.avx-chat-actions{gap:7px!important;margin-top:9px!important}
+.avx-chat-actions .avx-btn{min-height:44px!important;font-size:8px!important;line-height:1.25!important;white-space:normal!important;overflow-wrap:anywhere!important}
+</style>
 </head>
 <body class="resell-booting">
 <div aria-hidden="false" id="bootSplash">
@@ -5289,9 +5300,12 @@ async function initFarm(){
     const special=['special'].includes(String(chat.client_type||''));
     const trust=Math.max(0,Math.min(100,Number(chat.trust||50)));
     const persuasion=Math.max(0,Math.min(100,Number(avitoState?.avito_level?.persuasion||22)));
+    const allChoices=Array.isArray(chat.choices)?chat.choices:[];
+    const priceChoices=allChoices.filter(c=>c&&Number.isFinite(Number(c.price))&&Number(c.price)>0);
+    const dialogueChoices=allChoices.filter(c=>c&&(!Number.isFinite(Number(c.price))||c.kind==='dialogue'||c.score!==undefined));
     const opts=phase===5
-      ? `<div class="avx-price-grid">${(Array.isArray(chat.choices)?chat.choices:[]).map(c=>`<button class="avito-btn primary avx-price-btn" data-avito-price="${esc(chat.chat_key)}" data-price="${Number(c.price)||0}" data-risk="${Number(c.risk)||25}"><span class="price-copy"><b>${esc(c.label||'Выбрать цену')}</b><span>${special?'Убеждение + доверие влияют на шанс сделки':'Вероятность зависит от предложения'}</span></span><span class="price-value">${number(c.price||0)} ₽</span></button>`).join('')}</div>`
-      : `<div class="avx-chat-actions">${(Array.isArray(chat.choices)?chat.choices:[]).slice(0,3).map((c,i)=>`<button class="avx-btn ${i===0?'buy':''}" data-avito-answer="${esc(chat.chat_key)}" data-choice="${i}">${esc(c.label||'Ответить')}</button>`).join('')}</div>`;
+      ? `<div class="avx-price-grid">${priceChoices.map(c=>`<button class="avito-btn primary avx-price-btn" data-avito-price="${esc(chat.chat_key)}" data-price="${Number(c.price)||0}" data-risk="${Number(c.risk)||25}"><span class="price-copy"><b>${esc(c.label||'Выбрать цену')}</b><span>${special?'Убеждение + доверие влияют на шанс сделки':'Вероятность зависит от предложения'}</span></span><span class="price-value">${number(c.price||0)} ₽</span></button>`).join('')}</div>`
+      : `<div class="avx-chat-actions">${dialogueChoices.slice(0,3).map((c,i)=>`<button class="avx-btn ${i===0?'buy':''}" data-avito-answer="${esc(chat.chat_key)}" data-choice="${i}">${esc(c.label||'Ответить')}</button>`).join('')}</div>`;
     const shopName=String(avitoState?.shop_name||'Без названия'); const reviewCount=Number(avitoState?.reviews?.count||0); const reviewAverage=Number(avitoState?.reviews?.average||0); const ratingMarkup=reviewCount>0?`${reviewsStars(reviewAverage)} <em class="avx-rating-number">${reviewAverage.toFixed(1)}</em>`:'<span class="avx-no-rating">Нет отзывов</span>';
     return `<div data-avito-chat-sheet="1" class="avito-shell avx-shell"><div class="avx-section avx-chat-large ${special?'avx-special-chat':''}"><div class="avx-seller-card"><b>${esc(shopName)}</b><span>${ratingMarkup}</span></div><div class="avito-chat-head"><div class="avito-chat-buyer">Покупатель #${esc(chat.buyer_id)}</div><div class="avito-chat-stage">${special?'HIGH VALUE · ':''}ЭТАП ${phase} · РАУНД ${chat.round}</div></div><div class="avito-chat-message">${esc(chat.message||'Клиент ждёт ответа.')}</div>${special?`<div class="avx-chat-persuasion"><div class="avx-chat-persuasion-head"><span>УБЕЖДЕНИЕ · ДОВЕРИЕ</span><b>${Math.round((persuasion+trust)/2)}%</b></div><div class="avx-chat-meter"><i style="width:${Math.round((persuasion+trust)/2)}%"></i></div><div class="avx-chat-hint">Твоя репутация усиливает переговоры. Хорошие ответы повышают доверие покупателя.</div></div>`:''}${phase===5?'<div class="avx-section-head" style="margin-top:14px;margin-bottom:0"><div><b>Финальная цена</b><span>Выбери цену. Для дорогих лотов учитываются убеждение и доверие.</span></div></div>':''}${opts}</div></div>`;
   }
