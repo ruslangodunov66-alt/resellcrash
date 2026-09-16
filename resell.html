@@ -68,6 +68,17 @@
 .registration-v5-actions{display:grid;grid-template-columns:112px 1fr;gap:9px}
 .registration-v5-note{color:#555c56;font:800 8px/1.4 'Nunito',sans-serif;text-align:center}
 @media(max-width:380px){.registration-v5-title{font-size:23px}.registration-v5{gap:12px}.registration-v5-lead{font-size:10px}.registration-v5-input{min-height:48px}.registration-v5-btn{min-height:48px}}
+
+/* Admin player: reliable vertical scrolling and no clipped controls. */
+.modal:has(.admin-profile-player) .modal-body{overflow-y:auto!important;overflow-x:hidden!important;max-height:calc(100dvh - 118px)!important;padding-bottom:calc(28px + env(safe-area-inset-bottom))!important;-webkit-overflow-scrolling:touch!important}
+.modal:has(.admin-profile-player) .admin-profile-player{min-height:0!important;width:100%!important;overflow:visible!important}
+.modal:has(.admin-profile-player) .admin-action-grid{grid-template-columns:minmax(0,1fr) minmax(96px,auto)!important}
+.modal:has(.admin-profile-player) .admin-action-grid>*{min-width:0!important;max-width:100%!important}
+.modal:has(.admin-profile-player) .admin-input,.modal:has(.admin-profile-player) .admin-select{box-sizing:border-box!important;max-width:100%!important}
+.modal:has(.admin-profile-player) .admin-asset-row{min-width:0!important;flex-wrap:wrap!important}
+.modal:has(.admin-profile-player) .admin-asset-row>span{min-width:0!important;flex:1 1 150px!important;overflow-wrap:anywhere!important}
+.modal:has(.admin-profile-player) .admin-asset-remove{min-width:74px!important;min-height:32px!important;visibility:visible!important;opacity:1!important}
+@media(max-width:520px){.modal:has(.admin-profile-player) .admin-action-grid{grid-template-columns:1fr!important}.modal:has(.admin-profile-player) .admin-asset-row{align-items:stretch!important}.modal:has(.admin-profile-player) .admin-asset-remove{width:100%!important}}
 </style>
 <script src="https://telegram.org/js/telegram-web-app.js?63"></script>
 <style>
@@ -3435,7 +3446,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     for(let attempt=0;attempt<1;attempt++){
       try{
         const resp=await apiFetch(`${API_BASE}/profile/${encodeURIComponent(userId)}?t=${Date.now()}`,{method:'GET'},1);
-        const data=await resp.json(); profileData=data;
+        const data=await resp.json(); profileData=data; __lastServerStateTs=Number(data.server_state_ts||0);
         if(data.registration_complete===false||data.registration_complete===0||data.registration_required===true){setBalance(primaryBalance(data));setProgress(0);statusText.textContent='Требуется регистрация';if(!registrationRequired && !launchSequenceActive)openRegistration();return data;}
         setBalance(primaryBalance(data)); epochData=data.epoch||null; setProgress(Number(data.epoch_progress??epochData?.progress??0)); rcoinData=data.rcoin||null; renderRcoin(); statusText.textContent='Баланс синхронизирован'; $('.status-dot').style.background='var(--success)'; try{if(data.engagement){engagementData=data.engagement;renderEngagement();}await loadEngagement();await loadRcoinStatus();}catch(_){ } return data;
       }catch(e){lastError=e;if(attempt<2)await new Promise(r=>setTimeout(r,250));}
@@ -6191,7 +6202,7 @@ async function initFarm(){
       if(!target||!type||!assetId)return;
       if(!confirm(`Забрать актив?\n\nТип: ${type}\nID: ${assetId}\n\nДеньги игроку возвращаться не будут.`))return;
       removeAssetBtn.disabled=true;
-      try{await adminFetch(`/admin/player/${ADMIN_OWNER_ID}/${target}/asset/remove`,{method:'POST',body:JSON.stringify({asset_type:type,asset_id:assetId})});showToast('Актив забран');await openAdminPlayer(target);}catch(err){showToast(err.message||'Не удалось забрать актив');removeAssetBtn.disabled=false;} return;
+      try{const result=await adminFetch(`/admin/player/${ADMIN_OWNER_ID}/${target}/asset/remove`,{method:'POST',body:JSON.stringify({asset_type:type,asset_id:assetId})});showToast('Актив забран');await openAdminPlayer(target);requestAnimationFrame(()=>document.getElementById('adminAssetsPanel')?.scrollIntoView({block:'start',behavior:'smooth'}));}catch(err){showToast(err.message||'Не удалось забрать актив');removeAssetBtn.disabled=false;} return;
     }
     const target=modalBody.dataset.adminTarget;
     if(target && e.target.closest('#adminSendPersonalMessage')){ await sendAdminPersonalMessage(target); return; }
@@ -6572,6 +6583,26 @@ async function initFarm(){
     await finishLaunch({firstRun});
   })();
   setInterval(() => { if (document.visibilityState === 'visible') loadProfile(); }, 60000);
+  // Asset confiscation is server-authoritative. A lightweight refresh keeps an online
+  // player's businesses/cars/etc. synchronized shortly after an admin removes them.
+  let __lastServerStateTs = Number(profileData?.server_state_ts||0);
+  setInterval(async()=>{
+    if(document.visibilityState!=='visible' || !userId || launchSequenceActive) return;
+    try{
+      const resp=await apiFetch(`${API_BASE}/profile/${encodeURIComponent(userId)}?t=${Date.now()}`,{method:'GET',cache:'no-store'},1);
+      if(!resp.ok) return;
+      const d=await resp.json();
+      const ts=Number(d.server_state_ts||0);
+      if(ts && ts!==__lastServerStateTs){
+        __lastServerStateTs=ts;
+        profileData=d; setBalance(primaryBalance(d));
+        epochData=d.epoch||epochData; rcoinData=d.rcoin||rcoinData;
+        if(document.visibilityState==='visible'){
+          try{renderEngagement();}catch(_){ }
+        }
+      }
+    }catch(_){ }
+  },5000);
 
   // V26 bridge: expose only stable read/call primitives for isolated UI modules.
   window.__resellCoreV26 = {
