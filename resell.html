@@ -4781,6 +4781,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
 })();
 /* resell-rhold-skin-v20-hook */
 async function initFarm(){
+    if(window.__rfarmV76Active) return;
     restoreRholdSkinLocalV19();
     watchRholdPanelV20();
     if(Date.now() < holdJustCompletedUntil) return;
@@ -4826,6 +4827,7 @@ async function initFarm(){
 
   // Cooldown clock + recovery after Telegram WebView suspension/backgrounding.
   setInterval(async()=>{
+    if(window.__rfarmV76Active) return;
     if(!holdState || holdPointerActive || holdStartPromise || farmCompleting) return;
 
     const now = farmNow();
@@ -9447,15 +9449,18 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
 #farmSection .farm-progress-fill{transition:width .06s linear!important}
 #farmSection .farm-panel.rf73-cooldown{opacity:.94}
 </style>
-<script id="resell-v73-rfarm-only">
+<script id="resell-v76-rfarm-only">
 (function(){
   'use strict';
+  // SINGLE R-FARM CONTROLLER. This block owns only the R-Farm stage.
+  // No polling loop, no duplicate start/complete handlers, no second controller.
   const API='https://resellgame.bothost.tech';
   const DURATION=30;
-  let stage=null, active=false, completing=false, completed=false, starting=false;
-  let pointerId=null, pressAt=0, sessionId=null, startedAt=0, targetReward=0;
-  let raf=0, finishTimer=0, pollTimer=0, syncBusy=false;
-  let lastProgress=0,lastReward=0;
+  let stage=null;
+  let active=false, starting=false, completing=false, completed=false;
+  let pointerId=null, sessionId=null, startedAt=0, targetReward=0;
+  let raf=0, finishTimer=0;
+  let lastProgress=0, lastReward=0;
   const $=s=>document.querySelector(s);
   const core=()=>window.__resellCoreV26||{};
   const uid=()=>String(core().getUserId?.()||'');
@@ -9463,10 +9468,12 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
   const toast=t=>core().showToast?.(t);
   const num=v=>Number.isFinite(Number(v))?Number(v):0;
   const clock=s=>{s=Math.max(0,Math.ceil(num(s)));return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`};
+
   function haptic(kind='light'){
     try{window.Telegram?.WebApp?.HapticFeedback?.impactOccurred?.(kind)}catch(_){ }
     try{if(navigator.vibrate){const p=kind==='heavy'?[26,16,22]:kind==='medium'?[16]:[7];navigator.vibrate(p)}}catch(_){ }
   }
+
   function skinSave(x){
     if(!x?.id)return;
     const d={id:String(x.id),bg:String(x.bg||''),border:String(x.border||''),accent:String(x.accent||''),glow:String(x.glow||'')};
@@ -9475,178 +9482,224 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
   }
   function paintSkin(x){
     if(!x?.id)return;
-    const p=$('#farmPanel'); if(!p)return;
+    const p=$('#farmPanel');if(!p)return;
     p.style.setProperty('--rhold-bg',x.bg||'','important');
     p.style.setProperty('--rhold-border',x.border||'','important');
     p.style.setProperty('--rhold-accent',x.accent||'','important');
     p.style.setProperty('--rhold-glow',x.glow||'','important');
     p.dataset.rholdSkin=String(x.id);
-    document.querySelectorAll('#farmSection .farm-ring,#farmSection .farm-r').forEach(el=>el.dataset.resellRholdStyle=String(x.id));
-  }
-  async function syncSkin(){
-    const u=uid(); if(!u)return false;
-    try{
-      const r=await apiFetch(`${API}/hold/skins/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'GET',headers:{Accept:'application/json','Cache-Control':'no-cache'}},3);
-      const d=await r.json().catch(()=>({})); if(!r.ok||!d.success)return false;
-      const eq=String(d.equipped_slots?.rhold||d.equipped||'');
-      const item=(d.skins||[]).find(x=>String(x.id)===eq);
-      if(item){skinSave(item);return true;}
-    }catch(_){ }
-    return false;
   }
   function localSkin(){try{const x=JSON.parse(localStorage.getItem('resell_rhold_skin_v20')||localStorage.getItem('resell_rhold_skin_v19')||'null');if(x?.id)paintSkin(x)}catch(_){}}
-  function setStatus(t){const e=$('#farmStatus');if(e)e.textContent=t;}
-  function setTotal(t){const e=$('#farmTotal');if(e)e.textContent=t;}
+  async function syncSkin(){
+    const u=uid();if(!u)return;
+    try{
+      const r=await apiFetch(`${API}/hold/skins/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'GET',headers:{Accept:'application/json','Cache-Control':'no-cache'}},3);
+      const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)return;
+      const eq=String(d.equipped_slots?.rhold||d.equipped||'');
+      const item=(d.skins||[]).find(x=>String(x.id)===eq);if(item)skinSave(item);
+    }catch(_){ }
+  }
+
+  function setStatus(t){const e=$('#farmStatus');if(e)e.textContent=t}
+  function setTotal(t){const e=$('#farmTotal');if(e)e.textContent=t}
   function visuals(progress){
     progress=Math.max(0,Math.min(1,num(progress)));
-    const fill=$('#farmProgressFill'); if(fill)fill.style.width=(progress*100).toFixed(3)+'%';
-    const timer=$('#farmTimer'); if(timer){timer.style.display='none';timer.textContent=clock(DURATION*(1-progress));}
-    const panel=$('#farmPanel');
-    if(panel)panel.classList.toggle('rf73-cooldown',false);
+    const fill=$('#farmProgressFill');if(fill)fill.style.width=(progress*100).toFixed(3)+'%';
+    const timer=$('#farmTimer');if(timer){timer.style.display='none';timer.textContent=clock(DURATION*(1-progress));}
   }
   function renderReward(reward,progress){
     const e=$('#farmTotal');if(!e)return;
     const r=Math.max(0,num(reward));
     if(progress>=.9995)e.textContent=`+${Math.round(r).toLocaleString('ru-RU')} ₽`;
-    else if(r>0)e.textContent=`+${r.toFixed(1).replace('.',',')} ₽`;
-    else e.textContent='+0,0 ₽';
+    else e.textContent=`+${r.toFixed(1).replace('.',',')} ₽`;
   }
   function stopVisual(){
-    if(raf){cancelAnimationFrame(raf);raf=0} if(pollTimer){clearInterval(pollTimer);pollTimer=0} if(finishTimer){clearTimeout(finishTimer);finishTimer=0}
-    stage?.classList.remove('rf73-busy');$('#farmRing')?.classList.remove('holding');
+    if(raf){cancelAnimationFrame(raf);raf=0}
+    if(finishTimer){clearTimeout(finishTimer);finishTimer=0}
+    stage?.classList.remove('rf73-busy');
+    $('#farmRing')?.classList.remove('holding');
   }
-  function resetLocal(){active=false;starting=false;sessionId=null;startedAt=0;targetReward=0;pointerId=null;lastProgress=0;lastReward=0;stopVisual();}
+  function resetLocal(){
+    active=false;starting=false;sessionId=null;startedAt=0;targetReward=0;pointerId=null;
+    lastProgress=0;lastReward=0;stopVisual();
+    stage?.classList.remove('rf73-busy');
+    $('#farmRing')?.classList.remove('holding');
+  }
+
   async function status(){
     const u=uid();if(!u)throw new Error('Открой Resell через Telegram');
     const r=await apiFetch(`${API}/hold/status/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'GET',headers:{Accept:'application/json','Cache-Control':'no-cache'}},3);
-    const d=await r.json().catch(()=>({}));if(!r.ok||d.success===false)throw new Error(d.error||'R-Farm недоступен');return d;
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok||d.success===false)throw new Error(d.error||'R-Farm недоступен');
+    return d;
   }
-  async function cancel(){
-    if(!sessionId)return;
-    const sid=sessionId;sessionId=null;
-    try{await apiFetch(`${API}/hold/cancel/${encodeURIComponent(uid())}`,{method:'POST',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},body:JSON.stringify({session_id:sid})},3)}catch(_){ }
-  }
-  async function complete(){
-    if(completing||completed||!sessionId)return;
-    completing=true;const sid=sessionId;
+  async function cancelServer(sid){
+    if(!sid)return true;
     try{
-      const r=await apiFetch(`${API}/hold/complete/${encodeURIComponent(uid())}`,{method:'POST',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},body:JSON.stringify({session_id:sid,duration:DURATION})},3);
-      const d=await r.json().catch(()=>({}));
-      if(!r.ok||!d.success)throw new Error(d.error||`Не удалось зачислить награду (HTTP ${r.status})`);
-      completed=true;sessionId=null;active=false;
-      const reward=Math.round(num(d.reward||targetReward));
-      if(d.balance!==undefined){try{core().setBalance?.(Number(d.balance));const p=core().getProfile?.();if(p)p.balance=Number(d.balance)}catch(_){}}
-      lastProgress=1;lastReward=reward;visuals(1);renderReward(reward,1);stopVisual();
-      setStatus(`Готово! +${reward.toLocaleString('ru-RU')} ₽ уже на балансе. КД до 12:00 по МСК.`);
-      toast(`+${reward.toLocaleString('ru-RU')} ₽ зачислено`);haptic('heavy');
-      // The server is authoritative; immediately refresh only the R-Farm status.
-      setTimeout(()=>syncFarmStatus(),120);
-    }catch(e){
-      completed=false;
-      setStatus(e.message||'Награда не зачислена');toast(e.message||'Награда не зачислена');
-      try{const d=await status();if(!d.session_id){sessionId=null;active=false;stopVisual();}}catch(_){ }
-    }finally{completing=false;}
+      const r=await apiFetch(`${API}/hold/cancel/${encodeURIComponent(uid())}`,{method:'POST',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},body:JSON.stringify({session_id:sid})},3);
+      return !!r.ok;
+    }catch(_){return false}
   }
-  async function syncFarmStatus(){
-    if(syncBusy)return;syncBusy=true;
-    try{
-      const d=await status();
-      const sid=String(d.session_id||'');
-      if(!active&&!starting&&!completed){
-        const left=Math.max(0,num(d.cooldown_remaining||0));
-        if(!sid&&left>0){setStatus(`R-Farm на КД: ${clock(left)}. Следующая попытка после 12:00 МСК.`);setTotal('КД');}
-        else if(!sid){setStatus('Нажми и удерживай R 30 секунд. Награда накапливается плавно.');setTotal('10–100k ₽');}
-      }
-      if(active&&sid){
-        const p=Math.max(0,Math.min(1,num(d.progress)));
-        const rew=Math.max(0,num(d.current_reward));
-        lastProgress=Math.max(lastProgress,p);lastReward=Math.max(lastReward,rew);visuals(lastProgress);renderReward(lastReward,lastProgress);
-        if(d.auto_complete||p>=.9995) await complete();
-      }
-      if(active&&!sid&&!starting&&!completed){active=false;stopVisual();setStatus('Сессия R-Farm завершилась на сервере. Нажми ещё раз.');}
-    }catch(e){if(!active)setStatus(e.message||'R-Farm временно недоступен')}
-    finally{syncBusy=false}
+
+  // A server session without a live physical press is stale for this page.
+  // Kill it and continue with the new press instead of showing "already running".
+  async function clearStaleSession(d){
+    let cur=d;
+    for(let i=0;i<2 && cur?.session_id;i++){
+      await cancelServer(String(cur.session_id));
+      cur=await status().catch(()=>null);
+      if(!cur)break;
+    }
+    return cur||d;
   }
+
   function animate(){
     if(!active||!sessionId||completing||completed)return;
     const elapsed=Math.max(0,(Date.now()-startedAt)/1000);
     const p=Math.max(lastProgress,Math.min(1,elapsed/DURATION));
     lastProgress=p;
-    // Reward is smoothly interpolated toward the latest server snapshot.
-    const estimate=Math.min(targetReward,targetReward*p);
-    lastReward=Math.max(lastReward,estimate*.995);
+    lastReward=Math.max(lastReward,targetReward*p);
     visuals(p);renderReward(lastReward,p);
-    if(p>=1){complete();return;}
+    if(p>=1){
+      complete();
+      return;
+    }
     raf=requestAnimationFrame(animate);
   }
-  async function start(){
-    if(starting||completing||active)return;
-    const u=uid();if(!u){setStatus('Открой Resell через Telegram.');toast('Не найден Telegram ID');return;}
-    starting=true;completed=false;haptic('medium');setTotal('+0,0 ₽');setStatus('Запускаю R-Farm…');
+
+  async function complete(){
+    if(completing||completed||!sessionId)return;
+    completing=true;
+    const sid=sessionId;
     try{
-      const st=await status();
-      const left=Math.max(0,num(st.cooldown_remaining||0));
-      if(st.session_id){throw new Error('R-Farm уже запущен. Продолжай удерживать R.');}
-      if(st.ready===false&&left>0){setTotal('КД');setStatus(`R-Farm на КД: ${clock(left)}. Следующая попытка после 12:00 МСК.`);toast(`КД: ${clock(left)}`);return;}
-      const r=await apiFetch(`${API}/hold/start/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','Cache-Control':'no-cache'},body:JSON.stringify({duration:DURATION})},3);
-      const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)throw new Error(d.error||`R-Farm не запустился (HTTP ${r.status})`);
-      sessionId=String(d.session_id||d.sessionId||'');if(!sessionId)throw new Error('Сервер не выдал session_id');
-      startedAt=num(d.started_at||d.startedAt)||Date.now()/1000;targetReward=Math.max(10000,num(d.target_reward||d.base_reward)||30000);
-      active=true;starting=false;lastProgress=0;lastReward=0;stage?.classList.add('rf73-busy');$('#farmRing')?.classList.add('holding');
-      setStatus('R-Farm работает. Держи R — 100% завершит фарм автоматически.');
-      haptic('medium');animate();
-      pollTimer=setInterval(()=>syncFarmStatus(),500);
-      finishTimer=setTimeout(()=>{if(active&&!completed&&!completing)complete()},Math.max(50,(startedAt*1000+DURATION*1000+180)-Date.now()));
-    }catch(e){active=false;sessionId=null;stopVisual();setStatus(e.message||'R-Farm временно недоступен');toast(e.message||'R-Farm временно недоступен');}
-    finally{starting=false;}
+      const r=await apiFetch(`${API}/hold/complete/${encodeURIComponent(uid())}`,{method:'POST',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},body:JSON.stringify({session_id:sid,duration:DURATION})},3);
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok||!d.success){
+        const err=new Error(d.error||`Не удалось зачислить награду (HTTP ${r.status})`);
+        err.remaining=Math.max(0,num(d.remaining||d.retry_after));
+        throw err;
+      }
+      completed=true;active=false;sessionId=null;
+      const reward=Math.round(num(d.reward||targetReward));
+      if(d.balance!==undefined){
+        try{core().setBalance?.(Number(d.balance));const p=core().getProfile?.();if(p)p.balance=Number(d.balance)}catch(_){ }
+      }
+      lastProgress=1;lastReward=reward;visuals(1);renderReward(reward,1);stopVisual();
+      setStatus(`Готово! +${reward.toLocaleString('ru-RU')} ₽ зачислено. CD сбросится в 12:00 по МСК.`);
+      toast(`+${reward.toLocaleString('ru-RU')} ₽ зачислено`);haptic('heavy');
+      try{window.dispatchEvent(new Event('resell:hold-complete'))}catch(_){ }
+      setTimeout(()=>{status().then(d=>applyIdleStatus(d)).catch(()=>{})},150);
+    }catch(e){
+      // The only expected non-fatal completion error is a few milliseconds of
+      // early arrival. Keep the same session and retry once the server allows it.
+      const remaining=Math.max(0,num(e?.remaining||0));
+      if(remaining>0 && active && sessionId===sid){
+        setStatus(`R-Farm завершает начисление… ещё ${clock(remaining)}`);
+        if(finishTimer)clearTimeout(finishTimer);
+        finishTimer=setTimeout(()=>{finishTimer=0;complete()},Math.max(80,remaining*1000+120));
+      }else{
+        setStatus(e.message||'Награда не зачислена');toast(e.message||'Награда не зачислена');
+      }
+    }finally{completing=false}
   }
+
+  function applyIdleStatus(d){
+    if(!d)return;
+    const sid=String(d.session_id||'');
+    const left=Math.max(0,num(d.cooldown_remaining||0));
+    if(sid)return; // never overwrite a live local press
+    if(left>0 || d.ready===false){
+      setTotal('КД');
+      setStatus(`CD активен · сброс в 12:00 по МСК. Осталось ${clock(left)}.`);
+      $('#farmSection .farm-stage')?.classList.add('farm-disabled');
+      return;
+    }
+    setTotal('10–100k ₽');
+    setStatus('Нажми и удерживай R 30 секунд. Награда накапливается плавно.');
+    visuals(0);
+    $('#farmSection .farm-stage')?.classList.remove('farm-disabled');
+  }
+
+  async function start(){
+    if(starting||active||completing)return;
+    const u=uid();if(!u){setStatus('Открой Resell через Telegram.');toast('Не найден Telegram ID');return}
+    starting=true;completed=false;haptic('light');setTotal('+0,0 ₽');setStatus('Запускаю R-Farm…');
+    try{
+      let st=await status();
+      // Never block a new physical press because a previous WebView left a
+      // session in the DB. It is safe to cancel that stale session here.
+      if(st.session_id)st=await clearStaleSession(st);
+      const left=Math.max(0,num(st?.cooldown_remaining||0));
+      if(st?.session_id)throw new Error('Не удалось освободить старую сессию R-Farm. Нажми ещё раз.');
+      if(st?.ready===false&&left>0){applyIdleStatus(st);return}
+
+      const r=await apiFetch(`${API}/hold/start/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','Cache-Control':'no-cache'},body:JSON.stringify({duration:DURATION})},3);
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok||!d.success)throw new Error(d.error||`R-Farm не запустился (HTTP ${r.status})`);
+      sessionId=String(d.session_id||d.sessionId||'');
+      if(!sessionId)throw new Error('Сервер не выдал session_id');
+      startedAt=num(d.started_at||d.startedAt)||Date.now()/1000;
+      targetReward=Math.max(10000,num(d.target_reward||d.base_reward)||30000);
+      active=true;starting=false;lastProgress=0;lastReward=0;
+      stage?.classList.add('rf73-busy');$('#farmRing')?.classList.add('holding');
+      setStatus('R-Farm работает. Держи R — 100% автоматически зачислит награду.');
+      haptic('medium');
+      animate();
+      if(finishTimer)clearTimeout(finishTimer);
+      finishTimer=setTimeout(()=>{finishTimer=0;if(active&&!completed&&!completing)complete()},Math.max(80,startedAt*1000+DURATION*1000+160-Date.now()));
+    }catch(e){
+      resetLocal();setStatus(e.message||'R-Farm временно недоступен');toast(e.message||'R-Farm временно недоступен');
+    }finally{starting=false}
+  }
+
   async function release(){
     if(completing||completed)return;
-    if(!active){return}
+    if(!active)return;
     const p=lastProgress;
     if(p>=.9995){await complete();return}
-    active=false;const sid=sessionId;sessionId=null;stopVisual();$('#farmRing')?.classList.remove('holding');
-    if(sid){try{await apiFetch(`${API}/hold/cancel/${encodeURIComponent(uid())}`,{method:'POST',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},body:JSON.stringify({session_id:sid})},3)}catch(_){}}
-    setTotal('+0,0 ₽');setStatus('Отпустил раньше 30 секунд — награда не засчитана.');haptic('light');
-    setTimeout(()=>syncFarmStatus(),120);
+    active=false;
+    const sid=sessionId;sessionId=null;
+    stopVisual();$('#farmRing')?.classList.remove('holding');
+    if(sid)await cancelServer(sid);
+    setTotal('10–100k ₽');setStatus('Отпустил раньше 30 секунд — награда не засчитана.');haptic('light');
   }
+
   function bind(){
-    const fresh=$('#farmSection .farm-stage');if(!fresh)return;
-    // Remove every legacy listener attached to the R-Farm stage without touching any other UI.
-    stage=fresh.cloneNode(true);fresh.replaceWith(stage);
-    stage.dataset.rf73='1';stage.style.touchAction='none';
+    const old=$('#farmSection .farm-stage');if(!old)return;
+    // Replace ONLY the R-Farm stage, removing every older R-Farm listener.
+    stage=old.cloneNode(true);old.replaceWith(stage);
+    stage.dataset.rf76='1';stage.dataset.bound='1';stage.style.touchAction='none';stage.style.userSelect='none';stage.style.webkitUserSelect='none';
     let down=false;
     const downFn=e=>{
       if(e?.pointerType==='mouse'&&e.button!==0)return;
       if(down||starting||active||completing)return;
-      down=true;pointerId=e?.pointerId??null;pressAt=Date.now();e?.preventDefault?.();haptic('light');
+      down=true;pointerId=e?.pointerId??null;try{e?.preventDefault?.()}catch(_){ }
       try{if(e?.pointerId!=null)stage.setPointerCapture(e.pointerId)}catch(_){ }
       start();
     };
     const upFn=async e=>{
-      if(!down)return;if(e?.pointerId!=null&&pointerId!=null&&e.pointerId!==pointerId)return;
+      if(!down)return;
+      if(e?.pointerId!=null&&pointerId!=null&&e.pointerId!==pointerId)return;
       down=false;try{e?.preventDefault?.()}catch(_){ }
       await release();pointerId=null;
     };
     stage.addEventListener('pointerdown',downFn,{passive:false});
     window.addEventListener('pointerup',upFn,{capture:true,passive:false});
-    window.addEventListener('touchend',async e=>{if(!down)return;down=false;await release();pointerId=null},{capture:true,passive:false});
-    // Do not cancel a valid hold on pointercancel/lostpointercapture; Telegram/iOS may emit both while the finger remains down.
+    window.addEventListener('touchend',async e=>{if(!down)return;down=false;try{e.preventDefault()}catch(_){ }await release();pointerId=null},{capture:true,passive:false});
     stage.addEventListener('contextmenu',e=>e.preventDefault());stage.addEventListener('dragstart',e=>e.preventDefault());
   }
-  function boot(){
+
+  async function boot(){
+    window.__rfarmV76Active=true;
     if(!$('#farmSection .farm-stage')){setTimeout(boot,100);return}
-    localSkin();bind();syncSkin().catch(()=>{});syncFarmStatus().catch(()=>{});
-    // During/after customization, keep only the R-HOLD appearance synchronized
-    // with the server for a short window. This does not touch profile/economy UI.
+    localSkin();
+    bind();
+    syncSkin().catch(()=>{});
+    try{const d=await status();applyIdleStatus(d)}catch(e){setStatus(e.message||'R-Farm временно недоступен')}
     let skinSyncs=0;
-    const skinTimer=setInterval(()=>{
-      if(document.visibilityState!=='visible')return;
-      syncSkin().catch(()=>{});
-      if(++skinSyncs>=20)clearInterval(skinTimer);
-    },750);
-    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){localSkin();syncSkin();syncFarmStatus()}},{passive:true});
-    window.addEventListener('pageshow',()=>{localSkin();syncSkin();syncFarmStatus()},{passive:true});
+    const skinTimer=setInterval(()=>{if(document.visibilityState==='visible')syncSkin().catch(()=>{});if(++skinSyncs>=20)clearInterval(skinTimer)},750);
+    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){localSkin();syncSkin().catch(()=>{});if(!active&&!starting&&!completing)status().then(applyIdleStatus).catch(()=>{})}},{passive:true});
+    window.addEventListener('pageshow',()=>{localSkin();syncSkin().catch(()=>{});if(!active&&!starting&&!completing)status().then(applyIdleStatus).catch(()=>{})},{passive:true});
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
 })();
