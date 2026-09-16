@@ -4199,8 +4199,6 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
       if(!holdPointerActive || farmCompleting || farmCompleted){
         clearInterval(farmHapticId); farmHapticId=null; return;
       }
-      // Soft periodic ticks while the finger is held, without hammering the
-      // Taptic/Vibrator API.
       try{ haptic('light'); }catch(_){}
     }, 850);
   }
@@ -4216,57 +4214,40 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     if(farmStatusPollId){ clearInterval(farmStatusPollId); farmStatusPollId=null; }
   }
 
-  async function syncActiveFarmSnapshot(){
-    if(!holdState?.session_id || !holdPointerActive || farmCompleting) return;
-    try{
-      const d=await fetchHoldStatus({silent:true});
-      if(!d?.session_id){ stopFarmAnimation(); return; }
-      const targetProgress=Math.max(0,Math.min(1,Number(d.progress)||0));
-      const targetReward=Math.max(0,Number(d.current_reward)||0);
-      // Server snapshots are authoritative. Keep them monotonic so network
-      // jitter can never make the progress bar move backwards.
-      farmServerProgress=Math.max(farmServerProgress,targetProgress);
-      farmServerReward=Math.max(farmServerReward,targetReward);
-      farmSnapshotProgress=farmServerProgress;
-      farmSnapshotReward=farmServerReward;
-      farmServerSyncAt=performance.now();
-      if(d.auto_complete || targetProgress>=0.999) await completeStandaloneFarm();
-    }catch(_){ }
-  }
-
-  let farmSnapshotReward=0;
-  let farmSnapshotProgress=0;
-
+  // R-Farm is intentionally simple: after /hold/start the server has already
+  // selected the exact reward. During the 30s hold the client only animates
+  // that known value locally. No status polling loop and no repeated requests.
+  // The server remains the only authority for the final payout.
   function runFarmAnimation(){
     stopFarmAnimation();
-    farmVisualReward=0; farmVisualProgress=0;
-    farmSnapshotReward=0; farmSnapshotProgress=0;
-    farmServerProgress=0; farmServerReward=0; farmServerSyncAt=performance.now();
+    farmVisualReward=0;
+    farmVisualProgress=0;
+    const startedMs=Number(holdState?.started_at || 0) * 1000;
+    const durationMs=Math.max(1000, Number(holdState?.duration || FARM_DURATION) * 1000);
+    const target=Math.max(FARM_MIN_REWARD, Number(farmTargetReward) || FARM_MIN_REWARD);
+
     const tick=()=>{
-      if(!holdPointerActive || !holdState?.session_id || farmCompleting || farmCompleted){ farmRafId=null; return; }
-
-      // Predict smoothly between server snapshots using the last known
-      // server progress. This removes the old "stair-step / wobble" effect.
-      // The server still decides whether the final reward is valid.
-      const sinceSync=Math.max(0,(performance.now()-farmServerSyncAt)/1000);
-      const predictedProgress=Math.min(1, farmServerProgress + sinceSync/FARM_DURATION);
-      farmVisualProgress=Math.max(farmVisualProgress,predictedProgress,farmSnapshotProgress);
-
-      // Reward is displayed smoothly but never exceeds the last server value.
-      farmVisualReward=Math.max(farmVisualReward,farmSnapshotReward);
+      if(!holdPointerActive || !holdState?.session_id || farmCompleting || farmCompleted){
+        farmRafId=null;
+        return;
+      }
+      const elapsedMs=Math.max(0, Date.now()-startedMs);
+      const progress=Math.min(1, elapsedMs/durationMs);
+      farmVisualProgress=Math.max(farmVisualProgress,progress);
+      farmVisualReward=Math.max(farmVisualReward, target*progress);
       updateFarmVisuals(FARM_DURATION*(1-farmVisualProgress));
-      renderFarmReward(farmVisualProgress,farmVisualReward);
+      renderFarmReward(farmVisualProgress, farmVisualProgress>=1 ? target : farmVisualReward);
 
-      // Do not depend on pointerup or on a perfectly timed 1s poll.
-      // Once the server reports completion, completeStandaloneFarm() is called
-      // by syncActiveFarmSnapshot; this visual edge only keeps the UI responsive.
-      if(farmVisualProgress>=0.999 && !farmCompleting && !farmCompleted){
-        syncActiveFarmSnapshot().catch(()=>{});
+      if(progress>=1 && !farmCompleting && !farmCompleted){
+        // One completion request only. If the server says the request arrived
+        // a fraction too early, completeStandaloneFarm() schedules one retry
+        // using the server-provided remaining time; it never unlocks a stale UI.
+        completeStandaloneFarm().catch(()=>{});
       }
       farmRafId=requestAnimationFrame(tick);
     };
-    farmStatusPollId=setInterval(syncActiveFarmSnapshot,1000);
-    syncActiveFarmSnapshot();
+    startFarmHaptics();
+    syncActiveFarmSnapshot = async function(){ return; };
     farmRafId=requestAnimationFrame(tick);
   }
 
@@ -4307,7 +4288,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
   }
 
   async function startStandaloneFarm(){
-    if(farmCompleting || holdStartPromise || holdState?.session_id || holdPointerActive) return;
+    if(farmCompleting || holdStartPromise || holdPointerActive) return;
     if(!userId){
       $('#farmStatus').textContent = 'Открой Resell через Telegram.';
       showToast('Не найден Telegram ID пользователя');
@@ -4324,16 +4305,17 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     }
 
     if(holdState?.session_id){
-      // A session left behind by a previous WebView/page instance is stale for
-      // the current physical press. Cancel it, refresh local state, and CONTINUE
-      // with this new press. Never tell the user that a phantom session is active.
-      try{
-        await recoverStaleSession();
-        await refreshHoldStatusWithRetry();
-      }catch(_){ }
+      // A session without a live local press is a stale WebView session.
+      // Cancel it and immediately continue with this physical press.
+      const staleId=holdState.session_id;
+      try{ await cancelHoldSessionDirect(staleId); }catch(_){ }
+      holdState = normalizeHoldState({...holdState,session_id:null,started_at:0,ready:true,cooldown_remaining:0,cooldown_until:0});
+      try{ await refreshHoldStatusWithRetry(); }catch(_){ }
+      // If the server still exposes that exact stale session, try one final
+      // cancel. Never show the old "R-Farm already running" message to the user.
       if(holdState?.session_id){
-        $('#farmStatus').textContent = 'R-Farm занят предыдущей сессией. Обновляю состояние…';
-        try{ await cancelHoldSessionDirect(holdState.session_id); }catch(_){ }
+        const staleId2=holdState.session_id;
+        try{ await cancelHoldSessionDirect(staleId2); }catch(_){ }
         holdState = normalizeHoldState({...holdState,session_id:null,started_at:0,ready:true,cooldown_remaining:0,cooldown_until:0});
       }
     }
@@ -4341,7 +4323,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     const cooldown = Number(holdState?.cooldown_remaining || 0);
     if(!holdState?.ready && cooldown > 0){
       showToast(`Фарм снова будет доступен через ${formatClock(cooldown)}`);
-      $('#farmStatus').textContent = 'Фарм недоступен до ежедневного сброса в 12:00 по МСК.';
+      $('#farmStatus').textContent = 'CD активен · сброс в 12:00 по МСК.';
       return;
     }
 
@@ -4501,7 +4483,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
       document.querySelector('#farmSection .farm-stage')?.classList.remove('farm-active');
       updateFarmVisuals(cooldown);
       $('#farmTotal').textContent = `+${reward.toLocaleString('ru-RU')} ₽`;
-      $('#farmStatus').textContent = `Готово! +${reward.toLocaleString('ru-RU')} ₽ уже на главном балансе. КД снимается в 12:00 по МСК.`;
+      $('#farmStatus').textContent = `Готово! +${reward.toLocaleString('ru-RU')} ₽ зачислено. CD сбросится в 12:00 по МСК.`;
       $('#farmClaimCount').textContent = `Собрано: ${holdState.claims}`;
       try{ window.dispatchEvent(new Event('resell:hold-complete')); }catch(_){}
       for(let i=0;i<8;i) spawnFarmSpark();
@@ -4514,18 +4496,26 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
       try{ refreshHoldStatusWithRetry().catch(()=>{}); }catch(_){}
     }catch(err){
       farmCompleted = false;
-      // Never leave a stale session locked in the UI after a network/WebView hiccup.
-      try{
-        await refreshHoldStatusWithRetry();
-        if(!holdState?.session_id){
-          holdPointerActive = false;
-          holdReleaseQueued = false;
-          holdPointerId = null;
-          stopFarmAnimation();
-          $('#farmRing')?.classList.remove('holding');
-          document.querySelector('#farmSection .farm-stage')?.classList.remove('farm-active');
-        }
-      }catch(_){
+      const remaining=Number(err?.remaining || 0);
+      // A completion request can reach the server a few milliseconds before
+      // the exact 30.000s mark. This is NOT a failed farm. Keep the session
+      // alive and retry once the server says it is complete.
+      if(remaining > 0 && holdState?.session_id && holdPointerActive){
+        farmCompleting = false;
+        $('#farmStatus').textContent = 'R-Farm завершает начисление…';
+        if(holdTimer) clearTimeout(holdTimer);
+        holdTimer=setTimeout(()=>{
+          holdTimer=null;
+          if(holdPointerActive && holdState?.session_id && !farmCompleted && !farmCompleting){
+            completeStandaloneFarm().catch(()=>{});
+          }
+        }, Math.max(80, remaining*1000 + 120));
+        return;
+      }
+      // For a real network/server failure, synchronize once. Do not run a
+      // repeating poll and do not silently unlock an actually active session.
+      try{ await refreshHoldStatusWithRetry(); }catch(_){ }
+      if(!holdState?.session_id){
         holdPointerActive = false;
         holdReleaseQueued = false;
         holdPointerId = null;
@@ -4536,7 +4526,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
       $('#farmStatus').textContent = err.message || 'Награда не зачислена';
       showToast(err.message || 'Награда не зачислена');
     }finally{
-      farmCompleting = false;
+      if(farmCompleting) farmCompleting = false;
     }
   }
 
@@ -4818,7 +4808,7 @@ async function initFarm(){
           updateFarmVisuals(ready ? FARM_DURATION : left);
           $('#farmStatus').textContent = ready
             ? 'Нажми и удерживай R. Награда накапливается.'
-            : 'Фарм недоступен до ежедневного сброса в 12:00 по МСК.';
+            : 'CD активен · сброс в 12:00 по МСК.';
           $('#farmTotal').textContent = ready ? '10–100k ₽' : '';
           document.querySelector('#farmSection .farm-stage')?.classList.toggle('farm-disabled', !ready);
         }
@@ -4848,7 +4838,7 @@ async function initFarm(){
       holdState.cooldown_remaining = left;
       holdState.ready = false;
       updateFarmVisuals(left);
-      $('#farmStatus').textContent = 'Фарм недоступен до ежедневного сброса в 12:00 по МСК.';
+      $('#farmStatus').textContent = 'CD активен · сброс в 12:00 по МСК.';
       $('#farmTotal').textContent = '';
       document.querySelector('#farmSection .farm-stage')?.classList.add('farm-disabled');
     }else if(!holdState.session_id){
@@ -7846,7 +7836,7 @@ html[lang="en"] #resellHomeMoney #mainAssetsSection .main-tycoon-card[data-main-
     '0 контактов':'0 contacts','КОНТАКТЫ':'CONTACTS','СЕТЬ':'NETWORK','ПОИСК ИГРОКОВ':'SEARCH PLAYERS','Ник или @ник · от 2 символов':'Nickname or @nickname · 2+ characters','ТВОЙ КРУГ':'YOUR CIRCLE','контактов':'contacts','Пока никого нет. Найди первого партнёра через поиск выше.':'No friends yet. Find your first partner using the search above.','Игрок не найден.':'Player not found.','Не удалось открыть «Друзья»':'Could not open Friends','ПОВТОРИТЬ':'RETRY','НАЙТИ':'SEARCH','Например: @monnv':'Example: @monnv','В ИГРЕ':'IN GAME','В RESSELL':'IN RESSELL','машин':'cars','бизнесов':'businesses','Без магазина':'No store','ДОБАВЛЕН':'ADDED','Друг добавлен':'Friend added','КРУГ RESSELL':'RESSELL CIRCLE','Поиск → добавление → профиль → сравнение':'Search → add → profile → compare',
     'Кто впереди':'Who is ahead','ПОКАЗАТЕЛЬ':'METRIC','ТЫ':'YOU','ДРУГ':'FRIEND','НИЧЬЯ':'DRAW','НАЗАД К ПРОФИЛЮ':'BACK TO PROFILE','Просто сравни показатели и посмотри, кто сейчас впереди.':'Not a race for money — a quick snapshot of who has built the stronger business right now.',
     'Открыть Avito':'Open Avito','Открыть реферальную систему':'Open referrals','Начать путь':'START JOURNEY','Обновить':'Refresh','Этапы':'Stages','Открыть Банк':'Open Bank','Открыть Майнинг':'Open Mining','Открыть Недвижимость':'Open Real Estate','Открыть Авто':'Open Cars','Открыть Таксопарк':'Open Taxi Fleet','Все автомобили исправны':'All cars are healthy','ОБСЛУЖИТЬ АВТОМОБИЛИ':'SERVICE ALL CARS','ВСЁ ИСПРАВНО':'ALL GOOD','МАШИНА СЛОМАНА':'CAR BROKEN','НА ЛИНИИ':'ON LINE','РАБОТАЕТ':'WORKING','Износ растёт автоматически, пока машина на линии.':'Wear grows automatically while the car is on line.','ОБСЛУЖИВАНИЕ':'SERVICE',
-    'Минимум 2 символа':'Minimum 2 characters','Максимум 20 символов':'Maximum 20 characters','Максимум 30 символов':'Maximum 30 characters','Ошибка':'Error','Не удалось':'Failed','Требуется регистрация':'Registration required','Ошибка регистрации':'Registration error','Не найден Telegram ID пользователя':'Telegram user ID not found','Открой Resell через Telegram.':'Open Resell through Telegram.','Фарм недоступен до ежедневного сброса в 12:00 по МСК.':'R-HOLD is unavailable until the daily reset at 12:00 MSK.','Нажми и удерживай R. Награда накапливается.':'Press and hold R. Reward accumulates.','Отпустил раньше времени. Награда не засчитана.':'Released too early. The reward was not counted.','Награда накапливается':'Reward is accumulating','Готово!':'Done!','РЕМОНТ…':'REPAIRING…','ПОКУПКА…':'BUYING…','ЗАЧИСЛЕНИЕ…':'CREDITING…','ДОБАВЛЕНИЕ…':'ADDING…'
+    'Минимум 2 символа':'Minimum 2 characters','Максимум 20 символов':'Maximum 20 characters','Максимум 30 символов':'Maximum 30 characters','Ошибка':'Error','Не удалось':'Failed','Требуется регистрация':'Registration required','Ошибка регистрации':'Registration error','Не найден Telegram ID пользователя':'Telegram user ID not found','Открой Resell через Telegram.':'Open Resell through Telegram.','CD активен · сброс в 12:00 по МСК.':'R-HOLD is unavailable until the daily reset at 12:00 MSK.','Нажми и удерживай R. Награда накапливается.':'Press and hold R. Reward accumulates.','Отпустил раньше времени. Награда не засчитана.':'Released too early. The reward was not counted.','Награда накапливается':'Reward is accumulating','Готово!':'Done!','РЕМОНТ…':'REPAIRING…','ПОКУПКА…':'BUYING…','ЗАЧИСЛЕНИЕ…':'CREDITING…','ДОБАВЛЕНИЕ…':'ADDING…'
   };
   function enText(s){
     if(!s) return s;
