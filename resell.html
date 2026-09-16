@@ -2508,14 +2508,16 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
   // Canonical player identity comes only from signed Telegram initData.
   let userId = getTelegramUserIdFromInitData() || '';
   const ADMIN_OWNER_ID = '1475910449';
-  let isOwner = String(userId) === ADMIN_OWNER_ID;
-  let isAdmin = isOwner;
+  // Admin visibility is server-authoritative. The hard-coded owner id is only
+  // used for owner-only UI after the backend confirms the role.
+  let isOwner = false;
+  let isAdmin = false;
 
   function syncTelegramUserId(){
     const signedId=getTelegramUserIdFromInitData();
     if(signedId) userId=signedId;
     isOwner=String(userId||'')===ADMIN_OWNER_ID;
-    if(isOwner) isAdmin=true;
+    if(!isOwner) isAdmin=false;
     return String(userId||'');
   }
 
@@ -2525,7 +2527,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     if(signedId){
       userId=signedId;
       isOwner=String(userId)===ADMIN_OWNER_ID;
-      if(isOwner) isAdmin=true;
+      if(!isOwner) isAdmin=false;
     }
     return {initData:raw||'',userId:String(userId||'')};
   }
@@ -5763,11 +5765,27 @@ async function initFarm(){
   $('#referralBtn')?.addEventListener('click', openReferral);
 
 
+  async function probeAdminAccess(uid){
+    const resp=await apiFetch(`${API_BASE}/admin/me/${encodeURIComponent(uid)}`,{cache:'no-store'},2);
+    let data={}; try{data=await resp.json();}catch(_){data={};}
+    if(!resp.ok || data.success===false) throw new Error(data.error||'Нет доступа');
+    isAdmin=true;
+    isOwner=Boolean(data.super_admin) || String(uid)===ADMIN_OWNER_ID;
+    $('#adminBtn')?.classList.add('visible');
+    return data;
+  }
+
   async function adminFetch(path, options={}){
     if(!isAdmin) throw new Error('Нет доступа');
-    const init=await waitForTelegramInitData(3000); const authPath=`${API_BASE}${path}`; const resp=await fetch(authPath,{cache:'no-store',...options,headers:telegramAuthHeaders({'Content-Type':'application/json',...(options.headers||{})})});
+    // Use the same canonical RESSELL session transport as every protected API.
+    // Do not bypass it with a separate raw Telegram-initData fetch: that caused
+    // valid admins with a refreshed/stored session to receive false 403s.
+    const resp=await apiFetch(`${API_BASE}${path}`,{cache:'no-store',...options,headers:{'Content-Type':'application/json','Accept':'application/json',...(options.headers||{})}},2);
     let data={}; try{data=await resp.json();}catch(_){data={};}
-    if(!resp.ok || data.success===false) throw new Error(data.error||'Ошибка администратора');
+    if(!resp.ok || data.success===false){
+      if(resp.status===403){ isAdmin=false; $('#adminBtn')?.classList.remove('visible'); }
+      throw new Error(data.error||'Ошибка администратора');
+    }
     return data;
   }
 
@@ -5903,8 +5921,19 @@ async function initFarm(){
     }catch(err){modalBody.innerHTML=`<div class="admin-note">${esc(err.message||'Не удалось загрузить игрока')}</div>`;}
   }
 
-  if(isOwner) $('#adminBtn')?.classList.add('visible');
-  (async()=>{ if(!userId || isOwner) return; try{ const init=await waitForTelegramInitData(3000); const meUrl=`${API_BASE}/admin/me/${encodeURIComponent(userId)}`; const r=await apiFetch(meUrl,{cache:'no-store'},1); if(r.ok){ const d=await r.json(); if(d.success){ isAdmin=true; $('#adminBtn')?.classList.add('visible'); } } }catch(_){} })();
+  // The backend is the source of truth for admin access. Ordinary players never
+  // get the button merely because they know the endpoint or owner id.
+  $('#adminBtn')?.classList.remove('visible');
+  (async()=>{
+    try{
+      const uid=syncTelegramUserId();
+      if(!uid) return;
+      await probeAdminAccess(uid);
+    }catch(_){
+      isAdmin=false;
+      $('#adminBtn')?.classList.remove('visible');
+    }
+  })();
   // Tycoon Center is no longer a separate entry point: its five asset cards live on Home.
   function initMainTycoonCards(){
     const map={mining:TYCOON_HOME_COVER_IMAGES[0],bank:TYCOON_HOME_COVER_IMAGES[1],property:TYCOON_HOME_COVER_IMAGES[2],cars:TYCOON_HOME_COVER_IMAGES[3],taxi:TYCOON_HOME_COVER_IMAGES[4]};
@@ -6398,15 +6427,9 @@ async function initFarm(){
       const bootInit=await waitForTelegramInitData(5000);
       syncTelegramUserId();
       if(bootInit&&userId){try{await ensureResellServerSession(bootInit,userId);}catch(_){} }
-      if(!isOwner){
-        try{
-          const meUrl=`${API_BASE}/admin/me/${encodeURIComponent(userId)}`;
-          const r=await apiFetch(meUrl,{cache:'no-store'},1);
-          if(r.ok){ const d=await r.json().catch(()=>({})); if(d?.success) isAdmin=true; }
-        }catch(_){}
-      }
-      if(isOwner) isAdmin=true;
-      if(isAdmin) $('#adminBtn')?.classList.add('visible');
+      try{
+        await probeAdminAccess(userId);
+      }catch(_){}
     }catch(_){}
     const dataPromise=loadProfile().then(async(data)=>{
       bootData=data;
