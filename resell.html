@@ -1909,6 +1909,15 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
   .avx-chat-side{flex-basis:70px!important;max-width:70px!important}
 }
 </style>
+<style>
+.bizsimple-service.warn{position:relative;display:flex;align-items:center;gap:12px;padding:14px;border-radius:16px;background:linear-gradient(135deg,rgba(255,170,70,.13),rgba(255,90,60,.055))!important;border:1px solid rgba(255,170,70,.28)!important;box-shadow:0 0 0 1px rgba(255,170,70,.04),inset 0 1px 0 rgba(255,255,255,.035)}
+.bizsimple-service.warn b{color:#ffd28a!important;font-size:8px!important;letter-spacing:.3px}
+.bizsimple-service.warn span{color:#a99a84!important}
+.bizsimple-service.warn button{min-width:112px;height:36px;padding:0 11px;border-radius:9px;border:1px solid rgba(255,210,138,.35)!important;background:#ffd28a!important;color:#17110a!important;font-size:6px;font-weight:950;white-space:nowrap}
+.bizsimple-service.warn button:disabled{opacity:.45}
+.bizsimple-service.critical{background:linear-gradient(135deg,rgba(255,70,50,.18),rgba(255,70,50,.07))!important;border-color:rgba(255,90,60,.42)!important}
+.bizsimple-service.critical b{color:#ff9b86!important}
+</style>
 </head>
 <body class="resell-booting">
 <div aria-hidden="false" id="bootSplash">
@@ -5648,7 +5657,8 @@ async function initFarm(){
     const catalog=Array.isArray(s.catalog)?s.catalog:[];
     const balance=Number(s.balance??profileData?.balance??0);
     const pending=Number(s.pending_collect??0);
-    const debt=Number(s.maintenance_due??s.maintenance_cost??0);
+    const maintenanceDebt=Number(s.maintenance_debt??0);
+    const maintenanceLimit=businesses.reduce((sum,b)=>sum+Number(b.maintenance_limit||0),0);
     const capacity=Math.max(2,Number(s.business_capacity??2));
     const capacityLeft=Math.max(0,Number(s.business_capacity_left??(capacity-businesses.length)));
     const avitoSales=Math.max(0,Number(s.avito_sales??0));
@@ -5684,7 +5694,7 @@ async function initFarm(){
       <div class="bizsimple-asset-copy">
         <div class="bizsimple-asset-name"><b>${escText(name(b))}</b><span class="${b.status==='active'?'on':'off'}">${b.status==='active'?'РАБОТАЕТ':'СТОП'}</span></div>
         <strong>+${number(inc(b))} ₽ <small>/ час</small></strong>
-        <div class="bizsimple-meta"><span>${number(inc(b)*24)} ₽ / день</span><span>обслуживание ${number(b.maintenance_cost||0)} ₽ / 3 дня</span><span>${Number(b.maintenance_days_left||0)>0?`осталось ${Number(b.maintenance_days_left||0)} дн.`:'ОБСЛУЖИВАНИЕ ИСТЕКЛО'}</span></div>
+        <div class="bizsimple-meta"><span>${number(inc(b)*24)} ₽ / день</span><span>обслуживание ${number(b.maintenance_cost||0)} ₽ / 3 дня</span><span>долг ${number(b.maintenance_debt||0)} / ${number(b.maintenance_limit||0)} ₽</span></div>
       </div>
       <button type="button" class="bizsimple-small-action" data-business-sell="${escText(id(b))}">ПРОДАТЬ</button>
     </article>`).join('');
@@ -5720,14 +5730,14 @@ async function initFarm(){
         <div class="bizsimple-flow"><span><b>${number(hour)} ₽</b> / час</span><span><b>${number(day)} ₽</b> / день</span><span><b>${businesses.length}</b> / ${capacity} бизнеса</span></div>
       </section>
 
+      <section class="bizsimple-service warn ${maintenanceDebt>0?'has-debt':''} ${maintenanceDebt>=maintenanceLimit&&maintenanceLimit>0?'critical':''}">
+        <div><b>ОБСЛУЖИВАНИЕ БИЗНЕСА</b><span>Накоплено: ${number(maintenanceDebt)} ₽ · лимит: ${number(maintenanceLimit)} ₽ · долг растёт автоматически</span></div>
+        ${businesses.length?`<button type="button" id="businessMaintenanceBtn" ${maintenanceDebt<=0?'disabled':''}>ОПЛАТИТЬ ${number(maintenanceDebt)} ₽</button>`:''}
+      </section>
+
       <section class="bizsimple-section" id="bizsimpleAssets">
         <div class="bizsimple-section-title"><div><h3>Мои активы</h3><p>Вместимость растёт вместе с уровнем Авито.</p></div><b>${businesses.length}/${capacity}</b></div>
         <div class="bizsimple-assets-list">${assetRows||`<div class="bizsimple-empty"><b>Пока нет бизнесов</b><span>Ниже уже открыт магазин — просто выбери первый бизнес и нажми «Купить».</span></div>`}</div>
-      </section>
-
-      <section class="bizsimple-service warn">
-        <div><b>ОБСЛУЖИВАНИЕ · КАЖДЫЕ 3 ДНЯ</b><span>Продление: ${number(businesses.reduce((sum,b)=>sum+Number(b.maintenance_cost||0),0))} ₽ за все активные бизнесы</span></div>
-        ${businesses.length?'<button type="button" id="businessMaintenanceBtn">ПРОДЛИТЬ НА 3 ДНЯ</button>':''}
       </section>
 
       <section class="bizsimple-section" id="bizsimpleShop">
