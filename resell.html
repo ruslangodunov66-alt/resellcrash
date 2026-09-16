@@ -4324,9 +4324,18 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     }
 
     if(holdState?.session_id){
-      if(await recoverStaleSession()) return;
-      showToast('У тебя уже идёт фарм. Продолжай удерживать R.');
-      return;
+      // A session left behind by a previous WebView/page instance is stale for
+      // the current physical press. Cancel it, refresh local state, and CONTINUE
+      // with this new press. Never tell the user that a phantom session is active.
+      try{
+        await recoverStaleSession();
+        await refreshHoldStatusWithRetry();
+      }catch(_){ }
+      if(holdState?.session_id){
+        $('#farmStatus').textContent = 'R-Farm занят предыдущей сессией. Обновляю состояние…';
+        try{ await cancelHoldSessionDirect(holdState.session_id); }catch(_){ }
+        holdState = normalizeHoldState({...holdState,session_id:null,started_at:0,ready:true,cooldown_remaining:0,cooldown_until:0});
+      }
     }
 
     const cooldown = Number(holdState?.cooldown_remaining || 0);
@@ -4336,6 +4345,12 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
       return;
     }
 
+    // Final local guard: only a real server session can mean that R-Farm is running.
+    // A stale client flag must never block a fresh physical press.
+    if(holdState?.session_id){
+      try{ await cancelHoldSessionDirect(holdState.session_id); }catch(_){ }
+      holdState = normalizeHoldState({...holdState,session_id:null,started_at:0,ready:true,cooldown_remaining:0,cooldown_until:0});
+    }
     farmCompleted = false;
     holdPointerActive = true;
     holdReleaseQueued = false;
