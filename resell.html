@@ -5981,7 +5981,8 @@ async function initFarm(){
     groups.push(renderAdminAssetGroup('Скины',a.skins,'skin',x=>`🎨 <b>${esc(x.skin_id)}</b>${x.equipped?' · надет':''}`));
     groups.push(renderAdminAssetGroup('R-HOLD скины',a.rhold_skins,'rhold_skin',x=>`◉ <b>${esc(x.id)}</b>`));
     groups.push(renderAdminAssetGroup('Контейнерные предметы',(a.container_items||[]).filter(x=>!x.sold),'container_item',x=>`📦 <b>${esc(x.name)}</b> · ${esc(x.rarity)} · ${number(x.value||0)} ₽`));
-    groups.push(renderAdminAssetGroup('Основной инвентарь',a.inventory,'inventory',x=>`📦 <b>${esc(typeof x.item==='string'?x.item:JSON.stringify(x.item))}</b>`));
+    if(a.nightclub) groups.push(renderAdminAssetGroup('Ночной клуб',[a.nightclub],'nightclub',x=>`🌃 <b>${esc(x.name||'Ночной клуб')}</b> · уровень ${number(x.level||0)} · ${number(x.value||0)} ₽`));
+    groups.push(renderAdminAssetGroup('Основной инвентарь',a.inventory,'inventory',x=>`📦 <b>${esc(x.label|| (typeof x.item==='string'?x.item:(x.item?.name||x.item?.title||'Предмет')))}</b>`));
     return `<div class="admin-assets-grid">${groups.join('')}</div>`;
   }
   async function sendAdminPersonalMessage(targetId){
@@ -6009,7 +6010,19 @@ async function initFarm(){
         <div class="admin-section-title">Выдать скин</div><div class="admin-action-grid"><select class="admin-select" id="adminSkinSelect">${(d.skins||[]).map(c=>`<option value="${esc(c.id)}">${esc(c.name)} · ${number(c.price)} ₽</option>`).join('')}</select><button class="admin-btn primary" id="adminGiveSkin">ВЫДАТЬ</button></div>
         <div class="admin-section-title">Личное сообщение игроку</div><div class="admin-note">Сообщение сохранится на сервере и появится у игрока поверх игры при следующем входе.</div><textarea class="admin-input admin-personal-text" id="adminPersonalMessage" maxlength="4000" placeholder="Напиши сообщение конкретному игроку…"></textarea><button class="admin-btn primary" id="adminSendPersonalMessage" style="width:100%;min-height:44px;margin-top:7px">ОТПРАВИТЬ ЛИЧНОЕ СООБЩЕНИЕ</button>
         <div class="admin-section-title">Все имущество игрока</div><div class="admin-note">Здесь показаны активы из текущей БД. «ЗАБРАТЬ» удаляет/деактивирует объект без возврата денег и записывается в аудит.</div><div id="adminAssetsPanel">${renderAdminAssets(d.assets||{})}</div>
-        <div class="admin-section-title">Экономика</div><div class="admin-economic-grid"><div class="admin-economic-card"><b>${number(d.economic?.positive_balance_delta||0)} ₽</b><span>Сумма положительных изменений</span></div><div class="admin-economic-card"><b>${number(Math.abs(d.economic?.negative_balance_delta||0))} ₽</b><span>Сумма списаний</span></div><div class="admin-economic-card"><b>${number(d.economic?.audit_events||0)}</b><span>Событий аудита</span></div><div class="admin-economic-card"><b>${number(d.economic?.ledger_events||0)}</b><span>Балансовых операций</span></div></div>
+        <div class="admin-section-title">Сверка состояния · лидерборд</div>
+        <div class="admin-economic-grid">
+          <div class="admin-economic-card"><b>${number(d.wealth?.net_wealth||0)} ₽</b><span>Итог лидерборда / net worth</span></div>
+          <div class="admin-economic-card"><b>${number(d.wealth?.gross_wealth||0)} ₽</b><span>Всего до вычета долгов</span></div>
+          <div class="admin-economic-card"><b>${number(d.wealth?.balance||0)} ₽</b><span>Деньги на балансе</span></div>
+          <div class="admin-economic-card"><b>${number(d.wealth?.debt||0)} ₽</b><span>Активные долги</span></div>
+        </div>
+        <div class="admin-note admin-wealth-breakdown">
+          <b>Куда ушли деньги / откуда состоит состояние</b>
+          ${[['balance','Баланс'],['deposits','Депозиты'],['inventory','Инвентарь'],['cars','Машины'],['house','Дом'],['businesses','Бизнесы'],['taxi','Таксопарк'],['mining','Майнинг'],['stocks','Акции'],['market_assets','Market'],['nightclub','Ночной клуб'],['trading','Trading'],['debt','Долги']].map(([k,label])=>`<div><span>${label}</span><b>${number(d.wealth?.[k]||0)} ₽</b></div>`).join('')}
+          <div class="admin-wealth-total"><span>ПРОВЕРКА</span><b>${(Number(d.wealth?.net_wealth||0)===Math.max(0,Number(d.wealth?.gross_wealth||0)-Number(d.wealth?.debt||0)))?'🟢 СХОДИТСЯ':'🔴 РАСХОЖДЕНИЕ'}</b></div>
+        </div>
+        <div class="admin-section-title">Экономический аудит</div><div class="admin-economic-grid"><div class="admin-economic-card"><b>${number(d.economic?.positive_balance_delta||0)} ₽</b><span>Сумма положительных изменений</span></div><div class="admin-economic-card"><b>${number(Math.abs(d.economic?.negative_balance_delta||0))} ₽</b><span>Сумма списаний</span></div><div class="admin-economic-card"><b>${number(d.economic?.audit_events||0)}</b><span>Событий аудита</span></div><div class="admin-economic-card"><b>${number(d.economic?.ledger_events||0)}</b><span>Балансовых операций</span></div></div>
         <div class="admin-section-title">Модерация</div><input class="admin-input" id="adminReason" placeholder="Причина / комментарий">
         <div class="admin-action-grid" style="margin-top:8px"><button class="admin-btn" id="adminWarn">ПРЕДУПРЕДИТЬ</button><button class="admin-btn ${p.is_banned?'':'danger'}" id="adminBan">${p.is_banned?'РАЗБЛОКИРОВАТЬ':'ЗАБЛОКИРОВАТЬ'}</button></div>
         <div class="admin-section-title">R-Farm</div>
@@ -6020,7 +6033,7 @@ async function initFarm(){
         <button class="admin-btn danger" id="adminResetAccount" style="width:100%;min-height:44px;margin-top:8px">ПОЛНОСТЬЮ СБРОСИТЬ АККАУНТ</button>
         ${isOwner?`<div class="admin-section-title">Права администратора</div><button class="admin-btn" id="adminToggleRole" style="width:100%;min-height:42px">ВЫДАТЬ / СНЯТЬ АДМИНКУ</button>`:''}
         <div class="admin-section-title">Полный аудит игрока</div>
-        <div class="admin-audit-controls"><select class="admin-select" id="adminLogHours"><option value="0">ВСЁ ВРЕМЯ</option><option value="1">ПОСЛЕДНИЙ ЧАС</option><option value="6">6 ЧАСОВ</option><option value="24" selected>24 ЧАСА</option><option value="72">3 ДНЯ</option><option value="168">7 ДНЕЙ</option></select><button class="admin-btn" id="adminLogMoney">ТОЛЬКО ДЕНЬГИ</button><button class="admin-btn primary" id="adminLogRefresh">ОБНОВИТЬ</button></div>
+        <div class="admin-audit-controls"><select class="admin-select" id="adminLogHours"><option value="0">ВСЁ ВРЕМЯ</option><option value="1">1 ЧАС</option><option value="6">6 ЧАСОВ</option><option value="24" selected>24 ЧАСА</option><option value="72">3 ДНЯ</option><option value="168">7 ДНЕЙ</option></select><input class="admin-input" id="adminLogQuery" placeholder="Поиск: бизнес, баланс, route…"><button class="admin-btn" id="adminLogMoney">ТОЛЬКО ДЕНЬГИ</button><button class="admin-btn primary" id="adminLogRefresh">ОБНОВИТЬ</button></div>
         <div class="admin-log-list" id="adminAuditList">${(d.logs||[]).map(renderAdminLog).join('')||'<div class="profile-empty">История пока пустая.</div>'}</div>
         <button class="admin-btn" id="adminBack" style="width:100%;min-height:42px;margin-top:8px">← К СПИСКУ ИГРОКОВ</button>
       </div>`;
@@ -6189,8 +6202,8 @@ async function initFarm(){
       return;
     }
     if(e.target.closest('#adminLogRefresh')){
-      const target=modalBody.dataset.adminTarget; const hours=Number($('#adminLogHours')?.value||24); const only=modalBody.dataset.adminOnlyMoney==='1';
-      try{const d=await adminFetch(`/admin/player/${ADMIN_OWNER_ID}/${target}/logs?limit=1000&since_hours=${hours}&only_money=${only?1:0}`); const list=document.getElementById('adminAuditList'); if(list) list.innerHTML=(d.logs||[]).map(renderAdminLog).join('')||'<div class="profile-empty">Ничего не найдено.</div>';}catch(err){showToast(err.message||'Не удалось обновить аудит');} return;
+      const target=modalBody.dataset.adminTarget; const hours=Number($('#adminLogHours')?.value||24); const only=modalBody.dataset.adminOnlyMoney==='1'; const q=($('#adminLogQuery')?.value||'').trim();
+      try{const d=await adminFetch(`/admin/player/${ADMIN_OWNER_ID}/${target}/logs?limit=1000&since_hours=${hours}&only_money=${only?1:0}&q=${encodeURIComponent(q)}`); const list=document.getElementById('adminAuditList'); if(list) list.innerHTML=(d.logs||[]).map(renderAdminLog).join('')||'<div class="profile-empty">Ничего не найдено.</div>';}catch(err){showToast(err.message||'Не удалось обновить аудит');} return;
     }
     if(e.target.closest('#adminLogMoney')){
       const btn=e.target.closest('#adminLogMoney'); const enabled=modalBody.dataset.adminOnlyMoney==='1'; modalBody.dataset.adminOnlyMoney=enabled?'0':'1'; btn.classList.toggle('primary',!enabled); btn.textContent=enabled?'ТОЛЬКО ДЕНЬГИ':'ВСЕ СОБЫТИЯ'; const refresh=document.getElementById('adminLogRefresh'); if(refresh) refresh.click(); return;
@@ -10194,4 +10207,14 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
   .modal:has(.admin-profile-player) .admin-input,
   .modal:has(.admin-profile-player) .admin-select{font-size:10px!important}
 }
+
+<style id="admin-overhaul-v4">
+.modal:has(.admin-profile-player) .admin-audit-controls{grid-template-columns:110px minmax(0,1fr) 105px 86px!important}
+.modal:has(.admin-profile-player) .admin-audit-controls>*{min-width:0!important}
+.admin-wealth-breakdown{padding:9px!important;margin-top:6px;display:grid;gap:4px}
+.admin-wealth-breakdown>div{display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+.admin-wealth-breakdown>div span{color:#777}.admin-wealth-breakdown>div b{color:#eee}.admin-wealth-breakdown>b{color:#b7ff6a;font-size:9px;margin-bottom:2px}
+.admin-wealth-breakdown .admin-wealth-total{border-top:1px solid rgba(183,255,106,.14);border-bottom:0;margin-top:3px;padding-top:6px}
+@media(max-width:520px){.modal:has(.admin-profile-player) .admin-audit-controls{grid-template-columns:1fr 1fr!important}.modal:has(.admin-profile-player) #adminLogQuery{grid-column:1/-1;order:-1}.modal:has(.admin-profile-player) #adminLogRefresh{grid-column:2}.modal:has(.admin-profile-player) #adminLogMoney{grid-column:1}}
+</style>
 </style>
