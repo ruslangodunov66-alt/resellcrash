@@ -13,9 +13,52 @@ const API_BASE='https://resellgame.bothost.tech';
 const params=new URLSearchParams(location.search);
 const tg=window.Telegram?.WebApp||null;
 function initData(){try{if(tg?.initData)return tg.initData}catch(_){} return params.get('initData')||params.get('tgWebAppData')||''}
-function auth(){const h={'Accept':'application/json','Content-Type':'application/json'},d=initData();if(d)h['X-Telegram-Init-Data']=d;return h}
+let runSession='';
+try{runSession=sessionStorage.getItem('resell_run_session')||''}catch(_){}
+function saveRunSession(v){runSession=String(v||'');try{if(runSession)sessionStorage.setItem('resell_run_session',runSession)}catch(_){}}
+function clearRunSession(){runSession='';try{sessionStorage.removeItem('resell_run_session')}catch(_){}}
+async function waitRunInitData(timeout=2500){
+  try{tg?.ready?.();tg?.expand?.()}catch(_){}
+  const started=Date.now();
+  while(Date.now()-started<timeout){const d=initData();if(d)return d;await new Promise(r=>setTimeout(r,120));}
+  return initData();
+}
+async function ensureRunSession(raw,wanted=''){
+  if(runSession)return runSession;
+  raw=String(raw||'').trim();
+  if(!raw)return '';
+  const r=await fetch(`${API_BASE}/auth/resell/session`,{method:'POST',cache:'no-store',headers:{'Accept':'application/json','Content-Type':'application/json','X-Telegram-Init-Data':raw,'Authorization':'tma '+raw},body:'{}'});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok||!d?.success||!d?.session)throw new Error(d?.error||'Telegram-сессия не подтверждена');
+  if(wanted&&String(d.tg_id||'')!==String(wanted))throw new Error('Несовпадение Telegram ID');
+  saveRunSession(d.session);return runSession;
+}
+function authHeaders(session,raw){const h={'Accept':'application/json','Content-Type':'application/json'};if(session){h['X-Resell-Session']=session;h['Authorization']='Bearer '+session}else if(raw){h['X-Telegram-Init-Data']=raw;h['Authorization']='tma '+raw}return h}
 const userId=String(tg?.initDataUnsafe?.user?.id||params.get('userId')||'');
-async function claimRunReward(){if(claimed||runReward<=0||!userId)return;const claim=$('claim');if(claim)claim.disabled=true;try{const r=await fetch(`${API_BASE}/games/resell-run/claim`,{method:'POST',cache:'no-store',headers:auth(),body:JSON.stringify({user_id:userId,amount:Math.floor(runReward),score:Math.floor(score),level,world:Math.floor(distance),run_id:runId})});const d=await r.json().catch(()=>({}));if(!r.ok||d?.success===false)throw new Error(d?.error||'Не удалось зачислить заработок');claimed=true;toast('ЗАЧИСЛЕНО В ОСНОВНОЙ БАЛАНС: ₽'+Math.floor(d.amount??runReward).toLocaleString('ru-RU'));if(claim){claim.textContent='ЗАЧИСЛЕНО ✓';claim.classList.add('green')}}catch(e){toast(e.message||'Не удалось зачислить');if(claim)claim.disabled=false}}
+async function claimRunReward(){
+  if(claimed||runReward<=0)return;
+  const claim=$('claim');if(claim)claim.disabled=true;
+  try{
+    const raw=await waitRunInitData(2500);
+    const liveId=String(tg?.initDataUnsafe?.user?.id||userId||'');
+    if(!liveId)throw new Error('Telegram-пользователь не определён. Открой Run из Telegram');
+    let session='';
+    try{session=await ensureRunSession(raw,liveId)}catch(_){session=''}
+    const body=JSON.stringify({user_id:liveId,amount:Math.floor(runReward),score:Math.floor(score),level,world:Math.floor(distance),run_id:runId});
+    let r=await fetch(`${API_BASE}/games/resell-run/claim`,{method:'POST',cache:'no-store',headers:authHeaders(session,raw),body});
+    let d=await r.json().catch(()=>({}));
+    if(r.status===401&&raw){
+      clearRunSession();
+      session=await ensureRunSession(raw,liveId);
+      r=await fetch(`${API_BASE}/games/resell-run/claim`,{method:'POST',cache:'no-store',headers:authHeaders(session,raw),body});
+      d=await r.json().catch(()=>({}));
+    }
+    if(!r.ok||d?.success===false)throw new Error(d?.error||'Не удалось зачислить заработок');
+    claimed=true;
+    toast('ЗАЧИСЛЕНО В ОСНОВНОЙ БАЛАНС: ₽'+Math.floor(d.amount??runReward).toLocaleString('ru-RU'));
+    if(claim){claim.textContent='ЗАЧИСЛЕНО ✓';claim.classList.add('green')}
+  }catch(e){toast(e.message||'Не удалось зачислить');if(claim)claim.disabled=false}
+}
 function resize(){dpr=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight;C.width=W*dpr;C.height=H*dpr;X.setTransform(dpr,0,0,dpr,0,0);makeCity()}addEventListener('resize',resize);
 const ground=()=>H-118, need=()=>100+(level-1)*65;
 function toast(s){$('toast').textContent=s;$('toast').classList.add('on');clearTimeout(toast.q);toast.q=setTimeout(()=>$('toast').classList.remove('on'),1000)}
