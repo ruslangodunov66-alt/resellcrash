@@ -13,10 +13,25 @@ const API_BASE='https://resellgame.bothost.tech';
 const params=new URLSearchParams(location.search);
 const tg=window.Telegram?.WebApp||null;
 function initData(){try{if(tg?.initData)return tg.initData}catch(_){} return params.get('initData')||params.get('tgWebAppData')||''}
-let runSession='';
-try{runSession=sessionStorage.getItem('resell_run_session')||''}catch(_){}
-function saveRunSession(v){runSession=String(v||'');try{if(runSession)sessionStorage.setItem('resell_run_session',runSession)}catch(_){}}
-function clearRunSession(){runSession='';try{sessionStorage.removeItem('resell_run_session')}catch(_){}}
+const RESSELL_SESSION_KEY='resell_server_session_v4';
+function readLaunchSession(){
+  try{
+    const q=String(params.get('resell_session')||'').trim();
+    if(q)return q;
+    return String(sessionStorage.getItem(RESSELL_SESSION_KEY)||localStorage.getItem(RESSELL_SESSION_KEY)||'').trim();
+  }catch(_){return ''}
+}
+let runSession=readLaunchSession();
+function saveRunSession(v){
+  runSession=String(v||'').trim();
+  if(!runSession)return;
+  try{sessionStorage.setItem(RESSELL_SESSION_KEY,runSession)}catch(_){}
+  try{localStorage.setItem(RESSELL_SESSION_KEY,runSession)}catch(_){}
+}
+function clearRunSession(){
+  runSession='';
+  try{sessionStorage.removeItem(RESSELL_SESSION_KEY)}catch(_){}
+}
 async function waitRunInitData(timeout=2500){
   try{tg?.ready?.();tg?.expand?.()}catch(_){}
   const started=Date.now();
@@ -34,7 +49,8 @@ async function ensureRunSession(raw,wanted=''){
   saveRunSession(d.session);return runSession;
 }
 function authHeaders(session,raw){const h={'Accept':'application/json','Content-Type':'application/json'};if(session){h['X-Resell-Session']=session;h['Authorization']='Bearer '+session}else if(raw){h['X-Telegram-Init-Data']=raw;h['Authorization']='tma '+raw}return h}
-const userId=String(tg?.initDataUnsafe?.user?.id||params.get('userId')||'');
+const sessionUid=String(runSession||'').replace(/^Bearer\s+/i,'').split('.')[0];
+const userId=String(tg?.initDataUnsafe?.user?.id||params.get('userId')||(/^[0-9]+$/.test(sessionUid)?sessionUid:''));
 async function claimRunReward(){
   if(claimed||runReward<=0)return true;
   try{
@@ -79,7 +95,17 @@ function fx(k){if(k==='jump')sound(260,.1,'square',.3,680);if(k==='pick'){sound(
 function makeCity(){build=[];for(let x=-100;x<W+800;x+=R(50,100))build.push({x,h:R(75,185),w:R(35,82),s:Math.random()})}
 function reset(){runId=(crypto?.randomUUID?.()||('run_'+Date.now()+'_'+Math.random().toString(36).slice(2)));world=0;spawn=.85;O=[];F=[];T=[];score=0;cash=0;level=1;exp=0;shake=0;combo=0;comboTimer=0;distance=0;runReward=0;claimed=false;tutorial=8;P={x:W*.5,y:ground()-66,vx:0,vy:0,w:34,h:66,on:true,coyote:.12,jumps:0,slide:0,slidePhase:0,moveDir:0,magnet:0,shield:0,turbo:0,anim:0,facing:1};hud();makeCity()}
 function startGame(){initAudio();clearTimeout(endTimer);$('over').classList.remove('on');reset();playing=true;paused=false;$('start').classList.remove('on');$('over').classList.remove('on');last=performance.now();cancelAnimationFrame(raf);raf=requestAnimationFrame(loop)}
-async function endGame(){playing=false;fx('hit');shake=.4;runReward=Math.floor(cash);$('result').textContent=`ВЫ ЗАРАБОТАЛИ ₽${runReward.toLocaleString('ru-RU')} • уровень ${level} • ${Math.floor(distance)} м`;const settled=await claimRunReward();if(!settled)$('result').textContent+=`\nНе удалось зачислить. Нажми действие ещё раз.`;endTimer=setTimeout(()=>{if(!playing)$('over').classList.add('on')},180)}
+function endGame(){
+  if(!playing)return;
+  playing=false;fx('hit');shake=.4;runReward=Math.floor(cash);
+  $('result').textContent=`ВЫ ЗАРАБОТАЛИ ₽${runReward.toLocaleString('ru-RU')} • уровень ${level} • ${Math.floor(distance)} м`;
+  // Never freeze the game-over screen on network/auth. The reward claim runs in background.
+  void claimRunReward().then(ok=>{
+    if(!ok && !claimed)$('result').textContent+=`\nНе удалось зачислить автоматически — нажми «ЕЩЁ РАЗ» или «ВЫЙТИ».`;
+  });
+  endTimer=setTimeout(()=>{if(!playing)$('over').classList.add('on')},180);
+}
+
 function move(d){if(!playing||paused)return;P.moveDir=d;P.facing=d||P.facing;}
 function jump(){if(!playing||paused)return;initAudio();if(P.on||P.coyote>0){P.vy=-790;P.on=false;P.coyote=0;P.jumps=1;P.slide=0;fx('jump');dust(P.x,ground(),8);return}if(P.jumps<2){P.vy=-690;P.jumps=2;fx('jump');dust(P.x,P.y+P.h,7)}}
 function slide(){if(!playing||paused)return;if(P.on&&!P.slide){P.slide=.68;P.slidePhase=0;P.vx*=1.08;}}
