@@ -44,12 +44,23 @@ async function claimRunReward(){
     let session='';
     try{session=await ensureRunSession(raw,liveId)}catch(_){session=''}
     const body=JSON.stringify({user_id:liveId,amount:Math.floor(runReward),score:Math.floor(score),level,world:Math.floor(distance),run_id:runId});
-    let r=await fetch(`${API_BASE}/games/resell-run/claim`,{method:'POST',cache:'no-store',headers:authHeaders(session,raw),body});
+    // iOS Telegram WebView can surface a generic `Load failed` when a cross-origin
+    // JSON POST triggers a CORS preflight. Once the RESSELL session is minted,
+    // transport that session in the already-supported query parameter and use
+    // text/plain; the backend still parses the JSON body via request.json().
+    let claimUrl=`${API_BASE}/games/resell-run/claim`;
+    let claimHeaders=authHeaders(session,raw);
+    if(session){
+      claimUrl+=`?resell_session=${encodeURIComponent(session)}`;
+      claimHeaders={'Accept':'application/json','Content-Type':'text/plain;charset=UTF-8'};
+    }
+    let r=await fetch(claimUrl,{method:'POST',cache:'no-store',headers:claimHeaders,body});
     let d=await r.json().catch(()=>({}));
     if(r.status===401&&raw){
       clearRunSession();
       session=await ensureRunSession(raw,liveId);
-      r=await fetch(`${API_BASE}/games/resell-run/claim`,{method:'POST',cache:'no-store',headers:authHeaders(session,raw),body});
+      claimUrl=`${API_BASE}/games/resell-run/claim?resell_session=${encodeURIComponent(session)}`;
+      r=await fetch(claimUrl,{method:'POST',cache:'no-store',headers:{'Accept':'application/json','Content-Type':'text/plain;charset=UTF-8'},body});
       d=await r.json().catch(()=>({}));
     }
     if(r.status===409&&d?.duplicate){claimed=true;return true;}
