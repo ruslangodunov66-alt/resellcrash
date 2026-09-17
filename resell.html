@@ -2028,6 +2028,14 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
 <div class="avito-entry-footer"><span>ОТКРЫТЬ</span><strong>→</strong></div>
 </button>
 </section>
+<section class="section reveal" id="resellEventSection" style="display:none">
+  <button class="resell-event-card" id="resellEventBtn" type="button">
+    <div class="resell-event-glow"></div>
+    <div class="resell-event-top"><span class="resell-event-live">● LIVE EVENT</span><span id="resellEventTimer">03:00:00</span></div>
+    <div class="resell-event-main"><div><div class="resell-event-kicker" id="resellEventIcon">⚡</div><div class="resell-event-title" id="resellEventTitle">НОВЫЙ ИВЕНТ</div><div class="resell-event-sub" id="resellEventSub">Успей выполнить задание и забрать награду.</div></div><div class="resell-event-reward"><small>НАГРАДА</small><b id="resellEventReward">0 ₽</b></div></div>
+    <div class="resell-event-progress"><div class="resell-event-progress-head"><span id="resellEventProgressText">0 / 0</span><span id="resellEventState">УЧАСТВОВАТЬ →</span></div><div class="resell-event-progress-track"><div id="resellEventProgressFill"></div></div></div>
+  </button>
+</section>
 <section class="section reveal home-engagement-section" id="homeEngagementSection">
 <div class="section-head"><div class="section-title">Каждый день</div><div class="section-meta">активность RESSELL</div></div>
 <div class="home-engagement-grid">
@@ -5868,6 +5876,29 @@ async function initFarm(){
   $('#referralBtn')?.addEventListener('click', openReferral);
 
 
+  let currentResellEvent=null, resellEventTimer=null, resellEventPoll=null;
+  function renderEventTimer(seconds){const s=Math.max(0,Number(seconds)||0),h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;return [h,m,sec].map((x,i)=>i===0?String(x).padStart(2,'0'):String(x).padStart(2,'0')).join(':')}
+  function updateEventCard(data){
+    const sec=document.getElementById('resellEventSection'); if(!sec)return;
+    const ev=data?.event; currentResellEvent=ev||null;
+    if(!ev){sec.style.display='none';clearInterval(resellEventTimer);return;}
+    sec.style.display='block';
+    $('#resellEventIcon').textContent=ev.icon||'⚡'; $('#resellEventTitle').textContent=ev.title||'LIVE EVENT'; $('#resellEventSub').textContent=ev.subtitle||''; $('#resellEventReward').textContent=`${number(ev.reward)} ₽`;
+    const p=data.progress||{}, cur=Math.min(Number(p.current||0),Number(p.target||ev.target||0)), target=Number(p.target||ev.target||0), done=Boolean(p.completed), claimed=Boolean(p.claimed);
+    $('#resellEventProgressText').textContent=`${number(cur)} / ${number(target)}`; $('#resellEventProgressFill').style.width=`${target?Math.min(100,cur/target*100):0}%`; $('#resellEventState').textContent=claimed?'НАГРАДА ПОЛУЧЕНА':done?'ЗАБРАТЬ НАГРАДУ':'СМОТРЕТЬ →';
+    clearInterval(resellEventTimer);let left=Number(data.remaining||0);const tick=()=>{left=Math.max(0,left-1);const el=$('#resellEventTimer');if(el)el.textContent=renderEventTimer(left);if(left<=0){clearInterval(resellEventTimer);loadResellEvent(true)}};const el=$('#resellEventTimer');if(el)el.textContent=renderEventTimer(left);resellEventTimer=setInterval(tick,1000);
+    try{const seen=localStorage.getItem('resell_live_event_seen');if(String(seen)!==String(ev.id)){localStorage.setItem('resell_live_event_seen',String(ev.id));setTimeout(()=>openModal('⚡ НОВЫЙ ИВЕНТ',`<div class="admin-profile"><div class="admin-note" style="text-align:center;padding:20px 12px"><div style="font-size:30px">${esc(ev.icon||'⚡')}</div><div style="font:950 18px/1.1 Montserrat,sans-serif;margin-top:10px">${esc(ev.title)}</div><div style="margin-top:8px;color:#777">${esc(ev.subtitle)}</div><div style="margin-top:14px;color:#b7ff6a;font:950 16px/1 Montserrat,sans-serif">${number(ev.reward)} ₽</div><button class="admin-btn primary" id="eventWelcomeOpen" style="width:100%;margin-top:15px">ОТКРЫТЬ ИВЕНТ</button></div></div>`),150)} }catch(_){ }
+  }
+  async function loadResellEvent(force=false){
+    if(!userId)return;
+    try{const d=await apiFetch(`${API_BASE}/events/active?userId=${encodeURIComponent(userId)}`,{cache:'no-store'},2);let j={};try{j=await d.json()}catch(_){j={}};if(!d.ok||j.success===false)throw new Error(j.error||'event');updateEventCard(j);clearInterval(resellEventPoll);resellEventPoll=setInterval(()=>loadResellEvent(false),10000);}catch(_){if(force) updateEventCard({event:null});}
+  }
+  async function claimResellEvent(){
+    if(!currentResellEvent)return;try{const d=await apiFetch(`${API_BASE}/events/claim`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:Number(userId),event_id:Number(currentResellEvent.id)})},2);const j=await d.json();if(!d.ok||j.success===false)throw new Error(j.error||'Не удалось получить награду');showToast(`⚡ +${number(j.reward)} ₽ за ивент`);haptic('success');await loadResellEvent(true);}catch(e){showToast(e.message||'Не удалось получить награду');}
+  }
+  document.addEventListener('click',e=>{if(e.target.closest('#resellEventBtn')){if(document.getElementById('resellEventState')?.textContent==='ЗАБРАТЬ НАГРАДУ') claimResellEvent();else document.getElementById('resellEventSection')?.scrollIntoView({behavior:'smooth',block:'center'});} if(e.target.closest('#eventWelcomeOpen')){closeModal();document.getElementById('resellEventSection')?.scrollIntoView({behavior:'smooth',block:'center'});}});
+  setTimeout(()=>loadResellEvent(true),1200);
+
   async function probeAdminAccess(uid){
     const resp=await apiFetch(`${API_BASE}/admin/me/${encodeURIComponent(uid)}`,{cache:'no-store'},2);
     let data={}; try{data=await resp.json();}catch(_){data={};}
@@ -5924,7 +5955,7 @@ async function initFarm(){
         <div class="admin-kpi"><b>${number(activeUsers)}</b><span>Активных</span></div>
         <div class="admin-kpi"><b>${number(bannedUsers)}</b><span>Заблокировано</span></div>
       </div>
-      <div class="admin-action-grid"><button class="admin-btn primary" id="adminAppealsBtn">ОБРАЩЕНИЯ ПО БЛОКИРОВКАМ</button><button class="admin-btn" id="adminMaintenanceBtn">ТЕХНИЧЕСКИЕ РАБОТЫ</button><button class="admin-btn" id="adminUpdateAnnouncementBtn">ОБЪЯВИТЬ ОБ ОБНОВЛЕНИИ</button></div><div id="adminMaintenanceCard" class="admin-note" style="margin-top:8px">Состояние системы загружается…</div>
+      <div class="admin-action-grid"><button class="admin-btn primary" id="adminEventsBtn">⚡ ИВЕНТЫ</button><button class="admin-btn" id="adminAppealsBtn">ОБРАЩЕНИЯ ПО БЛОКИРОВКАМ</button><button class="admin-btn" id="adminMaintenanceBtn">ТЕХНИЧЕСКИЕ РАБОТЫ</button><button class="admin-btn" id="adminUpdateAnnouncementBtn">ОБЪЯВИТЬ ОБ ОБНОВЛЕНИИ</button></div><div id="adminMaintenanceCard" class="admin-note" style="margin-top:8px">Состояние системы загружается…</div>
       <div class="admin-section-title">Поиск игрока</div>
       <div class="admin-search"><input id="adminSearchInput" placeholder="ID, никнейм или магазин" value="${esc(data?.q||'')}"><button class="admin-btn primary" id="adminSearchBtn">НАЙТИ</button></div>
       <div class="admin-player-list">${players.length?players.map(p=>`<div class="admin-player"><div class="admin-player-main"><div class="admin-player-name">${esc(p.nickname||'Без никнейма')}</div><div class="admin-player-meta">TG ${p.tg_id} · ${number(p.balance)} ₽ · ${p.is_banned?'ЗАБАНЕН':''}${p.warning_count?' · ⚠ '+p.warning_count:''}</div></div><div class="admin-player-actions"><button class="admin-mini" data-admin-open="${p.tg_id}">ОТКРЫТЬ</button></div></div>`).join(''):'<div class="profile-empty">Найди игрока по Telegram ID, никнейму или магазину.</div>'}</div>
@@ -5956,6 +5987,28 @@ async function initFarm(){
     openModal('Обновление RESSELL',renderUpdateAnnouncementModal());
     const ta=document.getElementById('adminUpdateMessage'),c=document.getElementById('adminUpdateCounter');
     if(ta&&c) ta.addEventListener('input',()=>c.textContent=`${ta.value.length} / 4000`);
+  }
+
+  function renderAdminEvents(data){
+    const templates=Array.isArray(data?.templates)?data.templates:[]; const active=data?.event;
+    return `<div class="admin-profile"><button class="admin-btn" id="adminBack">← НАЗАД</button>
+      <div class="admin-section-title">⚡ LIVE EVENTS</div>
+      <div class="admin-note">Каждый ивент запускается для всех игроков ровно на 3 часа. Сервер сам проверяет условия и не позволяет получить награду дважды.</div>
+      ${active?`<div class="admin-event-active"><div><b>${esc(active.title)}</b><span>до ${formatTime(active.ends_at)}</span></div><button class="admin-btn" id="adminEventCancel" data-event-id="${Number(active.id)}">ОТМЕНИТЬ</button></div>`:''}
+      <div class="admin-event-grid">${templates.map(t=>`<div class="admin-event-template"><div class="admin-event-template-head"><span>${esc(t.icon)} ${esc(t.title)}</span><b>${number(t.reward)} ₽</b></div><div class="admin-event-template-sub">${esc(t.subtitle)}</div><div class="admin-event-template-foot"><span>3 ЧАСА</span><button class="admin-btn ${active?'':'primary'}" data-event-start="${esc(t.id)}" ${active?'disabled':''}>${active?'УЖЕ ИДЁТ':'ЗАПУСТИТЬ'}</button></div></div>`).join('')}</div>
+    </div>`;
+  }
+  async function openAdminEvents(){
+    openModal('Ивенты','<div class="loading">Загрузка…</div>');
+    try{const d=await adminFetch(`/admin/events/${ADMIN_OWNER_ID}`);modalBody.innerHTML=renderAdminEvents(d);}catch(e){modalBody.innerHTML=`<div class="admin-note">${esc(e.message||'Ошибка')}</div>`}
+  }
+  async function startAdminEvent(templateId){
+    if(!confirm('Запустить этот ивент для ВСЕХ игроков на 3 часа?')) return;
+    try{await adminFetch(`/admin/events/${ADMIN_OWNER_ID}/start`,{method:'POST',body:JSON.stringify({template_id:templateId})});showToast('⚡ Ивент запущен на 3 часа');await openAdminEvents();await loadResellEvent(true);}catch(e){showToast(e.message||'Не удалось запустить ивент');}
+  }
+  async function cancelAdminEvent(eventId){
+    if(!confirm('Отменить текущий ивент для всех игроков?')) return;
+    try{await adminFetch(`/admin/events/${ADMIN_OWNER_ID}/cancel`,{method:'POST',body:JSON.stringify({event_id:Number(eventId)})});showToast('Ивент отменён');await openAdminEvents();await loadResellEvent(true);}catch(e){showToast(e.message||'Не удалось отменить ивент');}
   }
 
   async function openAdmin(){
@@ -6203,6 +6256,9 @@ async function initFarm(){
       try{const d=await adminFetch(`/admin/maintenance/${ADMIN_OWNER_ID}`,{method:'POST',body:JSON.stringify({enabled:!enabled})});showToast(d.enabled?'Технические работы включены':'Технические работы выключены');await openAdmin();}catch(err){showToast(err.message||'Не удалось изменить режим');btn.disabled=false;}
       return;
     }
+    if(e.target.closest('#adminEventsBtn')){ await openAdminEvents(); return; }
+    if(e.target.closest('[data-event-start]')){ await startAdminEvent(e.target.closest('[data-event-start]').dataset.eventStart); return; }
+    if(e.target.closest('#adminEventCancel')){ await cancelAdminEvent(e.target.closest('#adminEventCancel').dataset.eventId); return; }
     if(e.target.closest('#adminAppealsBtn')){ await openAdminAppeals(); return; }
     if(e.target.closest('[data-appeal-resolve]')){const btn=e.target.closest('[data-appeal-resolve]'),card=btn.closest('[data-appeal-id]');btn.disabled=true;try{await adminFetch(`/admin/appeal/${ADMIN_OWNER_ID}/${Number(card?.dataset.appealId||0)}/resolve`,{method:'POST',body:JSON.stringify({decision:btn.dataset.appealResolve,note:card?.querySelector('[data-appeal-note]')?.value||''})});showToast(btn.dataset.appealResolve==='approve'?'Игрок разблокирован':'Блокировка оставлена');await openAdminAppeals()}catch(e){showToast(e.message||'Ошибка');btn.disabled=false}return;}
     if(e.target.closest('#adminSearchBtn')){
@@ -8680,6 +8736,17 @@ html[lang="en"] #resellHomeMoney #mainAssetsSection .main-tycoon-tag{display:inl
   window.addEventListener('pageshow',()=>{applyLocal();syncServer()},{passive:true});
 })();
 </script>
+
+<style id="resell-live-events-v1">
+.resell-event-card{position:relative;width:100%;overflow:hidden;text-align:left;padding:16px;border-radius:22px;background:radial-gradient(circle at 90% 0%,rgba(183,255,106,.18),transparent 34%),linear-gradient(145deg,#171b17,#090a09 72%);border:1px solid rgba(183,255,106,.18);box-shadow:0 18px 48px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.045);color:#fff;transition:.18s ease}
+.resell-event-card:active{transform:scale(.985)}
+.resell-event-glow{position:absolute;width:150px;height:150px;right:-45px;top:-70px;border-radius:50%;background:rgba(183,255,106,.12);filter:blur(24px);pointer-events:none}
+.resell-event-top,.resell-event-main,.resell-event-progress{position:relative;z-index:1}
+.resell-event-top{display:flex;justify-content:space-between;align-items:center;color:#687168;font:900 7px/1 "Montserrat",sans-serif;letter-spacing:1px}
+.resell-event-live{color:#b7ff6a}.resell-event-live::first-letter{color:#b7ff6a}
+.resell-event-main{display:flex;justify-content:space-between;gap:12px;margin-top:12px;align-items:flex-end}.resell-event-kicker{font-size:18px}.resell-event-title{margin-top:4px;font:950 17px/1 "Montserrat",sans-serif;letter-spacing:-.3px}.resell-event-sub{margin-top:6px;max-width:235px;color:#858d85;font:800 8px/1.35 "Nunito",sans-serif}.resell-event-reward{padding:10px 11px;border-radius:15px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);text-align:right;white-space:nowrap}.resell-event-reward small{display:block;color:#666f67;font:900 6px/1 "Montserrat",sans-serif;letter-spacing:.8px}.resell-event-reward b{display:block;margin-top:6px;color:#b7ff6a;font:950 13px/1 "Montserrat",sans-serif}.resell-event-progress{margin-top:13px;padding:10px 11px;border-radius:15px;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.055)}.resell-event-progress-head{display:flex;justify-content:space-between;gap:8px;color:#707870;font:900 7px/1 "Montserrat",sans-serif}.resell-event-progress-head span:last-child{color:#eef5ed}.resell-event-progress-track{height:6px;margin-top:8px;border-radius:99px;background:#050605;overflow:hidden}.resell-event-progress-track>div{height:100%;width:0;border-radius:inherit;background:linear-gradient(90deg,#fff,#b7ff6a);box-shadow:0 0 14px rgba(183,255,106,.2);transition:width .35s ease}
+@media(max-width:420px){.resell-event-main{gap:8px}.resell-event-title{font-size:15px}.resell-event-reward{padding:9px}.resell-event-reward b{font-size:11px}}
+</style>
 </body>
 
 <!-- RESSELL FINAL BUGFIX V4: friends / R-HOLD / horizontal swipe -->
@@ -8791,6 +8858,7 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
     const epoch=findSectionByTitle('Эпоха');
     const referral=sections.find(sec=>sec.querySelector('#referralBtn'));
     const avito=sections.find(sec=>sec.querySelector('#avitoBtn'));
+    const liveEvent=document.getElementById('resellEventSection');
     const farm=document.getElementById('farmSection');
     const assets=document.getElementById('mainAssetsSection');
     const autoCard=assets?.querySelector('[data-main-tycoon="cars"] .main-tycoon-title');
@@ -8833,6 +8901,7 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
     moneyLabel.append(avito); moneyLabel.append(assets);
     money.append(moneyLabel);
 
+    if(liveEvent) money.append(liveEvent);
     money.append(farm);
     money.append(referral, epoch); more.append(games, activity);
 
