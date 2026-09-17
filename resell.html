@@ -9758,6 +9758,15 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
 
 
 <!-- V73: isolated R-Farm controller. It intentionally owns ONLY the R-Farm stage and R-HOLD skin state. -->
+<style id="resell-rfarm-cooldown-clear-v79">
+/* V79 — one unambiguous R-HOLD state: READY = green R, COOLDOWN = grey R + КД. */
+#farmSection .farm-stage>.farm-kd{display:none!important}
+#farmSection .farm-panel.rf78-cooldown .farm-ring{filter:grayscale(1)!important;opacity:.58!important;border-color:rgba(255,255,255,.16)!important;box-shadow:0 0 0 8px rgba(255,255,255,.018),0 0 45px rgba(0,0,0,.18),inset 0 0 45px rgba(255,255,255,.025)!important}
+#farmSection .farm-panel.rf78-cooldown .farm-glow{opacity:.12!important}
+#farmSection .farm-panel.rf78-cooldown .farm-r{color:#8b918d!important;-webkit-text-fill-color:#8b918d!important;-webkit-text-stroke:1px rgba(255,255,255,.10)!important;text-shadow:none!important;filter:none!important;transform:none!important;font-size:clamp(54px,17vw,82px)!important;letter-spacing:-4px!important;font-style:normal!important}
+#farmSection .farm-panel.rf78-cooldown .farm-stage{cursor:not-allowed!important}
+#farmSection .farm-panel.rf78-cooldown .farm-status{color:#8a918b!important}
+</style>
 <style id="resell-v78-rfarm-only">
 #farmSection .farm-stage{touch-action:none!important;-webkit-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important;cursor:pointer!important}
 #farmSection .farm-stage.rf78-busy{cursor:grabbing!important}
@@ -9812,10 +9821,23 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
     if(finishTimer){clearTimeout(finishTimer);finishTimer=0}
     if(hapticTimer){clearInterval(hapticTimer);hapticTimer=0}
   }
-  function idleVisual(){visual(0);totalText('10.000–100.000 ₽');stage?.classList.remove('rf78-busy','farm-active','farm-disabled');}
+  function idleVisual(){
+    visual(0);
+    totalText('10.000–100.000 ₽');
+    const r=$('#farmR');if(r)r.textContent='R';
+    const panel=$('#farmPanel');panel?.classList.remove('rf78-cooldown');
+    stage?.classList.remove('rf78-busy','farm-active','farm-disabled');
+    if(stage)stage.dataset.rfarmCooldown='0';
+  }
   function cooldownVisual(left){
-    visual(0);totalText('КД');stage?.classList.remove('rf78-busy','farm-active');stage?.classList.add('farm-disabled');
-    statusText(`CD активен · сброс в 12:00 по МСК. Осталось ${clock(left)}.`);
+    visual(0);
+    totalText('КД');
+    const r=$('#farmR');if(r)r.textContent='КД';
+    const panel=$('#farmPanel');panel?.classList.add('rf78-cooldown');
+    stage?.classList.remove('rf78-busy','farm-active');
+    stage?.classList.add('farm-disabled');
+    if(stage)stage.dataset.rfarmCooldown='1';
+    statusText(`КД активен · сброс в 12:00 по МСК. Осталось ${clock(left)}.`);
   }
   function resetLocal(){
     stopLoops();down=false;starting=false;active=false;completing=false;done=false;cancelQueued=false;
@@ -9891,8 +9913,14 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
       try{if(Number.isFinite(balance)){core().setBalance?.(balance);const p=core().getProfile?.();if(p)p.balance=balance}}catch(_){ }
       visual(1);rewardText(reward,1);stage?.classList.remove('rf78-busy','farm-active');stage?.classList.add('farm-disabled');
       const left=Math.max(0,num(d.cooldown_remaining));
-      statusText(`Готово! +${reward.toLocaleString('ru-RU')} ₽ зачислено. CD сбросится в 12:00 по МСК. Осталось ${clock(left)}.`);
-      totalText(`+${reward.toLocaleString('ru-RU')} ₽`);toast(`+${reward.toLocaleString('ru-RU')} ₽ зачислено`);haptic('heavy');
+      if(left>0){
+        cooldownVisual(left);
+        statusText(`Готово! +${reward.toLocaleString('ru-RU')} ₽ зачислено. КД до 12:00 МСК · осталось ${clock(left)}.`);
+      }else{
+        idleVisual();
+        statusText(`Готово! +${reward.toLocaleString('ru-RU')} ₽ зачислено.`);
+      }
+      toast(`+${reward.toLocaleString('ru-RU')} ₽ зачислено`);haptic('heavy');
       try{window.dispatchEvent(new Event('resell:hold-complete'))}catch(_){ }
       // One post-completion sync only; it cannot duplicate the payout.
       setTimeout(()=>getStatus().then(applyStatus).catch(()=>{}),250);
@@ -9970,6 +9998,11 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
     stage.dataset.rfarmV78='1';stage.dataset.bound='1';stage.style.touchAction='none';stage.style.userSelect='none';stage.style.webkitUserSelect='none';
     const downFn=e=>{
       if(e?.pointerType==='mouse'&&e.button!==0)return;
+      if(stage?.dataset.rfarmCooldown==='1'){
+        haptic('light');
+        getStatus().then(applyStatus).catch(()=>{});
+        return;
+      }
       if(down||starting||active||completing||done)return;
       down=true;pointerId=e?.pointerId??null;try{e.preventDefault?.()}catch(_){ }try{if(e?.pointerId!=null)stage.setPointerCapture(e.pointerId)}catch(_){ }
       start();
