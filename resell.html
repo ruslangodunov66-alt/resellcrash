@@ -5877,26 +5877,62 @@ async function initFarm(){
 
 
   let currentResellEvent=null, resellEventTimer=null, resellEventPoll=null;
-  function renderEventTimer(seconds){const s=Math.max(0,Number(seconds)||0),h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;return [h,m,sec].map((x,i)=>i===0?String(x).padStart(2,'0'):String(x).padStart(2,'0')).join(':')}
+  function renderEventTimer(seconds){const s=Math.max(0,Number(seconds)||0),h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;return [h,m,sec].map(x=>String(x).padStart(2,'0')).join(':')}
+  function renderEventGuide(ev,progress={}){
+    const cur=Math.max(0,Number(progress.current||0)),target=Math.max(0,Number(progress.target||ev.target||0)),done=Boolean(progress.completed),claimed=Boolean(progress.claimed);
+    const steps=Array.isArray(ev.guide_steps)?ev.guide_steps:[];
+    const pct=target?Math.min(100,cur/target*100):0;
+    return `<div class="event-guide">
+      <div class="event-guide-hero">
+        <div class="event-guide-icon">${esc(ev.icon||'⚡')}</div>
+        <div class="event-guide-kicker">КАК ПРОЙТИ ИВЕНТ</div>
+        <div class="event-guide-title">${esc(ev.guide_title||ev.title||'LIVE EVENT')}</div>
+        <div class="event-guide-goal">${esc(ev.guide_goal||ev.subtitle||'Выполни условие до окончания таймера.')}</div>
+      </div>
+      <div class="event-guide-box" style="margin-top:11px"><h4>ЧТО НУЖНО СДЕЛАТЬ</h4><ol class="event-guide-steps">${steps.map((x,i)=>`<li><b>${i+1}</b><span>${esc(x)}</span></li>`).join('')}</ol></div>
+      <div class="event-guide-grid">
+        <div class="event-guide-box"><h4>КАК ЗАСЧИТЫВАЕТСЯ</h4><p>${esc(ev.guide_counting||'Прогресс считается сервером автоматически.')}</p></div>
+        <div class="event-guide-box"><h4>ВРЕМЯ</h4><p>Ивент длится 3 часа. После окончания новые действия в прогресс не попадут.</p></div>
+      </div>
+      <div class="event-guide-progress"><div class="event-guide-progress-top"><span>ТЕКУЩИЙ ПРОГРЕСС</span><b>${number(cur)} / ${number(target)}</b></div><div class="event-guide-track"><i style="width:${pct}%"></i></div></div>
+      <div class="event-guide-reward"><span>НАГРАДА</span><b>${number(ev.reward||0)} ₽</b></div>
+      <div class="event-guide-note">${claimed?'Награда уже получена.':done?'Условие выполнено — можно забрать награду.':'Прогресс обновляется автоматически, без перезагрузки страницы.'}</div>
+      ${done&&!claimed?'<button class="admin-btn primary event-guide-btn" id="eventGuideClaim">ЗАБРАТЬ НАГРАДУ</button>':'<button class="admin-btn event-guide-btn" id="eventWelcomeOpen">К ИВЕНТУ</button>'}
+    </div>`;
+  }
+  function openEventGuide(){
+    if(!currentResellEvent)return;
+    const p=currentResellEvent.__progress||{};
+    openModal(`${currentResellEvent.icon||'⚡'} ${currentResellEvent.title||'Ивент'}`,renderEventGuide(currentResellEvent,p));
+  }
   function updateEventCard(data){
     const sec=document.getElementById('resellEventSection'); if(!sec)return;
     const ev=data?.event; currentResellEvent=ev||null;
     if(!ev){sec.style.display='none';clearInterval(resellEventTimer);return;}
     sec.style.display='block';
+    const p=data.progress||{}; ev.__progress=p;
     $('#resellEventIcon').textContent=ev.icon||'⚡'; $('#resellEventTitle').textContent=ev.title||'LIVE EVENT'; $('#resellEventSub').textContent=ev.subtitle||''; $('#resellEventReward').textContent=`${number(ev.reward)} ₽`;
-    const p=data.progress||{}, cur=Math.min(Number(p.current||0),Number(p.target||ev.target||0)), target=Number(p.target||ev.target||0), done=Boolean(p.completed), claimed=Boolean(p.claimed);
+    const cur=Math.min(Number(p.current||0),Number(p.target||ev.target||0)), target=Number(p.target||ev.target||0), done=Boolean(p.completed), claimed=Boolean(p.claimed);
     $('#resellEventProgressText').textContent=`${number(cur)} / ${number(target)}`; $('#resellEventProgressFill').style.width=`${target?Math.min(100,cur/target*100):0}%`; $('#resellEventState').textContent=claimed?'НАГРАДА ПОЛУЧЕНА':done?'ЗАБРАТЬ НАГРАДУ':'СМОТРЕТЬ →';
     clearInterval(resellEventTimer);let left=Number(data.remaining||0);const tick=()=>{left=Math.max(0,left-1);const el=$('#resellEventTimer');if(el)el.textContent=renderEventTimer(left);if(left<=0){clearInterval(resellEventTimer);loadResellEvent(true)}};const el=$('#resellEventTimer');if(el)el.textContent=renderEventTimer(left);resellEventTimer=setInterval(tick,1000);
-    try{const seen=localStorage.getItem('resell_live_event_seen');if(String(seen)!==String(ev.id)){localStorage.setItem('resell_live_event_seen',String(ev.id));setTimeout(()=>openModal('⚡ НОВЫЙ ИВЕНТ',`<div class="admin-profile"><div class="admin-note" style="text-align:center;padding:20px 12px"><div style="font-size:30px">${esc(ev.icon||'⚡')}</div><div style="font:950 18px/1.1 Montserrat,sans-serif;margin-top:10px">${esc(ev.title)}</div><div style="margin-top:8px;color:#777">${esc(ev.subtitle)}</div><div style="margin-top:14px;color:#b7ff6a;font:950 16px/1 Montserrat,sans-serif">${number(ev.reward)} ₽</div><button class="admin-btn primary" id="eventWelcomeOpen" style="width:100%;margin-top:15px">ОТКРЫТЬ ИВЕНТ</button></div></div>`),150)} }catch(_){ }
+    try{const seen=localStorage.getItem('resell_live_event_seen');if(String(seen)!==String(ev.id)){localStorage.setItem('resell_live_event_seen',String(ev.id));setTimeout(()=>openEventGuide(),150)} }catch(_){ }
   }
   async function loadResellEvent(force=false){
     if(!userId)return;
-    try{const d=await apiFetch(`${API_BASE}/events/active?userId=${encodeURIComponent(userId)}`,{cache:'no-store'},2);let j={};try{j=await d.json()}catch(_){j={}};if(!d.ok||j.success===false)throw new Error(j.error||'event');updateEventCard(j);clearInterval(resellEventPoll);resellEventPoll=setInterval(()=>loadResellEvent(false),10000);}catch(_){if(force) updateEventCard({event:null});}
+    try{const d=await apiFetch(`${API_BASE}/events/active?userId=${encodeURIComponent(userId)}&t=${Date.now()}`,{cache:'no-store'},2);let j={};try{j=await d.json()}catch(_){j={}};if(!d.ok||j.success===false)throw new Error(j.error||'event');updateEventCard(j);clearInterval(resellEventPoll);resellEventPoll=setInterval(()=>loadResellEvent(false),2000);}catch(_){if(force) updateEventCard({event:null});}
   }
   async function claimResellEvent(){
-    if(!currentResellEvent)return;try{const d=await apiFetch(`${API_BASE}/events/claim`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:Number(userId),event_id:Number(currentResellEvent.id)})},2);const j=await d.json();if(!d.ok||j.success===false)throw new Error(j.error||'Не удалось получить награду');showToast(`⚡ +${number(j.reward)} ₽ за ивент`);haptic('success');await loadResellEvent(true);}catch(e){showToast(e.message||'Не удалось получить награду');}
+    if(!currentResellEvent)return;
+    try{const d=await apiFetch(`${API_BASE}/events/claim`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:Number(userId),event_id:Number(currentResellEvent.id)})},2);const j=await d.json();if(!d.ok||j.success===false)throw new Error(j.error||'Не удалось получить награду');if(j.balance!==undefined){profileData=profileData||{};profileData.balance=Number(j.balance);if(j.total_earned!==undefined)profileData.total_earned=Number(j.total_earned);setBalance(profileData.balance);}showToast(`⚡ +${number(j.reward)} ₽ за ивент`);haptic('success');await loadResellEvent(true);}catch(e){showToast(e.message||'Не удалось получить награду');}
   }
-  document.addEventListener('click',e=>{if(e.target.closest('#resellEventBtn')){if(document.getElementById('resellEventState')?.textContent==='ЗАБРАТЬ НАГРАДУ') claimResellEvent();else document.getElementById('resellEventSection')?.scrollIntoView({behavior:'smooth',block:'center'});} if(e.target.closest('#eventWelcomeOpen')){closeModal();document.getElementById('resellEventSection')?.scrollIntoView({behavior:'smooth',block:'center'});}});
+  document.addEventListener('click',e=>{
+    if(e.target.closest('#resellEventBtn')){if(document.getElementById('resellEventState')?.textContent==='ЗАБРАТЬ НАГРАДУ') claimResellEvent();else openEventGuide();}
+    if(e.target.closest('#eventGuideClaim')){closeModal();claimResellEvent();}
+    if(e.target.closest('#eventWelcomeOpen')){closeModal();document.getElementById('resellEventSection')?.scrollIntoView({behavior:'smooth',block:'center'});}
+  });
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')loadResellEvent(true)},{passive:true});
+  window.addEventListener('focus',()=>loadResellEvent(true),{passive:true});
+  window.addEventListener('pageshow',()=>loadResellEvent(true),{passive:true});
   setTimeout(()=>loadResellEvent(true),1200);
 
   async function probeAdminAccess(uid){
@@ -8747,6 +8783,25 @@ html[lang="en"] #resellHomeMoney #mainAssetsSection .main-tycoon-tag{display:inl
 .resell-event-live{color:#b7ff6a}.resell-event-live::first-letter{color:#b7ff6a}
 .resell-event-main{display:flex;justify-content:space-between;gap:12px;margin-top:12px;align-items:flex-end}.resell-event-kicker{font-size:18px}.resell-event-title{margin-top:4px;font:950 17px/1 "Montserrat",sans-serif;letter-spacing:-.3px}.resell-event-sub{margin-top:6px;max-width:235px;color:#858d85;font:800 8px/1.35 "Nunito",sans-serif}.resell-event-reward{padding:10px 11px;border-radius:15px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);text-align:right;white-space:nowrap}.resell-event-reward small{display:block;color:#666f67;font:900 6px/1 "Montserrat",sans-serif;letter-spacing:.8px}.resell-event-reward b{display:block;margin-top:6px;color:#b7ff6a;font:950 13px/1 "Montserrat",sans-serif}.resell-event-progress{margin-top:13px;padding:10px 11px;border-radius:15px;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.055)}.resell-event-progress-head{display:flex;justify-content:space-between;gap:8px;color:#707870;font:900 7px/1 "Montserrat",sans-serif}.resell-event-progress-head span:last-child{color:#eef5ed}.resell-event-progress-track{height:6px;margin-top:8px;border-radius:99px;background:#050605;overflow:hidden}.resell-event-progress-track>div{height:100%;width:0;border-radius:inherit;background:linear-gradient(90deg,#fff,#b7ff6a);box-shadow:0 0 14px rgba(183,255,106,.2);transition:width .35s ease}
 @media(max-width:420px){.resell-event-main{gap:8px}.resell-event-title{font-size:15px}.resell-event-reward{padding:9px}.resell-event-reward b{font-size:11px}}
+
+
+<style id="resell-live-events-admin-ui">
+.admin-event-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px}
+.admin-event-template{min-width:0;padding:15px;border-radius:18px;background:linear-gradient(145deg,#171b18,#0b0d0c);border:1px solid rgba(255,255,255,.08);box-shadow:inset 0 1px 0 rgba(255,255,255,.035),0 12px 28px rgba(0,0,0,.18);overflow:hidden}
+.admin-event-template-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;min-width:0}
+.admin-event-template-head span{min-width:0;color:#f2f5f2;font:950 11px/1.25 Montserrat,sans-serif;letter-spacing:-.1px;overflow-wrap:anywhere}
+.admin-event-template-head b{flex:0 0 auto;color:#b7ff6a;font:950 11px/1 Montserrat,sans-serif;white-space:nowrap}
+.admin-event-template-sub{min-height:42px;margin-top:10px;color:#8b938d;font:800 9px/1.45 Nunito,sans-serif;overflow-wrap:anywhere}
+.admin-event-template-foot{display:flex;align-items:center;justify-content:space-between;gap:9px;margin-top:13px;padding-top:11px;border-top:1px solid rgba(255,255,255,.055)}
+.admin-event-template-foot>span{color:#69726b;font:900 7px/1 Montserrat,sans-serif;letter-spacing:1px;white-space:nowrap}
+.admin-event-template-foot .admin-btn{min-width:0;flex:1;min-height:38px!important;padding:0 10px!important;font-size:8px!important}
+.admin-event-active{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;padding:13px 14px;border-radius:17px;background:rgba(183,255,106,.07);border:1px solid rgba(183,255,106,.2)}
+.admin-event-active>div{min-width:0;display:flex;flex-direction:column;gap:5px}.admin-event-active b{font:950 11px/1.2 Montserrat,sans-serif;overflow-wrap:anywhere}.admin-event-active span{color:#8a938c;font:800 8px/1 Nunito,sans-serif}
+@media(max-width:520px){.admin-event-grid{grid-template-columns:1fr;gap:10px}.admin-event-template{padding:14px}.admin-event-template-sub{min-height:0}.admin-event-active{align-items:flex-start;flex-direction:column}.admin-event-active .admin-btn{width:100%}}
+
+.event-guide{padding:2px 0 6px}.event-guide-hero{position:relative;overflow:hidden;padding:20px 17px;border-radius:22px;background:radial-gradient(circle at 90% 0%,rgba(183,255,106,.2),transparent 40%),linear-gradient(145deg,#171b17,#090b09);border:1px solid rgba(183,255,106,.18);box-shadow:0 18px 55px rgba(0,0,0,.32)}
+.event-guide-hero:after{content:"";position:absolute;width:170px;height:170px;right:-90px;top:-100px;border-radius:50%;background:rgba(183,255,106,.12);filter:blur(22px);pointer-events:none}
+.event-guide-icon{position:relative;z-index:1;font-size:30px;line-height:1}.event-guide-kicker{position:relative;z-index:1;margin-top:10px;color:#b7ff6a;font:950 7px/1 Montserrat,sans-serif;letter-spacing:1.5px}.event-guide-title{position:relative;z-index:1;margin-top:7px;color:#f4f7f4;font:950 19px/1.1 Montserrat,sans-serif;letter-spacing:-.35px;overflow-wrap:anywhere}.event-guide-goal{position:relative;z-index:1;margin-top:10px;color:#aeb7b0;font:800 10px/1.5 Nunito,sans-serif}.event-guide-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:11px}.event-guide-box{padding:13px;border-radius:16px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.065)}.event-guide-box h4{margin:0 0 8px;color:#6f786f;font:950 7px/1 Montserrat,sans-serif;letter-spacing:1px}.event-guide-box p{margin:0;color:#e1e7e2;font:800 9px/1.5 Nunito,sans-serif}.event-guide-steps{margin:0;padding:0;list-style:none;display:grid;gap:8px}.event-guide-steps li{display:flex;gap:9px;align-items:flex-start;color:#e1e7e2;font:800 9px/1.45 Nunito,sans-serif}.event-guide-steps li b{flex:0 0 20px;width:20px;height:20px;display:grid;place-items:center;border-radius:7px;background:rgba(183,255,106,.1);border:1px solid rgba(183,255,106,.18);color:#b7ff6a;font:950 8px/1 Montserrat,sans-serif}.event-guide-progress{margin-top:11px;padding:13px;border-radius:16px;background:#0a0c0a;border:1px solid rgba(255,255,255,.07)}.event-guide-progress-top{display:flex;justify-content:space-between;gap:8px;color:#7f887f;font:900 7px/1 Montserrat,sans-serif;letter-spacing:.7px}.event-guide-progress-top b{color:#f0f4f0}.event-guide-track{height:7px;margin-top:9px;border-radius:99px;background:#030403;overflow:hidden}.event-guide-track i{display:block;height:100%;width:0;border-radius:inherit;background:linear-gradient(90deg,#fff,#b7ff6a);box-shadow:0 0 16px rgba(183,255,106,.22);transition:width .3s ease}.event-guide-reward{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:11px;padding:12px 13px;border-radius:15px;background:rgba(183,255,106,.06);border:1px solid rgba(183,255,106,.16)}.event-guide-reward span{color:#798278;font:900 7px/1 Montserrat,sans-serif;letter-spacing:1px}.event-guide-reward b{color:#b7ff6a;font:950 14px/1 Montserrat,sans-serif}.event-guide-note{margin-top:11px;color:#6f786f;font:800 8px/1.45 Nunito,sans-serif}.event-guide-btn{width:100%;margin-top:13px;min-height:45px!important}@media(max-width:520px){.event-guide-grid{grid-template-columns:1fr}.event-guide-title{font-size:17px}.event-guide-hero{padding:18px 15px}}
 </style>
 </body>
 
