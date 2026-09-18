@@ -1976,6 +1976,13 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
 }
 </style>
 
+<style id="resell-car-tuning-v60-polish">
+.garage-car-card .rt-icon svg,.garage-car-card .rt-open-icon svg{width:25px!important;height:25px!important;display:block!important;overflow:visible!important;fill:none!important;stroke-linecap:round!important;stroke-linejoin:round!important}
+.garage-car-card .rt-icon svg *,.garage-car-card .rt-open-icon svg *{vector-effect:non-scaling-stroke}
+.garage-car-card .rt-value-updated{animation:rtValuePulse .42s ease-out}
+@keyframes rtValuePulse{0%{transform:scale(1);text-shadow:none}35%{transform:scale(1.08);text-shadow:0 0 10px rgba(183,255,106,.55)}100%{transform:scale(1);text-shadow:none}}
+</style>
+
 <style id="resell-car-tuning-v59-art">
 .garage-car-card .rt-icon svg{width:23px!important;height:23px!important;display:block!important;overflow:visible!important}
 .garage-car-card .rt-open-icon svg{width:22px!important;height:22px!important;display:block!important;overflow:visible!important}
@@ -5290,6 +5297,16 @@ async function initFarm(){
     const tabs=[['bank','Банк'],['assets','Активы'],['cars','Авто'],['taxi','Таксопарк']];
     return `<div class="tycoon-tabs">${tabs.map(([id,label])=>`<button class="tycoon-tab ${tycoonTab===id?'active':''}" data-tycoon-tab="${id}">${label}</button>`).join('')}</div>`;
   }
+  // Shared client-side tuning metadata. Keep this outside renderTycoon so purchase
+  // handlers can update the current card without a ReferenceError.
+  const RESSELL_TUNING_META={
+    engine:{title:'Двигатель',costs:[25000,50000,100000,180000,300000],income_pct:.03,speed_bonus:2},
+    transmission:{title:'Трансмиссия',costs:[20000,40000,80000,150000,250000],income_pct:.02,speed_bonus:2},
+    turbo:{title:'Турбина',costs:[35000,70000,140000,260000,450000],income_pct:.02,speed_bonus:2},
+    suspension:{title:'Подвеска',costs:[18000,36000,72000,130000,220000],income_pct:.02,speed_bonus:2},
+    aerodynamics:{title:'Аэродинамика',costs:[22000,45000,90000,165000,280000],income_pct:.02,speed_bonus:2}
+  };
+
   async function renderTycoon(){
     let body='';
     if(tycoonTab==='home'){
@@ -5350,7 +5367,8 @@ async function initFarm(){
       const ownedIds=new Set(garage.map(x=>x.id));
       if(carView==='garage'){
         const taxiMult=Number(d.taxi_income_multiplier||1);
-        const tuneCfg=d.car_tuning_config||{};
+        const tuneCfg=Object.assign({},RESSELL_TUNING_META,d.car_tuning_config||{});
+        window.__resellTuneCfg=tuneCfg;
         const tuneKeys=['engine','transmission','turbo','suspension','aerodynamics'];
         const tuneIcons={engine:'⚙️',transmission:'↗',turbo:'◉',suspension:'⌁',aerodynamics:'◇'};
         const tuneNames={engine:'Двигатель',transmission:'Трансмиссия',turbo:'Турбина',suspension:'Подвеска',aerodynamics:'Аэродинамика'};
@@ -5358,25 +5376,18 @@ async function initFarm(){
           const tuning=c.tuning&&typeof c.tuning==='object'?c.tuning:{};
           const tuneDots=(lv)=>Array.from({length:5},(_,i)=>`<i class="rt-dot ${i<lv?'on':''}"></i>`).join('');
           const svgIcons={
-            engine:`<svg viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="rtEngG" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#d9ffad"/><stop offset="1" stop-color="#6fdd35"/></linearGradient></defs><path d="M10 25h31l8 8v16H10z" fill="rgba(183,255,106,.08)" stroke="url(#rtEngG)" stroke-width="2.5"/><path d="M18 25v-8h14v8M41 31h11v10h-6M17 49v7M34 49v7M8 34H4M52 34h8" fill="none" stroke="#b7ff6a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="25" cy="37" r="7" fill="none" stroke="#d9ffbc" stroke-width="2.5"/><circle cx="25" cy="37" r="2" fill="#b7ff6a"/></svg>`,
-            transmission:`<svg viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="rtTrG" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#d9ffbc"/><stop offset="1" stop-color="#76e33d"/></linearGradient></defs><circle cx="16" cy="17" r="7" fill="rgba(183,255,106,.06)" stroke="url(#rtTrG)" stroke-width="2.5"/><circle cx="48" cy="17" r="7" fill="rgba(183,255,106,.06)" stroke="url(#rtTrG)" stroke-width="2.5"/><circle cx="32" cy="47" r="7" fill="rgba(183,255,106,.06)" stroke="url(#rtTrG)" stroke-width="2.5"/><path d="M16 24v8c0 7 6 10 16 10M48 24v8c0 7-6 10-16 10M32 40V24" fill="none" stroke="#b7ff6a" stroke-width="2.5" stroke-linecap="round"/><path d="M10 17h-5M54 17h5M32 54v5" stroke="#7fdf42" stroke-width="2.5" stroke-linecap="round"/></svg>`,
-            turbo:`<svg viewBox="0 0 64 64" aria-hidden="true"><defs><radialGradient id="rtTuG"><stop stop-color="#e6ffc9"/><stop offset=".55" stop-color="#b7ff6a"/><stop offset="1" stop-color="#4cae24"/></radialGradient></defs><circle cx="31" cy="32" r="22" fill="rgba(183,255,106,.05)" stroke="#8de84d" stroke-width="2.5"/><circle cx="31" cy="32" r="7" fill="url(#rtTuG)" stroke="#e7ffd1" stroke-width="2"/><path d="M31 10c10 6 13 13 7 20M53 32c-6 10-13 13-20 7M31 54c-10-6-13-13-7-20M9 32c6-10 13-13 20-7" fill="none" stroke="#b7ff6a" stroke-width="3" stroke-linecap="round"/><path d="M53 13h7v7M54 51h6v-7" fill="none" stroke="#78d83b" stroke-width="2.5" stroke-linecap="round"/></svg>`,
-            suspension:`<svg viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="rtSuG" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#e0ffc2"/><stop offset="1" stop-color="#6fd53a"/></linearGradient></defs><path d="M20 7v50M44 7v50" stroke="#79db40" stroke-width="3" stroke-linecap="round"/><path d="M20 13c14 5-14 9 0 15s-14 10 0 16-14 8 0 13M44 13c-14 5 14 9 0 15s14 10 0 16 14 8 0 13" fill="none" stroke="url(#rtSuG)" stroke-width="3" stroke-linecap="round"/><path d="M11 7h18M35 7h18M11 57h18M35 57h18" stroke="#b7ff6a" stroke-width="2.5" stroke-linecap="round"/></svg>`,
-            aerodynamics:`<svg viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="rtAeG" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#63c72f"/><stop offset="1" stop-color="#dcffbd"/></linearGradient></defs><path d="M8 43c17-3 28-12 43-29l9 4C49 34 35 45 14 49z" fill="rgba(183,255,106,.08)" stroke="url(#rtAeG)" stroke-width="2.7" stroke-linejoin="round"/><path d="M11 54h44M17 36l13 5M46 17l7 11" fill="none" stroke="#b7ff6a" stroke-width="2.5" stroke-linecap="round"/><path d="M5 26c7-4 12-5 19-5M8 17c5-3 9-4 14-4" fill="none" stroke="#6fce38" stroke-width="2" stroke-linecap="round" opacity=".9"/></svg>`
+            engine:`<svg viewBox="0 0 64 64" aria-hidden="true"><rect x="9" y="22" width="42" height="29" rx="6" fill="rgba(183,255,106,.05)" stroke="#b7ff6a" stroke-width="2.8"/><path d="M17 22v-8h13v8M51 30h7v11h-7M9 32H4M20 51v7M39 51v7" stroke="#b7ff6a" stroke-width="2.8"/><circle cx="25" cy="36.5" r="8" stroke="#dcffbf" stroke-width="2.8"/><circle cx="25" cy="36.5" r="2.8" fill="#b7ff6a" stroke="none"/><path d="M35 29h10M35 35h10M35 41h7" stroke="#73d83b" stroke-width="2.2"/></svg>`,
+            transmission:`<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="16" cy="16" r="7" fill="rgba(183,255,106,.04)" stroke="#b7ff6a" stroke-width="2.6"/><circle cx="48" cy="16" r="7" fill="rgba(183,255,106,.04)" stroke="#b7ff6a" stroke-width="2.6"/><circle cx="32" cy="47" r="9" fill="rgba(183,255,106,.04)" stroke="#dcffbf" stroke-width="2.6"/><path d="M16 23v8c0 6 5 10 16 10M48 23v8c0 6-5 10-16 10M32 23v14M9 16H4M55 16h5M32 56v4" stroke="#8fe64d" stroke-width="2.6"/><circle cx="16" cy="16" r="2" fill="#b7ff6a" stroke="none"/><circle cx="48" cy="16" r="2" fill="#b7ff6a" stroke="none"/><circle cx="32" cy="47" r="2.5" fill="#b7ff6a" stroke="none"/></svg>`,
+            turbo:`<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M49 19c-8-8-21-9-30-2-9 8-12 20-7 30" stroke="#b7ff6a" stroke-width="2.8"/><path d="M15 45l-5 2 2-6" stroke="#b7ff6a" stroke-width="2.8"/><circle cx="32" cy="32" r="19" fill="rgba(183,255,106,.04)" stroke="#d9ffbc" stroke-width="2.6"/><path d="M32 17c8 5 11 11 7 17M47 32c-5 8-11 11-17 7M32 47c-8-5-11-11-7-17M17 32c5-8 11-11 17-7" stroke="#7ee442" stroke-width="3"/><circle cx="32" cy="32" r="5" fill="#b7ff6a" stroke="#ecffd9" stroke-width="2"/><path d="M51 13h7v7M13 51H6v-7" stroke="#b7ff6a" stroke-width="2.4"/></svg>`,
+            suspension:`<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M19 7v50M45 7v50" stroke="#b7ff6a" stroke-width="2.8"/><path d="M19 11c16 4-16 8 0 12s-16 8 0 12-16 8 0 12-16 8 0 10M45 11c-16 4 16 8 0 12s16 8 0 12-16 8 0 12 16 8 0 10" stroke="#d9ffbc" stroke-width="3" fill="none"/><path d="M10 7h18M36 7h18M10 57h18M36 57h18" stroke="#78dc40" stroke-width="2.5"/><circle cx="19" cy="7" r="3" fill="#b7ff6a" stroke="none"/><circle cx="45" cy="7" r="3" fill="#b7ff6a" stroke="none"/></svg>`,
+            aerodynamics:`<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M9 45c14-2 29-11 45-30l7 3C49 37 34 48 12 51z" fill="rgba(183,255,106,.05)" stroke="#b7ff6a" stroke-width="2.8"/><path d="M13 54h43M21 39l12 4M48 19l7 10" stroke="#dcffbf" stroke-width="2.6"/><path d="M5 27c7-5 13-6 21-5M8 18c6-4 11-5 17-4" stroke="#72d53a" stroke-width="2.4"/><path d="M34 43l8-4" stroke="#b7ff6a" stroke-width="2.2"/></svg>`
           };
           const tuneNames={engine:'Двигатель',transmission:'Трансмиссия',turbo:'Турбина',suspension:'Подвеска',aerodynamics:'Аэродинамика'};
           const tuneKeys=['engine','transmission','turbo','suspension','aerodynamics'];
-          const fallbackCfg={
-            engine:{title:'Двигатель',costs:[25000,50000,100000,200000,400000],income_pct:.03,speed_bonus:3},
-            transmission:{title:'Трансмиссия',costs:[20000,40000,80000,160000,320000],income_pct:.02,speed_bonus:2},
-            turbo:{title:'Турбина',costs:[35000,70000,140000,280000,560000],income_pct:.04,speed_bonus:5},
-            suspension:{title:'Подвеска',costs:[18000,36000,72000,144000,288000],income_pct:.015,speed_bonus:1},
-            aerodynamics:{title:'Аэродинамика',costs:[22000,44000,88000,176000,352000],income_pct:.025,speed_bonus:2}
-          };
-          const getCfg=(key)=>Object.assign({},fallbackCfg[key]||{},(tuneCfg&&tuneCfg[key])||{});
+          const getCfg=(key)=>Object.assign({},RESSELL_TUNING_META[key]||{},(tuneCfg&&tuneCfg[key])||{});
           const score=tuneKeys.reduce((sum,key)=>sum+Math.max(0,Math.min(5,Number(tuning[key]||0))),0);
           const tunedIncome=Number(c.tuned_income_per_hour||c.income_per_hour||0);
-          const taxiProfit=Math.round(tunedIncome*Math.max(1,Number(taxiMult||1)));
+          const taxiProfit=Number(c.taxi_income_per_hour??Math.round(tunedIncome*Math.max(1,Number(taxiMult||1))));
           return `<div class="rt-wrap" data-rt-wrap="${c.instance_index}">
             <button type="button" class="rt-open" data-rt-toggle="${c.instance_index}" aria-expanded="false">
               <span class="rt-open-icon">${svgIcons.engine}</span>
@@ -6356,7 +6367,7 @@ async function initFarm(){
           const lv=row.querySelector('.rt-level em'); if(lv)lv.textContent=`${level}/5`;
           const buy=row.querySelector('.rt-buy');
           if(buy){
-            const cfg=tuneCfg?.[part]||{};
+            const cfg=(window.__resellTuneCfg||RESSELL_TUNING_META)[part]||{};
             if(level>=5){buy.disabled=true;buy.textContent='MAX';}
             else {buy.disabled=false;buy.textContent=`${number(Number(cfg.costs?.[level]||0))} ₽`;}
           }
@@ -6371,6 +6382,9 @@ async function initFarm(){
         const profitBoxes=wrap?.querySelectorAll('.rt-profit>div');
         if(profitBoxes?.[0]){const b=profitBoxes[0].querySelector('b');if(b)b.textContent=`+${number(income)} ₽`;}
         if(profitBoxes?.[1]){const b=profitBoxes[1].querySelector('b');if(b)b.textContent=`+${number(taxiProfit)} ₽`;}
+        // Immediate visual confirmation: the changed values pulse once, without
+        // rebuilding the garage or closing the tuning panel.
+        [statSpeed,statLease,profitBoxes?.[0]?.querySelector('b'),profitBoxes?.[1]?.querySelector('b')].filter(Boolean).forEach(el=>{el.classList.remove('rt-value-updated');void el.offsetWidth;el.classList.add('rt-value-updated');});
         if(panel)panel.hidden=false;
         const toggle=wrap?.querySelector('[data-rt-toggle]');
         if(toggle){toggle.classList.add('open');toggle.setAttribute('aria-expanded','true');const arrow=toggle.querySelector('.rt-arrow');if(arrow)arrow.textContent='⌄';}
