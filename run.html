@@ -6,7 +6,7 @@
 <div class="panel" id="help"><div class="box"><h1>КАК ИГРАТЬ</h1><p><b style="color:#b9ff55">ДВИЖЕНИЕ.</b> Нет жёстких трёх полос. Герой плавно ходит влево и вправо по всей игровой площадке.</p><p><b style="color:#69dfff">ПРЫЖОК.</b> Прыжок имеет нормальную физику, короткое окно прощения и двойной прыжок. Бусты можно уверенно брать в воздухе.</p><p><b style="color:#79ddff">ПОДКАТ.</b> Работает только на земле и специально рассчитан на низкие препятствия — без «скукоживания» в воздухе.</p><p><b style="color:#ffd95c">ДОБЫЧА.</b> ₽ и товары дают деньги и XP. Магнит притягивает добычу, щит спасает от одного удара, турбо временно ускоряет игру и заработок.</p><p><b style="color:#ff9f55">ПРОГРЕСС.</b> Каждый новый уровень увеличивает стоимость найденного товара и размер награды.</p><button class="big green" id="close">НАЗАД</button></div></div>
 <div class="panel" id="over"><div class="box"><h1>РАУНД ОКОНЧЕН</h1><p id="result"></p><div class="actions"><button class="big green" id="again">ЕЩЁ РАЗ</button><button class="big" id="exit">ВЫЙТИ</button></div></div></div>
 <script>
-(()=>{const C=document.getElementById('game'),X=C.getContext('2d');let W=800,H=450,dpr=1,raf=0,last=0,playing=false,paused=false,time=0,world=0,spawn=.5,score=0,cash=0,level=1,exp=0,shake=0,endTimer=0,combo=0,comboTimer=0,distance=0,runReward=0,claimed=false,tutorial=0,runId='';let P,O=[],F=[],T=[],build=[],audio,master;
+(()=>{const C=document.getElementById('game'),X=C.getContext('2d');let W=800,H=450,dpr=1,raf=0,last=0,playing=false,paused=false,time=0,world=0,spawn=.5,score=0,cash=0,level=1,exp=0,shake=0,endTimer=0,combo=0,comboTimer=0,distance=0,runReward=0,claimed=false,tutorial=0,runId='',claimInFlight=null;let P,O=[],F=[],T=[],build=[],audio,master;
 const $=id=>document.getElementById(id),R=(a,b)=>a+Math.random()*(b-a),pick=a=>a[Math.random()*a.length|0],cl=(v,a,b)=>Math.max(a,Math.min(b,v));
 const goods=[['СМАРТФОН',95],['КОНСОЛЬ',155],['КРОССОВКИ',125],['КАМЕРА',220],['НОУТБУК',305],['ЧАСЫ',365]];
 const API_BASE='https://resellgame.bothost.tech';
@@ -53,38 +53,73 @@ const sessionUid=String(runSession||'').replace(/^Bearer\s+/i,'').split('.')[0];
 const userId=String(tg?.initDataUnsafe?.user?.id||params.get('userId')||(/^[0-9]+$/.test(sessionUid)?sessionUid:''));
 async function claimRunReward(){
   if(claimed||runReward<=0)return true;
-  try{
-    const raw=await waitRunInitData(2500);
-    const liveId=String(tg?.initDataUnsafe?.user?.id||userId||'');
-    if(!liveId)throw new Error('Telegram-пользователь не определён. Открой Run из Telegram');
-    let session='';
-    try{session=await ensureRunSession(raw,liveId)}catch(_){session=''}
-    const body=JSON.stringify({user_id:liveId,amount:Math.floor(runReward),score:Math.floor(score),level,world:Math.floor(distance),run_id:runId,resell_session:session||''});
-    // iOS Telegram WebView can surface a generic `Load failed` when a cross-origin
-    // JSON POST triggers a CORS preflight. Once the RESSELL session is minted,
-    // transport that session in the already-supported query parameter and use
-    // text/plain; the backend still parses the JSON body via request.json().
-    let claimUrl=`${API_BASE}/games/resell-run/claim`;
-    let claimHeaders=authHeaders(session,raw);
-    if(session){
-      claimUrl+=`?resell_session=${encodeURIComponent(session)}`;
-      claimHeaders={'Accept':'application/json','Content-Type':'text/plain;charset=UTF-8'};
+
+  // Snapshot the finished run BEFORE any await. The old implementation read
+  // runReward/runId/score/distance after network waits. If the player tapped
+  // "ЕЩЁ РАЗ" meanwhile, startGame()->reset() changed those values and the
+  // background claim could then send amount=0/new run_id, producing
+  // "Некорректные данные RESELL RUN" after the real reward was already paid.
+  const claim={
+    runId:String(runId||''),
+    amount:Math.floor(runReward),
+    score:Math.floor(score),
+    level:Math.floor(level),
+    world:Math.floor(distance)
+  };
+  if(!claim.runId||claim.amount<=0)return true;
+
+  // One network claim per finished run. The game-over background claim and a
+  // quick tap on "ЕЩЁ РАЗ" must share the same promise instead of racing.
+  if(claimInFlight&&claimInFlight.runId===claim.runId)return claimInFlight.promise;
+
+  const promise=(async()=>{
+    try{
+      const raw=await waitRunInitData(2500);
+      const liveId=String(tg?.initDataUnsafe?.user?.id||userId||'');
+      if(!liveId)throw new Error('Telegram-пользователь не определён. Открой Run из Telegram');
+      let session='';
+      try{session=await ensureRunSession(raw,liveId)}catch(_){session=''}
+      const body=JSON.stringify({user_id:liveId,amount:claim.amount,score:claim.score,level:claim.level,world:claim.world,run_id:claim.runId,resell_session:session||''});
+      // iOS Telegram WebView can surface a generic `Load failed` when a cross-origin
+      // JSON POST triggers a CORS preflight. Once the RESSELL session is minted,
+      // transport that session in the already-supported query parameter and use
+      // text/plain; the backend still parses the JSON body via request.json().
+      let claimUrl=`${API_BASE}/games/resell-run/claim`;
+      let claimHeaders=authHeaders(session,raw);
+      if(session){
+        claimUrl+=`?resell_session=${encodeURIComponent(session)}`;
+        claimHeaders={'Accept':'application/json','Content-Type':'text/plain;charset=UTF-8'};
+      }
+      let r=await fetch(claimUrl,{method:'POST',cache:'no-store',headers:claimHeaders,body});
+      let d=await r.json().catch(()=>({}));
+      if(r.status===401&&raw){
+        clearRunSession();
+        session=await ensureRunSession(raw,liveId);
+        claimUrl=`${API_BASE}/games/resell-run/claim?resell_session=${encodeURIComponent(session)}`;
+        r=await fetch(claimUrl,{method:'POST',cache:'no-store',headers:{'Accept':'application/json','Content-Type':'text/plain;charset=UTF-8'},body});
+        d=await r.json().catch(()=>({}));
+      }
+      if(r.status===409&&d?.duplicate){
+        if(runId===claim.runId)claimed=true;
+        return true;
+      }
+      if(!r.ok||d?.success===false)throw new Error(d?.error||'Не удалось зачислить заработок');
+      if(runId===claim.runId){
+        claimed=true;
+        toast('ЗАЧИСЛЕНО В ОСНОВНОЙ БАЛАНС: ₽'+Math.floor(d.amount??claim.amount).toLocaleString('ru-RU'));
+      }
+      return true;
+    }catch(e){
+      // Only show an error for the run that is currently on screen. A stale
+      // background request from a previous run must not pollute the new run.
+      if(runId===claim.runId)toast(e.message||'Не удалось зачислить');
+      return false;
     }
-    let r=await fetch(claimUrl,{method:'POST',cache:'no-store',headers:claimHeaders,body});
-    let d=await r.json().catch(()=>({}));
-    if(r.status===401&&raw){
-      clearRunSession();
-      session=await ensureRunSession(raw,liveId);
-      claimUrl=`${API_BASE}/games/resell-run/claim?resell_session=${encodeURIComponent(session)}`;
-      r=await fetch(claimUrl,{method:'POST',cache:'no-store',headers:{'Accept':'application/json','Content-Type':'text/plain;charset=UTF-8'},body});
-      d=await r.json().catch(()=>({}));
-    }
-    if(r.status===409&&d?.duplicate){claimed=true;return true;}
-    if(!r.ok||d?.success===false)throw new Error(d?.error||'Не удалось зачислить заработок');
-    claimed=true;
-    toast('ЗАЧИСЛЕНО В ОСНОВНОЙ БАЛАНС: ₽'+Math.floor(d.amount??runReward).toLocaleString('ru-RU'));
-    return true;
-  }catch(e){toast(e.message||'Не удалось зачислить');return false}
+  })();
+
+  claimInFlight={runId:claim.runId,promise};
+  try{return await promise}
+  finally{if(claimInFlight?.runId===claim.runId)claimInFlight=null}
 }
 function resize(){dpr=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight;C.width=W*dpr;C.height=H*dpr;X.setTransform(dpr,0,0,dpr,0,0);makeCity()}addEventListener('resize',resize);
 const ground=()=>H-118, need=()=>100+(level-1)*65;
