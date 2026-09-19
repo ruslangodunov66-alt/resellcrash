@@ -10956,19 +10956,24 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
         legacyFriends=await loadFriends();
       }
 
-      // Then fetch only the extra request metadata through the same legacy
-      // authenticated apiFetch transport.
-      const r=await api(`/friends/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'GET'},2);
-      const d=await r.json().catch(()=>({}));
-      if(!r.ok||d.success===false) throw new Error(d.error||`HTTP ${r.status}`||'friends');
-      const baseFriends=Array.isArray(d.friends)?d.friends:(Array.isArray(legacyFriends?.friends)?legacyFriends.friends:[]);
-      friendState={
-        incoming:Array.isArray(d.incoming_requests)?d.incoming_requests:[],
-        outgoing:Array.isArray(d.outgoing_requests)?d.outgoing_requests:[],
-        friends:baseFriends
-      };
+      // IMPORTANT: the original /friends/{tg_id} endpoint is the proven
+      // friends-list transport. Do not replace it with the request subsystem.
+      // Request metadata lives on the separate /friends/requests endpoint.
+      const baseFriends=Array.isArray(legacyFriends?.friends)?legacyFriends.friends:(Array.isArray(friendsData?.friends)?friendsData.friends:[]);
+      let incoming=[], outgoing=[];
+      try{
+        const rr=await api(`/friends/requests/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'GET'},2);
+        const rd=await rr.json().catch(()=>({}));
+        if(rr.ok && rd.success!==false){
+          incoming=Array.isArray(rd.incoming)?rd.incoming:(Array.isArray(rd.incoming_requests)?rd.incoming_requests:[]);
+          outgoing=Array.isArray(rd.outgoing)?rd.outgoing:(Array.isArray(rd.outgoing_requests)?rd.outgoing_requests:[]);
+        }
+      }catch(reqErr){
+        console.warn('[Friends] request metadata unavailable:',reqErr);
+      }
+      friendState={incoming,outgoing,friends:baseFriends};
       updateFriendsNotice();
-      return {...d,friends:baseFriends};
+      return {success:true,friends:baseFriends,incoming_requests:incoming,outgoing_requests:outgoing};
     }catch(err){
       console.warn('[Friends] sync failed:',err);
       return null;
