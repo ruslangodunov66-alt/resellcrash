@@ -9063,6 +9063,30 @@ html[lang="en"] #resellHomeMoney #mainAssetsSection .main-tycoon-tag{display:inl
 </script>
 </body>
 
+
+<!-- RESSELL FRIENDS FINAL OPEN FIX V81 -->
+<style id="friends-final-open-v81">
+#friendsBtn,#friendsNavBtn{pointer-events:auto!important;position:relative!important;z-index:20!important;touch-action:manipulation!important}
+</style>
+<script id="friends-final-open-v81">
+(function(){
+  'use strict';
+  let bound=false;
+  function run(){
+    if(bound)return; bound=true;
+    document.addEventListener('click',function(e){
+      const btn=e.target?.closest?.('#friendsBtn,#friendsNavBtn');
+      if(!btn)return;
+      const fn=window.__resellOpenFriendsV80||window.__resellOpenFriends;
+      if(typeof fn!=='function')return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      try{Promise.resolve(fn()).catch(err=>{console.error('[Friends V81]',err);window.showToast?.('Не удалось открыть друзей');});}
+      catch(err){console.error('[Friends V81]',err);window.showToast?.('Не удалось открыть друзей');}
+    },true);
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',run,{once:true});else run();
+})();
+</script>
 <!-- RESSELL FINAL BUGFIX V4: friends / R-HOLD / horizontal swipe -->
 <style id="resell-final-bugfix-v4">
 html,body{overflow-x:hidden!important;overscroll-behavior-x:none!important;max-width:100%!important}
@@ -10737,18 +10761,27 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
       sheet.dataset.v52PullBound='1';
       sheet.style.overscrollBehavior='contain';
 
-      let active=false,startY=0,startX=0,lastY=0,lastTime=0;
+      let active=false,startY=0,startX=0,lastY=0,startTime=0,lastTime=0,raf=0;
+      const resetTransform=()=>{
+        cancelAnimationFrame(raf);
+        sheet.style.transition='';
+        sheet.style.transform='';
+      };
+      const render=(y)=>{
+        cancelAnimationFrame(raf);
+        raf=requestAnimationFrame(()=>{sheet.style.transform=`translate3d(0,${y}px,0)`;});
+      };
 
       sheet.addEventListener('touchstart',e=>{
         if(e.touches.length!==1 || !sheet.closest('.modal.open'))return;
-        // Pull-to-dismiss is enabled when the sheet is at the top of its scroll.
-        // Buttons/inputs keep their normal tap behavior.
         if(sheet.scrollTop>2)return;
         const target=e.target?.closest?.('button,input,textarea,select,a');
         const handle=e.target?.closest?.('.sheet-handle');
         if(target && !handle)return;
         const t=e.touches[0];
-        startY=lastY=t.clientY; startX=t.clientX; lastTime=performance.now(); active=true;
+        startY=lastY=t.clientY; startX=t.clientX;
+        startTime=lastTime=performance.now(); active=true;
+        sheet.style.transition='none';
         sheet.classList.add('is-dragging');
       },{passive:true,capture:true});
 
@@ -10756,32 +10789,34 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
         if(!active || e.touches.length!==1)return;
         const t=e.touches[0],dy=t.clientY-startY,dx=t.clientX-startX;
         if(Math.abs(dx)>Math.abs(dy)*1.15){
-          active=false; sheet.classList.remove('is-dragging'); sheet.style.transform=''; return;
+          active=false; sheet.classList.remove('is-dragging'); resetTransform(); return;
         }
-        if(dy<=0){sheet.style.transform='';return;}
-        // Once the gesture is clearly vertical, take control from the browser.
-        if(dy>7)e.preventDefault();
+        if(dy<=0){render(0);return;}
+        if(dy>5)e.preventDefault();
         lastY=t.clientY; lastTime=performance.now();
-        sheet.style.transform=`translateY(${Math.min(dy,Math.round(window.innerHeight*.82))}px)`;
+        render(Math.min(dy,Math.round(window.innerHeight*.88)));
       },{passive:false,capture:true});
 
       const finish=()=>{
         if(!active)return;
+        const now=performance.now();
         const dy=Math.max(0,lastY-startY);
-        const dt=Math.max(1,performance.now()-lastTime);
-        const velocity=Math.max(0,(lastY-startY))/Math.max(1,(performance.now()-(lastTime-dt)));
+        const elapsed=Math.max(1,now-startTime);
+        const velocity=dy/elapsed;
         active=false; sheet.classList.remove('is-dragging');
-        // 45px is enough for a deliberate pull; a fast short flick also closes.
-        const shouldClose=dy>=45 || (dy>=28 && velocity>0.65);
+        const shouldClose=dy>=52 || (dy>=24 && velocity>0.9);
         if(shouldClose){
-          sheet.style.transition='transform .16s cubic-bezier(.2,.8,.2,1)';
-          sheet.style.transform='translateY(105%)';
-          setTimeout(()=>{sheet.style.transition='';sheet.style.transform='';closeSheet(sheet)},165);
+          // Smooth continuation of the finger movement instead of a hard jump.
+          sheet.style.transition='transform .34s cubic-bezier(.22,.75,.18,1)';
+          sheet.style.transform='translate3d(0,105%,0)';
+          setTimeout(()=>{resetTransform();closeSheet(sheet)},345);
         }else{
-          sheet.style.transition='transform .14s ease-out';
-          sheet.style.transform='translateY(0)';
-          setTimeout(()=>{sheet.style.transition='';sheet.style.transform=''},150);
+          // Soft spring-back when the gesture wasn't far enough.
+          sheet.style.transition='transform .38s cubic-bezier(.22,1,.36,1)';
+          sheet.style.transform='translate3d(0,0,0)';
+          setTimeout(resetTransform,390);
         }
+        lastTime=now;
       };
       sheet.addEventListener('touchend',finish,{passive:true,capture:true});
       sheet.addEventListener('touchcancel',finish,{passive:true,capture:true});
@@ -10935,6 +10970,13 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
   async function openFriendsV80(){
     const modal=q('#modal'), body=q('#modalBody');
     if(!modal||!body)return;
+    // Open the sheet immediately. Network loading must never make the Friends button
+    // look dead or block the modal from appearing.
+    modal.querySelector('#modalTitle') && (modal.querySelector('#modalTitle').textContent = currentLang==='en' ? 'Friends' : 'Друзья');
+    body.innerHTML='<div class="loading">Загрузка друзей…</div>';
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden','false');
+    document.body.style.overflow='hidden';
     try{
       const d=await syncFriendRequests();
       const list=Array.isArray(d?.friends)?d.friends:[];
