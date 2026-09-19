@@ -7438,7 +7438,7 @@ async function initFarm(){
   const core=()=>window.__resellCoreV26||{};
   const esc=v=>String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
   const money=v=>Math.round(Number(v)||0).toLocaleString('ru-RU');
-  const uid=()=>String(core().getUserId?.()||'');
+  const uid=()=>String(core().getUserId?.()||window.Telegram?.WebApp?.initDataUnsafe?.user?.id||window.telegramUserId||window.userId||'');
   let cache=null,tab='rhold',busy=false;
   const modalEl=()=>document.getElementById('modal'), bodyEl=()=>document.getElementById('modalBody'), titleEl=()=>document.getElementById('modalTitle');
   function openModal(title,html){const m=modalEl();if(!m)return;titleEl().textContent=title;bodyEl().innerHTML=html;m.classList.add('open');document.body.style.overflow='hidden';}
@@ -10720,63 +10720,76 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
   if(window.__resellPatchV52) return;
   window.__resellPatchV52=true;
 
-  function closeDraggedSheet(sheet){
+  function closeSheet(sheet){
     const modal=sheet?.closest?.('.modal');
-    if(modal){
-      const close=modal.querySelector('.sheet-close');
-      if(close){close.click();return true;}
-      modal.classList.remove('open');
-      modal.setAttribute('aria-hidden','true');
-      document.body.style.overflow='';
-      return true;
-    }
-    const overlay=sheet?.parentElement?.classList?.contains('modal')?sheet.parentElement:null;
-    if(overlay){overlay.classList.remove('open');document.body.style.overflow='';return true;}
-    return false;
+    if(!modal)return false;
+    const close=modal.querySelector('.sheet-close');
+    if(close){ try{close.click();return true;}catch(_){} }
+    modal.classList.remove('open');
+    modal.setAttribute('aria-hidden','true');
+    document.body.style.overflow='';
+    return true;
   }
 
-  function bindSheetHandles(){
-    document.querySelectorAll('.sheet-handle').forEach(handle=>{
-      if(handle.dataset.v52SwipeBound==='1') return;
-      handle.dataset.v52SwipeBound='1';
-      const sheet=handle.closest('.sheet');
-      if(!sheet) return;
-      let startY=0,startX=0,lastY=0,dragging=false,moved=false;
-      handle.addEventListener('touchstart',e=>{
-        if(e.touches.length!==1) return;
+  function bindSheets(){
+    document.querySelectorAll('.sheet').forEach(sheet=>{
+      if(sheet.dataset.v52PullBound==='1')return;
+      sheet.dataset.v52PullBound='1';
+      sheet.style.overscrollBehavior='contain';
+
+      let active=false,startY=0,startX=0,lastY=0,lastTime=0;
+
+      sheet.addEventListener('touchstart',e=>{
+        if(e.touches.length!==1 || !sheet.closest('.modal.open'))return;
+        // Pull-to-dismiss is enabled when the sheet is at the top of its scroll.
+        // Buttons/inputs keep their normal tap behavior.
+        if(sheet.scrollTop>2)return;
+        const target=e.target?.closest?.('button,input,textarea,select,a');
+        const handle=e.target?.closest?.('.sheet-handle');
+        if(target && !handle)return;
         const t=e.touches[0];
-        startY=lastY=t.clientY;startX=t.clientX;dragging=true;moved=false;
+        startY=lastY=t.clientY; startX=t.clientX; lastTime=performance.now(); active=true;
         sheet.classList.add('is-dragging');
-      },{passive:true});
-      handle.addEventListener('touchmove',e=>{
-        if(!dragging||e.touches.length!==1) return;
+      },{passive:true,capture:true});
+
+      sheet.addEventListener('touchmove',e=>{
+        if(!active || e.touches.length!==1)return;
         const t=e.touches[0],dy=t.clientY-startY,dx=t.clientX-startX;
-        if(Math.abs(dx)>Math.abs(dy)*1.15){dragging=false;sheet.classList.remove('is-dragging');return;}
-        if(dy<=0){sheet.style.transform='translateY(0)';lastY=t.clientY;return;}
-        moved=dy>6;lastY=t.clientY;
-        sheet.style.transform=`translateY(${Math.min(dy,Math.round(window.innerHeight*.7))}px)`;
-        e.preventDefault();
-      },{passive:false});
+        if(Math.abs(dx)>Math.abs(dy)*1.15){
+          active=false; sheet.classList.remove('is-dragging'); sheet.style.transform=''; return;
+        }
+        if(dy<=0){sheet.style.transform='';return;}
+        // Once the gesture is clearly vertical, take control from the browser.
+        if(dy>7)e.preventDefault();
+        lastY=t.clientY; lastTime=performance.now();
+        sheet.style.transform=`translateY(${Math.min(dy,Math.round(window.innerHeight*.82))}px)`;
+      },{passive:false,capture:true});
+
       const finish=()=>{
-        if(!dragging) return;
-        const dy=Math.max(0,lastY-startY);dragging=false;sheet.classList.remove('is-dragging');
-        if(dy>=70 || dy>45 && (lastY-startY)>0){
-          sheet.style.transition='transform .18s ease';
+        if(!active)return;
+        const dy=Math.max(0,lastY-startY);
+        const dt=Math.max(1,performance.now()-lastTime);
+        const velocity=Math.max(0,(lastY-startY))/Math.max(1,(performance.now()-(lastTime-dt)));
+        active=false; sheet.classList.remove('is-dragging');
+        // 45px is enough for a deliberate pull; a fast short flick also closes.
+        const shouldClose=dy>=45 || (dy>=28 && velocity>0.65);
+        if(shouldClose){
+          sheet.style.transition='transform .16s cubic-bezier(.2,.8,.2,1)';
           sheet.style.transform='translateY(105%)';
-          setTimeout(()=>{sheet.style.transition='';sheet.style.transform='';closeDraggedSheet(sheet)},180);
+          setTimeout(()=>{sheet.style.transition='';sheet.style.transform='';closeSheet(sheet)},165);
         }else{
-          sheet.style.transition='transform .16s ease';sheet.style.transform='translateY(0)';
-          setTimeout(()=>{sheet.style.transition='';},170);
+          sheet.style.transition='transform .14s ease-out';
+          sheet.style.transform='translateY(0)';
+          setTimeout(()=>{sheet.style.transition='';sheet.style.transform=''},150);
         }
       };
-      handle.addEventListener('touchend',finish,{passive:true});
-      handle.addEventListener('touchcancel',finish,{passive:true});
+      sheet.addEventListener('touchend',finish,{passive:true,capture:true});
+      sheet.addEventListener('touchcancel',finish,{passive:true,capture:true});
     });
   }
 
-  bindSheetHandles();
-  const mo=new MutationObserver(bindSheetHandles);
-  mo.observe(document.body,{childList:true,subtree:true});
+  bindSheets();
+  new MutationObserver(bindSheets).observe(document.body,{childList:true,subtree:true});
 })();
 </script>
 
@@ -10863,7 +10876,7 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
   }
 
   async function syncFriendRequests(){
-    const u=uid(); if(!u)return;
+    const u=uid(); if(!u){ toast('Telegram ID ещё не получен. Открой окно ещё раз.'); return; }
     try{
       const r=await api(`/friends/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'GET'},2);
       const d=await r.json().catch(()=>({}));
