@@ -6337,6 +6337,8 @@ async function initFarm(){
   // openFriendsV19 is declared later in another script and MUST NOT be
   // referenced here, otherwise the main IIFE dies with ReferenceError.
   window.__resellOpenFriends = openFriends;
+  // Preserve the original working Friends renderer permanently; later request UI layers must not overwrite its transport.
+  window.__resellLegacyFriendsOpen = openFriends;
   $('#friendsBtn')?.addEventListener('click', openFriends);
   $('#adminBtn')?.addEventListener('click', openAdmin);
   renderFriendsActivity();
@@ -9063,6 +9065,25 @@ html[lang="en"] #resellHomeMoney #mainAssetsSection .main-tycoon-tag{display:inl
   window.__resellOpenFriendsV53=openFriendsV53;
 })();
 </script>
+
+<style id="resell-background-v9">
+/* RESSELL global background: continuous, premium dark surface instead of a hard black cutoff. */
+html,body{min-height:100%!important;background:#070a08!important}
+body{
+  background:
+    radial-gradient(900px 520px at 50% -8%,rgba(183,255,106,.10),transparent 62%),
+    radial-gradient(620px 520px at -8% 32%,rgba(115,150,125,.065),transparent 66%),
+    radial-gradient(720px 620px at 108% 58%,rgba(100,125,110,.055),transparent 68%),
+    linear-gradient(180deg,#080b09 0%,#070908 42%,#090b09 100%)!important;
+  background-attachment:fixed!important;
+}
+body::before{opacity:.11!important;background-size:32px 32px!important;mask-image:linear-gradient(to bottom,black 0%,rgba(0,0,0,.7) 55%,transparent 100%)!important}
+#particles{opacity:.32!important}
+.noise{opacity:.025!important}
+main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom))!important}
+</style>
+
+
 </body>
 
 
@@ -10946,7 +10967,7 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
     setNotice('friends',fresh);
   }
 
-  async function syncFriendRequests(){
+  window.__resellSyncFriendRequests=async function(){
     const u=uid();
     if(!u){ toast('Telegram ID ещё не получен. Открой окно ещё раз.'); return null; }
     try{
@@ -11142,5 +11163,29 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
 
   // The new search flow sends a request instead of immediately creating a friendship.
   // The legacy /friends/add endpoint remains untouched for referral-import compatibility.
+})();
+</script>
+<script id="friends-hard-fix-v9">
+(function(){
+  'use strict';
+  // The old renderer is the authoritative Friends loader. Never make its
+  // success depend on the optional request/notification subsystem.
+  async function openFriendsHard(){
+    const legacy=window.__resellLegacyFriendsOpen;
+    if(typeof legacy==='function'){
+      try{ await legacy(); }catch(err){
+        console.error('[Friends hard fix] legacy renderer failed',err);
+        // The legacy renderer already has its own error UI. Do not overwrite it.
+        return;
+      }
+    }
+    // Request cards are optional. A request API failure must NEVER turn the
+    // already loaded Friends sheet into an error state.
+    try{
+      if(typeof window.__resellSyncFriendRequests==='function') await window.__resellSyncFriendRequests();
+    }catch(err){ console.warn('[Friends hard fix] optional request sync failed',err); }
+  }
+  window.__resellOpenFriendsV80=openFriendsHard;
+  window.__resellOpenFriends=openFriendsHard;
 })();
 </script>
