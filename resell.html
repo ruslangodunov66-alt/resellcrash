@@ -7436,6 +7436,8 @@ async function initFarm(){
 (function(){
   const API='https://resellgame.bothost.tech';
   const core=()=>window.__resellCoreV26||{};
+  // Preserve the original, proven Friends renderer before this request-system layer takes over.
+  const legacyOpenFriends = window.__resellOpenFriends;
   const esc=v=>String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
   const money=v=>Math.round(Number(v)||0).toLocaleString('ru-RU');
   const uid=()=>String(core().getUserId?.()||window.Telegram?.WebApp?.initDataUnsafe?.user?.id||window.telegramUserId||window.userId||'');
@@ -11028,44 +11030,56 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
   async function openFriendsV80(){
     const modal=q('#modal'), body=q('#modalBody');
     if(!modal||!body)return;
-    // Open the sheet immediately. Network loading must never make the Friends button
-    // look dead or block the modal from appearing.
-    modal.querySelector('#modalTitle') && (modal.querySelector('#modalTitle').textContent = currentLang==='en' ? 'Friends' : 'Друзья');
-    body.innerHTML='<div class="loading">Загрузка друзей…</div>';
-    modal.classList.add('open');
-    modal.setAttribute('aria-hidden','false');
-    document.body.style.overflow='hidden';
+    // IMPORTANT: the original Friends renderer is the stable UI/data path.
+    // Do not rebuild that sheet here. Render it first, then add only the new
+    // request layer on top. This keeps the old friends transport/UI intact.
     try{
-      const d=await syncFriendRequests();
-      const list=Array.isArray(d?.friends)?d.friends:[];
-      const incoming=friendState.incoming||[];
-      const outgoing=friendState.outgoing||[];
-      // Opening the friends sheet consumes the notification. The request rows remain visible until accepted/rejected.
-      const seen=readSet(FRIEND_SEEN); incoming.forEach(r=>seen.add(String(r.id))); writeSet(FRIEND_SEEN,seen); setNotice('friends',false);
-      body.innerHTML=`<div class="friends-sheet friends-v80">
-        ${incoming.length?`<div class="friends-v80-section"><div class="friends-v80-request-title"><b>ЗАЯВКИ В ДРУЗЬЯ</b><span>${incoming.length}</span></div>${incoming.map(requestCard).join('')}</div>`:''}
-        ${outgoing.length?`<div class="friends-v80-section"><div class="friends-v80-request-title"><b>ОТПРАВЛЕННЫЕ</b><span>${outgoing.length}</span></div>${outgoing.map(outgoingCard).join('')}</div>`:''}
-        <div class="friends-search-title"><b>НАЙТИ ИГРОКА</b><span>По никнейму</span></div>
-        <div class="friends-toolbar"><input id="friendsV80Search" maxlength="20" autocomplete="off" placeholder="Например: @monnv"><button type="button" id="friendsV80SearchBtn">НАЙТИ</button></div>
-        <div id="friendsV80Results"></div>
-        ${list.length?`<div class="friend-list-head"><b>ТВОИ ДРУЗЬЯ</b><span>${list.length}</span></div><div class="friends-list" style="margin-top:0">${list.map(f=>{const n=String(f.nickname||'Игрок').replace(/^@+/,'');return `<button type="button" class="friend-row friend-row-button" data-friend-tg="${Number(f.tg_id)||0}"><div class="friend-avatar">${escV(initials(n))}</div><div class="friend-copy"><b>@${escV(n)}</b><span>${escV(f.shop_name||'Без магазина')} · ${f.recently_active?'В ИГРЕ':'В RESSELL'}</span><small>${escV(money(f.balance))} · ${Number(f.business_count||0)} бизнесов · ${Number(f.car_count||0)} машин</small></div><strong class="friend-row-arrow">›</strong></button>`}).join('')}</div>`:'<div class="friend-empty">Пока никого нет. Найди игрока выше и отправь ему заявку.</div>'}
-      </div>`;
+      if(typeof legacyOpenFriends==='function'){
+        await legacyOpenFriends();
+      }else{
+        modal.classList.add('open');
+        modal.setAttribute('aria-hidden','false');
+        body.innerHTML='<div class="loading">Загрузка друзей…</div>';
+      }
 
-      body.querySelectorAll('[data-friend-request-action]').forEach(btn=>btn.addEventListener('click',()=>respondRequest(btn.closest('[data-request-id]')?.dataset.requestId,btn.dataset.friendRequestAction,btn)));
-      const run=async()=>{
-        const input=q('#friendsV80Search'),result=q('#friendsV80Results'); if(!input||!result)return;
-        const term=String(input.value||'').trim().replace(/^@+/,''); if(term.length<2){result.innerHTML='';return;}
-        result.innerHTML='<div class="friend-empty">Поиск…</div>';
-        try{
-          const r=await api(`/friends/search/${encodeURIComponent(uid())}?q=${encodeURIComponent(term)}&t=${Date.now()}`,{method:'GET'},2);
-          const j=await r.json().catch(()=>({})); if(!r.ok||j.success===false)throw new Error(j.error||'Ошибка поиска');
-          result.innerHTML=(j.players||[]).length?(j.players||[]).map(searchCard).join(''):'<div class="friend-empty">Игрок не найден.</div>';
-          result.querySelectorAll('[data-friend-request-send]').forEach(btn=>btn.addEventListener('click',()=>sendRequest(btn.dataset.friendRequestSend,btn)));
-        }catch(e){result.innerHTML=`<div class="friend-empty">${escV(e.message||'Ошибка поиска')}</div>`;}
-      };
-      q('#friendsV80SearchBtn')?.addEventListener('click',run); q('#friendsV80Search')?.addEventListener('keydown',e=>{if(e.key==='Enter')run()});
-      body.querySelectorAll('.friend-row-button').forEach(btn=>btn.addEventListener('click',()=>{const f=list.find(x=>Number(x.tg_id)===Number(btn.dataset.friendTg));if(f&&typeof window.__resellOpenFriendProfileV80==='function')window.__resellOpenFriendProfileV80(f)}));
-    }catch(e){body.innerHTML=`<div class="friend-empty">${escV(e.message||'Не удалось открыть друзей')}</div>`;}
+      const d=await syncFriendRequests();
+      const incoming=Array.isArray(friendState.incoming)?friendState.incoming:[];
+      const outgoing=Array.isArray(friendState.outgoing)?friendState.outgoing:[];
+      const list=Array.isArray(d?.friends)?d.friends:(Array.isArray(friendsData?.friends)?friendsData.friends:[]);
+
+      // Consume the notification, but keep the request cards visible.
+      const seen=readSet(FRIEND_SEEN);
+      incoming.forEach(r=>seen.add(String(r.id)));
+      writeSet(FRIEND_SEEN,seen);
+      setNotice('friends',false);
+
+      // If there are no new request cards, leave the proven legacy sheet exactly as-is.
+      if(!incoming.length && !outgoing.length){
+        return;
+      }
+
+      // Inject only the request section into the already-rendered Friends sheet.
+      // No legacy markup is replaced, so existing search/friends interactions stay intact.
+      const host=body.querySelector('.friends-sheet')||body.firstElementChild||body;
+      const old=body.querySelector('[data-friends-v80-requests]');
+      old?.remove();
+      const wrap=document.createElement('div');
+      wrap.setAttribute('data-friends-v80-requests','1');
+      wrap.className='friends-v80';
+      wrap.style.marginBottom='10px';
+      wrap.innerHTML=`
+        ${incoming.length?`<div class="friends-v80-section"><div class="friends-v80-request-title"><b>ЗАЯВКИ В ДРУЗЬЯ</b><span>${incoming.length}</span></div>${incoming.map(requestCard).join('')}</div>`:''}
+        ${outgoing.length?`<div class="friends-v80-section" style="margin-top:8px"><div class="friends-v80-request-title"><b>ОТПРАВЛЕННЫЕ</b><span>${outgoing.length}</span></div>${outgoing.map(outgoingCard).join('')}</div>`:''}`;
+      host.prepend(wrap);
+      wrap.querySelectorAll('[data-friend-request-action]').forEach(btn=>btn.addEventListener('click',()=>respondRequest(btn.closest('[data-request-id]')?.dataset.requestId,btn.dataset.friendRequestAction,btn)));
+    }catch(e){
+      console.error('[Friends V80] open failed:',e);
+      // Never replace a working Friends sheet with a generic error because of
+      // the optional request layer. If the legacy renderer opened, keep it open.
+      if(!body.querySelector('.friends-sheet')){
+        body.innerHTML='<div class="friend-empty">Не удалось загрузить друзей. Попробуй ещё раз.</div>';
+      }
+    }
   }
 
   // Keep the existing friend profile renderer available while making the bottom-nav entry use V80.
