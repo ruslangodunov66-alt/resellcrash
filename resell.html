@@ -10896,9 +10896,19 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
   const API='https://resellgame.bothost.tech';
   const q=s=>document.querySelector(s);
   const escV=v=>String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
+  // IMPORTANT: use the original RESSELL transport/identity pipeline.
+  // The legacy global apiFetch() is the path that already carries Telegram
+  // initData / RESSELL session correctly. Do not replace it with a separate
+  // core-only transport here.
   const core=()=>window.__resellCoreV26||{};
-  const uid=()=>String(core().getUserId?.()||'');
-  const api=(path,options={},attempts=2)=>core().apiFetch?core().apiFetch(`${API}${path}`,options,attempts):fetch(`${API}${path}`,options);
+  const legacyUid=()=>String((typeof userId!=='undefined'&&userId)||window.telegramUserId||window.userId||'').trim();
+  const uid=()=>legacyUid() || String(core().getUserId?.()||'').trim();
+  const api=(path,options={},attempts=2)=>{
+    const url=`${API}${path}`;
+    if(typeof apiFetch==='function') return apiFetch(url,options,attempts);
+    if(core().apiFetch) return core().apiFetch(url,options,attempts);
+    return fetch(url,options);
+  };
   const toast=(m)=>window.showToast?.(m);
   const initials=n=>(Array.from(String(n||'Игрок').replace(/^@+/,'').trim()||'И')[0]||'И').toUpperCase();
   const money=v=>Math.max(0,Number(v)||0).toLocaleString('ru-RU')+' ₽';
@@ -10935,15 +10945,34 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
   }
 
   async function syncFriendRequests(){
-    const u=uid(); if(!u){ toast('Telegram ID ещё не получен. Открой окно ещё раз.'); return; }
+    const u=uid();
+    if(!u){ toast('Telegram ID ещё не получен. Открой окно ещё раз.'); return null; }
     try{
+      // First use the proven legacy friends loader so the existing data path
+      // remains untouched. It also updates friendsData with the normal player
+      // list used by the rest of the app.
+      let legacyFriends=null;
+      if(typeof loadFriends==='function'){
+        legacyFriends=await loadFriends();
+      }
+
+      // Then fetch only the extra request metadata through the same legacy
+      // authenticated apiFetch transport.
       const r=await api(`/friends/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'GET'},2);
       const d=await r.json().catch(()=>({}));
-      if(!r.ok||d.success===false)throw new Error(d.error||'friends');
-      friendState={incoming:Array.isArray(d.incoming_requests)?d.incoming_requests:[],outgoing:Array.isArray(d.outgoing_requests)?d.outgoing_requests:[]};
+      if(!r.ok||d.success===false) throw new Error(d.error||`HTTP ${r.status}`||'friends');
+      const baseFriends=Array.isArray(d.friends)?d.friends:(Array.isArray(legacyFriends?.friends)?legacyFriends.friends:[]);
+      friendState={
+        incoming:Array.isArray(d.incoming_requests)?d.incoming_requests:[],
+        outgoing:Array.isArray(d.outgoing_requests)?d.outgoing_requests:[],
+        friends:baseFriends
+      };
       updateFriendsNotice();
-      return d;
-    }catch(_){return null}
+      return {...d,friends:baseFriends};
+    }catch(err){
+      console.warn('[Friends] sync failed:',err);
+      return null;
+    }
   }
 
   function requestCard(r){
