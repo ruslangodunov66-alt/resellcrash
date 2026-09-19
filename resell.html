@@ -2372,7 +2372,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
 <button class="nav-item" data-nav="friends" id="friendsNavBtn">
 <svg class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24"><circle cx="8" cy="8" r="3"></circle><circle cx="16" cy="8" r="3"></circle><path d="M3.5 19c.8-3 2.3-4.5 4.5-4.5S11.7 16 12.5 19"></path><path d="M11.5 19c.8-3 2.3-4.5 4.5-4.5s3.7 1.5 4.5 4.5"></path></svg>
 <span class="nav-label">Друзья</span>
-<span aria-hidden="true" class="nav-dot"></span>
+<span aria-hidden="true" class="nav-dot" data-nav-notice="friends"></span>
 </button>
 <button class="nav-item" data-nav="profile">
 <svg class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 20c1.5-4 4.1-6 8-6s6.5 2 8 6"></path></svg>
@@ -2724,6 +2724,21 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
   // Capture Telegram payload immediately when it is already available.
   try{ captureTelegramInitData(String(window.Telegram?.WebApp?.initData||tg?.initData||'')); }catch(_){ }
   syncTelegramUserId();
+
+  // Launch-token fallback: Telegram may temporarily expose no initData, while
+  // the signed RESSELL launch token still contains the Telegram ID in segment 0.
+  // Resolve it before any isolated UI module asks core.uid()/getUserId().
+  try{
+    if(!userId){
+      const launch=String(params.get('resell_session')||'').trim();
+      const launchUid=(launch.split('.')[0]||'').trim();
+      if(/^\d+$/.test(launchUid)){
+        userId=launchUid;
+        telegramUserId=launchUid;
+        isOwner=String(userId)===ADMIN_OWNER_ID;
+      }
+    }
+  }catch(_){ }
 
   let adminState = {players:[], selected:null};
 
@@ -3463,10 +3478,23 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
           secureHeaders['Authorization']='tma '+initData;
         }
 
-        if(!serverSession && initData){
-          // Do not put the huge Telegram payload into URLs anymore. Headers are
-          // preferred; the backend still supports tg_auth_b64 for legacy clients.
-          if(!needsTelegramAuth) requestUrl=appendTelegramAuth(requestUrl,initData);
+        if(initData){
+          // Compatibility transport: always expose the signed Telegram payload
+          // to the backend as tg_auth_b64 as well. This restores the legacy
+          // Telegram-ID transport for endpoints/proxies that do not preserve
+          // custom auth headers. The server still validates the signed payload.
+          requestUrl=appendTelegramAuth(requestUrl,initData);
+        }
+
+        // Explicit Telegram ID transport for lightweight/proxy logging paths.
+        // This is NOT trusted for authentication; server auth remains the signed
+        // initData / RESSELL session above.
+        if(needsTelegramAuth && userId){
+          try{
+            const u=new URL(requestUrl,location.href);
+            u.searchParams.set('tg_id',String(userId));
+            requestUrl=u.toString();
+          }catch(_){}
         }
         if(!initData && !serverSession && needsTelegramAuth) {
           throw Object.assign(new Error('Открой RESSELL через Telegram — Telegram-сессия не передана'), {status:401});
@@ -3540,7 +3568,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     for(let attempt=0;attempt<1;attempt++){
       try{
         const resp=await apiFetch(`${API_BASE}/profile/${encodeURIComponent(userId)}?t=${Date.now()}`,{method:'GET'},1);
-        const data=await resp.json(); profileData=data; __lastServerStateTs=Number(data.server_state_ts||0);
+        const data=await resp.json(); profileData=data; window.__resellProfileData=data; __lastServerStateTs=Number(data.server_state_ts||0); try{window.__resellUpdateNavIndicators?.();}catch(_){}
         if(data.registration_complete===false||data.registration_complete===0||data.registration_required===true){setBalance(primaryBalance(data));setProgress(0);statusText.textContent='Требуется регистрация';if(!registrationRequired && !launchSequenceActive)openRegistration();return data;}
         setBalance(primaryBalance(data)); epochData=data.epoch||null; setProgress(Number(data.epoch_progress??epochData?.progress??0)); rcoinData=data.rcoin||null; renderRcoin(); statusText.textContent='Баланс синхронизирован'; $('.status-dot').style.background='var(--success)'; try{if(data.engagement){engagementData=data.engagement;renderEngagement();}await loadEngagement();await loadRcoinStatus();}catch(_){ } return data;
       }catch(e){lastError=e;if(attempt<2)await new Promise(r=>setTimeout(r,250));}
@@ -10749,5 +10777,243 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
   bindSheetHandles();
   const mo=new MutationObserver(bindSheetHandles);
   mo.observe(document.body,{childList:true,subtree:true});
+})();
+</script>
+
+
+<!-- RESSELL V80 · GARAGE TUNING / NAV STATE / QUEST + FRIEND REQUESTS -->
+<style id="resell-v80-ux-css">
+/* Garage tuning: the thumbnail column must have exactly the same width as the image. */
+.garage-car-card .rt-row{grid-template-columns:42px minmax(0,1fr) auto 64px!important;align-items:center!important}
+.garage-car-card .rt-row .rt-icon.rt-icon-thumb{width:42px!important;height:42px!important;grid-column:1!important;grid-row:1!important;z-index:2!important}
+.garage-car-card .rt-row .rt-name{min-width:0!important;grid-column:2!important;grid-row:1!important;padding-left:1px!important}
+.garage-car-card .rt-row .rt-level{grid-column:3!important;grid-row:1!important}
+.garage-car-card .rt-row .rt-buy{grid-column:4!important;grid-row:1!important}
+@media(max-width:430px){
+  .garage-car-card .rt-row{grid-template-columns:42px minmax(0,1fr) 62px!important;grid-template-rows:auto auto!important;grid-template-areas:"icon name buy" "icon level buy"!important;gap:5px 7px!important;min-height:50px!important;padding:5px 6px!important}
+  .garage-car-card .rt-row .rt-icon.rt-icon-thumb{grid-area:icon!important;width:42px!important;height:42px!important}
+  .garage-car-card .rt-row .rt-name{grid-area:name!important;min-width:0!important;max-width:100%!important;padding-left:0!important}
+  .garage-car-card .rt-row .rt-level{grid-area:level!important;justify-content:flex-start!important;margin-top:0!important;min-width:0!important}
+  .garage-car-card .rt-row .rt-buy{grid-area:buy!important;width:62px!important;min-width:62px!important;height:32px!important;min-height:32px!important}
+  .garage-car-card .rt-row .rt-name b{font-size:7.4px!important;line-height:1.05!important}
+  .garage-car-card .rt-row .rt-name small{font-size:5.5px!important;line-height:1.1!important}
+}
+
+/* Bottom navigation: active state belongs only to the home screen once a sheet is closed. */
+.nav-item[data-nav="referrals"],.nav-item[data-nav="quests"],.nav-item[data-nav="friends"],.nav-item[data-nav="profile"]{position:relative}
+.nav-item .nav-dot{display:none!important;animation:none!important}
+.nav-item.has-notice::after{content:"";position:absolute;top:7px;right:calc(50% - 18px);width:6px;height:6px;border-radius:50%;background:#b7ff6a;box-shadow:0 0 10px rgba(183,255,106,.62);pointer-events:none;animation:none!important}
+.nav-item.has-notice.active::after{background:#b7ff6a;box-shadow:0 0 10px rgba(183,255,106,.62)}
+
+/* Friends request cards */
+.friends-v80{display:grid;gap:10px;padding-bottom:8px}
+.friends-v80-request{display:grid;grid-template-columns:38px minmax(0,1fr) auto;gap:9px;align-items:center;padding:10px;border-radius:15px;background:linear-gradient(145deg,#151a16,#0c0f0d);border:1px solid rgba(183,255,106,.16)}
+.friends-v80-avatar{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:rgba(183,255,106,.09);border:1px solid rgba(183,255,106,.20);color:#b7ff6a;font:950 11px/1 Montserrat,sans-serif}
+.friends-v80-copy{min-width:0}.friends-v80-copy b{display:block;color:#f1f5f1;font:950 9px/1.1 Montserrat,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.friends-v80-copy span{display:block;margin-top:4px;color:#737d75;font:800 7px/1.15 Nunito,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.friends-v80-actions{display:flex;gap:5px}.friends-v80-actions button{min-width:52px;height:30px;padding:0 8px;border-radius:9px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.045);color:#b9c1ba;font:950 6px/1 Montserrat,sans-serif}.friends-v80-actions .accept{background:#b7ff6a;color:#071007;border-color:#b7ff6a}.friends-v80-actions button:disabled{opacity:.45}
+.friends-v80-request-title{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:1px 2px 0}.friends-v80-request-title b{font:950 8px/1 Montserrat,sans-serif;letter-spacing:.7px}.friends-v80-request-title span{color:#69736c;font:800 6.5px/1 Nunito,sans-serif}
+.friends-v80-section{display:grid;gap:7px}.friends-v80-empty{padding:12px;border-radius:13px;background:rgba(255,255,255,.025);border:1px dashed rgba(255,255,255,.07);color:#667068;font:800 7.5px/1.35 Nunito,sans-serif;text-align:center}
+.friends-v80-outgoing{padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.05);color:#6e786f;font:800 7px/1.25 Nunito,sans-serif}.friends-v80-outgoing b{color:#aeb7af;font-weight:900}
+.friends-v80-search-result{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:8px;align-items:center;padding:9px;border-radius:13px;background:#111513;border:1px solid rgba(255,255,255,.06)}
+.friends-v80-search-result .friends-v80-avatar{width:34px;height:34px;border-radius:10px;font-size:10px}.friends-v80-search-result .friends-v80-actions button{min-width:65px}
+@media(max-width:390px){.friends-v80-request{grid-template-columns:36px minmax(0,1fr);}.friends-v80-avatar{width:36px;height:36px}.friends-v80-actions{grid-column:1/-1;justify-content:flex-end}.friends-v80-actions button{min-width:72px;height:34px}}
+</style>
+<script id="resell-v80-ux-js">
+(function(){
+  'use strict';
+  const API='https://resellgame.bothost.tech';
+  const q=s=>document.querySelector(s);
+  const escV=v=>String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
+  const core=()=>window.__resellCoreV26||{};
+  const uid=()=>String(core().getUserId?.()||'');
+  const api=(path,options={},attempts=2)=>core().apiFetch?core().apiFetch(`${API}${path}`,options,attempts):fetch(`${API}${path}`,options);
+  const toast=(m)=>window.showToast?.(m);
+  const initials=n=>(Array.from(String(n||'Игрок').replace(/^@+/,'').trim()||'И')[0]||'И').toUpperCase();
+  const money=v=>Math.max(0,Number(v)||0).toLocaleString('ru-RU')+' ₽';
+
+  function navHome(){
+    document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));
+    document.querySelector('.nav-item[data-nav="home"]')?.classList.add('active');
+  }
+  function setNotice(nav,show){
+    const el=document.querySelector(`.nav-item[data-nav="${nav}"]`); if(el) el.classList.toggle('has-notice',!!show);
+  }
+  function readSet(key){try{const x=JSON.parse(localStorage.getItem(key)||'[]');return new Set(Array.isArray(x)?x.map(String):[])}catch(_){return new Set()}}
+  function writeSet(key,set){try{localStorage.setItem(key,JSON.stringify([...set]))}catch(_){}
+  }
+  const FRIEND_SEEN='resell_friend_request_seen_v80';
+  const QUEST_SEEN='resell_quest_ready_seen_v80';
+  let friendState={incoming:[],outgoing:[]};
+
+  function updateQuestNotice(){
+    const qs=window.__resellProfileData?.quests||{};
+    const all=[...(Array.isArray(qs.permanent)?qs.permanent:[]),...(Array.isArray(qs.daily)?qs.daily:[])];
+    const ready=all.filter(x=>x?.completed && (!x.reward_claimed || x.kind!=='permanent')).map(x=>String(x.id)).filter(Boolean);
+    let seen=readSet(QUEST_SEEN);
+    // First run: don't turn every old completed quest into a fake notification.
+    if(!localStorage.getItem(QUEST_SEEN)){writeSet(QUEST_SEEN,new Set(ready));setNotice('quests',false);return;}
+    setNotice('quests',ready.some(id=>!seen.has(id)));
+  }
+
+  function updateFriendsNotice(){
+    const incoming=Array.isArray(friendState.incoming)?friendState.incoming:[];
+    const seen=readSet(FRIEND_SEEN);
+    const fresh=incoming.some(r=>!seen.has(String(r.id)));
+    setNotice('friends',fresh);
+  }
+
+  async function syncFriendRequests(){
+    const u=uid(); if(!u)return;
+    try{
+      const r=await api(`/friends/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'GET'},2);
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok||d.success===false)throw new Error(d.error||'friends');
+      friendState={incoming:Array.isArray(d.incoming_requests)?d.incoming_requests:[],outgoing:Array.isArray(d.outgoing_requests)?d.outgoing_requests:[]};
+      updateFriendsNotice();
+      return d;
+    }catch(_){return null}
+  }
+
+  function requestCard(r){
+    const nick=String(r.sender_nickname||'Игрок').replace(/^@+/,'');
+    return `<div class="friends-v80-request" data-request-id="${Number(r.id)||0}">
+      <div class="friends-v80-avatar">${escV(initials(nick))}</div>
+      <div class="friends-v80-copy"><b>@${escV(nick)}</b><span>${escV(r.sender_shop||'Без магазина')}</span></div>
+      <div class="friends-v80-actions"><button type="button" class="accept" data-friend-request-action="accept">ПРИНЯТЬ</button><button type="button" data-friend-request-action="reject">ОТКЛОНИТЬ</button></div>
+    </div>`;
+  }
+
+  function outgoingCard(r){
+    const nick=String(r.receiver_nickname||'Игрок').replace(/^@+/,'');
+    return `<div class="friends-v80-outgoing">Заявка отправлена <b>@${escV(nick)}</b> · ждём ответа</div>`;
+  }
+
+  function searchCard(f){
+    const nick=String(f.nickname||'Игрок').replace(/^@+/,'');
+    const state=f.is_friend?'В ДРУЗЬЯХ':'ОТПРАВИТЬ ЗАЯВКУ';
+    const disabled=f.is_friend?'disabled':'';
+    return `<div class="friends-v80-search-result"><div class="friends-v80-avatar">${escV(initials(nick))}</div><div class="friends-v80-copy"><b>@${escV(nick)}</b><span>${escV(f.shop_name||'Без магазина')} · ${escV(money(f.balance))}</span></div><div class="friends-v80-actions"><button type="button" class="accept" data-friend-request-send="${Number(f.tg_id)||0}" ${disabled}>${state}</button></div></div>`;
+  }
+
+  async function respondRequest(requestId,action,btn){
+    btn.disabled=true;
+    try{
+      const r=await api(`/friends/request/${encodeURIComponent(uid())}/respond`,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({request_id:Number(requestId),action})},3);
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok||!d.success)throw new Error(d.error||'Не удалось обработать заявку');
+      toast(action==='accept'?'Друг добавлен':'Заявка отклонена');
+      await openFriendsV80();
+    }catch(e){btn.disabled=false;toast(e.message||'Ошибка');}
+  }
+
+  async function sendRequest(friendTg,btn){
+    btn.disabled=true; const old=btn.textContent; btn.textContent='ОТПРАВКА…';
+    try{
+      const r=await api(`/friends/request/${encodeURIComponent(uid())}`,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({friend_tg_id:Number(friendTg)})},3);
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok||!d.success)throw new Error(d.error||'Не удалось отправить заявку');
+      if(d.already_friend){btn.textContent='В ДРУЗЬЯХ';toast('Этот игрок уже в друзьях');return;}
+      if(d.incoming_request){btn.textContent='ЕСТЬ ЗАЯВКА';toast('У этого игрока уже есть заявка к тебе');return;}
+      btn.textContent='ОТПРАВЛЕНО';toast(d.already_sent?'Заявка уже отправлена':'Заявка отправлена');
+      await syncFriendRequests();
+    }catch(e){btn.disabled=false;btn.textContent=old;toast(e.message||'Ошибка');}
+  }
+
+  async function openFriendsV80(){
+    const modal=q('#modal'), body=q('#modalBody');
+    if(!modal||!body)return;
+    try{
+      const d=await syncFriendRequests();
+      const list=Array.isArray(d?.friends)?d.friends:[];
+      const incoming=friendState.incoming||[];
+      const outgoing=friendState.outgoing||[];
+      // Opening the friends sheet consumes the notification. The request rows remain visible until accepted/rejected.
+      const seen=readSet(FRIEND_SEEN); incoming.forEach(r=>seen.add(String(r.id))); writeSet(FRIEND_SEEN,seen); setNotice('friends',false);
+      body.innerHTML=`<div class="friends-sheet friends-v80">
+        ${incoming.length?`<div class="friends-v80-section"><div class="friends-v80-request-title"><b>ЗАЯВКИ В ДРУЗЬЯ</b><span>${incoming.length}</span></div>${incoming.map(requestCard).join('')}</div>`:''}
+        ${outgoing.length?`<div class="friends-v80-section"><div class="friends-v80-request-title"><b>ОТПРАВЛЕННЫЕ</b><span>${outgoing.length}</span></div>${outgoing.map(outgoingCard).join('')}</div>`:''}
+        <div class="friends-search-title"><b>НАЙТИ ИГРОКА</b><span>По никнейму</span></div>
+        <div class="friends-toolbar"><input id="friendsV80Search" maxlength="20" autocomplete="off" placeholder="Например: @monnv"><button type="button" id="friendsV80SearchBtn">НАЙТИ</button></div>
+        <div id="friendsV80Results"></div>
+        ${list.length?`<div class="friend-list-head"><b>ТВОИ ДРУЗЬЯ</b><span>${list.length}</span></div><div class="friends-list" style="margin-top:0">${list.map(f=>{const n=String(f.nickname||'Игрок').replace(/^@+/,'');return `<button type="button" class="friend-row friend-row-button" data-friend-tg="${Number(f.tg_id)||0}"><div class="friend-avatar">${escV(initials(n))}</div><div class="friend-copy"><b>@${escV(n)}</b><span>${escV(f.shop_name||'Без магазина')} · ${f.recently_active?'В ИГРЕ':'В RESSELL'}</span><small>${escV(money(f.balance))} · ${Number(f.business_count||0)} бизнесов · ${Number(f.car_count||0)} машин</small></div><strong class="friend-row-arrow">›</strong></button>`}).join('')}</div>`:'<div class="friend-empty">Пока никого нет. Найди игрока выше и отправь ему заявку.</div>'}
+      </div>`;
+
+      body.querySelectorAll('[data-friend-request-action]').forEach(btn=>btn.addEventListener('click',()=>respondRequest(btn.closest('[data-request-id]')?.dataset.requestId,btn.dataset.friendRequestAction,btn)));
+      const run=async()=>{
+        const input=q('#friendsV80Search'),result=q('#friendsV80Results'); if(!input||!result)return;
+        const term=String(input.value||'').trim().replace(/^@+/,''); if(term.length<2){result.innerHTML='';return;}
+        result.innerHTML='<div class="friend-empty">Поиск…</div>';
+        try{
+          const r=await api(`/friends/search/${encodeURIComponent(uid())}?q=${encodeURIComponent(term)}&t=${Date.now()}`,{method:'GET'},2);
+          const j=await r.json().catch(()=>({})); if(!r.ok||j.success===false)throw new Error(j.error||'Ошибка поиска');
+          result.innerHTML=(j.players||[]).length?(j.players||[]).map(searchCard).join(''):'<div class="friend-empty">Игрок не найден.</div>';
+          result.querySelectorAll('[data-friend-request-send]').forEach(btn=>btn.addEventListener('click',()=>sendRequest(btn.dataset.friendRequestSend,btn)));
+        }catch(e){result.innerHTML=`<div class="friend-empty">${escV(e.message||'Ошибка поиска')}</div>`;}
+      };
+      q('#friendsV80SearchBtn')?.addEventListener('click',run); q('#friendsV80Search')?.addEventListener('keydown',e=>{if(e.key==='Enter')run()});
+      body.querySelectorAll('.friend-row-button').forEach(btn=>btn.addEventListener('click',()=>{const f=list.find(x=>Number(x.tg_id)===Number(btn.dataset.friendTg));if(f&&typeof window.__resellOpenFriendProfileV80==='function')window.__resellOpenFriendProfileV80(f)}));
+    }catch(e){body.innerHTML=`<div class="friend-empty">${escV(e.message||'Не удалось открыть друзей')}</div>`;}
+  }
+
+  // Keep the existing friend profile renderer available while making the bottom-nav entry use V80.
+  window.__resellOpenFriendsV80=openFriendsV80;
+  window.__resellOpenFriends=openFriendsV80;
+
+  // Existing profile function is lexical and not exported in older code. Provide a compact fallback profile.
+  window.__resellOpenFriendProfileV80=function(f){
+    const body=q('#modalBody');if(!body)return;
+    const n=String(f?.nickname||'Игрок').replace(/^@+/,'');
+    const old=window.__resellOpenFriendsV80;
+    body.innerHTML=`<div class="friends-sheet friend-profile-sheet"><div class="friend-profile-hero"><div class="friend-profile-avatar">${escV(initials(n))}</div><div class="friend-profile-head-copy"><div class="friends-hero-kicker">RESSELL-ПРОФИЛЬ</div><div class="friend-profile-name">@${escV(n)}</div><div class="friend-profile-shop">${escV(f?.shop_name||'Без магазина')}</div></div></div><div class="friend-profile-tagline">${Number(f?.business_count||0)} бизнесов · ${Number(f?.car_count||0)} машин · ${escV(money(f?.balance))}</div><div class="friend-profile-actions"><button type="button" class="friend-profile-btn" id="friendV80Back">← К ДРУЗЬЯМ</button></div></div>`;
+    q('#friendV80Back')?.addEventListener('click',old);
+  };
+
+  window.__resellUpdateNavIndicators=function(){
+    updateQuestNotice(); updateFriendsNotice();
+  };
+
+  // Closing any bottom sheet returns the bottom navigation to HOME; no stale glowing tab.
+  function bindModalState(){
+    const m=q('#modal'); if(!m||m.dataset.v80State==='1')return;
+    m.dataset.v80State='1';
+    new MutationObserver(()=>{if(!m.classList.contains('open'))navHome()}).observe(m,{attributes:true,attributeFilter:['class']});
+    m.addEventListener('click',e=>{if(e.target===m) setTimeout(navHome,0)},{passive:true});
+  }
+  bindModalState(); setTimeout(bindModalState,100); setTimeout(bindModalState,500);
+
+  // Keep indicators fresh without making the friends dot blink.
+  let timer=0, profileTimer=0;
+  async function poll(){
+    if(document.visibilityState==='visible'){
+      try{await syncFriendRequests()}catch(_){}
+      updateQuestNotice();
+    }
+    clearTimeout(timer);timer=setTimeout(poll,3000);
+  }
+  async function refreshQuestState(){
+    const u=uid(); if(!u||document.visibilityState!=='visible')return;
+    try{
+      const r=await api(`/profile/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'GET'},1);
+      const d=await r.json().catch(()=>null);
+      if(r.ok&&d&&typeof d==='object'){window.__resellProfileData=d; updateQuestNotice();}
+    }catch(_){}
+    clearTimeout(profileTimer);profileTimer=setTimeout(refreshQuestState,10000);
+  }
+  setTimeout(poll,1200);
+  setTimeout(refreshQuestState,5000);
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){syncFriendRequests();updateQuestNotice()}});
+
+  // When the user opens quests, consume the quest notification.
+  document.addEventListener('click',e=>{
+    const b=e.target.closest?.('.nav-item[data-nav="quests"]');
+    if(!b)return;
+    setTimeout(()=>{
+      const qs=window.__resellProfileData?.quests||{};const all=[...(qs.permanent||[]),...(qs.daily||[])];
+      const ready=all.filter(x=>x?.completed&&(!x.reward_claimed||x.kind!=='permanent')).map(x=>String(x.id)).filter(Boolean);writeSet(QUEST_SEEN,new Set(ready));setNotice('quests',false);
+    },250);
+  },true);
+
+  // The new search flow sends a request instead of immediately creating a friendship.
+  // The legacy /friends/add endpoint remains untouched for referral-import compatibility.
 })();
 </script>
