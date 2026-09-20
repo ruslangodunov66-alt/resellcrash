@@ -6461,6 +6461,9 @@ async function initFarm(){
         <div class="admin-section-title">Экономический аудит</div><div class="admin-economic-grid"><div class="admin-economic-card"><b>${number(d.economic?.positive_balance_delta||0)} ₽</b><span>Сумма положительных изменений</span></div><div class="admin-economic-card"><b>${number(Math.abs(d.economic?.negative_balance_delta||0))} ₽</b><span>Сумма списаний</span></div><div class="admin-economic-card"><b>${number(d.economic?.audit_events||0)}</b><span>Событий аудита</span></div><div class="admin-economic-card"><b>${number(d.economic?.ledger_events||0)}</b><span>Балансовых операций</span></div></div>
         <div class="admin-section-title">Модерация</div><input class="admin-input" id="adminReason" placeholder="Причина / комментарий">
         <div class="admin-action-grid" style="margin-top:8px"><button class="admin-btn" id="adminWarn">ПРЕДУПРЕДИТЬ</button><button class="admin-btn ${p.is_banned?'':'danger'}" id="adminBan">${p.is_banned?'РАЗБЛОКИРОВАТЬ':'ЗАБЛОКИРОВАТЬ'}</button></div>
+        <div class="admin-section-title">Лидерборд</div>
+        <div class="admin-note">${d.leaderboard_hidden?'Игрок сейчас скрыт из всех публичных лидербордов.':'Игрок сейчас отображается в лидербордах.'}</div>
+        <button class="admin-btn ${d.leaderboard_hidden?'primary':'danger'}" id="adminToggleLeaderboard" style="width:100%;min-height:44px;margin-top:8px">${d.leaderboard_hidden?'ВЕРНУТЬ В ЛИДЕРБОРД':'УБРАТЬ ИЗ ЛИДЕРБОРДА'}</button>
         <div class="admin-section-title">R-Farm</div>
         <div class="admin-note">Снимает только ежедневный CD R-Farm. Баланс, награды, активы и остальной прогресс игрока не изменяются.</div>
         <button class="admin-btn primary" id="adminResetRFarm" style="width:100%;min-height:44px;margin-top:8px">СНЯТЬ КД R-FARM</button>
@@ -6768,6 +6771,19 @@ async function initFarm(){
     }
     if(target && e.target.closest('#adminGiveSkin')){
       try{await adminFetch(`/admin/player/${ADMIN_OWNER_ID}/${target}/skin`,{method:'POST',body:JSON.stringify({skin_id:$('#adminSkinSelect')?.value})});showToast('Скин выдан');await openAdminPlayer(target);}catch(err){showToast(err.message||'Ошибка');} return;
+    }
+    if(target && e.target.closest('#adminToggleLeaderboard')){
+      const btn=e.target.closest('#adminToggleLeaderboard');
+      const hidden=btn.textContent.includes('УБРАТЬ');
+      const reason=($('#adminReason')?.value|| (hidden?'Игрок скрыт из лидерборда':'Игрок возвращён в лидерборд')).trim();
+      if(!confirm(hidden?'Убрать игрока из всех лидербордов? Он останется в игре и его аккаунт не изменится.':'Вернуть игрока во все лидерборды?')) return;
+      btn.disabled=true;
+      try{
+        await adminFetch(`/admin/player/${ADMIN_OWNER_ID}/${target}/leaderboard`,{method:'POST',body:JSON.stringify({hidden,reason})});
+        showToast(hidden?'Игрок убран из лидерборда':'Игрок возвращён в лидерборд');
+        await openAdminPlayer(target);
+      }catch(err){showToast(err.message||'Не удалось изменить видимость в лидерборде');btn.disabled=false;}
+      return;
     }
     if(target && e.target.closest('#adminWarn')){
       const reason=($('#adminReason')?.value||'Нарушение правил').trim();
