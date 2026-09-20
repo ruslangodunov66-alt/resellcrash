@@ -6495,7 +6495,10 @@ async function initFarm(){
         <button class="admin-btn danger" id="adminResetAccount" style="width:100%;min-height:44px;margin-top:8px">ПОЛНОСТЬЮ СБРОСИТЬ АККАУНТ</button>
         ${isOwner?`<div class="admin-section-title">Права администратора</div><button class="admin-btn" id="adminToggleRole" style="width:100%;min-height:42px">ВЫДАТЬ / СНЯТЬ АДМИНКУ</button>`:''}
         <div class="admin-section-title">Полный аудит игрока</div>
+        <div class="admin-note">Экран показывает выборку для быстрого просмотра. Кнопка ниже формирует <b>весь аудит за всё время</b> непосредственно из БД и отправляет файл этому администратору в Telegram.</div>
         <div class="admin-audit-controls"><select class="admin-select" id="adminLogHours"><option value="0">ВСЁ ВРЕМЯ</option><option value="1">1 ЧАС</option><option value="6">6 ЧАСОВ</option><option value="24" selected>24 ЧАСА</option><option value="72">3 ДНЯ</option><option value="168">7 ДНЕЙ</option></select><input class="admin-input" id="adminLogQuery" placeholder="Поиск: бизнес, баланс, route…"><button class="admin-btn" id="adminLogMoney">ТОЛЬКО ДЕНЬГИ</button><button class="admin-btn primary" id="adminLogRefresh">ОБНОВИТЬ</button></div>
+        <button class="admin-btn primary" id="adminDownloadAllLogs" style="width:100%;min-height:46px;margin-top:8px">📥 СКАЧАТЬ ВСЕ ЛОГИ ИГРОКА В TELEGRAM</button>
+        <div class="admin-note" id="adminDownloadAllLogsNote" style="margin-top:6px">Файл содержит все события игрока без ограничения по времени и количеству строк.</div>
         <div class="admin-log-list" id="adminAuditList">${(d.logs||[]).map(renderAdminLog).join('')||'<div class="profile-empty">История пока пустая.</div>'}</div>
         <button class="admin-btn" id="adminBack" style="width:100%;min-height:42px;margin-top:8px">← К СПИСКУ ИГРОКОВ</button>
       </div>`;
@@ -6758,6 +6761,21 @@ async function initFarm(){
     if(e.target.closest('#adminLogRefresh')){
       const target=modalBody.dataset.adminTarget; const hours=Number($('#adminLogHours')?.value||24); const only=modalBody.dataset.adminOnlyMoney==='1'; const q=($('#adminLogQuery')?.value||'').trim();
       try{const d=await adminFetch(`/admin/player/${ADMIN_OWNER_ID}/${target}/logs?limit=1000&since_hours=${hours}&only_money=${only?1:0}&q=${encodeURIComponent(q)}`); const list=document.getElementById('adminAuditList'); if(list) list.innerHTML=(d.logs||[]).map(renderAdminLog).join('')||'<div class="profile-empty">Ничего не найдено.</div>';}catch(err){showToast(err.message||'Не удалось обновить аудит');} return;
+    }
+    if(e.target.closest('#adminDownloadAllLogs')){
+      const btn=e.target.closest('#adminDownloadAllLogs'), note=document.getElementById('adminDownloadAllLogsNote'), target=modalBody.dataset.adminTarget;
+      if(!target)return;
+      const oldText=btn.textContent; btn.disabled=true; btn.textContent='📦 ФОРМИРУЕМ ФАЙЛ…';
+      if(note) note.textContent='Сервер выгружает все записи из БД и отправляет файл в Telegram. Это может занять время у игрока с большой историей.';
+      try{
+        const d=await adminFetch(`/admin/player/${ADMIN_OWNER_ID}/${encodeURIComponent(target)}/logs/download`,{method:'POST',body:JSON.stringify({})});
+        showToast(d.message||'Полный аудит отправлен в Telegram');
+        if(note) note.textContent=`Готово. В Telegram отправлено событий: ${number(d.count||0)}.`;
+      }catch(err){
+        showToast(err.message||'Не удалось отправить полный аудит');
+        if(note) note.textContent='Не удалось сформировать файл. Проверь логи сервера.';
+      }finally{ btn.disabled=false; btn.textContent=oldText; }
+      return;
     }
     if(e.target.closest('#adminLogMoney')){
       const btn=e.target.closest('#adminLogMoney'); const enabled=modalBody.dataset.adminOnlyMoney==='1'; modalBody.dataset.adminOnlyMoney=enabled?'0':'1'; btn.classList.toggle('primary',!enabled); btn.textContent=enabled?'ТОЛЬКО ДЕНЬГИ':'ВСЕ СОБЫТИЯ'; const refresh=document.getElementById('adminLogRefresh'); if(refresh) refresh.click(); return;
