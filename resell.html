@@ -2225,6 +2225,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     <span class="resell-custom-launch-shade"></span>
     <div class="resell-custom-launch-copy">
       <span class="resell-custom-launch-kicker">RESSELL · LIMITED COLLECTION</span>
+      <span class="resell-custom-new-badge" id="resellCustomNewBadge">НОВЫЙ РАЗДЕЛ</span>
       <strong>RESSELL CUSTOM</strong>
       <small>Пять кастомных машин. Полный тюнинг. Только для коллекции RESSELL.</small>
       <span class="resell-custom-launch-cta">ОТКРЫТЬ КОЛЛЕКЦИЮ <b>→</b></span>
@@ -3868,8 +3869,8 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
       const tabs=`<div class="leaderboard-modebar">${modes.map(([id,label])=>`<button type="button" class="leaderboard-mode ${id===mode?'active':''}" data-lb-mode="${id}">${label}</button>`).join('')}</div>`;
       if(!rows.length)return `${tabs}<div class="leaderboard-loading">Пока нет игроков для рейтинга.</div>`;
       const valueFor=r=>{const v=({wealth:r.wealth,earned:r.earned,today:r.today,referrals:r.referrals,fleet:r.cars_count})[mode];return Number.isFinite(Number(v))?Number(v):0},suffix=mode==='referrals'?'':mode==='fleet'?' авто':' ₽';
-      const podium=[rows[1],rows[0],rows[2]].filter(Boolean),places=[2,1,3];
-      const podiumHtml=`<div class="leaderboard-podium-v3">${podium.map((r,i)=>`<div class="podium-item ${places[i]===1?'first':''}"><div class="podium-rank">#${places[i]}</div><div class="podium-name">${esc(r.nickname||'Игрок')}</div><div class="podium-value">${number(valueFor(r))}${suffix}</div></div>`).join('')}</div>`;
+      const podium=[rows[1],rows[0],rows[2]].filter(Boolean),places=[2,1,3],medals={1:'🥇',2:'🥈',3:'🥉'};
+      const podiumHtml=`<div class="leaderboard-podium-v3">${podium.map((r,i)=>{const place=places[i];const medalClass=place===1?'medal-gold':place===2?'medal-silver':'medal-bronze';return `<div class="podium-item ${place===1?'first ':''}${medalClass}"><div class="podium-medal" aria-label="Место ${place}">${medals[place]}</div><div class="podium-rank">${place===1?'ПЕРВОЕ МЕСТО':place===2?'ВТОРОЕ МЕСТО':'ТРЕТЬЕ МЕСТО'}</div><div class="podium-name">${esc(r.nickname||'Игрок')}</div><div class="podium-value">${number(valueFor(r))}${suffix}</div></div>`}).join('')}</div>`;
       const self=String(profileData?.nickname||'').trim();
       const list=rows.map((r,i)=>{const mine=(String(r.tg_id||'')===String(userId||''))||(self&&r.nickname===self);const ac=esc(r.customization?.nick?.accent||'');const gl=esc(r.customization?.nick?.glow||'');const av=esc(r.customization?.avatar?.accent||'');const badge=r.customization?.badge?.name?` <span class="leaderboard-public-badge" style="color:${esc(r.customization.badge.accent||'#b7ff6a')};border-color:${esc(r.customization.badge.accent||'#b7ff6a')}">[${esc(r.customization.badge.name)}]</span>`:'';const mainValue=number(valueFor(r));const stateValue=number(r.wealth||0);const stateLine=mainValue===stateValue?'':`<div class="leaderboard-cars">${stateValue} ₽ состояние</div>`;return `<div class="leaderboard-row top-${i+1}${mine?' self':''}"><div class="leaderboard-rank">${i+1}</div><div style="min-width:0"><div class="leaderboard-name" style="${ac?`color:${ac};`:''}${gl?`text-shadow:0 0 10px ${gl};`:''}border-left:${av?`2px solid ${av}`:'0 solid transparent'};padding-left:${av?'6px':'0'}">${esc(r.nickname||'Игрок')}${badge}${mine?' · ты':''}</div><div class="leaderboard-meta">${number(r.shops_count||0)} бизнесов · ${number(r.cars_count||0)} машин</div></div><div class="leaderboard-wealth"><div class="leaderboard-money">${mainValue}${suffix}</div>${stateLine}</div></div>`}).join('');
       const sr=Number(payload.self_rank||0),se=payload.self_entry,selfNote=sr>10&&se?`<div class="leaderboard-self">Твоя позиция: <strong>#${sr}</strong> · ${number(valueFor(se))}${suffix}</div>`:'';
@@ -5388,8 +5389,9 @@ async function initFarm(){
         <div class="resell-custom-hero-copy"><span>RESSELL / PRIVATE MOTOR COLLECTION</span><b>ПРЕМИАЛЬНЫЕ КАСТОМНЫЕ АВТО</b><small>Каждая машина уже собрана на максимальном тюнинге. Один экземпляр каждой модели на игрока.</small></div>
       </div>
       <div class="resell-custom-status-row"><div><span>КОЛЛЕКЦИЯ</span><b>${ownedCount} / ${cars.length}</b></div><div><span>СТАТУС</span><b>LIMITED</b></div><div><span>ТЮНИНГ</span><b>MAX</b></div></div>
-      <div class="resell-custom-tabs">${tabs}</div>
-      <div class="resell-custom-car">
+      <div class="resell-custom-swipe-head"><span>КОЛЛЕКЦИЯ · ${cars.length} АВТО</span><b>СВАЙП ← →</b></div>
+      <div class="resell-custom-tabs" aria-label="Навигация по автомобилям">${tabs}</div>
+      <div class="resell-custom-car" id="resellCustomSwipeArea">
         <div class="resell-custom-car-media">${image?`<img src="${image}" alt="${esc(c.name)}" loading="eager">`:''}<div class="rc-media-top"><span>№ ${String(resellCustomIndex+1).padStart(2,'0')} / ${String(cars.length).padStart(2,'0')}</span><b>RESSELL CUSTOM</b></div><div class="rc-media-bottom"><span>${owned?'В КОЛЛЕКЦИИ':'LIMITED EDITION'}</span><b>${isCurrent?'ТЕКУЩАЯ':'+'+number(c.price||0)+' ₽'}</b></div></div>
         <div class="resell-custom-car-copy"><div class="rc-kicker">CUSTOM SPEC · FULL BUILD</div><h2>${esc(c.name)}</h2><p>Полностью собранная версия RESSELL. Максимальный тюнинг уже установлен — без обычного этапа прокачки.</p>
           <div class="rc-stats"><div><span>СКОРОСТЬ</span><b>${speed}</b><small>MAX BUILD</small></div><div><span>ЛИЗИНГ / Ч</span><b>${lease} ₽</b><small>ПАССИВ</small></div><div><span>ТАКСИ / Ч</span><b>${taxi} ₽</b><small>ПРИБЫЛЬ</small></div></div>
@@ -5400,6 +5402,38 @@ async function initFarm(){
       <div class="resell-custom-dots">${dots}</div>
       <div class="resell-custom-note"><b>RESSELL CUSTOM</b><span>Не обычный автосалон. Это закрытая коллекция автомобилей с готовым максимальным тюнингом.</span></div>
     </div>`;
+    bindResellCustomSwipe();
+  }
+
+  function bindResellCustomSwipe(){
+    const area=document.getElementById('resellCustomSwipeArea');
+    const shell=modalBody?.querySelector('.resell-custom-shell');
+    if(!area||!shell)return;
+    let startX=0,startY=0,tracking=false;
+    const start=e=>{
+      const t=e.touches?.[0]; if(!t)return;
+      startX=t.clientX; startY=t.clientY; tracking=true;
+    };
+    const end=e=>{
+      if(!tracking)return; tracking=false;
+      const t=e.changedTouches?.[0]; if(!t)return;
+      const dx=t.clientX-startX,dy=t.clientY-startY;
+      if(Math.abs(dx)<46 || Math.abs(dx)<Math.abs(dy)*1.15)return;
+      resellCustomIndex=Math.max(0,Math.min(carsCountForSwipe()-1,resellCustomIndex+(dx<0?1:-1)));
+      haptic('light');
+      renderResellCustom().catch(err=>showToast(err.message||'Не удалось переключить автомобиль'));
+    };
+    area.addEventListener('touchstart',start,{passive:true});
+    area.addEventListener('touchend',end,{passive:true});
+    area.addEventListener('touchcancel',()=>{tracking=false},{passive:true});
+    shell.addEventListener('keydown',e=>{
+      if(e.key==='ArrowRight'){resellCustomIndex=Math.min(carsCountForSwipe()-1,resellCustomIndex+1);renderResellCustom().catch(()=>{});}
+      if(e.key==='ArrowLeft'){resellCustomIndex=Math.max(0,resellCustomIndex-1);renderResellCustom().catch(()=>{});}
+    });
+  }
+  function carsCountForSwipe(){
+    const tabs=modalBody?.querySelectorAll('[data-custom-index]')||[];
+    return Math.max(1,tabs.length/2);
   }
   async function openResellCustom(){
     haptic('light');
@@ -5409,6 +5443,25 @@ async function initFarm(){
   }
 
   window.openResellCustom=openResellCustom;
+
+  async function applyResellCustomNewcomerPromo(){
+    const section=document.getElementById('resellCustomHomeSection');
+    const badge=document.getElementById('resellCustomNewBadge');
+    if(!section)return;
+    try{
+      if(!userId){return;}
+      const r=await apiFetch(`${API_BASE}/resell/custom/promo/${encodeURIComponent(userId)}?t=${Date.now()}`,{cache:'no-store'},2);
+      if(!r.ok)return;
+      const d=await r.json().catch(()=>({}));
+      const newcomer=!!d.newcomer;
+      if(newcomer && d.enabled===false){section.style.display='none';return;}
+      section.style.display='';
+      if(badge)badge.style.display=d.show_new?'inline-flex':'none';
+    }catch(_){
+      section.style.display='';
+      if(badge)badge.style.display='none';
+    }
+  }
 
   async function renderTycoon(){
     let body='';
@@ -6223,6 +6276,7 @@ async function initFarm(){
         <div class="admin-kpi"><b>${number(bannedUsers)}</b><span>Заблокировано</span></div>
       </div>
       <div class="admin-action-grid"><button class="admin-btn primary" id="adminEventsBtn">⚡ ИВЕНТЫ</button><button class="admin-btn" id="adminAppealsBtn">ОБРАЩЕНИЯ ПО БЛОКИРОВКАМ</button><button class="admin-btn" id="adminMaintenanceBtn">ТЕХНИЧЕСКИЕ РАБОТЫ</button><button class="admin-btn" id="adminUpdateAnnouncementBtn">ОБЪЯВИТЬ ОБ ОБНОВЛЕНИИ</button></div><div id="adminMaintenanceCard" class="admin-note" style="margin-top:8px">Состояние системы загружается…</div>
+      <div class="admin-feature-card"><div><span class="admin-feature-kicker">RESSELL · NEW FEATURE</span><b>RESSELL CUSTOM</b><small>Показывать карточку «НОВЫЙ РАЗДЕЛ» новым игрокам в первые 7 дней.</small></div><button class="admin-btn" id="adminCustomPromoBtn" data-enabled="${data?.customSetting?.enabled?'1':'0'}">${data?.customSetting?.enabled?'СКРЫТЬ У НОВЫХ':'ПОКАЗЫВАТЬ НОВЫМ'}</button></div>
       <div class="admin-section-title">Поиск игрока</div>
       <div class="admin-search"><input id="adminSearchInput" placeholder="ID, никнейм или магазин" value="${esc(data?.q||'')}"><button class="admin-btn primary" id="adminSearchBtn">НАЙТИ</button></div>
       <div class="admin-player-list">${players.length?players.map(p=>`<div class="admin-player"><div class="admin-player-main"><div class="admin-player-name">${esc(p.nickname||'Без никнейма')}</div><div class="admin-player-meta">TG ${p.tg_id} · ${number(p.balance)} ₽ · ${p.is_banned?'ЗАБАНЕН':''}${p.warning_count?' · ⚠ '+p.warning_count:''}</div></div><div class="admin-player-actions"><button class="admin-mini" data-admin-open="${p.tg_id}">ОТКРЫТЬ</button></div></div>`).join(''):'<div class="profile-empty">Найди игрока по Telegram ID, никнейму или магазину.</div>'}</div>
@@ -6286,7 +6340,8 @@ async function initFarm(){
       const logs=(await adminFetch(`/admin/player/${ADMIN_OWNER_ID}/${ADMIN_OWNER_ID}/logs?limit=30`).catch(()=>({logs:[]}))).logs||[];
       const maintenance=await adminFetch(`/admin/maintenance/${ADMIN_OWNER_ID}`).catch(()=>({enabled:false}));
       const stats=await adminFetch(`/admin/stats/${ADMIN_OWNER_ID}`).catch(()=>({total_players:0,participants:0}));
-      modalBody.innerHTML=renderAdminHome({players:data.players||[],logs,maintenance,stats});
+      const customSetting=await adminFetch(`/admin/resell-custom/${ADMIN_OWNER_ID}`).catch(()=>({enabled:false}));
+      modalBody.innerHTML=renderAdminHome({players:data.players||[],logs,maintenance,stats,customSetting});
       const mc=document.getElementById('adminMaintenanceCard'); if(mc) mc.innerHTML=maintenance.enabled?'🟢 <b style="color:#b7ff6a">ВКЛЮЧЕНЫ</b> · игроки не допускаются':'⚪ <b>ВЫКЛЮЧЕНЫ</b> · игра доступна всем';
       const mb=document.getElementById('adminMaintenanceBtn'); if(mb){mb.textContent=maintenance.enabled?'ВЫКЛЮЧИТЬ ТЕХ. РАБОТЫ':'ВКЛЮЧИТЬ ТЕХ. РАБОТЫ';mb.dataset.enabled=maintenance.enabled?'1':'0';}
 
@@ -6612,6 +6667,17 @@ async function initFarm(){
       try{const d=await adminFetch(`/admin/maintenance/${ADMIN_OWNER_ID}`,{method:'POST',body:JSON.stringify({enabled:!enabled})});showToast(d.enabled?'Технические работы включены':'Технические работы выключены');await openAdmin();}catch(err){showToast(err.message||'Не удалось изменить режим');btn.disabled=false;}
       return;
     }
+    if(e.target.closest('#adminCustomPromoBtn')){
+      const btn=e.target.closest('#adminCustomPromoBtn');
+      const enabled=btn.dataset.enabled==='1';
+      btn.disabled=true;
+      try{
+        const d=await adminFetch(`/admin/resell-custom/${ADMIN_OWNER_ID}`,{method:'POST',body:JSON.stringify({enabled:!enabled})});
+        showToast(d.enabled?'RESSELL Custom включён для новых игроков':'RESSELL Custom скрыт у новых игроков');
+        await openAdmin();
+      }catch(err){showToast(err.message||'Не удалось изменить видимость RESSELL Custom');btn.disabled=false;}
+      return;
+    }
     if(e.target.closest('#adminEventsBtn')){ await openAdminEvents(); return; }
     if(e.target.closest('[data-event-start]')){ await startAdminEvent(e.target.closest('[data-event-start]').dataset.eventStart); return; }
     if(e.target.closest('#adminEventCancel')){ await cancelAdminEvent(e.target.closest('#adminEventCancel').dataset.eventId); return; }
@@ -6619,7 +6685,7 @@ async function initFarm(){
     if(e.target.closest('[data-appeal-resolve]')){const btn=e.target.closest('[data-appeal-resolve]'),card=btn.closest('[data-appeal-id]');btn.disabled=true;try{await adminFetch(`/admin/appeal/${ADMIN_OWNER_ID}/${Number(card?.dataset.appealId||0)}/resolve`,{method:'POST',body:JSON.stringify({decision:btn.dataset.appealResolve,note:card?.querySelector('[data-appeal-note]')?.value||''})});showToast(btn.dataset.appealResolve==='approve'?'Игрок разблокирован':'Блокировка оставлена');await openAdminAppeals()}catch(e){showToast(e.message||'Ошибка');btn.disabled=false}return;}
     if(e.target.closest('#adminSearchBtn')){
       const q=($('#adminSearchInput')?.value||'').trim();
-      try{ const d=await adminFetch(`/admin/players/${ADMIN_OWNER_ID}?q=${encodeURIComponent(q)}&limit=50`); modalBody.innerHTML=renderAdminHome({players:d.players||[],q}); }
+      try{ const d=await adminFetch(`/admin/players/${ADMIN_OWNER_ID}?q=${encodeURIComponent(q)}&limit=50`); const customSetting=await adminFetch(`/admin/resell-custom/${ADMIN_OWNER_ID}`).catch(()=>({enabled:false})); modalBody.innerHTML=renderAdminHome({players:d.players||[],q,customSetting}); }
       catch(err){showToast(err.message||'Ошибка поиска');}
       return;
     }
@@ -6988,6 +7054,7 @@ async function initFarm(){
     // Keep a short, intentional account-discovery stage before the existing launch sequence.
     await new Promise(r=>setTimeout(r,520));
     await dataPromise;
+    try{ await applyResellCustomNewcomerPromo(); }catch(_){}
     // By this point Telegram identity/profile bootstrap is complete. Re-read the
     // equipped R-HOLD skin now, even if initFarm ran earlier before userId existed.
     try{ restoreRholdSkinLocalV19(); await loadRholdSkinV19(); }catch(_){ }
@@ -9176,6 +9243,14 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 </style>
 
 
+
+<style id="resell-custom-v2-swipe-medals">
+.resell-custom-new-badge{display:none;align-items:center;width:max-content;margin-top:8px;padding:6px 9px;border-radius:999px;background:#b7ff6a;color:#071006;font:950 6px/1 Montserrat,sans-serif;letter-spacing:1px;box-shadow:0 8px 24px rgba(183,255,106,.16)}
+.resell-custom-swipe-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:1px 2px 0;color:#5d665f;font:950 6px/1 Montserrat,sans-serif;letter-spacing:1px}.resell-custom-swipe-head b{color:#b7ff6a;font-size:6px}
+.resell-custom-car{touch-action:pan-y;user-select:none;-webkit-user-select:none;cursor:grab}.resell-custom-car:active{cursor:grabbing}.resell-custom-tabs{scroll-snap-type:x proximity}.rc-car-tab{scroll-snap-align:center}
+.podium-medal{width:34px;height:34px;margin:0 auto 5px;border-radius:50%;display:grid;place-items:center;font-size:19px;line-height:1;filter:drop-shadow(0 5px 10px rgba(0,0,0,.3))}.podium-item.first .podium-medal{transform:translateY(-2px) scale(1.08)}.podium-item.medal-gold{border-color:rgba(255,211,64,.28);background:linear-gradient(180deg,rgba(255,210,64,.12),rgba(255,255,255,.018))}.podium-item.medal-silver{border-color:rgba(220,225,230,.18);background:linear-gradient(180deg,rgba(220,225,230,.09),rgba(255,255,255,.018))}.podium-item.medal-bronze{border-color:rgba(184,115,51,.22);background:linear-gradient(180deg,rgba(184,115,51,.09),rgba(255,255,255,.018))}.admin-feature-card{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px;padding:12px;border-radius:16px;background:linear-gradient(145deg,rgba(183,255,106,.07),rgba(255,255,255,.025));border:1px solid rgba(183,255,106,.12)}.admin-feature-card>div{min-width:0}.admin-feature-kicker{display:block;color:#728073;font:950 6px/1 Montserrat,sans-serif;letter-spacing:1.2px}.admin-feature-card b{display:block;margin-top:5px;color:#edf4ed;font:950 10px/1 Montserrat,sans-serif}.admin-feature-card small{display:block;margin-top:5px;color:#626b64;font:800 7px/1.35 Nunito,sans-serif;max-width:240px}.admin-feature-card .admin-btn{flex:0 0 auto;min-width:128px}
+@media(max-width:420px){.admin-feature-card{align-items:stretch;flex-direction:column}.admin-feature-card .admin-btn{width:100%}}
+</style>
 </body>
 
 
