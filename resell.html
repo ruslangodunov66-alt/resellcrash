@@ -12056,27 +12056,17 @@ main.app{
   const rarityInfo=v=>{const n=String(v||'').toLowerCase().trim();if(n.includes('myth')||n.includes('миф'))return ['МИФИЧЕСКИЙ','mythic'];if(n.includes('legend')||n.includes('легенд'))return ['ЛЕГЕНДАРНЫЙ','legendary'];if(n.includes('epic')||n.includes('эпик'))return ['ЭПИЧЕСКИЙ','epic'];if(n.includes('rare')||n.includes('редк'))return ['РЕДКИЙ','rare'];return ['ОБЫЧНЫЙ','common'];};
   const rarityBadge=v=>{const [label,cls]=rarityInfo(v);return `<span class="auction-rarity ${cls}"><i></i>${label}</span>`;};
   const auctionAvitoVisual=it=>{
+    // Аукцион использует тот же самый значок, что и основной Авито.
+    // Внешняя карточка уже выводит название/категорию, поэтому здесь
+    // возвращаем ТОЛЬКО миниатюру — без дублирования текста.
+    if(typeof window.__resellAvitoInventoryVisual==='function') return window.__resellAvitoInventoryVisual(it||{});
     const item=it||{};
-    const rc=typeof avitoRarity==='function'?avitoRarity(item.rarity):rarityInfo(item.rarity)[1];
-    const label=typeof avitoRarityLabel==='function'?avitoRarityLabel(item.rarity):rarityInfo(item.rarity)[0];
-    const special=item?.item_type==='avito_found' || item?.item_type==='avito_hunt';
-    const n=String((item?.name||'')+' '+(item?.cat||'')+' '+(item?.found_id||'')).toLowerCase().replace(/ё/g,'е');
-    let mark='';
-    if(n.includes('iphone')||n.includes('айфон')) mark='<div class="avx-device-mark apple"></div>';
-    else if(n.includes('samsung')||n.includes('galaxy')||n.includes('самсунг')) mark='<div class="avx-device-mark samsung">S</div>';
-    else if(n.includes('macbook')||n.includes('макбук')) mark='<div class="avx-device-mark mac">M</div>';
-    else if(special) mark=`<div class="avx-special-icon">${esc(item?.hunt_icon||item?.found_icon||'R')}</div>`;
-    else mark='<div class="avx-rarity-icon" aria-hidden="true"></div>';
-    return `<div class="auction-avito-card rarity-${esc(rc)}" data-rarity="${esc(rc)}">
-      <div class="auction-avito-top">
-        ${mark}
-        <div class="auction-avito-copy">
-          <b>${esc(item.name||'Предмет')}</b>
-          <span>${esc(item.cat||'🎒 Аксессуары')}</span>
-          <small>${esc(label)}${special?' · ПОВЕЗЛО В ПОСТАВКЕ':''}</small>
-        </div>
-      </div>
-    </div>`;
+    const n=String((item.name||'')+' '+(item.cat||'')+' '+(item.found_id||'')).toLowerCase().replace(/ё/g,'е');
+    if(n.includes('iphone')||n.includes('айфон')) return '<div class="avx-device-mark apple" aria-label="Apple"></div>';
+    if(n.includes('samsung')||n.includes('galaxy')||n.includes('самсунг')) return '<div class="avx-device-mark samsung" aria-label="Samsung">S</div>';
+    if(n.includes('macbook')||n.includes('макбук')) return '<div class="avx-device-mark mac" aria-label="MacBook">M</div>';
+    if(item.item_type==='avito_found'||item.item_type==='avito_hunt') return `<div class="avx-special-icon">${esc(item.hunt_icon||item.found_icon||'R')}</div>`;
+    return '<div class="avx-rarity-icon" aria-hidden="true"></div>';
   };
   const businessVisual=sid=>{
     if(typeof window.__resellBusinessVisual==='function') return window.__resellBusinessVisual(sid);
@@ -12262,5 +12252,52 @@ main.app{
   .auction-asset-main span{font-size:5.7px!important}
   .auction-asset-action button{font-size:4.9px!important;padding:0 4px!important}
   .auction-asset-action small{display:none}
+}
+</style>
+
+<style id="resell-auction-sell-polish-v3">
+/* FINAL AUCTION SELL UI — one clean grid, one thumbnail, no duplicated item card */
+.auction-assets{display:grid!important;gap:9px!important;padding:2px 1px 8px!important;max-height:62dvh!important;overflow:auto!important}
+.auction-asset{display:grid!important;grid-template-columns:72px minmax(0,1fr) 116px!important;align-items:center!important;gap:12px!important;min-height:82px!important;padding:10px!important;border-radius:17px!important;background:linear-gradient(145deg,#121612 0%,#0b0e0c 100%)!important;border:1px solid rgba(255,255,255,.065)!important;box-shadow:0 8px 22px rgba(0,0,0,.18),inset 0 1px 0 rgba(255,255,255,.025)!important}
+.auction-asset:hover{border-color:rgba(183,255,106,.15)!important}
+.auction-asset-art{width:72px!important;height:72px!important;min-width:72px!important;display:grid!important;place-items:center!important;overflow:hidden!important;border-radius:15px!important;background:linear-gradient(145deg,#171b17,#080a08)!important;border:1px solid rgba(255,255,255,.07)!important}
+.auction-asset-art img{width:100%!important;height:100%!important;object-fit:contain!important;display:block!important}
+.auction-asset-art .avx-device-mark{width:50px!important;height:50px!important;border-radius:13px!important;font-size:31px!important}
+.auction-asset-art .avx-device-mark.samsung{font-size:29px!important}
+.auction-asset-art .avx-device-mark.mac{font-size:25px!important}
+.auction-asset-art .avx-special-icon{width:50px!important;height:50px!important;border-radius:13px!important;font-size:14px!important}
+.auction-asset-art .avx-rarity-icon{width:28px!important;height:28px!important;border-radius:8px!important}
+.auction-asset-main{min-width:0!important;padding:1px 0!important;display:flex!important;flex-direction:column!important;justify-content:center!important}
+.auction-asset-main b{display:block!important;min-width:0!important;color:#eef3ee!important;font:900 12px/1.2 Montserrat,sans-serif!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+.auction-asset-main span{display:block!important;margin-top:6px!important;color:#78837b!important;font:700 10px/1.3 Nunito,sans-serif!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+.auction-asset-main em{display:block!important;margin-top:7px!important;color:#b7ff6a!important;font:900 9px/1 Montserrat,sans-serif!important;font-style:normal!important;letter-spacing:.25px!important}
+.auction-asset-action{display:flex!important;flex-direction:column!important;align-items:stretch!important;justify-content:center!important;gap:6px!important;min-width:0!important}
+.auction-asset-action button{width:100%!important;height:40px!important;min-height:40px!important;padding:0 8px!important;border-radius:11px!important;font:900 8px/1 Montserrat,sans-serif!important;letter-spacing:.35px!important;white-space:nowrap!important}
+.auction-asset-action small{display:block!important;margin:0!important;text-align:center!important;color:#59645c!important;font:700 7px/1.2 Nunito,sans-serif!important}
+.auction-asset.is-on-line .auction-asset-action button,.auction-asset.has-debt .auction-asset-action button{background:rgba(255,181,75,.09)!important;border-color:rgba(255,181,75,.25)!important;color:#ffc46b!important}
+.auction-asset:not(.is-on-line):not(.has-debt) .auction-asset-action button{background:rgba(183,255,106,.09)!important;border-color:rgba(183,255,106,.22)!important;color:#c5ff9b!important}
+.auction-asset-action button:active{transform:scale(.985)!important}
+@media(max-width:430px){
+  .auction-assets{gap:8px!important;max-height:60dvh!important}
+  .auction-asset{grid-template-columns:62px minmax(0,1fr) 104px!important;gap:9px!important;min-height:72px!important;padding:8px!important;border-radius:15px!important}
+  .auction-asset-art{width:62px!important;height:62px!important;min-width:62px!important;border-radius:13px!important}
+  .auction-asset-art .avx-device-mark{width:44px!important;height:44px!important;font-size:28px!important}
+  .auction-asset-art .avx-device-mark.samsung{font-size:26px!important}
+  .auction-asset-art .avx-device-mark.mac{font-size:23px!important}
+  .auction-asset-art .avx-special-icon{width:44px!important;height:44px!important}
+  .auction-asset-main b{font-size:10px!important}
+  .auction-asset-main span{font-size:8px!important;margin-top:4px!important}
+  .auction-asset-main em{font-size:8px!important;margin-top:5px!important}
+  .auction-asset-action button{height:36px!important;min-height:36px!important;font-size:7px!important}
+  .auction-asset-action small{font-size:6px!important}
+}
+@media(max-width:360px){
+  .auction-asset{grid-template-columns:56px minmax(0,1fr) 92px!important;gap:8px!important}
+  .auction-asset-art{width:56px!important;height:56px!important;min-width:56px!important}
+  .auction-asset-main b{font-size:9px!important}
+  .auction-asset-main span{font-size:7px!important}
+  .auction-asset-main em{font-size:7px!important}
+  .auction-asset-action button{font-size:6.4px!important;padding:0 5px!important}
+  .auction-asset-action small{display:none!important}
 }
 </style>
