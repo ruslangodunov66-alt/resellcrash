@@ -5405,12 +5405,53 @@ async function initFarm(){
     bindResellCustomSwipe();
   }
 
+  let resellCustomAnimating=false;
+  async function switchResellCustom(direction){
+    if(resellCustomAnimating)return;
+    const count=carsCountForSwipe();
+    if(count<=1)return;
+    const next=Math.max(0,Math.min(count-1,resellCustomIndex+(direction>0?1:-1)));
+    if(next===resellCustomIndex){
+      const area=document.getElementById('resellCustomSwipeArea');
+      if(area){
+        area.classList.remove('rc-edge-left','rc-edge-right');
+        void area.offsetWidth;
+        area.classList.add(direction>0?'rc-edge-right':'rc-edge-left');
+        setTimeout(()=>area.classList.remove('rc-edge-left','rc-edge-right'),220);
+      }
+      haptic('light');
+      return;
+    }
+    resellCustomAnimating=true;
+    const area=document.getElementById('resellCustomSwipeArea');
+    if(area){
+      area.classList.add(direction>0?'rc-slide-out-left':'rc-slide-out-right');
+      await new Promise(r=>setTimeout(r,180));
+    }
+    resellCustomIndex=next;
+    haptic('light');
+    try{
+      await renderResellCustom();
+      const fresh=document.getElementById('resellCustomSwipeArea');
+      if(fresh){
+        fresh.classList.add(direction>0?'rc-slide-in-right':'rc-slide-in-left');
+        requestAnimationFrame(()=>requestAnimationFrame(()=>fresh.classList.add('rc-slide-in-active')));
+        setTimeout(()=>fresh.classList.remove('rc-slide-in-right','rc-slide-in-left','rc-slide-in-active'),360);
+      }
+    }catch(err){
+      showToast(err.message||'Не удалось переключить автомобиль');
+    }finally{
+      resellCustomAnimating=false;
+    }
+  }
+
   function bindResellCustomSwipe(){
     const area=document.getElementById('resellCustomSwipeArea');
     const shell=modalBody?.querySelector('.resell-custom-shell');
     if(!area||!shell)return;
     let startX=0,startY=0,tracking=false;
     const start=e=>{
+      if(resellCustomAnimating)return;
       const t=e.touches?.[0]; if(!t)return;
       startX=t.clientX; startY=t.clientY; tracking=true;
     };
@@ -5418,22 +5459,21 @@ async function initFarm(){
       if(!tracking)return; tracking=false;
       const t=e.changedTouches?.[0]; if(!t)return;
       const dx=t.clientX-startX,dy=t.clientY-startY;
-      if(Math.abs(dx)<46 || Math.abs(dx)<Math.abs(dy)*1.15)return;
-      resellCustomIndex=Math.max(0,Math.min(carsCountForSwipe()-1,resellCustomIndex+(dx<0?1:-1)));
-      haptic('light');
-      renderResellCustom().catch(err=>showToast(err.message||'Не удалось переключить автомобиль'));
+      if(Math.abs(dx)<42 || Math.abs(dx)<Math.abs(dy)*1.12)return;
+      switchResellCustom(dx<0?1:-1);
     };
     area.addEventListener('touchstart',start,{passive:true});
     area.addEventListener('touchend',end,{passive:true});
     area.addEventListener('touchcancel',()=>{tracking=false},{passive:true});
+    shell.tabIndex=0;
     shell.addEventListener('keydown',e=>{
-      if(e.key==='ArrowRight'){resellCustomIndex=Math.min(carsCountForSwipe()-1,resellCustomIndex+1);renderResellCustom().catch(()=>{});}
-      if(e.key==='ArrowLeft'){resellCustomIndex=Math.max(0,resellCustomIndex-1);renderResellCustom().catch(()=>{});}
+      if(e.key==='ArrowRight'){e.preventDefault();switchResellCustom(1);}
+      if(e.key==='ArrowLeft'){e.preventDefault();switchResellCustom(-1);}
     });
   }
   function carsCountForSwipe(){
     const tabs=modalBody?.querySelectorAll('[data-custom-index]')||[];
-    return Math.max(1,tabs.length/2);
+    return Math.max(1,Math.floor(tabs.length/2));
   }
   async function openResellCustom(){
     haptic('light');
@@ -5444,24 +5484,37 @@ async function initFarm(){
 
   window.openResellCustom=openResellCustom;
 
-  async function applyResellCustomNewcomerPromo(){
-    const section=document.getElementById('resellCustomHomeSection');
-    const badge=document.getElementById('resellCustomNewBadge');
-    if(!section)return;
-    try{
-      if(!userId){return;}
-      const r=await apiFetch(`${API_BASE}/resell/custom/promo/${encodeURIComponent(userId)}?t=${Date.now()}`,{cache:'no-store'},2);
-      if(!r.ok)return;
-      const d=await r.json().catch(()=>({}));
-      const newcomer=!!d.newcomer;
-      if(newcomer && d.enabled===false){section.style.display='none';return;}
-      section.style.display='';
-      if(badge)badge.style.display=d.show_new?'inline-flex':'none';
-    }catch(_){
-      section.style.display='';
-      if(badge)badge.style.display='none';
-    }
+  function showResellCustomUpdateOnce(){
+    const KEY='resell_custom_update_seen_2026_09_20_v2';
+    try{if(localStorage.getItem(KEY)==='1')return;}catch(_){}
+    if(document.getElementById('resellCustomUpdateOverlay'))return;
+    const overlay=document.createElement('div');
+    overlay.id='resellCustomUpdateOverlay';
+    overlay.innerHTML=`
+      <div class="rc-update-backdrop"></div>
+      <div class="rc-update-card" role="dialog" aria-modal="true" aria-labelledby="rcUpdateTitle">
+        <div class="rc-update-media">
+          <img src="${typeof RESSELL_CUSTOM_COVER!=='undefined'?RESSELL_CUSTOM_COVER:''}" alt="RESSELL CUSTOM">
+          <div class="rc-update-media-shade"></div>
+          <span class="rc-update-pill">RESSELL · UPDATE</span>
+          <span class="rc-update-logo">R</span>
+        </div>
+        <div class="rc-update-copy">
+          <span class="rc-update-kicker">НОВАЯ КОЛЛЕКЦИЯ</span>
+          <h2 id="rcUpdateTitle">Обновление<br>RESSELL Custom</h2>
+          <p>В RESSELL появилась закрытая коллекция из пяти кастомных автомобилей. Полный тюнинг уже установлен.</p>
+          <button type="button" id="rcUpdateOpen">ОТКРЫТЬ</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const closeAndOpen=()=>{
+      try{localStorage.setItem(KEY,'1');}catch(_){}
+      overlay.classList.add('is-closing');
+      setTimeout(()=>{overlay.remove();openResellCustom();},220);
+    };
+    document.getElementById('rcUpdateOpen')?.addEventListener('click',closeAndOpen,{once:true});
   }
+
 
   async function renderTycoon(){
     let body='';
@@ -6276,7 +6329,6 @@ async function initFarm(){
         <div class="admin-kpi"><b>${number(bannedUsers)}</b><span>Заблокировано</span></div>
       </div>
       <div class="admin-action-grid"><button class="admin-btn primary" id="adminEventsBtn">⚡ ИВЕНТЫ</button><button class="admin-btn" id="adminAppealsBtn">ОБРАЩЕНИЯ ПО БЛОКИРОВКАМ</button><button class="admin-btn" id="adminMaintenanceBtn">ТЕХНИЧЕСКИЕ РАБОТЫ</button><button class="admin-btn" id="adminUpdateAnnouncementBtn">ОБЪЯВИТЬ ОБ ОБНОВЛЕНИИ</button></div><div id="adminMaintenanceCard" class="admin-note" style="margin-top:8px">Состояние системы загружается…</div>
-      <div class="admin-feature-card"><div><span class="admin-feature-kicker">RESSELL · NEW FEATURE</span><b>RESSELL CUSTOM</b><small>Показывать карточку «НОВЫЙ РАЗДЕЛ» новым игрокам в первые 7 дней.</small></div><button class="admin-btn" id="adminCustomPromoBtn" data-enabled="${data?.customSetting?.enabled?'1':'0'}">${data?.customSetting?.enabled?'СКРЫТЬ У НОВЫХ':'ПОКАЗЫВАТЬ НОВЫМ'}</button></div>
       <div class="admin-section-title">Поиск игрока</div>
       <div class="admin-search"><input id="adminSearchInput" placeholder="ID, никнейм или магазин" value="${esc(data?.q||'')}"><button class="admin-btn primary" id="adminSearchBtn">НАЙТИ</button></div>
       <div class="admin-player-list">${players.length?players.map(p=>`<div class="admin-player"><div class="admin-player-main"><div class="admin-player-name">${esc(p.nickname||'Без никнейма')}</div><div class="admin-player-meta">TG ${p.tg_id} · ${number(p.balance)} ₽ · ${p.is_banned?'ЗАБАНЕН':''}${p.warning_count?' · ⚠ '+p.warning_count:''}</div></div><div class="admin-player-actions"><button class="admin-mini" data-admin-open="${p.tg_id}">ОТКРЫТЬ</button></div></div>`).join(''):'<div class="profile-empty">Найди игрока по Telegram ID, никнейму или магазину.</div>'}</div>
@@ -6340,8 +6392,7 @@ async function initFarm(){
       const logs=(await adminFetch(`/admin/player/${ADMIN_OWNER_ID}/${ADMIN_OWNER_ID}/logs?limit=30`).catch(()=>({logs:[]}))).logs||[];
       const maintenance=await adminFetch(`/admin/maintenance/${ADMIN_OWNER_ID}`).catch(()=>({enabled:false}));
       const stats=await adminFetch(`/admin/stats/${ADMIN_OWNER_ID}`).catch(()=>({total_players:0,participants:0}));
-      const customSetting=await adminFetch(`/admin/resell-custom/${ADMIN_OWNER_ID}`).catch(()=>({enabled:false}));
-      modalBody.innerHTML=renderAdminHome({players:data.players||[],logs,maintenance,stats,customSetting});
+      modalBody.innerHTML=renderAdminHome({players:data.players||[],logs,maintenance,stats});
       const mc=document.getElementById('adminMaintenanceCard'); if(mc) mc.innerHTML=maintenance.enabled?'🟢 <b style="color:#b7ff6a">ВКЛЮЧЕНЫ</b> · игроки не допускаются':'⚪ <b>ВЫКЛЮЧЕНЫ</b> · игра доступна всем';
       const mb=document.getElementById('adminMaintenanceBtn'); if(mb){mb.textContent=maintenance.enabled?'ВЫКЛЮЧИТЬ ТЕХ. РАБОТЫ':'ВКЛЮЧИТЬ ТЕХ. РАБОТЫ';mb.dataset.enabled=maintenance.enabled?'1':'0';}
 
@@ -6667,17 +6718,6 @@ async function initFarm(){
       try{const d=await adminFetch(`/admin/maintenance/${ADMIN_OWNER_ID}`,{method:'POST',body:JSON.stringify({enabled:!enabled})});showToast(d.enabled?'Технические работы включены':'Технические работы выключены');await openAdmin();}catch(err){showToast(err.message||'Не удалось изменить режим');btn.disabled=false;}
       return;
     }
-    if(e.target.closest('#adminCustomPromoBtn')){
-      const btn=e.target.closest('#adminCustomPromoBtn');
-      const enabled=btn.dataset.enabled==='1';
-      btn.disabled=true;
-      try{
-        const d=await adminFetch(`/admin/resell-custom/${ADMIN_OWNER_ID}`,{method:'POST',body:JSON.stringify({enabled:!enabled})});
-        showToast(d.enabled?'RESSELL Custom включён для новых игроков':'RESSELL Custom скрыт у новых игроков');
-        await openAdmin();
-      }catch(err){showToast(err.message||'Не удалось изменить видимость RESSELL Custom');btn.disabled=false;}
-      return;
-    }
     if(e.target.closest('#adminEventsBtn')){ await openAdminEvents(); return; }
     if(e.target.closest('[data-event-start]')){ await startAdminEvent(e.target.closest('[data-event-start]').dataset.eventStart); return; }
     if(e.target.closest('#adminEventCancel')){ await cancelAdminEvent(e.target.closest('#adminEventCancel').dataset.eventId); return; }
@@ -6685,7 +6725,7 @@ async function initFarm(){
     if(e.target.closest('[data-appeal-resolve]')){const btn=e.target.closest('[data-appeal-resolve]'),card=btn.closest('[data-appeal-id]');btn.disabled=true;try{await adminFetch(`/admin/appeal/${ADMIN_OWNER_ID}/${Number(card?.dataset.appealId||0)}/resolve`,{method:'POST',body:JSON.stringify({decision:btn.dataset.appealResolve,note:card?.querySelector('[data-appeal-note]')?.value||''})});showToast(btn.dataset.appealResolve==='approve'?'Игрок разблокирован':'Блокировка оставлена');await openAdminAppeals()}catch(e){showToast(e.message||'Ошибка');btn.disabled=false}return;}
     if(e.target.closest('#adminSearchBtn')){
       const q=($('#adminSearchInput')?.value||'').trim();
-      try{ const d=await adminFetch(`/admin/players/${ADMIN_OWNER_ID}?q=${encodeURIComponent(q)}&limit=50`); const customSetting=await adminFetch(`/admin/resell-custom/${ADMIN_OWNER_ID}`).catch(()=>({enabled:false})); modalBody.innerHTML=renderAdminHome({players:d.players||[],q,customSetting}); }
+      try{ const d=await adminFetch(`/admin/players/${ADMIN_OWNER_ID}?q=${encodeURIComponent(q)}&limit=50`); modalBody.innerHTML=renderAdminHome({players:d.players||[],q}); }
       catch(err){showToast(err.message||'Ошибка поиска');}
       return;
     }
@@ -7054,7 +7094,7 @@ async function initFarm(){
     // Keep a short, intentional account-discovery stage before the existing launch sequence.
     await new Promise(r=>setTimeout(r,520));
     await dataPromise;
-    try{ await applyResellCustomNewcomerPromo(); }catch(_){}
+    try{ if(bootData && bootData.registration_complete!==false && bootData.registration_required!==true) setTimeout(showResellCustomUpdateOnce,260); }catch(_){}
     // By this point Telegram identity/profile bootstrap is complete. Re-read the
     // equipped R-HOLD skin now, even if initFarm ran earlier before userId existed.
     try{ restoreRholdSkinLocalV19(); await loadRholdSkinV19(); }catch(_){ }
@@ -11815,3 +11855,39 @@ main.app{
 .resell-custom-home-section{margin-top:2px}.resell-custom-launch{position:relative;display:block;width:100%;min-height:184px;padding:0;border:1px solid rgba(183,255,106,.18);border-radius:24px;overflow:hidden;background:#050605;box-shadow:0 18px 50px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.05);text-align:left;cursor:pointer}.resell-custom-launch img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;filter:saturate(.9) contrast(1.08) brightness(.62)}.resell-custom-launch-shade{position:absolute;inset:0;background:linear-gradient(90deg,rgba(3,5,3,.96) 0%,rgba(3,5,3,.73) 43%,rgba(3,5,3,.18) 100%),linear-gradient(180deg,rgba(0,0,0,.05),rgba(0,0,0,.74));pointer-events:none}.resell-custom-launch-copy{position:relative;z-index:2;display:flex;flex-direction:column;justify-content:center;min-height:184px;padding:20px 18px;max-width:78%}.resell-custom-launch-kicker{font:950 6.5px/1 "Montserrat",sans-serif;letter-spacing:1.8px;color:#91a18f;text-transform:uppercase}.resell-custom-launch-copy strong{margin-top:7px;font:950 23px/.95 "Montserrat",sans-serif;letter-spacing:-.7px;color:#f3f7f2}.resell-custom-launch-copy small{margin-top:7px;color:#7b857c;font:800 8px/1.4 "Nunito",sans-serif;max-width:270px}.resell-custom-launch-cta{display:flex;align-items:center;gap:10px;margin-top:15px;color:#b7ff6a;font:950 7px/1 "Montserrat",sans-serif;letter-spacing:1px}.resell-custom-launch-cta b{font-size:15px;line-height:8px}.resell-custom-shell{display:flex;flex-direction:column;gap:10px}.resell-custom-hero{position:relative;min-height:150px;border-radius:22px;overflow:hidden;border:1px solid rgba(183,255,106,.16);background:#050605}.resell-custom-hero img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:saturate(.82) contrast(1.1) brightness(.48)}.resell-custom-hero-overlay{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.04),rgba(0,0,0,.86));}.resell-custom-hero-copy{position:absolute;left:15px;right:15px;bottom:14px;z-index:2}.resell-custom-hero-copy span{display:block;color:#8c9a8d;font:950 6px/1 "Montserrat",sans-serif;letter-spacing:1.5px}.resell-custom-hero-copy b{display:block;margin-top:6px;color:#f2f6f1;font:950 19px/1 "Montserrat",sans-serif}.resell-custom-hero-copy small{display:block;margin-top:6px;color:#778078;font:800 8px/1.35 "Nunito",sans-serif;max-width:94%}.resell-custom-status-row{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.resell-custom-status-row>div{padding:10px;border-radius:13px;background:linear-gradient(145deg,#141714,#0b0d0b);border:1px solid rgba(255,255,255,.06)}.resell-custom-status-row span{display:block;color:#5e675f;font:950 6px/1 "Montserrat",sans-serif;letter-spacing:1px}.resell-custom-status-row b{display:block;margin-top:5px;color:#dce4dc;font:950 10px/1 "Montserrat",sans-serif}.resell-custom-status-row>div:first-child b{color:#b7ff6a}.resell-custom-tabs{display:flex;gap:6px;overflow:auto;padding:1px 0 2px;scrollbar-width:none}.resell-custom-tabs::-webkit-scrollbar{display:none}.rc-car-tab{flex:0 0 auto;display:flex;align-items:center;gap:7px;min-height:38px;padding:0 10px;border-radius:11px;border:1px solid rgba(255,255,255,.06);background:#0c0e0c;color:#676f68}.rc-car-tab span{font:950 6px/1 "Montserrat",sans-serif;color:#4e554f}.rc-car-tab b{font:900 7px/1 "Montserrat",sans-serif;white-space:nowrap}.rc-car-tab.active{border-color:rgba(183,255,106,.25);background:rgba(183,255,106,.08);color:#e9f7e7}.rc-car-tab.active span,.rc-car-tab.active b{color:#b7ff6a}.resell-custom-car{overflow:hidden;border-radius:22px;border:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg,#121412,#0a0c0a);box-shadow:0 18px 45px rgba(0,0,0,.3)}.resell-custom-car-media{position:relative;aspect-ratio:1.5;min-height:190px;background:#020302;overflow:hidden}.resell-custom-car-media>img{width:100%;height:100%;object-fit:cover;display:block;filter:contrast(1.06) saturate(.92);}.rc-media-top,.rc-media-bottom{position:absolute;left:11px;right:11px;display:flex;align-items:center;justify-content:space-between;gap:8px}.rc-media-top{top:10px}.rc-media-top span,.rc-media-top b,.rc-media-bottom span,.rc-media-bottom b{padding:6px 8px;border-radius:8px;background:rgba(2,3,2,.72);border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(9px);font:950 6px/1 "Montserrat",sans-serif;letter-spacing:.7px}.rc-media-top span{color:#7f8a80}.rc-media-top b{color:#b7ff6a}.rc-media-bottom{bottom:10px}.rc-media-bottom span{color:#9ba49c}.rc-media-bottom b{color:#f2f5f1}.resell-custom-car-copy{padding:15px}.rc-kicker{color:#728073;font:950 6px/1 "Montserrat",sans-serif;letter-spacing:1.5px}.resell-custom-car-copy h2{margin:7px 0 0;color:#eef3ef;font:950 20px/1.02 "Montserrat",sans-serif;letter-spacing:-.4px}.resell-custom-car-copy p{margin:7px 0 0;color:#6e776f;font:800 8px/1.45 "Nunito",sans-serif}.rc-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:12px}.rc-stats>div{padding:10px 8px;border-radius:12px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.05)}.rc-stats span,.rc-stats small{display:block;color:#555d56;font:950 5.5px/1 "Montserrat",sans-serif;letter-spacing:.6px}.rc-stats b{display:block;margin:5px 0 3px;color:#e8eee9;font:950 10px/1 "Montserrat",sans-serif;white-space:nowrap}.rc-stats>div:nth-child(2) b,.rc-stats>div:nth-child(3) b{color:#b7ff6a}.rc-spec-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px;padding:9px 0;border-top:1px solid rgba(255,255,255,.05);border-bottom:1px solid rgba(255,255,255,.05);color:#5f685f;font:900 5.5px/1.2 "Montserrat",sans-serif;letter-spacing:.55px}.rc-spec-row b{color:#b7ff6a;white-space:nowrap;letter-spacing:1px}.rc-buy-row{margin-top:11px}.rc-buy-btn{width:100%;min-height:49px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 14px;border-radius:14px;border:1px solid #b7ff6a;background:linear-gradient(145deg,#d9ffb5,#b7ff6a);color:#081007;box-shadow:0 12px 30px rgba(183,255,106,.13);font:950 8px/1 "Montserrat",sans-serif;letter-spacing:.7px}.rc-buy-btn b{font-size:10px}.rc-buy-btn:disabled{opacity:.6}.rc-owned{display:flex;align-items:center;justify-content:center;min-height:45px;border-radius:13px;background:rgba(183,255,106,.07);border:1px solid rgba(183,255,106,.18);color:#b7ff6a;font:950 8px/1 "Montserrat",sans-serif;letter-spacing:.7px;text-align:center}.rc-current-btn{width:100%;min-height:45px}.resell-custom-dots{display:flex;justify-content:center;gap:6px;padding:2px}.rc-dot{width:22px;height:18px;padding:0;border:0;background:transparent;display:grid;place-items:center}.rc-dot span{width:5px;height:5px;border-radius:50%;background:#3e453f;transition:.2s}.rc-dot.active span{width:18px;border-radius:99px;background:#b7ff6a;box-shadow:0 0 14px rgba(183,255,106,.18)}.resell-custom-note{display:flex;gap:8px;align-items:flex-start;padding:11px 12px;border-radius:13px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.05)}.resell-custom-note b{color:#b7ff6a;font:950 6px/1 "Montserrat",sans-serif;letter-spacing:1px;white-space:nowrap}.resell-custom-note span{color:#626a63;font:800 7px/1.35 "Nunito",sans-serif}@media(max-width:420px){.resell-custom-launch-copy{max-width:88%}.resell-custom-launch{min-height:176px}.resell-custom-launch-copy{min-height:176px}.resell-custom-car-media{min-height:180px}.resell-custom-car-copy h2{font-size:18px}.rc-stats b{font-size:9px}.resell-custom-status-row b{font-size:9px}}
 </style>
 
+
+
+<style id="resell-custom-smooth-update-v2">
+.resell-custom-car{touch-action:pan-y;user-select:none;-webkit-user-select:none;will-change:transform,opacity}
+.resell-custom-car-media>img{will-change:transform;backface-visibility:hidden}
+.rc-slide-out-left{animation:rcCarOutLeft .18s cubic-bezier(.4,0,1,1) forwards}
+.rc-slide-out-right{animation:rcCarOutRight .18s cubic-bezier(.4,0,1,1) forwards}
+.rc-slide-in-right,.rc-slide-in-left{opacity:0!important}
+.rc-slide-in-right{transform:translate3d(22px,0,0)}
+.rc-slide-in-left{transform:translate3d(-22px,0,0)}
+.rc-slide-in-right.rc-slide-in-active,.rc-slide-in-left.rc-slide-in-active{opacity:1!important;transform:translate3d(0,0,0);transition:transform .28s cubic-bezier(.22,.8,.2,1),opacity .22s ease}
+.rc-edge-left{animation:rcEdgeLeft .22s ease-out}
+.rc-edge-right{animation:rcEdgeRight .22s ease-out}
+@keyframes rcCarOutLeft{to{opacity:0;transform:translate3d(-22px,0,0)}}
+@keyframes rcCarOutRight{to{opacity:0;transform:translate3d(22px,0,0)}}
+@keyframes rcEdgeLeft{50%{transform:translate3d(-7px,0,0)}}
+@keyframes rcEdgeRight{50%{transform:translate3d(7px,0,0)}}
+#resellCustomUpdateOverlay{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;padding:max(18px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right)) max(18px,env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left));box-sizing:border-box;overflow:auto}
+#resellCustomUpdateOverlay .rc-update-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.94);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+#resellCustomUpdateOverlay .rc-update-card{position:relative;z-index:1;width:min(430px,100%);max-height:calc(100dvh - 36px);overflow:hidden;border:1px solid rgba(183,255,106,.2);border-radius:28px;background:linear-gradient(180deg,#111411,#070907);box-shadow:0 28px 90px rgba(0,0,0,.65),0 0 0 1px rgba(255,255,255,.025);transform:translateY(18px) scale(.97);opacity:0;animation:rcUpdateIn .42s cubic-bezier(.2,.8,.2,1) forwards}
+#resellCustomUpdateOverlay .rc-update-media{position:relative;height:min(42dvh,310px);min-height:210px;overflow:hidden;background:#020302}
+#resellCustomUpdateOverlay .rc-update-media img{width:100%;height:100%;object-fit:cover;object-position:center;display:block;filter:brightness(.62) contrast(1.06) saturate(.86)}
+#resellCustomUpdateOverlay .rc-update-media-shade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.08),rgba(0,0,0,.88))}
+#resellCustomUpdateOverlay .rc-update-pill{position:absolute;top:16px;left:16px;padding:8px 10px;border-radius:999px;background:rgba(4,6,4,.74);border:1px solid rgba(183,255,106,.24);color:#b7ff6a;font:950 7px/1 Montserrat,sans-serif;letter-spacing:1.2px}
+#resellCustomUpdateOverlay .rc-update-logo{position:absolute;right:17px;top:12px;width:38px;height:38px;border-radius:12px;display:grid;place-items:center;border:1px solid rgba(183,255,106,.25);background:rgba(4,6,4,.72);color:#b7ff6a;font:950 18px/1 Montserrat,sans-serif}
+#resellCustomUpdateOverlay .rc-update-copy{padding:22px 20px max(20px,env(safe-area-inset-bottom))}
+#resellCustomUpdateOverlay .rc-update-kicker{color:#829081;font:950 7px/1 Montserrat,sans-serif;letter-spacing:1.7px}
+#resellCustomUpdateOverlay .rc-update-copy h2{margin:8px 0 0;color:#f2f6f2;font:950 clamp(25px,7vw,34px)/.96 Montserrat,sans-serif;letter-spacing:-1px}
+#resellCustomUpdateOverlay .rc-update-copy p{margin:12px 0 0;color:#737d74;font:800 10px/1.5 Nunito,sans-serif}
+#resellCustomUpdateOverlay #rcUpdateOpen{width:100%;min-height:54px;margin-top:18px;border:1px solid #b7ff6a;border-radius:15px;background:linear-gradient(145deg,#d9ffb5,#b7ff6a);color:#071006;box-shadow:0 14px 32px rgba(183,255,106,.14);font:950 10px/1 Montserrat,sans-serif;letter-spacing:1px;cursor:pointer}
+#resellCustomUpdateOverlay.is-closing .rc-update-card{animation:rcUpdateOut .22s ease forwards}
+@keyframes rcUpdateIn{to{transform:none;opacity:1}}
+@keyframes rcUpdateOut{to{transform:translateY(10px) scale(.98);opacity:0}}
+@media(max-width:430px){#resellCustomUpdateOverlay .rc-update-card{border-radius:24px}#resellCustomUpdateOverlay .rc-update-media{height:38dvh;min-height:190px}#resellCustomUpdateOverlay .rc-update-copy{padding:19px 17px 20px}}
+@media(prefers-reduced-motion:reduce){.rc-slide-out-left,.rc-slide-out-right,.rc-edge-left,.rc-edge-right{animation:none}.rc-slide-in-right,.rc-slide-in-left{opacity:1!important;transform:none!important}.rc-slide-in-right.rc-slide-in-active,.rc-slide-in-left.rc-slide-in-active{transition:none}.rc-update-card{animation:none!important;opacity:1!important;transform:none!important}}
+</style>
