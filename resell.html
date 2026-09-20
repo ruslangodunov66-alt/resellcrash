@@ -5841,6 +5841,8 @@ async function initFarm(){
   }
   // Shared by Auction: this is the exact Avito inventory renderer, not a copy.
   window.__resellAvitoInventoryVisual=avitoInventoryVisual;
+  // Business tab renderer is also the single source of truth for auction thumbnails.
+  window.__resellBusinessVisual = window.__resellBusinessVisual || null;
 
   function reviewsStars(avg){const a=Math.max(0,Math.min(5,Number(avg||0)));let out='';for(let i=1;i<=5;i++){const cls=a>=i?'filled':(a>=i-.5?'half':'');out+=`<i class="avx-star ${cls}" aria-hidden="true"></i>`;}return `<span class="avx-review-stars">${out}</span>`;}
   function renderAvitoReviews(){
@@ -6043,6 +6045,7 @@ async function initFarm(){
       const [bg,ac]=theme;
       return `<svg class="bizsimple-art" viewBox="0 0 260 150" aria-hidden="true"><rect width="260" height="150" rx="18" fill="${bg}"/><path d="M18 126h224" stroke="rgba(255,255,255,.10)"/><rect x="42" y="60" width="176" height="66" rx="4" fill="${ac}" fill-opacity=".08" stroke="${ac}" stroke-opacity=".28"/><path d="M35 60h190l-10-20H45L35 60Z" fill="${ac}" fill-opacity=".16"/><path d="M70 60v66M106 60v66M142 60v66M178 60v66M214 60v66" stroke="rgba(255,255,255,.10)"/><rect x="111" y="91" width="38" height="35" rx="2" fill="${ac}" fill-opacity=".20" stroke="${ac}" stroke-opacity=".35"/><path d="M130 26v24M122 34h16" stroke="${ac}" stroke-width="2" stroke-opacity=".7"/><circle cx="130" cy="24" r="3" fill="${ac}"/></svg>`;
     };
+    window.__resellBusinessVisual=shopArt;
 
     const assetRows=businesses.map((b,i)=>`<article class="bizsimple-asset">
       <div class="bizsimple-artbox">${shopArt(id(b))}</div>
@@ -12046,6 +12049,28 @@ main.app{
   const typeName=t=>t==='car'?'АВТОМОБИЛЬ':t==='business'?'БИЗНЕС':'ПРЕДМЕТ';
   const rarityInfo=v=>{const n=String(v||'').toLowerCase().trim();if(n.includes('myth')||n.includes('миф'))return ['МИФИЧЕСКИЙ','mythic'];if(n.includes('legend')||n.includes('легенд'))return ['ЛЕГЕНДАРНЫЙ','legendary'];if(n.includes('epic')||n.includes('эпик'))return ['ЭПИЧЕСКИЙ','epic'];if(n.includes('rare')||n.includes('редк'))return ['РЕДКИЙ','rare'];return ['ОБЫЧНЫЙ','common'];};
   const rarityBadge=v=>{const [label,cls]=rarityInfo(v);return `<span class="auction-rarity ${cls}"><i></i>${label}</span>`;};
+  const auctionAvitoVisual=it=>{
+    const item=it||{};
+    const rc=typeof avitoRarity==='function'?avitoRarity(item.rarity):rarityInfo(item.rarity)[1];
+    const label=typeof avitoRarityLabel==='function'?avitoRarityLabel(item.rarity):rarityInfo(item.rarity)[0];
+    const special=item?.item_type==='avito_found' || item?.item_type==='avito_hunt';
+    const icon=special ? String(item?.hunt_icon||item?.found_icon||'R') : '';
+    return `<div class="auction-avito-card rarity-${esc(rc)}" data-rarity="${esc(rc)}">
+      <div class="auction-avito-top">
+        <div class="avx-rarity-icon" aria-hidden="true"></div>
+        <div class="auction-avito-copy">
+          <b>${esc(item.name||'Предмет')}</b>
+          <span>${esc(item.cat||'🎒 Аксессуары')}</span>
+          <small>${esc(label)}${special?' · ПОВЕЗЛО В ПОСТАВКЕ':''}</small>
+        </div>
+        ${special?`<div class="auction-avito-special">${esc(icon)}</div>`:''}
+      </div>
+    </div>`;
+  };
+  const businessVisual=sid=>{
+    if(typeof window.__resellBusinessVisual==='function') return window.__resellBusinessVisual(sid);
+    return '<div class="auction-media-placeholder">BUSINESS</div>';
+  };
   const media=(src)=>{const v=String(src||'').trim();if(!v)return '';if(/^https?:\/\//i.test(v)||v.startsWith('data:'))return v;return `https://resellgame.bothost.tech/tycoon/media/${encodeURIComponent(v)}`;};
   const assetThumb=(type,it)=>{
     const custom=type==='car' && window.RESSELL_CUSTOM_CAR_IMAGES?.[it?.car_id||it?.id];
@@ -12055,8 +12080,8 @@ main.app{
   };
   function auctionVisual(type,it){
     if(type==='car') return assetThumb(type,it) || '<div class="auction-media-placeholder">AUTO</div>';
-    if(type==='business') return '<div class="auction-business-visual"><span>R</span><small>BUSINESS</small></div>';
-    return window.__resellAvitoInventoryVisual ? window.__resellAvitoInventoryVisual(it) : '<div class="avx-rarity-icon" aria-hidden="true"></div>';
+    if(type==='business') return businessVisual(it?.shop_id||it?.id);
+    return auctionAvitoVisual(it);
   }
   const hammerSvg=()=>`<svg viewBox="0 0 120 120" aria-hidden="true"><defs><linearGradient id="ahg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f5f8f4"/><stop offset="1" stop-color="#9ca79f"/></linearGradient></defs><circle cx="60" cy="60" r="48" fill="rgba(183,255,106,.055)" stroke="rgba(183,255,106,.18)"/><g transform="rotate(-35 60 60)"><rect x="55" y="34" width="10" height="58" rx="5" fill="#b7ff6a"/><path d="M31 24h58c5 0 8 4 8 9v10c0 5-3 9-8 9H31c-5 0-8-4-8-9V33c0-5 3-9 8-9Z" fill="url(#ahg)" stroke="#dce4dd" stroke-width="1.5"/></g></svg>`;
   const minBid=l=>Number(l.bidder_id)?Math.max(Number(l.current_bid||0)+1,Math.ceil(Number(l.current_bid||0)*1.05)):Number(l.start_price||0);
@@ -12090,9 +12115,12 @@ main.app{
     const src=sellFilter==='cars'?sellables.cars:sellFilter==='businesses'?sellables.businesses:sellables.inventory;
     const rows=(src||[]).map(x=>{
       const name=x.name||'Актив'; const floor=Number(x.floor_price||0); const extra=sellFilter==='cars'?`Стоимость ${money(x.price)} · ${x.in_taxopark?'НА ЛИНИИ — СНЯТЬ':'в гараже'}`:sellFilter==='businesses'?`Стоимость ${money(x.price)} · обслуживание ${Number(x.maintenance_debt||0)>0?'есть долг':'оплачено'}`:`Рынок ${money(x.market_price)} · ${x.cat||'предмет'}`;
-      const disabled=(sellFilter==='cars'&&x.in_taxopark)||(sellFilter==='businesses'&&Number(x.maintenance_debt||0)>0);
+      const onLine=sellFilter==='cars'&&!!x.in_taxopark;
+      const debt=sellFilter==='businesses'&&Number(x.maintenance_debt||0)>0;
       const ref=sellFilter==='cars'?`data-sell-instance="${Number(x.instance_index)}" data-sell-id="${esc(x.id)}"`:sellFilter==='businesses'?`data-sell-instance="${Number(x.instance_id)}" data-sell-id="${esc(x.id)}"`:`data-sell-uid="${esc(x.uid)}"`;
-      return `<div class="auction-asset"><div class="auction-asset-art">${sellFilter==='cars'?assetThumb('car',x):sellFilter==='businesses'?'<div class="auction-business-visual"><span>R</span><small>BUSINESS</small></div>':(window.__resellAvitoInventoryVisual ? window.__resellAvitoInventoryVisual(x) : '<div class="avx-rarity-icon" aria-hidden="true"></div>')}</div><div class="auction-asset-main"><b>${esc(name)}</b><span>${esc(extra)}</span><em>СТАРТ ОТ ${money(floor)}</em></div><button ${ref} data-auction-choose="${sellFilter}" ${disabled?'disabled':''}>${disabled?(sellFilter==='cars'?'СНЯТЬ С ЛИНИИ':'ОПЛАТИТЬ'):'ВЫСТАВИТЬ'}</button></div>`;
+      const visual=sellFilter==='cars'?assetThumb('car',x):sellFilter==='businesses'?businessVisual(x.id):auctionAvitoVisual(x);
+      const actionLabel=onLine?'СНЯТЬ С ЛИНИИ':debt?'ОПЛАТИТЬ':'ВЫСТАВИТЬ';
+      return `<div class="auction-asset"><div class="auction-asset-art">${visual}</div><div class="auction-asset-main"><b>${esc(name)}</b><span>${esc(extra)}</span><em>СТАРТ ОТ ${money(floor)}</em></div><button ${ref} data-auction-choose="${sellFilter}" data-auction-special="${onLine?'remove-car':debt?'pay-business':''}">${actionLabel}</button></div>`;
     }).join('');
     return `<div class="auction-assets">${rows||'<div class="auction-empty"><b>АКТИВОВ НЕТ</b><span>В этой категории пока нечего выставлять.</span></div>'}</div>`;
   }
@@ -12129,6 +12157,19 @@ main.app{
     const refresh=e.target.closest?.('[data-auction-refresh]');if(refresh){refresh.disabled=true;await loadLots(false);renderMain();return;}
     const sell=e.target.closest?.('[data-auction-sell]');if(sell){openSell();return;}
     const sf=e.target.closest?.('[data-auction-sell-filter]');if(sf){sellFilter=sf.dataset.auctionSellFilter||'cars';renderSell();return;}
+    const special=e.target.closest?.('[data-auction-special]');if(special){
+      const mode=special.dataset.auctionSpecial;
+      if(mode==='remove-car'){
+        special.disabled=true;
+        try{const r=await api(`/tycoon/taxopark/${encodeURIComponent(uid())}/remove-car`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({car_id:special.dataset.sellId,instance_index:Number(special.dataset.sellInstance)})},2);const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)throw new Error(d.error||d.message||'Не удалось снять машину с линии');toast(d.message||'Машина снята с линии');haptic('medium');await loadSellables();renderSell();}catch(err){toast(err.message||'Не удалось снять машину с линии');special.disabled=false;}
+        return;
+      }
+      if(mode==='pay-business'){
+        special.disabled=true;
+        try{const r=await api(`/business/${encodeURIComponent(uid())}/maintenance`,{method:'POST',headers:{'Content-Type':'application/json'}},2);const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)throw new Error(d.error||d.message||'Не удалось оплатить обслуживание');toast(d.message||'Обслуживание оплачено');haptic('medium');await loadSellables();renderSell();}catch(err){toast(err.message||'Не удалось оплатить обслуживание');special.disabled=false;}
+        return;
+      }
+    }
     const choose=e.target.closest?.('[data-auction-choose]');if(choose){const k=choose.dataset.auctionChoose;const arr=k==='cars'?sellables.cars:k==='businesses'?sellables.businesses:sellables.inventory;const x=arr?.find(v=>k==='cars'?String(v.instance_index)===String(choose.dataset.sellInstance)&&String(v.id)===String(choose.dataset.sellId):k==='businesses'?String(v.instance_id)===String(choose.dataset.sellInstance):String(v.uid)===String(choose.dataset.sellUid));if(x)renderForm(k,x);return;}
     const back=e.target.closest?.('[data-auction-back-sell]');if(back){renderSell();return;}
     const confirm=e.target.closest?.('[data-auction-confirm-list]');if(confirm){doList(confirm);return;}
@@ -12150,6 +12191,30 @@ main.app{
 </script>
 
 
+
+<style id="resell-auction-asset-fixes-v2">
+.auction-avito-visual{width:100%;height:100%;display:grid;place-items:center;border-radius:10px;overflow:hidden}
+.auction-avito-visual .avx-rarity-icon{width:28px;height:28px;border-radius:7px}
+.auction-avito-visual.rarity-common{--rarity-color:#f2f2f2}
+.auction-avito-visual.rarity-rare{--rarity-color:#59a8ff}
+.auction-avito-visual.rarity-epic{--rarity-color:#b45cff}
+.auction-avito-visual.rarity-legendary{--rarity-color:#ffd23c}
+.auction-avito-visual.rarity-mythic{--rarity-color:#ff4b4b}
+.auction-avito-visual.rarity-rare .avx-rarity-icon,.auction-avito-visual.rarity-epic .avx-rarity-icon,.auction-avito-visual.rarity-legendary .avx-rarity-icon,.auction-avito-visual.rarity-mythic .avx-rarity-icon,.auction-avito-visual.rarity-common .avx-rarity-icon{background:var(--rarity-color)!important;border-color:color-mix(in srgb,var(--rarity-color) 70%,#000 30%)!important}
+.auction-business-art{width:100%;height:100%;display:block}
+.auction-asset>button[data-auction-special]{cursor:pointer!important;opacity:1!important;filter:none!important}
+</style>
 <style id="resell-auction-serious-v1">
 .auction-shell{gap:9px!important}.auction-hero{min-height:150px!important;padding:18px!important;background:linear-gradient(145deg,#141714,#090b09)!important;border-color:rgba(255,255,255,.075)!important}.auction-hero-copy{max-width:76%!important}.auction-kicker{color:#68746b!important;letter-spacing:2px!important}.auction-title{font-size:27px!important;letter-spacing:-1px!important}.auction-sub{color:#707a72!important}.auction-hero-cta{margin-top:16px!important;max-width:240px!important}.auction-hero-art{opacity:.62!important}.auction-tabs{background:#090b09;border:1px solid rgba(255,255,255,.045);padding:4px;border-radius:14px}.auction-tab{min-height:36px!important;border:0!important;background:transparent!important}.auction-tab.active{background:#171c17!important;color:#b7ff6a!important}.auction-card{padding:12px!important;background:linear-gradient(145deg,#111411,#090b09)!important}.auction-art{background:#0b0d0b!important;border-color:rgba(255,255,255,.065)!important}.auction-art img{width:100%;height:100%;object-fit:cover;display:block}.auction-meta{align-items:center}.auction-meta>span:not(.auction-rarity){background:rgba(255,255,255,.025)!important}.auction-rarity{display:inline-flex!important;align-items:center;gap:5px;padding:4px 6px!important;border-radius:7px!important;font:950 5px/1 Montserrat,sans-serif!important;letter-spacing:.45px;color:#aeb7b0!important;background:rgba(255,255,255,.035)!important;border:1px solid rgba(255,255,255,.07)!important}.auction-rarity i{width:7px;height:7px;border-radius:2px;display:block;background:#b9beb9}.auction-rarity.rare{color:#69a8ff!important;border-color:rgba(70,145,255,.28)!important;background:rgba(50,110,210,.09)!important}.auction-rarity.rare i{background:#3f8cff}.auction-rarity.epic{color:#b67cff!important;border-color:rgba(160,90,255,.28)!important;background:rgba(130,65,220,.09)!important}.auction-rarity.epic i{background:#a35cff}.auction-rarity.legendary{color:#ffb44d!important;border-color:rgba(255,170,55,.28)!important;background:rgba(220,120,20,.09)!important}.auction-rarity.legendary i{background:#ff9f2e}.auction-rarity.mythic{color:#ff4f63!important;border-color:rgba(255,55,80,.30)!important;background:rgba(220,35,60,.10)!important}.auction-rarity.mythic i{background:#ff334d}.auction-meta .leading{color:#b7ff6a!important;background:rgba(183,255,106,.055)!important;border-color:rgba(183,255,106,.12)!important}.auction-price-box{background:#0d100e!important}.auction-card-actions{grid-template-columns:1.25fr .75fr!important}.auction-btn{min-height:42px!important}.auction-footer-note{display:none!important}.auction-assets{max-height:52dvh!important}.auction-asset{grid-template-columns:52px 1fr auto!important}.auction-asset-art{width:52px!important;height:52px!important}.auction-asset-art img{width:100%;height:100%;object-fit:cover}.auction-asset-main em{color:#7d887f!important}.auction-hero-compact{min-height:auto!important}.auction-note{display:none!important}@media(max-width:390px){.auction-card-actions{grid-template-columns:1fr!important}.auction-asset{grid-template-columns:46px 1fr auto!important}.auction-asset-art{width:46px!important;height:46px!important}.auction-title{font-size:24px!important}}
+</style>
+
+<style id="auction-real-asset-visual-v1">
+.auction-business-art{width:100%!important;height:100%!important;display:block!important;object-fit:cover!important}
+.auction-avito-card{width:100%!important;height:100%!important;min-height:52px!important;box-sizing:border-box!important;padding:8px!important;border-radius:10px!important;background:#121212!important;border:1px solid rgba(255,255,255,.055)!important;border-left:3px solid var(--rarity-color,#f2f2f2)!important;overflow:hidden!important}
+.auction-avito-card.rarity-common{--rarity-color:#f2f2f2}
+.auction-avito-card.rarity-rare{--rarity-color:#69b7ff;background:linear-gradient(145deg,rgba(105,183,255,.08),#0b0b0b 72%)!important}
+.auction-avito-card.rarity-epic{--rarity-color:#b889ff;background:linear-gradient(145deg,rgba(184,137,255,.08),#0b0b0b 72%)!important}
+.auction-avito-card.rarity-legendary{--rarity-color:#ffd34d;background:linear-gradient(145deg,rgba(255,211,77,.09),#0b0b0b 72%)!important}
+.auction-avito-card.rarity-mythic{--rarity-color:#ff4d5f;background:linear-gradient(145deg,rgba(255,77,95,.11),#0b0b0b 72%)!important}
+.auction-avito-top{height:100%;display:flex;align-items:center;gap:7px;min-width:0}.auction-avito-top .avx-rarity-icon{width:18px!important;height:18px!important;border-radius:5px!important;flex:0 0 18px!important;background:var(--rarity-color)!important;border-color:color-mix(in srgb,var(--rarity-color) 70%,#000 30%)!important}.auction-avito-copy{min-width:0;overflow:hidden}.auction-avito-copy b,.auction-avito-copy span,.auction-avito-copy small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.auction-avito-copy b{font:900 7.5px/1.2 Montserrat,sans-serif;color:#eee}.auction-avito-copy span{margin-top:2px;color:#666;font:800 6.2px/1.2 Nunito,sans-serif}.auction-avito-copy small{margin-top:3px;color:var(--rarity-color);font:900 5.8px/1 Montserrat,sans-serif;letter-spacing:.4px}.auction-avito-special{margin-left:auto;width:24px;height:24px;border-radius:7px;display:grid;place-items:center;background:rgba(183,255,106,.07);border:1px solid rgba(183,255,106,.12);color:#b7ff6a;font:950 7px/1 Montserrat,sans-serif;flex:0 0 24px}
 </style>
