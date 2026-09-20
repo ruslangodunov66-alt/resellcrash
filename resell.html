@@ -6437,6 +6437,29 @@ async function initFarm(){
       modalBody.innerHTML=`<div class="admin-profile admin-profile-player">
         <div class="admin-profile-head"><div class="admin-profile-name">${esc(p.nickname||'Без никнейма')}</div><div class="admin-profile-id">TG ID: ${p.tg_id} · Магазин: ${esc(p.shop_name||'—')}</div><div class="admin-status ${p.is_banned?'banned':''}">${p.is_banned?'ЗАБЛОКИРОВАН':'АКТИВЕН'} · ⚠ ${p.warning_count||0}</div></div>
         <div class="admin-kpi-grid"><div class="admin-kpi"><b>${number(p.balance)} ₽</b><span>Баланс</span></div><div class="admin-kpi"><b>${number(p.total_earned)} ₽</b><span>Заработано</span></div><div class="admin-kpi"><b>${number(p.total_sales)}</b><span>Продаж</span></div><div class="admin-kpi"><b>${number(p.items_sold)}</b><span>Товаров</span></div></div>
+        <div class="admin-section-title">Экономический профиль</div>
+        <div class="admin-economic-grid">
+          <div class="admin-economic-card"><b>~${number(d.economy_detail?.hourly_income||0)} ₽/ч</b><span>Расчётный доход игрока</span></div>
+          <div class="admin-economic-card"><b>~${number(d.economy_detail?.daily_income||0)} ₽/день</b><span>Расчёт за 24 часа</span></div>
+          <div class="admin-economic-card"><b>×${Number(d.economy_detail?.referral_multiplier||1).toFixed(2)}</b><span>Множитель рефералов</span></div>
+          <div class="admin-economic-card"><b>${number(d.economy_detail?.referral_count||0)}</b><span>Активных приглашённых</span></div>
+        </div>
+        <div class="admin-note"><b>Откуда берётся доход</b>${Object.entries(d.economy_detail?.breakdown||{}).map(([k,v])=>`<div style="display:flex;justify-content:space-between;gap:8px;margin-top:4px"><span>${esc(k)}</span><b>+${number(v)} ₽/ч</b></div>`).join('')}<div style="display:flex;justify-content:space-between;gap:8px;margin-top:7px;padding-top:6px;border-top:1px solid rgba(255,255,255,.06)"><span>Без реферального пассива</span><b>~${number(d.economy_detail?.hourly_income_without_referrals||0)} ₽/ч</b></div></div>
+        <div class="admin-section-title">Улучшения</div>
+        <div class="admin-note">Серверное состояние улучшений. Показывается уровень, следующий ценник, пассив с ветки и сколько уже потрачено.</div>
+        <div class="admin-assets-grid">${(d.economy_detail?.upgrades||[]).map(u=>`<div class="admin-asset-group"><div class="admin-asset-head"><span>${esc(u.icon||'')} ${esc(u.name||u.id)}</span><span>LVL ${number(u.level)}/${number(u.max_level)}</span></div><div class="admin-asset-items"><div class="admin-asset-row"><span>Пассив: <b>+${number(u.passive_income)} ₽/ч</b><br>За уровень: +${number(u.income_per_level)} ₽/ч<br>Потрачено: ${number(u.spent)} ₽</span><span style="text-align:right">${u.next_cost==null?'МАКСИМУМ':'След.: '+number(u.next_cost)+' ₽'}</span></div></div></div>`).join('')||'<div class="profile-empty">Улучшений нет.</div>'}</div>
+        <div class="admin-section-title">Денежный поток</div>
+        <div class="admin-economic-grid">
+          <div class="admin-economic-card"><b>+${number(d.economy_detail?.money_flow_1h?.positive||0)} ₽</b><span>Начислено за 1 час</span></div>
+          <div class="admin-economic-card"><b>${number(d.economy_detail?.money_flow_1h?.net||0)} ₽</b><span>Чистый поток за 1 час</span></div>
+          <div class="admin-economic-card"><b>+${number(d.economy_detail?.money_flow_24h?.positive||0)} ₽</b><span>Начислено за 24 часа</span></div>
+          <div class="admin-economic-card"><b>${number(d.economy_detail?.money_flow_24h?.net||0)} ₽</b><span>Чистый поток за 24 часа</span></div>
+        </div>
+        <div class="admin-section-title">Подозрительные начисления</div>
+        <div class="admin-note">Автоматика не блокирует игрока: она только фиксирует аномально большой приток денег и отправляет уведомление администраторам.</div>
+        <div class="admin-log-list">${(d.economy_alerts||[]).map(a=>`<div class="admin-log"><div class="admin-log-top"><b>${esc(a.severity)}</b><span>${new Date(Number(a.created_at||0)*1000).toLocaleString('ru-RU')}</span></div><div class="admin-log-detail">${esc(a.reason||'')} · +${number(a.delta||0)} ₽ · 1ч +${number(a.window_1h||0)} ₽ · 24ч +${number(a.window_24h||0)} ₽</div><div class="admin-log-tech">Источник: ${esc(a.source||'—')}</div></div>`).join('')||'<div class="profile-empty">Аномалий не зафиксировано.</div>'}</div>
+        <div class="admin-section-title">Реферальная сеть</div>
+        <div class="admin-assets-grid">${(d.economy_detail?.referrals||[]).map(r=>`<div class="admin-asset-group"><div class="admin-asset-head"><span>${esc(r.nickname||'Игрок')} · <code>${r.tg_id}</code></span><span>${r.is_banned?'BAN':'ACTIVE'}</span></div><div class="admin-asset-items"><div class="admin-asset-row"><span>Баланс: <b>${number(r.balance)} ₽</b><br>Заработано: ${number(r.total_earned)} ₽</span><span>~${number(r.hourly_income)} ₽/ч</span></div></div></div>`).join('')||'<div class="profile-empty">Рефералов нет.</div>'}</div>
         <div class="admin-section-title">Управление балансом</div>
         <div class="admin-note">Положительное число — начислить. Отрицательное — списать. Списание требует подтверждения и записывается в аудит.</div>
         <div class="admin-action-grid"><input class="admin-input" id="adminAmount" type="number" placeholder="Например: 100000 или -500000"><button class="admin-btn primary" id="adminGiveMoney">ПРИМЕНИТЬ</button></div>
