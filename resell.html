@@ -5832,6 +5832,15 @@ async function initFarm(){
   function groupInventory(inv){ const groups=new Map(); for(const item of (inv||[])){ const key=[item.name||'Товар',item.rarity||'',item.buy_price||0,item.market_price||0,item.value||0,item.price||0,item.item_type||'inventory'].join('|'); if(!groups.has(key)) groups.set(key,{...item,count:0,uids:[]}); const g=groups.get(key); g.count++; if(item.uid) g.uids.push(item.uid); } return [...groups.values()].sort((a,b)=>{ const value=x=>Math.max(Number(x.market_price||0),Number(x.value||0),Number(x.price||0),Number(x.buy_price||0)); const av=value(a),bv=value(b); if(bv!==av)return bv-av; const ab=Number(a.buy_price||0),bb=Number(b.buy_price||0); if(bb!==ab)return bb-ab; return String(a.name||'').localeCompare(String(b.name||''),'ru'); }); }
   function avitoRarity(r){ const v=String(r||'').trim().toLowerCase(); if(v.includes('миф')) return 'mythic'; if(v.includes('легенд')) return 'legendary'; if(v.includes('эпич')) return 'epic'; if(v.includes('редк')) return 'rare'; return 'common'; }
   function avitoRarityLabel(r){ const v=String(r||'').trim().toLowerCase(); if(v.includes('миф')) return 'МИФИЧЕСКИЙ'; if(v.includes('легенд')) return 'ЛЕГЕНДАРНЫЙ'; if(v.includes('эпич')) return 'ЭПИЧЕСКИЙ'; if(v.includes('редк')) return 'РЕДКИЙ'; return 'ОБЫЧНЫЙ'; }
+  // One source of truth for Avito-owned item visuals. Auction reuses these exact nodes/classes.
+  function avitoInventoryVisual(item){
+    const special=item?.item_type==='avito_found' || item?.item_type==='avito_hunt';
+    if(special) return `<div class="avx-special-icon">${esc(item?.hunt_icon||item?.found_icon||'R')}</div>`;
+    avitoRarity(item?.rarity);
+    return `<div class="avx-rarity-icon" aria-hidden="true"></div>`;
+  }
+  // Shared by Auction: this is the exact Avito inventory renderer, not a copy.
+  window.__resellAvitoInventoryVisual=avitoInventoryVisual;
 
   function reviewsStars(avg){const a=Math.max(0,Math.min(5,Number(avg||0)));let out='';for(let i=1;i<=5;i++){const cls=a>=i?'filled':(a>=i-.5?'half':'');out+=`<i class="avx-star ${cls}" aria-hidden="true"></i>`;}return `<span class="avx-review-stars">${out}</span>`;}
   function renderAvitoReviews(){
@@ -5877,7 +5886,7 @@ async function initFarm(){
       content=`<div class="avx-section">
         <div class="avx-section-head"><div><b>Продажи</b><span>Склад — обычные товары и пойманные дорогие лоты.</span></div><span class="avx-count">${inv.length}</span></div>
         ${pub?`<div class="avx-active"><div><small>АКТИВНОЕ ОБЪЯВЛЕНИЕ</small><b>${esc(pub.item?.name||'Товар')}</b><span>${number(pub.item?.market_price||0)} ₽ · качество ${number(pub.quality||0)}/10</span></div><button class="avx-btn ghost" id="avitoUnpublishBtn">СНЯТЬ</button></div>`:''}
-        ${special.length?`<div class="avx-special-list">${special.map(x=>`<div class="avx-special-item"><div class="avx-special-top"><div class="avx-special-icon">${esc(x.hunt_icon||'R')}</div><div class="avx-special-copy"><b>${esc(x.name||'Особый лот')}</b><span>${esc(x.cat||'Особый лот')} · пойманный</span></div><div class="avx-special-price">${number(x.market_price||0)} ₽</div></div><div class="avx-special-bottom"><span class="avx-special-tag">${avitoRarityLabel(x.rarity)} · HIGH VALUE</span><button class="avx-btn buy" data-avito-publish="${esc(x.uid||'')}" ${pub||!x.uid?'disabled':''}>${pub?'ЗАВЕРШИ СДЕЛКУ':'ВЫСТАВИТЬ'}</button></div></div>`).join('')}</div>`:''}
+        ${special.length?`<div class="avx-special-list">${special.map(x=>`<div class="avx-special-item"><div class="avx-special-top">${avitoInventoryVisual(x)}<div class="avx-special-copy"><b>${esc(x.name||'Особый лот')}</b><span>${esc(x.cat||'Особый лот')} · пойманный</span></div><div class="avx-special-price">${number(x.market_price||0)} ₽</div></div><div class="avx-special-bottom"><span class="avx-special-tag">${avitoRarityLabel(x.rarity)} · HIGH VALUE</span><button class="avx-btn buy" data-avito-publish="${esc(x.uid||'')}" ${pub||!x.uid?'disabled':''}>${pub?'ЗАВЕРШИ СДЕЛКУ':'ВЫСТАВИТЬ'}</button></div></div>`).join('')}</div>`:''}
         <div class="avx-stock">${(()=>{const regularGrouped=grouped.filter(x=>x.item_type!=='avito_found' && x.item_type!=='avito_hunt'); return regularGrouped.length?regularGrouped.map(x=>{const rc=avitoRarity(x.rarity);return `<div class="avx-stock-row rarity-${rc}" data-rarity="${rc}"><div class="avx-stock-left"><div class="avx-rarity-icon" aria-hidden="true"></div><div><b>${esc(x.name||'Товар')} ${x.count>1?`×${x.count}`:''}</b><span>Закуп · рынок ${number(x.market_price||0)} ₽</span><small class="avx-rarity-name">${avitoRarityLabel(x.rarity)}</small></div></div><button class="avx-btn buy" data-avito-publish="${esc(x.uids[0]||'')}" ${pub||!x.uids.length?'disabled':''}>${pub?'ЗАВЕРШИ СДЕЛКУ':'ВЫСТАВИТЬ'}</button></div>`}).join(''):'<div class="avx-empty">Склад пуст. Перейди в «Закуп» — ценные находки появляются прямо среди обычных лотов.</div>'})()}</div>
       </div>`;
     } else if(avitoTab==='demand'){
@@ -12035,7 +12044,6 @@ main.app{
   const fmtTime=s=>{s=Math.max(0,Math.floor(Number(s)||0));const d=Math.floor(s/86400),h=Math.floor((s%86400)/3600),m=Math.floor((s%3600)/60),sec=s%60;return d?`${d}д ${h}ч`:h?`${h}ч ${String(m).padStart(2,'0')}м`:`${m}:${String(sec).padStart(2,'0')}`};
   let lots=[], sellables=null, filter='all', sellFilter='cars', tick=0;
   const typeName=t=>t==='car'?'АВТОМОБИЛЬ':t==='business'?'БИЗНЕС':'ПРЕДМЕТ';
-  const icon=(t,name,id,cat)=>window.__resellVectorSvg?.(id,name,t,cat)||'';
   const media=(src)=>{const v=String(src||'').trim();if(!v)return '';if(/^https?:\/\//i.test(v)||v.startsWith('data:'))return v;return `https://resellgame.bothost.tech/tycoon/media/${encodeURIComponent(v)}`;};
   const assetThumb=(type,it)=>{
     const custom=type==='car' && window.RESSELL_CUSTOM_CAR_IMAGES?.[it?.car_id||it?.id];
@@ -12043,24 +12051,10 @@ main.app{
     if(src) return `<img src="${esc(media(src))}" loading="eager" decoding="async" referrerpolicy="no-referrer" alt="" onerror="this.style.display='none';this.parentElement.classList.add('media-failed')">`;
     return '';
   };
-  function avitoRarityLocal(r){ const v=String(r||'').trim().toLowerCase(); if(v.includes('миф')) return 'mythic'; if(v.includes('легенд')) return 'legendary'; if(v.includes('эпич')) return 'epic'; if(v.includes('редк')) return 'rare'; return 'common'; }
-  function avitoItemVisual(it){
-    const n=String((it?.name||'')+' '+(it?.cat||'')+' '+(it?.found_id||'')).toLowerCase();
-    const rarity=avitoRarityLocal(it?.rarity);
-    const color={common:'#f2f2f2',rare:'#59a8ff',epic:'#b45cff',legendary:'#ffd23c',mythic:'#ff4b4b'}[rarity]||'#b7ff6a';
-    let mark='';
-    if(n.includes('iphone')||n.includes('айфон')) mark='<span class="auction-brand apple" aria-hidden="true"></span>';
-    else if(n.includes('samsung')||n.includes('самсунг')||n.includes('galaxy')) mark='<span class="auction-brand samsung" aria-hidden="true">S</span>';
-    else if(n.includes('macbook')||n.includes('mac ' )||n.includes('макбук')) mark='<span class="auction-brand mac" aria-hidden="true">M</span>';
-    else if(n.includes('худи')||n.includes('hoodie')||n.includes('adidas')) mark='<span class="auction-brand hoodie" aria-hidden="true">H</span>';
-    else if(it?.found_icon) mark=`<span class="auction-brand generic" aria-hidden="true">${esc(it.found_icon)}</span>`;
-    else mark='<span class="auction-brand generic" aria-hidden="true">R</span>';
-    return `<div class="auction-inventory-visual rarity-${rarity}" style="--auction-rarity:${color}">${mark}<i></i></div>`;
-  }
   function auctionVisual(type,it){
     if(type==='car') return assetThumb(type,it) || '<div class="auction-media-placeholder">AUTO</div>';
     if(type==='business') return '<div class="auction-business-visual"><span>R</span><small>BUSINESS</small></div>';
-    return avitoItemVisual(it);
+    return window.__resellAvitoInventoryVisual ? window.__resellAvitoInventoryVisual(it) : '<div class="avx-rarity-icon" aria-hidden="true"></div>';
   }
   const hammerSvg=()=>`<svg viewBox="0 0 120 120" aria-hidden="true"><defs><linearGradient id="ahg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f5f8f4"/><stop offset="1" stop-color="#9ca79f"/></linearGradient></defs><circle cx="60" cy="60" r="48" fill="rgba(183,255,106,.055)" stroke="rgba(183,255,106,.18)"/><g transform="rotate(-35 60 60)"><rect x="55" y="34" width="10" height="58" rx="5" fill="#b7ff6a"/><path d="M31 24h58c5 0 8 4 8 9v10c0 5-3 9-8 9H31c-5 0-8-4-8-9V33c0-5 3-9 8-9Z" fill="url(#ahg)" stroke="#dce4dd" stroke-width="1.5"/></g></svg>`;
   const minBid=l=>Number(l.bidder_id)?Math.max(Number(l.current_bid||0)+1,Math.ceil(Number(l.current_bid||0)*1.05)):Number(l.start_price||0);
@@ -12096,7 +12090,7 @@ main.app{
       const name=x.name||'Актив'; const floor=Number(x.floor_price||0); const extra=sellFilter==='cars'?`Стоимость ${money(x.price)} · ${x.in_taxopark?'НА ЛИНИИ — СНЯТЬ':'в гараже'}`:sellFilter==='businesses'?`Стоимость ${money(x.price)} · обслуживание ${Number(x.maintenance_debt||0)>0?'есть долг':'оплачено'}`:`Рынок ${money(x.market_price)} · ${x.cat||'предмет'}`;
       const disabled=(sellFilter==='cars'&&x.in_taxopark)||(sellFilter==='businesses'&&Number(x.maintenance_debt||0)>0);
       const ref=sellFilter==='cars'?`data-sell-instance="${Number(x.instance_index)}" data-sell-id="${esc(x.id)}"`:sellFilter==='businesses'?`data-sell-instance="${Number(x.instance_id)}" data-sell-id="${esc(x.id)}"`:`data-sell-uid="${esc(x.uid)}"`;
-      return `<div class="auction-asset"><div class="auction-asset-art">${assetThumb(sellFilter==='cars'?'car':sellFilter==='businesses'?'business':'inventory',x)}</div><div class="auction-asset-main"><b>${esc(name)}</b><span>${esc(extra)}</span><em>МИНИМУМ ${money(floor)} · 60%</em></div><button ${ref} data-auction-choose="${sellFilter}" ${disabled?'disabled':''}>${disabled?(sellFilter==='cars'?'СНЯТЬ С ЛИНИИ':'ОПЛАТИТЬ'):'ВЫСТАВИТЬ'}</button></div>`;
+      return `<div class="auction-asset"><div class="auction-asset-art">${sellFilter==='cars'?assetThumb('car',x):sellFilter==='businesses'?'<div class="auction-business-visual"><span>R</span><small>BUSINESS</small></div>':(window.__resellAvitoInventoryVisual ? window.__resellAvitoInventoryVisual(x) : '<div class="avx-rarity-icon" aria-hidden="true"></div>')}</div><div class="auction-asset-main"><b>${esc(name)}</b><span>${esc(extra)}</span><em>МИНИМУМ ${money(floor)} · 60%</em></div><button ${ref} data-auction-choose="${sellFilter}" ${disabled?'disabled':''}>${disabled?(sellFilter==='cars'?'СНЯТЬ С ЛИНИИ':'ОПЛАТИТЬ'):'ВЫСТАВИТЬ'}</button></div>`;
     }).join('');
     return `<div class="auction-assets">${rows||'<div class="auction-empty"><b>АКТИВОВ НЕТ</b><span>В этой категории пока нечего выставлять.</span></div>'}</div>`;
   }
@@ -12152,21 +12146,4 @@ main.app{
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
 })();
 </script>
-<style id="auction-inventory-visual-fix-v4">
-.auction-art{position:relative!important;min-height:58px!important;flex:0 0 58px!important}
-.auction-art>img{width:100%!important;height:100%!important;object-fit:contain!important}
-.auction-art .auction-inventory-visual,.auction-art .auction-business-visual{width:52px;height:52px;border-radius:15px;position:relative;display:grid;place-items:center;overflow:hidden;background:radial-gradient(circle at 50% 15%,color-mix(in srgb,var(--auction-rarity,#b7ff6a) 16%,transparent),transparent 58%),linear-gradient(145deg,#171a18,#090b09);border:1px solid color-mix(in srgb,var(--auction-rarity,#b7ff6a) 38%,rgba(255,255,255,.08));box-shadow:0 8px 22px rgba(0,0,0,.28),0 0 18px color-mix(in srgb,var(--auction-rarity,#b7ff6a) 10%,transparent)}
-.auction-inventory-visual .auction-brand{position:relative;z-index:2;display:grid;place-items:center;width:32px;height:32px;border-radius:10px;color:#f4f6f3;font-family:Arial,sans-serif;font-weight:900;font-size:21px;line-height:1;background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.08);text-shadow:0 1px 10px rgba(0,0,0,.5)}
-.auction-inventory-visual .auction-brand.apple{font-family:Arial,sans-serif;font-size:23px}
-.auction-inventory-visual .auction-brand.samsung{color:#eaf0eb;font-size:22px;font-style:italic}
-.auction-inventory-visual .auction-brand.mac{color:#dfe7e0;font-size:19px}
-.auction-inventory-visual .auction-brand.hoodie{font-size:18px}
-.auction-inventory-visual .auction-brand.generic{color:var(--auction-rarity,#b7ff6a);font-size:17px}
-.auction-inventory-visual>i{position:absolute;right:6px;bottom:6px;width:6px;height:6px;border-radius:50%;background:var(--auction-rarity,#b7ff6a);box-shadow:0 0 10px color-mix(in srgb,var(--auction-rarity,#b7ff6a) 70%,transparent)}
-.auction-business-visual span{font:950 18px/1 Montserrat,sans-serif;color:#b7ff6a}
-.auction-business-visual small{position:absolute;bottom:5px;color:#68736b;font:900 4.5px/1 Montserrat,sans-serif;letter-spacing:.8px}
-.auction-media-placeholder{display:grid;place-items:center;width:52px;height:52px;border-radius:15px;background:#101310;border:1px solid rgba(183,255,106,.14);color:#758176;font:950 6px/1 Montserrat,sans-serif;letter-spacing:1px}
-.auction-art.media-failed{background:#090b09!important}
-.auction-art.media-failed:after{content:'AUTO';position:absolute;color:#6f796f;font:950 6px/1 Montserrat,sans-serif;letter-spacing:1px}
-@media(max-width:430px){.auction-art{flex-basis:52px!important;min-height:52px!important}.auction-art .auction-inventory-visual,.auction-art .auction-business-visual,.auction-media-placeholder{width:48px;height:48px}.auction-inventory-visual .auction-brand{width:29px;height:29px}}
-</style>
+
