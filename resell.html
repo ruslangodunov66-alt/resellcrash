@@ -5889,6 +5889,11 @@ async function initFarm(){
     const pub=d.published;
     const sales=Number(d.reputation?.total_sales||0);
     const profit=Number(d.reputation?.total_profit||0);
+    const supplierRefresh=d.supplier_refresh||{};
+    const refreshAttemptsLeft=Math.max(0,Number(supplierRefresh.attempts_left ?? supplierRefresh.max_attempts ?? 5));
+    const refreshResetRemaining=Math.max(0,Number(supplierRefresh.reset_remaining ?? supplierRefresh.remaining ?? 0));
+    const refreshAvailable=refreshAttemptsLeft>0 && supplierRefresh.available!==false;
+    const refreshLabel=refreshAvailable?`ОБНОВИТЬ · ${refreshAttemptsLeft}`:`ОБНОВИТЬ · ${Math.floor(refreshResetRemaining/60)}:${String(refreshResetRemaining%60).padStart(2,'0')}`;
     const shopName=String(d.shop_name||'Без названия');
     const rating=String(d.reputation?.rating||'⭐ Новый продавец');
     const reviews=d.reviews||{};
@@ -5899,7 +5904,7 @@ async function initFarm(){
     let content='';
     if(avitoTab==='buy'){
       content=`<div class="avx-section">
-        <div class="avx-section-head"><div><b>Закуп товара</b><span>Классический рынок поставщиков.</span></div><span class="avx-count">${suppliers.length}</span></div><div class="avx-supplier-toolbar"><div class="avx-supplier-toolbar-copy"><b>ПОСТАВКА RESSELL</b><span>Редкие лоты появляются прямо среди обычных товаров.</span></div><button type="button" class="avx-refresh-stock" data-avito-refresh>ОБНОВИТЬ</button></div>
+        <div class="avx-section-head"><div><b>Закуп товара</b><span>Классический рынок поставщиков.</span></div><span class="avx-count">${suppliers.length}</span></div><div class="avx-supplier-toolbar"><div class="avx-supplier-toolbar-copy"><b>ПОСТАВКА RESSELL</b><span>Редкие лоты появляются прямо среди обычных товаров.</span></div><button type="button" class="avx-refresh-stock" data-avito-refresh ${refreshAvailable?'':'disabled'}>${refreshLabel}</button></div>
         <label class="avx-auto-stock-toggle"><span><b>АВТОПЕРЕХОД В СКЛАД</b><small>После покупки открыть «Продажи»</small></span><input type="checkbox" id="avitoAutoInventoryToggle" ${getAvitoAutoInventory()?'checked':''}><i></i></label>
         <div class="avx-grid">${suppliers.slice(0,20).map(x=>{const rc=avitoRarity(x.rarity);const found=x.item_type==='avito_found';const buy=Number(x.buy_price||0);const market=Number(x.market_price||0);const margin=Math.max(0,market-buy);return `<div class="avx-product rarity-${rc} ${found?'avx-found-product':''}" data-rarity="${rc}"><div class="avx-product-top"><div class="avx-rarity-icon" aria-hidden="true"></div><div class="avx-product-info"><b>${esc(x.name||'Товар')}</b><span>${esc(x.cat||'Категория')}${found?' · редкий лот в поставке':' · спрос ×'+Number(x.demand||1).toFixed(2)}</span><small class="avx-rarity-name">${avitoRarityLabel(x.rarity)}${found?' · ПОВЕЗЛО В ПОСТАВКЕ':''}</small></div></div><div class="avx-product-bottom"><strong>${number(buy)} ₽</strong><button class="avx-btn buy" data-avito-buy="${esc(x.id)}">КУПИТЬ · ${number(buy)} ₽</button></div>${found?`<div class="avx-found-profit">рынок ~ ${number(market)} ₽ · запас перепродажи +${number(margin)} ₽</div>`:''}</div>`}).join('')||'<div class="avx-empty">Поставщики временно недоступны.</div>'}</div>
       </div>`;
@@ -5963,7 +5968,19 @@ async function initFarm(){
     const unlockClose=e.target.closest('[data-avito-unlock-close]'); if(unlockClose){e.target.closest('[data-avito-unlock-overlay]')?.remove();return;}
     const reviewOpen=e.target.closest('[data-avito-reviews]'); if(reviewOpen){avitoEditing=true;openModal('Отзывы магазина',renderAvitoReviews());return;}
     const reviewClose=e.target.closest('[data-avito-review-close]'); if(reviewClose){avitoEditing=false;modalBody.innerHTML=renderAvito();return;}
-    const refresh=e.target.closest('[data-avito-refresh]'); if(refresh){refresh.disabled=true;try{avitoState=await tycoonFetch(`/avito/${encodeURIComponent(userId)}?force_refresh=1`);modalBody.innerHTML=renderAvito();showAvitoUnlockPopup();showToast('Поставка обновлена');}catch(err){showToast(err.message||'Не удалось обновить поставку');}finally{refresh.disabled=false;}return;}
+    const refresh=e.target.closest('[data-avito-refresh]'); if(refresh){
+      if(refresh.disabled) return;
+      refresh.disabled=true;
+      try{
+        const next=await tycoonFetch(`/avito/${encodeURIComponent(userId)}?force_refresh=1`);
+        avitoState=next;
+        modalBody.innerHTML=renderAvito();
+        if(next?.supplier_refresh?.blocked){ showToast(next.supplier_refresh.message||'Обновление пока недоступно'); }
+        else { showAvitoUnlockPopup(); showToast('Поставка обновлена'); }
+      }catch(err){showToast(err.message||'Не удалось обновить поставку');}
+      finally{const btn=document.querySelector('[data-avito-refresh]');if(btn){const left=Number(avitoState?.supplier_refresh?.attempts_left ?? 0);btn.disabled=left<=0;}}
+      return;
+    }
     const tab=e.target.closest('[data-avito-tab]'); if(tab){avitoTab=tab.dataset.avitoTab;try{await fetchAvito();modalBody.innerHTML=renderAvito();showAvitoUnlockPopup()}catch(err){showToast(err.message||'Ошибка')}return;}
     const buy=e.target.closest('[data-avito-buy]'); if(buy){buy.disabled=true;try{const p=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/buy`,{method:'POST',body:JSON.stringify({item_id:buy.dataset.avitoBuy})});profileData.balance=p.balance??profileData.balance;setBalance(profileData.balance);showToast(p.message||'Товар закуплен');avitoTab=getAvitoAutoInventory()?'sales':'buy';await fetchAvito();modalBody.innerHTML=renderAvito();showAvitoUnlockPopup()}catch(err){showToast(err.message||'Не удалось купить товар');buy.disabled=false}return;}
     const pub=e.target.closest('[data-avito-publish]'); if(pub){avitoEditing=true;openModal('Выставить товар',`<div class="avito-shell"><div class="avito-item"><div class="avito-item-name">Выставить товар</div><div class="avito-item-meta">Напиши коротко о состоянии товара и комплекте.</div><textarea class="avito-input" id="avitoDescription" maxlength="1000" rows="5" placeholder="Например: отличное состояние, полный комплект, использовался мало…"></textarea><button class="avito-btn primary" id="avitoPublishConfirm" data-item-uid="${esc(pub.dataset.avitoPublish)}" style="margin-top:8px;width:100%">ОПУБЛИКОВАТЬ</button></div></div>`);return;}
