@@ -12040,8 +12040,27 @@ main.app{
   const assetThumb=(type,it)=>{
     const custom=type==='car' && window.RESSELL_CUSTOM_CAR_IMAGES?.[it?.car_id||it?.id];
     const src=it?.image_url || it?.media_url || it?.thumbnail_url || custom || '';
-    return src ? `<img src="${esc(media(src))}" loading="lazy" decoding="async" alt="">` : '';
+    if(src) return `<img src="${esc(media(src))}" loading="eager" decoding="async" referrerpolicy="no-referrer" alt="" onerror="this.style.display='none';this.parentElement.classList.add('media-failed')">`;
+    return '';
   };
+  function avitoItemVisual(it){
+    const n=norm((it?.name||'')+' '+(it?.cat||'')+' '+(it?.found_id||''));
+    const rarity=avitoRarity(it?.rarity);
+    const color={common:'#f2f2f2',rare:'#59a8ff',epic:'#b45cff',legendary:'#ffd23c',mythic:'#ff4b4b'}[rarity]||'#b7ff6a';
+    let mark='';
+    if(n.includes('iphone')||n.includes('айфон')) mark='<span class="auction-brand apple" aria-hidden="true"></span>';
+    else if(n.includes('samsung')||n.includes('самсунг')||n.includes('galaxy')) mark='<span class="auction-brand samsung" aria-hidden="true">S</span>';
+    else if(n.includes('macbook')||n.includes('mac ' )||n.includes('макбук')) mark='<span class="auction-brand mac" aria-hidden="true">M</span>';
+    else if(n.includes('худи')||n.includes('hoodie')||n.includes('adidas')) mark='<span class="auction-brand hoodie" aria-hidden="true">H</span>';
+    else if(it?.found_icon) mark=`<span class="auction-brand generic" aria-hidden="true">${esc(it.found_icon)}</span>`;
+    else mark='<span class="auction-brand generic" aria-hidden="true">R</span>';
+    return `<div class="auction-inventory-visual rarity-${rarity}" style="--auction-rarity:${color}">${mark}<i></i></div>`;
+  }
+  function auctionVisual(type,it){
+    if(type==='car') return assetThumb(type,it) || '<div class="auction-media-placeholder">AUTO</div>';
+    if(type==='business') return '<div class="auction-business-visual"><span>R</span><small>BUSINESS</small></div>';
+    return avitoItemVisual(it);
+  }
   const hammerSvg=()=>`<svg viewBox="0 0 120 120" aria-hidden="true"><defs><linearGradient id="ahg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f5f8f4"/><stop offset="1" stop-color="#9ca79f"/></linearGradient></defs><circle cx="60" cy="60" r="48" fill="rgba(183,255,106,.055)" stroke="rgba(183,255,106,.18)"/><g transform="rotate(-35 60 60)"><rect x="55" y="34" width="10" height="58" rx="5" fill="#b7ff6a"/><path d="M31 24h58c5 0 8 4 8 9v10c0 5-3 9-8 9H31c-5 0-8-4-8-9V33c0-5 3-9 8-9Z" fill="url(#ahg)" stroke="#dce4dd" stroke-width="1.5"/></g></svg>`;
   const minBid=l=>Number(l.bidder_id)?Math.max(Number(l.current_bid||0)+1,Math.ceil(Number(l.current_bid||0)*1.05)):Number(l.start_price||0);
   const shell=(body)=>`<div class="auction-shell">${body}</div>`;
@@ -12051,7 +12070,7 @@ main.app{
       const it=l.item||{}; const left=Number(l.seconds_left||0); const mine=!!l.is_mine; const leading=!!l.is_my_bidder;
       const current=Number(l.current_bid||0); const start=Number(l.start_price||0); const min=minBid(l);
       return `<article class="auction-card ${mine?'mine':''}" data-lot-id="${Number(l.lot_id||l.id)}">
-        <div class="auction-card-head"><div class="auction-art ${l.item_type==='inventory'?'device':''}">${assetThumb(l.item_type,it)}</div><div class="auction-copy"><div class="auction-type">${typeName(l.item_type)}${mine?' · ТВОЙ ЛОТ':''}</div><div class="auction-name">${esc(it.name||'Лот')}</div><div class="auction-meta"><span class="rarity">${esc(it.rarity||'RESSELL')}</span><span>${esc(l.seller_name||'Игрок')}</span>${leading?'<span class="rarity">ВЫ ЛИДЕР</span>':''}</div></div><div class="auction-timer ${left<3600?'hot':''}" data-auction-time="${Number(l.lot_id||l.id)}">${fmtTime(left)}</div></div>
+        <div class="auction-card-head"><div class="auction-art ${l.item_type==='inventory'?'device':''}">${auctionVisual(l.item_type,it)}</div><div class="auction-copy"><div class="auction-type">${typeName(l.item_type)}${mine?' · ТВОЙ ЛОТ':''}</div><div class="auction-name">${esc(it.name||'Лот')}</div><div class="auction-meta"><span class="rarity">${esc(it.rarity||'RESSELL')}</span><span>${esc(l.seller_name||'Игрок')}</span>${leading?'<span class="rarity">ВЫ ЛИДЕР</span>':''}</div></div><div class="auction-timer ${left<3600?'hot':''}" data-auction-time="${Number(l.lot_id||l.id)}">${fmtTime(left)}</div></div>
         <div class="auction-price-row"><div class="auction-price-box"><span>ТЕКУЩАЯ СТАВКА</span><b class="${current?'':'muted'}">${current?money(current):'—'}</b></div><div class="auction-price-box current"><span>${current?'СЛЕДУЮЩАЯ СТАВКА':'СТАРТ'}</span><b>${money(min)}</b></div></div>
         <div class="auction-card-actions">${mine?`<button class="auction-btn" disabled>ВАШ ЛОТ</button><button class="auction-btn" disabled>${current?money(current):'БЕЗ СТАВОК'}</button>`:`<button class="auction-btn primary" data-auction-bid="${Number(l.lot_id||l.id)}">СТАВКА · ${money(min)}</button><button class="auction-btn" data-auction-info="${Number(l.lot_id||l.id)}">ДЕТАЛИ</button>`}</div>
       </article>`;
@@ -12132,3 +12151,21 @@ main.app{
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
 })();
 </script>
+<style id="auction-inventory-visual-fix-v4">
+.auction-art{position:relative!important;min-height:58px!important;flex:0 0 58px!important}
+.auction-art>img{width:100%!important;height:100%!important;object-fit:contain!important}
+.auction-art .auction-inventory-visual,.auction-art .auction-business-visual{width:52px;height:52px;border-radius:15px;position:relative;display:grid;place-items:center;overflow:hidden;background:radial-gradient(circle at 50% 15%,color-mix(in srgb,var(--auction-rarity,#b7ff6a) 16%,transparent),transparent 58%),linear-gradient(145deg,#171a18,#090b09);border:1px solid color-mix(in srgb,var(--auction-rarity,#b7ff6a) 38%,rgba(255,255,255,.08));box-shadow:0 8px 22px rgba(0,0,0,.28),0 0 18px color-mix(in srgb,var(--auction-rarity,#b7ff6a) 10%,transparent)}
+.auction-inventory-visual .auction-brand{position:relative;z-index:2;display:grid;place-items:center;width:32px;height:32px;border-radius:10px;color:#f4f6f3;font-family:Arial,sans-serif;font-weight:900;font-size:21px;line-height:1;background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.08);text-shadow:0 1px 10px rgba(0,0,0,.5)}
+.auction-inventory-visual .auction-brand.apple{font-family:Arial,sans-serif;font-size:23px}
+.auction-inventory-visual .auction-brand.samsung{color:#eaf0eb;font-size:22px;font-style:italic}
+.auction-inventory-visual .auction-brand.mac{color:#dfe7e0;font-size:19px}
+.auction-inventory-visual .auction-brand.hoodie{font-size:18px}
+.auction-inventory-visual .auction-brand.generic{color:var(--auction-rarity,#b7ff6a);font-size:17px}
+.auction-inventory-visual>i{position:absolute;right:6px;bottom:6px;width:6px;height:6px;border-radius:50%;background:var(--auction-rarity,#b7ff6a);box-shadow:0 0 10px color-mix(in srgb,var(--auction-rarity,#b7ff6a) 70%,transparent)}
+.auction-business-visual span{font:950 18px/1 Montserrat,sans-serif;color:#b7ff6a}
+.auction-business-visual small{position:absolute;bottom:5px;color:#68736b;font:900 4.5px/1 Montserrat,sans-serif;letter-spacing:.8px}
+.auction-media-placeholder{display:grid;place-items:center;width:52px;height:52px;border-radius:15px;background:#101310;border:1px solid rgba(183,255,106,.14);color:#758176;font:950 6px/1 Montserrat,sans-serif;letter-spacing:1px}
+.auction-art.media-failed{background:#090b09!important}
+.auction-art.media-failed:after{content:'AUTO';position:absolute;color:#6f796f;font:950 6px/1 Montserrat,sans-serif;letter-spacing:1px}
+@media(max-width:430px){.auction-art{flex-basis:52px!important;min-height:52px!important}.auction-art .auction-inventory-visual,.auction-art .auction-business-visual,.auction-media-placeholder{width:48px;height:48px}.auction-inventory-visual .auction-brand{width:29px;height:29px}}
+</style>
