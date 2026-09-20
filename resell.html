@@ -12057,6 +12057,9 @@ main.app{
   const typeName=t=>t==='car'?'АВТОМОБИЛЬ':t==='business'?'БИЗНЕС':'ПРЕДМЕТ';
   const rarityInfo=v=>{const n=String(v||'').toLowerCase().trim();if(n.includes('myth')||n.includes('миф'))return ['МИФИЧЕСКИЙ','mythic'];if(n.includes('legend')||n.includes('легенд'))return ['ЛЕГЕНДАРНЫЙ','legendary'];if(n.includes('epic')||n.includes('эпик'))return ['ЭПИЧЕСКИЙ','epic'];if(n.includes('rare')||n.includes('редк'))return ['РЕДКИЙ','rare'];return ['ОБЫЧНЫЙ','common'];};
   const rarityBadge=v=>{const [label,cls]=rarityInfo(v);return `<span class="auction-rarity ${cls}"><i></i>${label}</span>`;};
+  // Авито живёт в отдельном JS-скоупе, поэтому аукцион не должен обращаться к его локальной функции напрямую.
+  const auctionRarity=v=>{const n=String(v||'').trim().toLowerCase().replace(/ё/g,'е');if(n.includes('myth')||n.includes('миф'))return 'mythic';if(n.includes('legend')||n.includes('легенд'))return 'legendary';if(n.includes('epic')||n.includes('эпич'))return 'epic';if(n.includes('rare')||n.includes('редк'))return 'rare';return 'common';};
+  const auctionRarityLabel=v=>({common:'ОБЫЧНЫЙ',rare:'РЕДКИЙ',epic:'ЭПИЧЕСКИЙ',legendary:'ЛЕГЕНДАРНЫЙ',mythic:'МИФИЧЕСКИЙ'})[auctionRarity(v)]||'ОБЫЧНЫЙ';
   const auctionAvitoVisual=it=>{
     // Аукцион использует тот же самый значок, что и основной Авито.
     // Внешняя карточка уже выводит название/категорию, поэтому здесь
@@ -12126,8 +12129,8 @@ main.app{
       const ref=sellFilter==='cars'?`data-sell-instance="${Number(x.instance_index)}" data-sell-id="${esc(x.id)}"`:sellFilter==='businesses'?`data-sell-instance="${Number(x.instance_id)}" data-sell-id="${esc(x.id)}"`:`data-sell-uid="${esc(x.uid)}" data-sell-index="${Number(x.index)}"`;
       const visual=sellFilter==='cars'?assetThumb('car',x):sellFilter==='businesses'?businessVisual(x.id):auctionAvitoVisual(x);
       const actionLabel=onLine?'СНЯТЬ С ЛИНИИ':debt?'ОПЛАТИТЬ':'ВЫСТАВИТЬ';
-      const rc=sellFilter==='inventory'?avitoRarity(x.rarity):'';
-      const rarityLabel=sellFilter==='inventory'?avitoRarityLabel(x.rarity):'';
+      const rc=sellFilter==='inventory'?auctionRarity(x.rarity):'';
+      const rarityLabel=sellFilter==='inventory'?auctionRarityLabel(x.rarity):'';
       const specialAttr=onLine?'data-auction-special="remove-car"':debt?'data-auction-special="pay-business"':'';
       return `<div class="auction-asset ${onLine?'is-on-line':''} ${debt?'has-debt':''}"><div class="auction-asset-art">${visual}</div><div class="auction-asset-main"><b>${esc(name)}</b><span>${esc(extra)}</span>${rarityLabel?`<small class="auction-asset-rarity rarity-${rc}">${esc(rarityLabel)}</small>`:''}<em>СТАРТ ОТ ${money(floor)}</em></div><div class="auction-asset-action"><button type="button" ${ref} data-auction-choose="${sellFilter}" ${specialAttr}>${actionLabel}</button>${onLine?'<small>После снятия станет доступно выставление</small>':debt?'<small>Сначала оплати обслуживание</small>':'<small>Открыть лот →</small>'}</div></div>`;
     }).join('');
