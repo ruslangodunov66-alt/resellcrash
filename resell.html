@@ -5836,8 +5836,19 @@ async function initFarm(){
     const html=`<div class="avx-unlock-overlay" data-avito-unlock-overlay><div class="avx-unlock-card"><div class="avx-unlock-mark"><span>R</span><i></i></div><small>RESSELL · НОВЫЙ ДОСТУП</small><h3>${Number(u.sales||0)} ПРОДАЖ</h3><p>Тебе открылась новая часть поставки. Теперь среди обычных товаров могут появляться редкие лоты.</p><div class="avx-unlock-items">${names.map((n,i)=>`<div class="avx-unlock-item"><span>${i===0?'01':'02'}</span><b>${esc(n)}</b><em>доступно в закупке</em></div>`).join('')}</div><button class="avx-btn buy" data-avito-unlock-close>СМОТРЕТЬ ПОСТАВКУ</button></div></div>`;
     const root=document.querySelector('.avx-shell'); if(root){root.insertAdjacentHTML('beforeend',html);}
   }
-  async function refreshAvitoUnreadBadge(){ try{ if(userId && !document.hidden){ const d=await tycoonFetch(`/avito/${encodeURIComponent(userId)}`); const u=Number(d?.unread_count||0); const b=document.getElementById("avitoEntryUnread"); if(b){b.textContent=u;b.style.display=u>0?"inline-grid":"none";} } }catch(_){} }
-  setInterval(refreshAvitoUnreadBadge,10000);
+  // Do not poll the full /avito endpoint while the marketplace is closed.
+  // /avito performs DB work, supplier generation and economic calculations;
+  // polling it every 10s for a tiny unread badge creates needless load.
+  async function refreshAvitoUnreadBadge(){
+    try{
+      if(!userId || document.hidden || !modal.classList.contains('open') || !document.querySelector('.avito-shell')) return;
+      const d=await tycoonFetch(`/avito/${encodeURIComponent(userId)}`);
+      const u=Number(d?.unread_count||0);
+      const b=document.getElementById("avitoEntryUnread");
+      if(b){b.textContent=u;b.style.display=u>0?"inline-grid":"none";}
+    }catch(_){}
+  }
+  setInterval(refreshAvitoUnreadBadge,15000);
   function groupInventory(inv){ const groups=new Map(); for(const item of (inv||[])){ const key=[item.name||'Товар',item.rarity||'',item.buy_price||0,item.market_price||0,item.value||0,item.price||0,item.item_type||'inventory'].join('|'); if(!groups.has(key)) groups.set(key,{...item,count:0,uids:[]}); const g=groups.get(key); g.count++; if(item.uid) g.uids.push(item.uid); } return [...groups.values()].sort((a,b)=>{ const value=x=>Math.max(Number(x.market_price||0),Number(x.value||0),Number(x.price||0),Number(x.buy_price||0)); const av=value(a),bv=value(b); if(bv!==av)return bv-av; const ab=Number(a.buy_price||0),bb=Number(b.buy_price||0); if(bb!==ab)return bb-ab; return String(a.name||'').localeCompare(String(b.name||''),'ru'); }); }
   function avitoRarity(r){ const v=String(r||'').trim().toLowerCase(); if(v.includes('миф')) return 'mythic'; if(v.includes('легенд')) return 'legendary'; if(v.includes('эпич')) return 'epic'; if(v.includes('редк')) return 'rare'; return 'common'; }
   function avitoRarityLabel(r){ const v=String(r||'').trim().toLowerCase(); if(v.includes('миф')) return 'МИФИЧЕСКИЙ'; if(v.includes('легенд')) return 'ЛЕГЕНДАРНЫЙ'; if(v.includes('эпич')) return 'ЭПИЧЕСКИЙ'; if(v.includes('редк')) return 'РЕДКИЙ'; return 'ОБЫЧНЫЙ'; }
