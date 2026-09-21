@@ -3211,7 +3211,8 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
       document.querySelector('.sheet')?.classList.remove('registration-sheet-v5');
       profileData=await loadProfile();
       await attachIncomingReferral();
-      referralData=await fetchReferralData();updateReferralCard();maybeShowIntro();
+      referralData=await fetchReferralData();updateReferralCard();
+      try{ await startResellTutorial({force:true}); }catch(_){ }
       if(payload?.referral?.activated){
         const reward=Number(payload.referral.invitee_reward||250000);
         showToast(`🎁 +${number(reward)} ₽ за приглашение`);
@@ -9539,6 +9540,157 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 .avx-drop-progress em{color:#78837a;font:800 6.5px/1.25 Nunito,sans-serif;font-style:normal}
 @media(max-width:390px){.avx-drop-progress{padding:7px 8px}.avx-drop-progress strong{font-size:8.5px}}
 </style>
+
+<!-- RESSELL · NEW PLAYER ONBOARDING -->
+<style id="resell-new-player-tutorial-v1">
+  #resellTutorialOverlay{position:fixed;inset:0;z-index:2147483646;display:none;pointer-events:none;font-family:"Nunito",system-ui,sans-serif}
+  #resellTutorialOverlay.open{display:block}
+  #resellTutorialOverlay .rt-backdrop{position:absolute;inset:0;background:rgba(2,4,3,.64);backdrop-filter:blur(7px) saturate(.82);-webkit-backdrop-filter:blur(7px) saturate(.82);pointer-events:auto}
+  #resellTutorialOverlay .rt-spot{position:fixed;left:0;top:0;width:1px;height:1px;border-radius:18px;border:1.5px solid rgba(183,255,106,.95);box-shadow:0 0 0 9999px rgba(2,4,3,.68),0 0 0 5px rgba(183,255,106,.10),0 0 30px rgba(183,255,106,.20);transition:all .28s cubic-bezier(.2,.8,.2,1);pointer-events:none}
+  #resellTutorialOverlay .rt-card{position:absolute;left:14px;right:14px;bottom:max(14px,env(safe-area-inset-bottom));margin:auto;width:min(470px,calc(100% - 28px));box-sizing:border-box;padding:16px 16px 14px;border-radius:23px;border:1px solid rgba(183,255,106,.17);background:linear-gradient(150deg,rgba(18,24,19,.97),rgba(7,10,8,.97));box-shadow:0 24px 80px rgba(0,0,0,.58),inset 0 1px 0 rgba(255,255,255,.045);pointer-events:auto}
+  #resellTutorialOverlay .rt-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  #resellTutorialOverlay .rt-kicker{color:#7d8b80;font:950 7px/1 "Montserrat",sans-serif;letter-spacing:1.5px}
+  #resellTutorialOverlay .rt-step{color:#b7ff6a;font:950 7px/1 "Montserrat",sans-serif;letter-spacing:1px}
+  #resellTutorialOverlay .rt-title{margin-top:7px;color:#f2f6f2;font:950 20px/1.02 "Montserrat",sans-serif;letter-spacing:-.5px}
+  #resellTutorialOverlay .rt-text{margin-top:8px;color:#849087;font:800 10px/1.45 "Nunito",sans-serif;max-width:48ch}
+  #resellTutorialOverlay .rt-progress{height:3px;margin-top:13px;border-radius:99px;background:rgba(255,255,255,.06);overflow:hidden}
+  #resellTutorialOverlay .rt-progress i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#fff,#b7ff6a);transition:width .25s ease}
+  #resellTutorialOverlay .rt-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:13px}
+  #resellTutorialOverlay button{min-height:46px;border-radius:14px;font:950 8px/1 "Montserrat",sans-serif;letter-spacing:.8px;cursor:pointer}
+  #resellTutorialOverlay .rt-next{border:1px solid #b7ff6a;background:#b7ff6a;color:#061006;box-shadow:0 12px 30px rgba(183,255,106,.12)}
+  #resellTutorialOverlay .rt-open{grid-column:1/-1;border:1px solid #b7ff6a;background:linear-gradient(135deg,#d9ffb5,#9be75a);color:#061006;min-height:50px}
+  #resellTutorialOverlay .rt-back{border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.035);color:#9ca69e}
+  #resellTutorialOverlay .rt-finish{grid-column:1/-1;border:1px solid #b7ff6a;background:#b7ff6a;color:#061006;min-height:52px}
+  #resellTutorialOverlay .rt-repeat{border:1px solid rgba(255,255,255,.11);background:rgba(255,255,255,.045);color:#d4dad5}
+  #resellTutorialOverlay .rt-skip{display:block;width:100%;min-height:32px;margin-top:7px;border:0;background:transparent;color:#59645c;font-size:6.5px}
+  @media(max-width:390px){#resellTutorialOverlay .rt-card{padding:14px;border-radius:21px}.rt-title{font-size:18px!important}.rt-text{font-size:9px!important}.rt-actions{margin-top:11px!important}.rt-actions button{min-height:44px!important}}
+</style>
+<script id="resell-new-player-tutorial-v1-js">
+(function(){
+  'use strict';
+  let rt=null, rtIndex=0, rtBusy=false, rtTargetTimer=null;
+  const KEY='resell_new_player_tutorial_v1_';
+  const q=s=>document.querySelector(s);
+  const uid=()=>String((typeof userId!=='undefined'&&userId)||window.telegramUserId||window.userId||'').trim();
+  const moneyPage=()=>q('#resellHomeMoney');
+  const morePage=()=>q('#resellHomeMore');
+  const homeNav=()=>q('#resellHomeNav [data-home-tab="money"]');
+  const moreNav=()=>q('#resellHomeNav [data-home-tab="more"]');
+  const wait=ms=>new Promise(r=>setTimeout(r,ms));
+  function doneKey(){return KEY+(uid()||'guest');}
+  function completed(){try{return localStorage.getItem(doneKey())==='1'}catch(_){return false}}
+  function markDone(){try{localStorage.setItem(doneKey(),'1')}catch(_){} }
+
+  function ensure(){
+    if(rt)return rt;
+    rt=document.createElement('div');rt.id='resellTutorialOverlay';rt.innerHTML=`<div class="rt-backdrop"></div><div class="rt-spot"></div><div class="rt-card"><div class="rt-top"><span class="rt-kicker">RESSELL · ОБУЧЕНИЕ</span><span class="rt-step" id="rtStep"></span></div><div class="rt-title" id="rtTitle"></div><div class="rt-text" id="rtText"></div><div class="rt-progress"><i id="rtProgress"></i></div><div class="rt-actions" id="rtActions"></div></div>`;
+    document.body.appendChild(rt);
+    rt.querySelector('.rt-backdrop').addEventListener('click',e=>e.stopPropagation());
+    return rt;
+  }
+
+  const steps=[
+    {target:'#resellHomeMoney .balance',title:'Твой баланс',text:'Здесь отображается весь доступный капитал. Это отправная точка твоего развития в RESSELL.',button:'ДАЛЕЕ'},
+    {target:'#resellHomeMoney #avitoBtn',title:'Avito',text:'Здесь начинается торговый цикл: находишь товар, закупаешь его и превращаешь в капитал через продажу.',button:'ОТКРЫТЬ AVITO',action:'openAvito'},
+    {target:'.avx-tabs [data-avito-tab="buy"]',title:'Закуп товара',text:'На вкладке «Закуп» появляются предложения поставщиков. Смотри цену и потенциальную ценность товара, затем покупай подходящий лот.',button:'ДАЛЕЕ',action:'avitoBuy'},
+    {target:'.avx-product',title:'Что покупать',text:'Каждая карточка показывает товар, категорию, редкость и цену. Редкие находки появляются случайно — рынок постоянно меняется.',button:'ДАЛЕЕ',action:'avitoBuy'},
+    {target:'.avx-tabs [data-avito-tab="sales"]',title:'Продажи',text:'После покупки товар попадает на склад. В «Продажах» его можно выставить, а затем пройти короткий диалог с покупателем и выбрать цену.',button:'ДАЛЕЕ',action:'avitoSales'},
+    {target:'#mainAssetsSection',title:'Активы',text:'Теперь — твоя база капитала. Здесь находятся основные направления, которые расширяют экономику твоей империи.',button:'ДАЛЕЕ',action:'closeAvito'},
+    {target:'#mainAssetsSection [data-main-tycoon="bank"]',title:'Банк',text:'Банк — управление капиталом: депозиты и финансовые операции.',button:'ДАЛЕЕ'},
+    {target:'#mainAssetsSection [data-main-tycoon="mining"]',title:'Майнинг',text:'Майнинг — источник пассивного дохода. Развиваешь мощность и получаешь регулярное начисление.',button:'ДАЛЕЕ'},
+    {target:'#mainAssetsSection [data-main-tycoon="property"]',title:'Недвижимость',text:'Недвижимость — долгосрочный актив. Улучшай уровень собственности и увеличивай ценность портфеля.',button:'ДАЛЕЕ'},
+    {target:'#mainAssetsSection [data-main-tycoon="cars"]',title:'Автопарк',text:'Автомобили — активы, которые можно покупать, обслуживать, развивать и использовать в экономике RESSELL.',button:'ДАЛЕЕ'},
+    {target:'#mainAssetsSection [data-main-tycoon="taxi"]',title:'Таксопарк',text:'Таксопарк превращает автомобили в работающий парк с доходом. Следи за состоянием машин и обслуживанием.',button:'ДАЛЕЕ'},
+    {target:'#resellHomeMoney #resellCustomBtn',title:'RESSELL CUSTOM',text:'Отдельная коллекционная зона: редкие кастомные автомобили, тюнинг и собственная коллекция.',button:'ДАЛЕЕ'},
+    {target:'#resellHomeMoney .roadmap',title:'Эры',text:'Эры показывают долгосрочный путь развития. Собирай TP, проходи этапы и открывай следующий уровень мира RESSELL.',button:'ДАЛЕЕ'},
+    {target:'#resellHomeMore .games',title:'Игровой центр',text:'На второй странице находятся игры и дополнительные способы проводить время внутри экосистемы RESSELL. У каждой игры свой отдельный цикл и правила.',button:'ДАЛЕЕ',action:'openMore'},
+    {target:'#resellHomeMore .games .game-card',title:'Игры',text:'Выбирай игру и заходи внутрь. Здесь собраны игровые механики RESSELL — от быстрых сессий до более глубоких режимов.',button:'ДАЛЕЕ'},
+    {target:'#resellHomeMore .actions',title:'Активность',text:'Здесь находятся социальные и системные функции: друзья, события, управление и другие возможности вокруг твоего прогресса.',button:'ДАЛЕЕ'},
+    {target:'#resellHomeMore .resell-daily-secondary',title:'Ежедневная активность',text:'Возвращайся каждый день, чтобы следить за активностью и забирать доступные ежедневные награды.',button:'ДАЛЕЕ'},
+    {target:null,title:'Ты готов',text:'Теперь ты знаешь, где находится капитал, как работает торговый цикл, где развивать активы и где искать игры и дополнительные возможности.',button:'ЗАВЕРШИТЬ',final:true}
+  ];
+
+  async function switchPage(mode){
+    const b=mode==='more'?moreNav():homeNav();
+    if(b){b.click();await wait(280)}
+  }
+
+  async function actionFor(step){
+    if(step.action==='openAvito'){
+      try{await openAvito();}catch(_){}
+      await wait(350);
+    }else if(step.action==='avitoBuy'){
+      if(!q('#modal')?.classList.contains('open')){try{await openAvito();}catch(_){} await wait(220)}
+      avitoTab='buy';await fetchAvito();modalBody.innerHTML=renderAvito();await wait(180);
+    }else if(step.action==='avitoSales'){
+      if(!q('#modal')?.classList.contains('open')){try{await openAvito();}catch(_){} await wait(220)}
+      avitoTab='sales';await fetchAvito();modalBody.innerHTML=renderAvito();await wait(180);
+    }else if(step.action==='closeAvito'){
+      if(q('#modal')?.classList.contains('open'))closeModal();await wait(320);
+    }else if(step.action==='openMore'){
+      if(q('#modal')?.classList.contains('open'))closeModal();await wait(220);await switchPage('more');
+    }
+  }
+
+  async function position(){
+    clearTimeout(rtTargetTimer);
+    const step=steps[rtIndex],spot=q('#rtSpot');
+    const target=step.target?q(step.target):null;
+    if(target){
+      try{target.scrollIntoView({behavior:'smooth',block:'center',inline:'nearest'});}catch(_){}
+      await wait(320);
+      const r=target.getBoundingClientRect(),pad=7;
+      const top=Math.max(6,r.top-pad),left=Math.max(6,r.left-pad),w=Math.min(innerWidth-left-6,r.width+pad*2),h=Math.min(innerHeight-top-6,r.height+pad*2);
+      spot.style.left=left+'px';spot.style.top=top+'px';spot.style.width=w+'px';spot.style.height=h+'px';
+    }else{spot.style.left='50%';spot.style.top='22%';spot.style.width='1px';spot.style.height='1px'}
+  }
+
+  function render(){
+    ensure();
+    const step=steps[rtIndex],total=steps.length;
+    q('#rtStep').textContent=`${String(rtIndex+1).padStart(2,'0')} / ${String(total).padStart(2,'0')}`;
+    q('#rtTitle').textContent=step.title;q('#rtText').textContent=step.text;q('#rtProgress').style.width=((rtIndex+1)/total*100)+'%';
+    const a=q('#rtActions');a.innerHTML='';
+    if(rtIndex>0&&!step.final){const back=document.createElement('button');back.className='rt-back';back.textContent='← НАЗАД';back.onclick=()=>go(rtIndex-1);a.appendChild(back)}else if(!step.final){const spacer=document.createElement('div');spacer.style.display='block';a.appendChild(spacer)}
+    const next=document.createElement('button');next.className=step.final?'rt-finish':(step.action==='openAvito'?'rt-open':'rt-next');next.textContent=step.button;next.onclick=()=>go(rtIndex+1);a.appendChild(next);
+    if(step.final){
+      a.innerHTML='';
+      const repeat=document.createElement('button');repeat.className='rt-repeat';repeat.textContent='ПОВТОРИТЬ ОБУЧЕНИЕ';repeat.onclick=async()=>{await switchPage('money');rtIndex=0;render();await position()};
+      const finish=document.createElement('button');finish.className='rt-finish';finish.textContent='ПРИСТУПИТЬ К ИГРЕ';finish.onclick=()=>finishTutorial();
+      a.append(repeat,finish);
+    }
+    const skip=document.createElement('button');skip.className='rt-skip';skip.textContent='Пропустить обучение';skip.onclick=()=>finishTutorial();a.appendChild(skip);
+  }
+
+  async function go(index){
+    if(rtBusy||index<0||index>=steps.length)return;
+    rtBusy=true;
+    try{
+      rtIndex=index;const step=steps[index];
+      if(step.action==='openMore') await actionFor(step);
+      else if(step.action) await actionFor(step);
+      render();await position();
+      if(typeof haptic==='function')haptic('light');
+    }finally{rtBusy=false}
+  }
+
+  function finishTutorial(){
+    if(q('#modal')?.classList.contains('open'))closeModal();
+    document.querySelectorAll('.resell-home-tab').forEach(x=>x.classList.remove('active'));
+    homeNav()?.classList.add('active');
+    if(moneyPage())moneyPage().hidden=false;if(morePage())morePage().hidden=true;
+    markDone();rt?.classList.remove('open');document.body.style.overflow='';
+    window.scrollTo({top:0,behavior:'smooth'});
+    if(typeof haptic==='function')haptic('success');
+  }
+
+  window.startResellTutorial=async function(opts={}){
+    if(rtBusy)return;if(!opts.force&&!completed())return;
+    if(opts.force===true){} else if(completed()){}
+    rtIndex=0;ensure();rt.classList.add('open');document.body.style.overflow='';render();await position();
+  };
+})();
+</script>
 </body>
 
 
