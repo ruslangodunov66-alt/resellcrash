@@ -6020,17 +6020,16 @@ async function initFarm(){
     const discoveryWealth=Number(discovery.wealth||0);
     const discoveryPassive=Number(discovery.passive_income||0);
     const discoveryTier=String(discovery.tier_label||'Обычная поставка');
-    const avitoNextSales=Number(d.avito_level?.next_sales||0);
-    const avitoLevelSales=Number(d.avito_level?.sales||sales||0);
-    const discoveryNextTier=discovery.next_car_tier||null;
+    const discoverySales=Number(discovery.sales||sales||0);
+    const discoveryNextSales=Number(discovery.next_sales||0);
     const discoveryChance=Number(discovery.chance||0);
     const discoveryMaxChance=Math.max(discoveryChance,Number(discovery.max_chance||10));
     const discoveryMisses=Number(discovery.misses||0);
     let content='';
     if(avitoTab==='buy'){
       content=`<div class="avx-section">
-        <div class="avx-buy-head"><div><b>Закуп</b><small class="avx-buy-caption">Пул поставки зависит от силы экономики и уровня репутации</small></div><button type="button" class="avx-refresh-stock avx-refresh-stock-top" data-avito-refresh ${refreshAvailable?'':'disabled'}>${refreshLabel}</button></div>
-        <div class="avx-supply-progress"><div class="avx-supply-progress-head"><span><b>${esc(discoveryTier)}</b><small>${discoveryNextTier?`Следующий автомобиль: ${esc(discoveryNextTier.label)} · капитал ${number(discoveryNextTier.wealth)} ₽ · пассив ${number(discoveryNextTier.passive)} ₽/ч`:(avitoNextSales?`${number(avitoLevelSales)} / ${number(avitoNextSales)} продаж до следующего уровня репутации`:`${number(avitoLevelSales)} продаж · максимальный уровень репутации`)}</small></span><strong>${avitoNextSales?`${Math.min(100,Math.round((avitoLevelSales/Math.max(1,avitoNextSales))*100))}%`:'MAX'}</strong></div><div class="avx-supply-progress-track"><i style="width:${avitoNextSales?Math.min(100,Math.round((avitoLevelSales/Math.max(1,avitoNextSales))*100)):100}%"></i></div></div>
+        <div class="avx-buy-head"><div><b>Закуп</b><small class="avx-buy-caption">Уровень поставки повышается по количеству продаж</small></div><button type="button" class="avx-refresh-stock avx-refresh-stock-top" data-avito-refresh ${refreshAvailable?'':'disabled'}>${refreshLabel}</button></div>
+        <div class="avx-supply-progress"><div class="avx-supply-progress-head"><span><b>${esc(discoveryTier)}</b><small>${discoveryNextSales?`${number(discoverySales)} / ${number(discoveryNextSales)} продаж до следующей отметки`:`${number(discoverySales)} продаж · максимальная отметка`}</small></span><strong>${discoveryNextSales?`${Math.min(100,Math.round((discoverySales/Math.max(1,discoveryNextSales))*100))}%`:'MAX'}</strong></div><div class="avx-supply-progress-track"><i style="width:${discoveryNextSales?Math.min(100,Math.round((discoverySales/Math.max(1,discoveryNextSales))*100)):100}%"></i></div></div>
         <div class="avx-economy-mini"><span>ПОСТАВКА</span><b>СЛУЧАЙНО</b><em>Автомобили появляются непредсказуемо</em><i>Чем выше уровень — тем шире пул</i></div>
         <div class="avx-grid">${suppliers.slice(0,20).map(x=>{const rc=avitoRarity(x.rarity);const found=x.item_type==='avito_found';const buy=Number(x.buy_price||0);const market=Number(x.market_price||0);const margin=Math.max(0,market-buy);const apple=/iphone|ipad|macbook|airpods|apple watch|apple/i.test(String(x.name||'')+' '+String(x.cat||''));return `<div class="avx-product rarity-${rc} ${found?'avx-found-product':''} ${apple?'avx-apple-product':''}" data-rarity="${rc}"><div class="avx-product-top"><div class="avx-rarity-icon ${apple?'avx-apple-icon':''}" aria-hidden="true">${apple?'':''}</div><div class="avx-product-info"><b>${esc(x.name||'Товар')}</b><span>${esc(x.cat||'Категория')}${found?' · редкий лот в поставке':' · спрос ×'+Number(x.demand||1).toFixed(2)}</span><small class="avx-rarity-name">${avitoRarityLabel(x.rarity)}${found?' · ПОВЕЗЛО В ПОСТАВКЕ':''}</small></div></div><div class="avx-product-bottom"><strong>${number(buy)} ₽</strong><button class="avx-btn buy" data-avito-buy="${esc(x.id)}">КУПИТЬ · ${number(buy)} ₽</button></div>${found?`<div class="avx-found-profit">рынок ~ ${number(market)} ₽ · запас перепродажи +${number(margin)} ₽</div>`:''}</div>`}).join('')||'<div class="avx-empty">Поставщики временно недоступны.</div>'}</div>
       </div>`;
@@ -11511,9 +11510,8 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
     const all=[...(Array.isArray(qs.permanent)?qs.permanent:[]),...(Array.isArray(qs.daily)?qs.daily:[])];
     const ready=all.filter(x=>x?.completed && (!x.reward_claimed || x.kind!=='permanent')).map(x=>String(x.id)).filter(Boolean);
     let seen=readSet(QUEST_SEEN);
-    // A completed quest must visibly notify even on the first launch. Opening
-    // the quests sheet consumes the notification; claiming the reward also refreshes it.
-    if(!localStorage.getItem(QUEST_SEEN)){setNotice('quests',ready.length>0);return;}
+    // First run: don't turn every old completed quest into a fake notification.
+    if(!localStorage.getItem(QUEST_SEEN)){writeSet(QUEST_SEEN,new Set(ready));setNotice('quests',false);return;}
     setNotice('quests',ready.some(id=>!seen.has(id)));
   }
   window.updateQuestNotice=updateQuestNotice;
