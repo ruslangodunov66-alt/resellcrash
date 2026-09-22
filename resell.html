@@ -6020,8 +6020,32 @@ async function initFarm(){
     const discoveryWealth=Number(discovery.wealth||0);
     const discoveryPassive=Number(discovery.passive_income||0);
     const discoveryTier=String(discovery.tier_label||'Обычная поставка');
-    const discoverySales=Number(discovery.sales||sales||0);
-    const discoveryNextSales=Number(discovery.next_sales||0);
+    // Avito supply progression is based ONLY on completed sales.
+    // Never use the economic/car tier here: it is a separate mechanic.
+    const avitoSupplyMilestones=[
+      [0,'Обычная поставка'],
+      [10,'Редкая поставка'],
+      [20,'Улучшенная поставка'],
+      [35,'Премиальная поставка'],
+      [50,'Легендарная поставка'],
+      [75,'Элитная поставка'],
+      [125,'Эксклюзивная поставка'],
+      [175,'Титановая поставка']
+    ];
+    let avitoSupplyTier=avitoSupplyMilestones[0][1];
+    let avitoSupplyNextSales=null;
+    let avitoSupplyNextLabel='';
+    for(const [threshold,label] of avitoSupplyMilestones){
+      if(sales>=threshold){avitoSupplyTier=label;}
+      else if(avitoSupplyNextSales===null){avitoSupplyNextSales=threshold;avitoSupplyNextLabel=label;}
+    }
+    const avitoSupplyMax=avitoSupplyNextSales===null;
+    const avitoSupplyPrevSales=avitoSupplyMax?175:Math.max(0,...avitoSupplyMilestones.filter(x=>sales>=x[0]).map(x=>x[0]));
+    const avitoSupplyProgress=avitoSupplyMax
+      ? 100
+      : Math.min(100,Math.max(0,Math.round(((sales-avitoSupplyPrevSales)/Math.max(1,avitoSupplyNextSales-avitoSupplyPrevSales))*100)));
+    const discoverySales=sales;
+    const discoveryNextSales=avitoSupplyNextSales;
     const discoveryChance=Number(discovery.chance||0);
     const discoveryMaxChance=Math.max(discoveryChance,Number(discovery.max_chance||10));
     const discoveryMisses=Number(discovery.misses||0);
@@ -6029,7 +6053,7 @@ async function initFarm(){
     if(avitoTab==='buy'){
       content=`<div class="avx-section">
         <div class="avx-buy-head"><div><b>Закуп</b><small class="avx-buy-caption">Уровень поставки повышается по количеству продаж</small></div><button type="button" class="avx-refresh-stock avx-refresh-stock-top" data-avito-refresh ${refreshAvailable?'':'disabled'}>${refreshLabel}</button></div>
-        <div class="avx-supply-progress"><div class="avx-supply-progress-head"><span><b>${esc(discoveryTier)}</b><small>${discoveryNextSales?`${number(discoverySales)} / ${number(discoveryNextSales)} продаж до следующей отметки`:`${number(discoverySales)} продаж · максимальная отметка`}</small></span><strong>${discoveryNextSales?`${Math.min(100,Math.round((discoverySales/Math.max(1,discoveryNextSales))*100))}%`:'MAX'}</strong></div><div class="avx-supply-progress-track"><i style="width:${discoveryNextSales?Math.min(100,Math.round((discoverySales/Math.max(1,discoveryNextSales))*100)):100}%"></i></div></div>
+        <div class="avx-supply-progress"><div class="avx-supply-progress-head"><span><b>${esc(avitoSupplyTier)}</b><small>${avitoSupplyMax?`${number(sales)} продаж · максимальная отметка`:`${number(sales)} / ${number(avitoSupplyNextSales)} продаж · после отметки: ${esc(avitoSupplyNextLabel)}`}</small></span><strong>${avitoSupplyMax?'MAX':`${avitoSupplyProgress}%`}</strong></div><div class="avx-supply-progress-track"><i style="width:${avitoSupplyProgress}%"></i></div></div>
         <div class="avx-economy-mini"><span>ПОСТАВКА</span><b>СЛУЧАЙНО</b><em>Автомобили появляются непредсказуемо</em><i>Чем выше уровень — тем шире пул</i></div>
         <div class="avx-grid">${suppliers.slice(0,20).map(x=>{const rc=avitoRarity(x.rarity);const found=x.item_type==='avito_found';const buy=Number(x.buy_price||0);const market=Number(x.market_price||0);const margin=Math.max(0,market-buy);const apple=/iphone|ipad|macbook|airpods|apple watch|apple/i.test(String(x.name||'')+' '+String(x.cat||''));return `<div class="avx-product rarity-${rc} ${found?'avx-found-product':''} ${apple?'avx-apple-product':''}" data-rarity="${rc}"><div class="avx-product-top"><div class="avx-rarity-icon ${apple?'avx-apple-icon':''}" aria-hidden="true">${apple?'':''}</div><div class="avx-product-info"><b>${esc(x.name||'Товар')}</b><span>${esc(x.cat||'Категория')}${found?' · редкий лот в поставке':' · спрос ×'+Number(x.demand||1).toFixed(2)}</span><small class="avx-rarity-name">${avitoRarityLabel(x.rarity)}${found?' · ПОВЕЗЛО В ПОСТАВКЕ':''}</small></div></div><div class="avx-product-bottom"><strong>${number(buy)} ₽</strong><button class="avx-btn buy" data-avito-buy="${esc(x.id)}">КУПИТЬ · ${number(buy)} ₽</button></div>${found?`<div class="avx-found-profit">рынок ~ ${number(market)} ₽ · запас перепродажи +${number(margin)} ₽</div>`:''}</div>`}).join('')||'<div class="avx-empty">Поставщики временно недоступны.</div>'}</div>
       </div>`;
