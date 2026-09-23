@@ -2083,6 +2083,14 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
 .avx-supply-progress-head strong{font:950 8px/1 Montserrat,sans-serif;color:#b7ff6a}
 .avx-supply-progress-track{height:4px;margin-top:7px;border-radius:99px;background:#101510;overflow:hidden}
 .avx-supply-progress-track i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#75c94c,#b7ff6a);box-shadow:0 0 12px rgba(183,255,106,.2)}
+.avx-unlock-info{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:7px 0 8px}
+.avx-unlock-card{padding:8px 9px;border-radius:11px;background:rgba(255,255,255,.018);border:1px solid rgba(255,255,255,.055);min-width:0}
+.avx-unlock-card.next{border-color:rgba(183,255,106,.10);background:rgba(183,255,106,.025)}
+.avx-unlock-card>small{display:block;font:900 6px/1.1 Montserrat,sans-serif;color:#687269;letter-spacing:.35px;margin-bottom:4px}
+.avx-unlock-card b{display:block;font:950 7.5px/1.15 Montserrat,sans-serif;color:#e7ece7;margin-bottom:4px}
+.avx-unlock-card p{margin:0;font:800 6.5px/1.25 Nunito,sans-serif;color:#7c867d;line-height:1.3}
+.avx-unlock-card.next b{color:#b7ff6a}
+@media(max-width:360px){.avx-unlock-info{grid-template-columns:1fr}}
 .avx-product .avx-apple-icon{display:grid!important;place-items:center!important;background:#f3f3f3!important;color:#111!important;border-color:rgba(255,255,255,.8)!important;font:900 17px/1 -apple-system,BlinkMacSystemFont,"SF Pro Display",sans-serif!important;box-shadow:0 4px 12px rgba(255,255,255,.10)!important}
 .avx-product.avx-apple-product{border-left-color:#f1f1f1!important}
 .avx-product.avx-apple-product .avx-product-info b{letter-spacing:-.1px}
@@ -6025,11 +6033,37 @@ async function initFarm(){
     const discoveryChance=Number(discovery.chance||0);
     const discoveryMaxChance=Math.max(discoveryChance,Number(discovery.max_chance||10));
     const discoveryMisses=Number(discovery.misses||0);
+    // Историческая система прогрессии Avito: текущий milestone показывает
+    // конкретные открытия этого уровня, а следующий — ближайшее будущее открытие.
+    // Экономический car tier здесь намеренно не используется.
+    const avitoUnlockMilestones=[
+      [10,'Первые редкие находки',['iPhone 11 128GB','Samsung Galaxy S22']],
+      [20,'Больше смартфонов',['iPhone 13 128GB','Google Pixel 9 Pro']],
+      [30,'Премиальная техника',['PlayStation 5 Slim']],
+      [35,'Флагманы',['iPhone 15 Pro 256GB','Samsung Galaxy S25 Ultra']],
+      [40,'Первые автомобили',['Toyota Camry 70']],
+      [50,'Легендарные лоты',['MacBook Air M3','iPhone 16 Pro Max 512GB']],
+      [60,'Премиальные автомобили',['BMW 330i']],
+      [75,'Большой класс',['Toyota Land Cruiser 300']],
+      [100,'Элитная поставка',['Mercedes G 63 AMG']],
+      [125,'Спорткласс',['Porsche 911 Carrera']],
+      [175,'Ultra-поставка',['Range Rover Autobiography']]
+    ];
+    let avitoCurrentUnlock=null, avitoNextUnlock=null;
+    avitoUnlockMilestones.forEach(m=>{
+      if(discoverySales>=m[0]) avitoCurrentUnlock=m;
+      else if(!avitoNextUnlock) avitoNextUnlock=m;
+    });
+    const avitoUnlockText=m=>m?m[2].join(' · '):'Все открытия получены';
     let content='';
     if(avitoTab==='buy'){
       content=`<div class="avx-section">
         <div class="avx-buy-head"><div><b>Закуп</b><small class="avx-buy-caption">Чем больше сделок — тем сильнее поставка</small></div><button type="button" class="avx-refresh-stock avx-refresh-stock-top" data-avito-refresh ${refreshAvailable?'':'disabled'}>${refreshLabel}</button></div>
         <div class="avx-supply-progress"><div class="avx-supply-progress-head"><span><b>${esc(discoveryTier)}</b><small>${discoveryNextSales?`${number(discoverySales)} / ${number(discoveryNextSales)} продаж до следующего уровня`:`${number(discoverySales)} продаж · максимальный уровень`}</small></span><strong>${discoveryNextSales?`${Math.min(100,Math.round((discoverySales/Math.max(1,discoveryNextSales))*100))}%`:'MAX'}</strong></div><div class="avx-supply-progress-track"><i style="width:${discoveryNextSales?Math.min(100,Math.round((discoverySales/Math.max(1,discoveryNextSales))*100)):100}%"></i></div></div>
+        <div class="avx-unlock-info">
+          <div class="avx-unlock-card"><small>ОТКРЫТО НА ТЕКУЩЕМ УРОВНЕ</small><b>${avitoCurrentUnlock?`${avitoCurrentUnlock[1]} · ${avitoCurrentUnlock[0]} продаж`:'Стартовая поставка'}</b><p>${esc(avitoUnlockText(avitoCurrentUnlock))}</p></div>
+          <div class="avx-unlock-card next"><small>${avitoNextUnlock?`СЛЕДУЮЩЕЕ ОТКРЫТИЕ · ${avitoNextUnlock[0]} ПРОДАЖ`:'ВСЕ УРОВНИ ОТКРЫТЫ'}</small><b>${avitoNextUnlock?avitoNextUnlock[1]:'Максимальный уровень'}</b><p>${avitoNextUnlock?esc(avitoUnlockText(avitoNextUnlock)):'Новых открытий нет'}</p></div>
+        </div>
         <div class="avx-economy-mini"><span>ПОСТАВКА</span><b>СЛУЧАЙНО</b><em>Автомобили появляются непредсказуемо</em><i>Чем выше уровень — тем шире пул</i></div>
         <div class="avx-grid">${suppliers.slice(0,20).map(x=>{const rc=avitoRarity(x.rarity);const found=x.item_type==='avito_found';const buy=Number(x.buy_price||0);const market=Number(x.market_price||0);const margin=Math.max(0,market-buy);const apple=/iphone|ipad|macbook|airpods|apple watch|apple/i.test(String(x.name||'')+' '+String(x.cat||''));return `<div class="avx-product rarity-${rc} ${found?'avx-found-product':''} ${apple?'avx-apple-product':''}" data-rarity="${rc}"><div class="avx-product-top"><div class="avx-rarity-icon ${apple?'avx-apple-icon':''}" aria-hidden="true">${apple?'':''}</div><div class="avx-product-info"><b>${esc(x.name||'Товар')}</b><span>${esc(x.cat||'Категория')}${found?' · редкий лот в поставке':' · спрос ×'+Number(x.demand||1).toFixed(2)}</span><small class="avx-rarity-name">${avitoRarityLabel(x.rarity)}${found?' · ПОВЕЗЛО В ПОСТАВКЕ':''}</small></div></div><div class="avx-product-bottom"><strong>${number(buy)} ₽</strong><button class="avx-btn buy" data-avito-buy="${esc(x.id)}">КУПИТЬ · ${number(buy)} ₽</button></div>${found?`<div class="avx-found-profit">рынок ~ ${number(market)} ₽ · запас перепродажи +${number(margin)} ₽</div>`:''}</div>`}).join('')||'<div class="avx-empty">Поставщики временно недоступны.</div>'}</div>
       </div>`;
@@ -9542,32 +9576,34 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 </style>
 
 <!-- RESSELL · NEW PLAYER ONBOARDING -->
-<style id="resell-new-player-tutorial-v3">
-  #resellTutorialOverlay{position:fixed;inset:0;z-index:2147483646;display:none;pointer-events:none;font-family:"Nunito",system-ui,sans-serif;overflow:hidden;touch-action:none}
+<style id="resell-new-player-tutorial-v1">
+  #resellTutorialOverlay{position:fixed;inset:0;z-index:2147483646;display:none;pointer-events:none;font-family:"Nunito",system-ui,sans-serif}
   #resellTutorialOverlay.open{display:block}
-  #resellTutorialOverlay .rt-backdrop{position:absolute;inset:0;background:rgba(2,4,3,.72);backdrop-filter:blur(7px) saturate(.78);-webkit-backdrop-filter:blur(7px) saturate(.78);pointer-events:auto;touch-action:none}
-  #resellTutorialOverlay .rt-spot{position:fixed;display:none;z-index:2;border-radius:18px;pointer-events:none;overflow:hidden;box-sizing:border-box}
-  #resellTutorialOverlay .rt-spot.is-visible{display:block}
-  #resellTutorialOverlay .rt-spot-clone{position:absolute!important;left:0!important;top:0!important;margin:0!important;transform:none!important;pointer-events:none!important;box-sizing:border-box!important}
-  #resellTutorialOverlay .rt-card{position:absolute;z-index:3;left:14px;right:14px;bottom:max(14px,env(safe-area-inset-bottom));margin:auto;width:min(470px,calc(100% - 28px));box-sizing:border-box;padding:17px 16px 14px;border-radius:23px;border:1px solid rgba(183,255,106,.18);background:linear-gradient(150deg,rgba(18,24,19,.985),rgba(7,10,8,.985));box-shadow:0 24px 80px rgba(0,0,0,.64),inset 0 1px 0 rgba(255,255,255,.045);pointer-events:auto}
+  #resellTutorialOverlay .rt-backdrop{position:absolute;inset:0;background:rgba(2,4,3,.64);backdrop-filter:blur(7px) saturate(.82);-webkit-backdrop-filter:blur(7px) saturate(.82);pointer-events:auto}
+  #resellTutorialOverlay .rt-spot{position:fixed;left:0;top:0;width:1px;height:1px;border-radius:18px;border:1.5px solid rgba(183,255,106,.95);box-shadow:0 0 0 9999px rgba(2,4,3,.68),0 0 0 5px rgba(183,255,106,.10),0 0 30px rgba(183,255,106,.20);transition:all .28s cubic-bezier(.2,.8,.2,1);pointer-events:none}
+  #resellTutorialOverlay .rt-card{position:absolute;left:14px;right:14px;bottom:max(14px,env(safe-area-inset-bottom));margin:auto;width:min(470px,calc(100% - 28px));box-sizing:border-box;padding:16px 16px 14px;border-radius:23px;border:1px solid rgba(183,255,106,.17);background:linear-gradient(150deg,rgba(18,24,19,.97),rgba(7,10,8,.97));box-shadow:0 24px 80px rgba(0,0,0,.58),inset 0 1px 0 rgba(255,255,255,.045);pointer-events:auto}
   #resellTutorialOverlay .rt-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
   #resellTutorialOverlay .rt-kicker{color:#7d8b80;font:950 7px/1 "Montserrat",sans-serif;letter-spacing:1.5px}
   #resellTutorialOverlay .rt-step{color:#b7ff6a;font:950 7px/1 "Montserrat",sans-serif;letter-spacing:1px}
   #resellTutorialOverlay .rt-title{margin-top:7px;color:#f2f6f2;font:950 20px/1.02 "Montserrat",sans-serif;letter-spacing:-.5px}
-  #resellTutorialOverlay .rt-text{margin-top:8px;color:#9aa59c;font:800 10px/1.45 "Nunito",sans-serif;max-width:48ch}
+  #resellTutorialOverlay .rt-text{margin-top:8px;color:#849087;font:800 10px/1.45 "Nunito",sans-serif;max-width:48ch}
   #resellTutorialOverlay .rt-progress{height:3px;margin-top:13px;border-radius:99px;background:rgba(255,255,255,.06);overflow:hidden}
   #resellTutorialOverlay .rt-progress i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#fff,#b7ff6a);transition:width .25s ease}
-  #resellTutorialOverlay .rt-actions{display:grid;grid-template-columns:1fr;gap:7px;margin-top:13px}
-  #resellTutorialOverlay button{width:100%;min-height:50px;border-radius:14px;font:950 9px/1 "Montserrat",sans-serif;letter-spacing:.8px;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
-  #resellTutorialOverlay .rt-next{border:1px solid #b7ff6a;background:#b7ff6a;color:#061006;box-shadow:0 12px 30px rgba(183,255,106,.13)}
-  #resellTutorialOverlay .rt-skip{min-height:43px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.045);color:#cbd2cc;font-size:8px;letter-spacing:.65px}
-  @media(max-width:390px){#resellTutorialOverlay .rt-card{padding:14px;border-radius:21px}.rt-title{font-size:18px!important}.rt-text{font-size:9px!important}.rt-actions{margin-top:11px!important}.rt-actions button{min-height:48px!important}.rt-skip{min-height:42px!important}}
+  #resellTutorialOverlay .rt-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:13px}
+  #resellTutorialOverlay button{min-height:46px;border-radius:14px;font:950 8px/1 "Montserrat",sans-serif;letter-spacing:.8px;cursor:pointer}
+  #resellTutorialOverlay .rt-next{border:1px solid #b7ff6a;background:#b7ff6a;color:#061006;box-shadow:0 12px 30px rgba(183,255,106,.12)}
+  #resellTutorialOverlay .rt-open{grid-column:1/-1;border:1px solid #b7ff6a;background:linear-gradient(135deg,#d9ffb5,#9be75a);color:#061006;min-height:50px}
+  #resellTutorialOverlay .rt-back{border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.035);color:#9ca69e}
+  #resellTutorialOverlay .rt-finish{grid-column:1/-1;border:1px solid #b7ff6a;background:#b7ff6a;color:#061006;min-height:52px}
+  #resellTutorialOverlay .rt-repeat{border:1px solid rgba(255,255,255,.11);background:rgba(255,255,255,.045);color:#d4dad5}
+  #resellTutorialOverlay .rt-skip{display:block;width:100%;min-height:32px;margin-top:7px;border:0;background:transparent;color:#59645c;font-size:6.5px}
+  @media(max-width:390px){#resellTutorialOverlay .rt-card{padding:14px;border-radius:21px}.rt-title{font-size:18px!important}.rt-text{font-size:9px!important}.rt-actions{margin-top:11px!important}.rt-actions button{min-height:44px!important}}
 </style>
-<script id="resell-new-player-tutorial-v3-js">
+<script id="resell-new-player-tutorial-v2-js">
 (function(){
   'use strict';
-  let rt=null,rtIndex=0,rtBusy=false,rtTargetTimer=null,rtClone=null,rtSavedScroll=0,rtPreviousOverflow='';
-  const KEY='resell_new_player_tutorial_v3_';
+  let rt=null,rtIndex=0,rtBusy=false,rtTargetTimer=null;
+  const KEY='resell_new_player_tutorial_v2_';
   const q=s=>document.querySelector(s);
   const uid=()=>String((typeof userId!=='undefined'&&userId)||window.telegramUserId||window.userId||'').trim();
   const moneyPage=()=>q('#resellHomeMoney'),morePage=()=>q('#resellHomeMore');
@@ -9576,101 +9612,64 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
   function baseKey(){return KEY+(uid()||'guest')}
   function readState(){try{return JSON.parse(localStorage.getItem(baseKey())||'{}')}catch(_){return{}}}
   function writeState(x){try{localStorage.setItem(baseKey(),JSON.stringify(x||{}))}catch(_){} }
-  function completed(){try{if(readState().done===true)return true;const legacy=localStorage.getItem('resell_new_player_tutorial_v2_'+(uid()||'guest'))==='1'||localStorage.getItem('resell_new_player_tutorial_v1_'+(uid()||'guest'))==='1';if(legacy){writeState({done:true,index:steps.length-1});return true}}catch(_){}return false}
+  function completed(){try{if(readState().done===true)return true;const legacy=localStorage.getItem('resell_new_player_tutorial_v1_'+(uid()||'guest'))==='1';if(legacy){writeState({done:true,index:steps.length-1});return true}}catch(_){}return false}
   function markDone(){writeState({done:true,index:steps.length-1})}
   function saveIndex(i){const st=readState();writeState({done:false,index:i})}
   function ensure(){
     if(rt)return rt;
     rt=document.createElement('div');rt.id='resellTutorialOverlay';
     rt.innerHTML=`<div class="rt-backdrop"></div><div class="rt-spot" id="rtSpot"></div><div class="rt-card"><div class="rt-top"><span class="rt-kicker">RESSELL · ОБУЧЕНИЕ</span><span class="rt-step" id="rtStep"></span></div><div class="rt-title" id="rtTitle"></div><div class="rt-text" id="rtText"></div><div class="rt-progress"><i id="rtProgress"></i></div><div class="rt-actions" id="rtActions"></div></div>`;
-    document.body.appendChild(rt);
-    const stop=e=>{e.preventDefault();e.stopPropagation()};
-    rt.querySelector('.rt-backdrop').addEventListener('touchmove',stop,{passive:false});
-    rt.querySelector('.rt-backdrop').addEventListener('wheel',stop,{passive:false});
-    return rt;
+    document.body.appendChild(rt);rt.querySelector('.rt-backdrop').addEventListener('click',e=>e.stopPropagation());return rt;
   }
   const steps=[
     {target:'#resellHomeMoney .balance',title:'Твой баланс',text:'Здесь отображается доступный капитал. С него начинается развитие твоей империи в RESSELL.',button:'ДАЛЕЕ'},
-    {target:'#resellHomeMoney #avitoBtn',title:'Avito',text:'Здесь ты закупаешь товары, выставляешь их на продажу и наращиваешь капитал.',button:'ОТКРЫТЬ AVITO',action:'openAvito'},
-    {target:'.avx-tabs [data-avito-tab="buy"]',title:'Закуп',text:'Здесь находятся предложения поставщиков. Выбирай товары и забирай их на свой склад.',button:'ДАЛЕЕ',action:'avitoBuy'},
-    {target:'.avx-product',title:'Карточка товара',text:'Здесь видны товар, редкость и цена. Именно здесь ты выбираешь, что купить.',button:'ДАЛЕЕ',action:'avitoBuy'},
-    {target:'.avx-tabs [data-avito-tab="sales"]',title:'Продажи',text:'Купленные товары появляются здесь. Отсюда ты выставляешь их и проводишь сделки.',button:'ДАЛЕЕ',action:'avitoSales'},
-    {target:'#mainAssetsSection',title:'Активы',text:'Здесь начинается развитие твоего капитала за пределами торговли.',button:'ДАЛЕЕ',action:'closeAvito'},
-    {target:'#mainAssetsSection [data-main-tycoon="bank"]',title:'Банк',text:'Управляй капиталом и финансовыми операциями.',button:'ДАЛЕЕ'},
-    {target:'#mainAssetsSection [data-main-tycoon="mining"]',title:'Майнинг',text:'Развивай мощность и получай пассивный доход.',button:'ДАЛЕЕ'},
-    {target:'#mainAssetsSection [data-main-tycoon="property"]',title:'Недвижимость',text:'Развивай долгосрочные активы и расширяй портфель.',button:'ДАЛЕЕ'},
-    {target:'#mainAssetsSection [data-main-tycoon="cars"]',title:'Автопарк',text:'Покупай, обслуживай и развивай автомобили.',button:'ДАЛЕЕ'},
-    {target:'#mainAssetsSection [data-main-tycoon="taxi"]',title:'Таксопарк',text:'Превращай автомобили в работающий парк и следи за обслуживанием.',button:'ДАЛЕЕ'},
-    {target:'#resellHomeMoney #resellCustomBtn',title:'RESSELL CUSTOM',text:'Коллекционные автомобили и кастомизация.',button:'ДАЛЕЕ'},
-    {target:'#resellHomeMoney .roadmap',title:'Эры',text:'Проходи этапы развития мира RESSELL и открывай новые возможности.',button:'ДАЛЕЕ'},
-    {target:'#resellHomeMore .games',title:'Игровой центр',text:'Дополнительные игровые режимы RESSELL.',button:'ДАЛЕЕ',action:'openMore'},
-    {target:'#resellHomeMore .games .game-card',title:'Игры',text:'Выбирай режим и заходи внутрь.',button:'ДАЛЕЕ'},
-    {target:'#resellHomeMore .actions',title:'Активность',text:'Социальные и системные функции вокруг твоего прогресса.',button:'ДАЛЕЕ'},
-    {target:'#resellHomeMore .resell-daily-secondary',title:'Ежедневная активность',text:'Возвращайся каждый день за доступной активностью и наградами.',button:'ДАЛЕЕ'},
-    {target:null,title:'Ты готов',text:'Основные разделы RESSELL изучены. Можно начинать игру.',button:'ГОТОВО',final:true}
+    {target:'#resellHomeMoney #avitoBtn',title:'Avito',text:'Это торговая площадка RESSELL. Здесь ты закупаешь товары, а затем продаёшь их дороже и наращиваешь капитал.',button:'ОТКРЫТЬ AVITO',action:'openAvito'},
+    {target:'.avx-tabs [data-avito-tab="buy"]',title:'Закуп',text:'Здесь находятся предложения поставщиков. Покупай подходящие товары — после покупки ты останешься в «Закупе» и сможешь продолжить искать лоты.',button:'ДАЛЕЕ',action:'avitoBuy'},
+    {target:'.avx-product',title:'Карточка товара',text:'На карточке видны название, категория, редкость и цена закупки. Выбирай лоты, которые хочешь забрать на свой склад.',button:'ДАЛЕЕ',action:'avitoBuy'},
+    {target:'.avx-tabs [data-avito-tab="sales"]',title:'Продажи',text:'Купленные товары находятся здесь. Красный индикатор показывает, сколько предметов сейчас есть на складе, а отметка «НОВЫЙ» выделяет свежую покупку.',button:'ДАЛЕЕ',action:'avitoSales'},
+    {target:'#mainAssetsSection',title:'Активы',text:'После торговли можно развивать собственные активы — основу долгосрочного капитала RESSELL.',button:'ДАЛЕЕ',action:'closeAvito'},
+    {target:'#mainAssetsSection [data-main-tycoon="bank"]',title:'Банк',text:'Банк — управление капиталом и финансовыми операциями.',button:'ДАЛЕЕ'},
+    {target:'#mainAssetsSection [data-main-tycoon="mining"]',title:'Майнинг',text:'Майнинг — направление пассивного дохода. Развивай мощность и получай регулярные начисления.',button:'ДАЛЕЕ'},
+    {target:'#mainAssetsSection [data-main-tycoon="property"]',title:'Недвижимость',text:'Недвижимость — долгосрочный актив. Развивай собственность и увеличивай ценность портфеля.',button:'ДАЛЕЕ'},
+    {target:'#mainAssetsSection [data-main-tycoon="cars"]',title:'Автопарк',text:'Автомобили — самостоятельные активы RESSELL, которые можно покупать, обслуживать и развивать.',button:'ДАЛЕЕ'},
+    {target:'#mainAssetsSection [data-main-tycoon="taxi"]',title:'Таксопарк',text:'Таксопарк превращает автомобили в работающий парк. Следи за состоянием машин и обслуживанием.',button:'ДАЛЕЕ'},
+    {target:'#resellHomeMoney #resellCustomBtn',title:'RESSELL CUSTOM',text:'Коллекционная зона с редкими автомобилями, кастомизацией и собственной коллекцией.',button:'ДАЛЕЕ'},
+    {target:'#resellHomeMoney .roadmap',title:'Эры',text:'Эры показывают путь развития мира RESSELL. Собирай TP, проходи этапы и открывай следующий уровень.',button:'ДАЛЕЕ'},
+    {target:'#resellHomeMore .games',title:'Игровой центр',text:'На второй странице находятся игры и дополнительные режимы RESSELL. У каждой игры свой отдельный цикл.',button:'ДАЛЕЕ',action:'openMore'},
+    {target:'#resellHomeMore .games .game-card',title:'Игры',text:'Выбирай игру и заходи внутрь. Здесь собраны игровые механики RESSELL.',button:'ДАЛЕЕ'},
+    {target:'#resellHomeMore .actions',title:'Активность',text:'Здесь находятся социальные и системные функции вокруг твоего прогресса.',button:'ДАЛЕЕ'},
+    {target:'#resellHomeMore .resell-daily-secondary',title:'Ежедневная активность',text:'Возвращайся каждый день, чтобы следить за активностью и доступными наградами.',button:'ДАЛЕЕ'},
+    {target:null,title:'Ты готов',text:'Теперь ты знаешь основные разделы RESSELL. Можно начинать игру и развивать свою крипто-империю.',button:'ЗАВЕРШИТЬ',final:true}
   ];
-  async function switchPage(mode){const b=mode==='more'?moreNav():homeNav();if(b){b.click();await wait(220)}}
+  async function switchPage(mode){const b=mode==='more'?moreNav():homeNav();if(b){b.click();await wait(320)}}
   async function actionFor(step){
-    if(step.action==='openAvito'){
-      // Не ждём сеть перед показом интерфейса: если Avito уже загружен, открываем мгновенно.
-      avitoTab='buy';
-      if(avitoState){openModal('Avito',renderAvito());return;}
-      openModal('Avito','<div class="loading">Загрузка площадки…</div>');
-      try{await fetchAvito();modalBody.innerHTML=renderAvito();}catch(_){}
-    }
-    else if(step.action==='avitoBuy'){if(!q('#modal')?.classList.contains('open')){try{await actionFor({action:'openAvito'})}catch(_){} }avitoTab='buy';if(!avitoState){try{await fetchAvito()}catch(_){} }if(modalBody&&typeof renderAvito==='function')modalBody.innerHTML=renderAvito();await wait(80)}
-    else if(step.action==='avitoSales'){if(!q('#modal')?.classList.contains('open')){try{await actionFor({action:'openAvito'})}catch(_){} }avitoTab='sales';if(!avitoState){try{await fetchAvito()}catch(_){} }if(modalBody&&typeof renderAvito==='function')modalBody.innerHTML=renderAvito();await wait(80)}
-    else if(step.action==='closeAvito'){if(q('#modal')?.classList.contains('open'))closeModal();await wait(180)}
-    else if(step.action==='openMore'){if(q('#modal')?.classList.contains('open'))closeModal();await wait(120);await switchPage('more')}
+    if(step.action==='openAvito'){try{await openAvito()}catch(_){}await wait(360)}
+    else if(step.action==='avitoBuy'){if(!q('#modal')?.classList.contains('open')){try{await openAvito()}catch(_){}await wait(240)}avitoTab='buy';await fetchAvito();modalBody.innerHTML=renderAvito();await wait(180)}
+    else if(step.action==='avitoSales'){if(!q('#modal')?.classList.contains('open')){try{await openAvito()}catch(_){}await wait(240)}avitoTab='sales';await fetchAvito();modalBody.innerHTML=renderAvito();await wait(180)}
+    else if(step.action==='closeAvito'){if(q('#modal')?.classList.contains('open'))closeModal();await wait(320)}
+    else if(step.action==='openMore'){if(q('#modal')?.classList.contains('open'))closeModal();await wait(220);await switchPage('more')}
   }
-  function removeClone(){if(rtClone){rtClone.remove();rtClone=null}}
   async function position(){
-    clearTimeout(rtTargetTimer);removeClone();
-    const step=steps[rtIndex],spot=q('#rtSpot');let target=step.target?q(step.target):null;
-    if(target){
-      try{target.scrollIntoView({behavior:'auto',block:'center',inline:'nearest'})}catch(_){}
-      await wait(40);
-      const r=target.getBoundingClientRect();
-      const pad=8;
-      spot.style.left=Math.max(4,r.left-pad)+'px';spot.style.top=Math.max(4,r.top-pad)+'px';spot.style.width=Math.max(8,r.width+pad*2)+'px';spot.style.height=Math.max(8,r.height+pad*2)+'px';
-      const clone=target.cloneNode(true);
-      clone.classList.add('rt-spot-clone');
-      clone.removeAttribute('id');
-      clone.querySelectorAll?.('[id]').forEach(x=>x.removeAttribute('id'));
-      clone.style.width=r.width+'px';clone.style.height=r.height+'px';
-      clone.style.position='absolute';clone.style.left=pad+'px';clone.style.top=pad+'px';
-      spot.appendChild(clone);spot.classList.add('is-visible');rtClone=clone;
-    }else{spot.classList.remove('is-visible')}
+    clearTimeout(rtTargetTimer);const step=steps[rtIndex],spot=q('#rtSpot');let target=step.target?q(step.target):null;
+    if(target){try{target.scrollIntoView({behavior:'smooth',block:'center',inline:'nearest'})}catch(_){}await wait(330);const r=target.getBoundingClientRect(),pad=8;spot.style.left=Math.max(5,r.left-pad)+'px';spot.style.top=Math.max(5,r.top-pad)+'px';spot.style.width=Math.max(8,Math.min(innerWidth-10,r.width+pad*2))+'px';spot.style.height=Math.max(8,Math.min(innerHeight-10,r.height+pad*2))+'px'}
+    else{spot.style.left='50%';spot.style.top='20%';spot.style.width='1px';spot.style.height='1px'}
   }
   function render(){
     ensure();const step=steps[rtIndex],total=steps.length;q('#rtStep').textContent=`${String(rtIndex+1).padStart(2,'0')} / ${String(total).padStart(2,'0')}`;q('#rtTitle').textContent=step.title;q('#rtText').textContent=step.text;q('#rtProgress').style.width=((rtIndex+1)/total*100)+'%';
     const a=q('#rtActions');a.innerHTML='';
-    const next=document.createElement('button');next.className='rt-next';next.type='button';next.textContent=step.button;next.addEventListener('click',()=>go(rtIndex+1));
-    if(step.final){next.textContent='ГОТОВО';next.addEventListener('click',finishTutorial,{once:true});}
-    a.appendChild(next);
-    const skip=document.createElement('button');skip.className='rt-skip';skip.type='button';skip.textContent='ПРОПУСТИТЬ ОБУЧЕНИЕ';skip.addEventListener('click',finishTutorial);a.appendChild(skip);
+    if(rtIndex>0){const back=document.createElement('button');back.className='rt-back';back.type='button';back.textContent='← НАЗАД';back.addEventListener('click',()=>go(rtIndex-1));a.appendChild(back)}else{const spacer=document.createElement('div');spacer.style.display='block';a.appendChild(spacer)}
+    if(step.final){a.innerHTML='';const repeat=document.createElement('button');repeat.className='rt-repeat';repeat.type='button';repeat.textContent='ПОВТОРИТЬ ОБУЧЕНИЕ';repeat.addEventListener('click',async()=>{saveIndex(0);await switchPage('money');rtIndex=0;render();await position()});const finish=document.createElement('button');finish.className='rt-finish';finish.type='button';finish.textContent='ПРИСТУПИТЬ К ИГРЕ';finish.addEventListener('click',finishTutorial);a.append(repeat,finish)}
+    else{const next=document.createElement('button');next.className=step.action==='openAvito'?'rt-open':'rt-next';next.type='button';next.textContent=step.button;next.addEventListener('click',()=>go(rtIndex+1));a.appendChild(next)}
+    const skip=document.createElement('button');skip.className='rt-skip';skip.type='button';skip.textContent='Пропустить обучение';skip.addEventListener('click',finishTutorial);a.appendChild(skip);
   }
   async function go(index){if(rtBusy||index<0||index>=steps.length)return;rtBusy=true;try{saveIndex(index);rtIndex=index;const step=steps[index];if(step.action)await actionFor(step);render();await position();if(typeof haptic==='function')haptic('light')}finally{rtBusy=false}}
-  function lockScreen(){
-    rtSavedScroll=window.scrollY||document.documentElement.scrollTop||0;rtPreviousOverflow=document.body.style.overflow;
-    document.documentElement.style.overflow='hidden';document.body.style.overflow='hidden';document.body.style.overscrollBehavior='none';
-    const app=q('main.app');if(app){app.dataset.rtOverflow=app.style.overflow;app.style.overflow='hidden';app.style.overscrollBehavior='none'}
-  }
-  function unlockScreen(){
-    document.documentElement.style.overflow='';document.body.style.overflow=rtPreviousOverflow||'';document.body.style.overscrollBehavior='';
-    const app=q('main.app');if(app&&'rtOverflow' in app.dataset){app.style.overflow=app.dataset.rtOverflow;delete app.dataset.rtOverflow;app.style.overscrollBehavior=''}
-    window.scrollTo(0,rtSavedScroll);
-  }
-  function finishTutorial(){if(q('#modal')?.classList.contains('open'))closeModal();removeClone();document.querySelectorAll('.resell-home-tab').forEach(x=>x.classList.remove('active'));homeNav()?.classList.add('active');if(moneyPage())moneyPage().hidden=false;if(morePage())morePage().hidden=true;markDone();window.__resellTutorialActive=false;rt?.classList.remove('open');unlockScreen();if(typeof haptic==='function')haptic('success')}
+  function finishTutorial(){if(q('#modal')?.classList.contains('open'))closeModal();document.querySelectorAll('.resell-home-tab').forEach(x=>x.classList.remove('active'));homeNav()?.classList.add('active');if(moneyPage())moneyPage().hidden=false;if(morePage())morePage().hidden=true;markDone();window.__resellTutorialActive=false;rt?.classList.remove('open');document.body.style.overflow='';window.scrollTo({top:0,behavior:'smooth'});if(typeof haptic==='function')haptic('success')}
   async function start(opts={}){
-    if(rtBusy)return;if(!opts.force&&completed())return;window.__resellTutorialActive=true;lockScreen();
-    const saved=readState();rtIndex=opts.force?0:Math.max(0,Math.min(steps.length-1,Number(saved.index)||0));ensure();rt.classList.add('open');render();
-    // Подгружаем Avito в фоне заранее, чтобы кнопка открытия не зависела от первого запроса.
-    if(typeof fetchAvito==='function'&&!avitoState){try{fetchAvito().catch(()=>{})}catch(_){} }
-    await position();
+    if(rtBusy)return;if(!opts.force&&completed())return;window.__resellTutorialActive=true;
+    const saved=readState();rtIndex=opts.force?0:Math.max(0,Math.min(steps.length-1,Number(saved.index)||0));ensure();rt.classList.add('open');document.body.style.overflow='';render();await position();
   }
   window.startResellTutorial=start;
-  window.resumeResellTutorial=async function(){if(completed())return;if(!uid())return;await wait(300);try{await start({force:false})}catch(_){}};
+  window.resumeResellTutorial=async function(){if(completed())return;if(!uid())return;await wait(500);try{await start({force:false})}catch(_){} };
 })();
 </script>
 </body>
