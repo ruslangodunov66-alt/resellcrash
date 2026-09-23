@@ -5957,7 +5957,7 @@ async function initFarm(){
   startTaxiWearPoller();
 
   // ==================== AVITO / RESELL MARKET ====================
-  let avitoTab='buy'; let avitoState=null; let avitoPoller=null; let avitoEditing=false;
+  let avitoTab='buy'; let avitoState=null; let avitoPoller=null; let avitoLivePoller=null; let avitoEditing=false; let avitoOpenChatKey=null;
   // Покупка никогда не переключает игрока из «Закупа» в «Продажи».
   // Новые купленные позиции помечаем локально, чтобы игрок сразу видел их в складе.
   const AVITO_NEW_PURCHASES_KEY='resell_avito_new_purchases_v1';
@@ -5999,7 +5999,46 @@ async function initFarm(){
     };
     next();
   }
-  async function fetchAvito(){ avitoState=await tycoonFetch(`/avito/${encodeURIComponent(userId)}`); const events=Array.isArray(avitoState?.assistants?.events)?avitoState.assistants.events:[]; if(events.length){for(const e of events){if(e.type==='sale')showAvitoAssistantSalePopup(e);else showToast(e.type==='purchase'?`Помощник №${e.assistant} закупил товар`:`Помощник №${e.assistant} ведёт переговоры`);}} const u=Number(avitoState?.unread_count||0); const b=document.getElementById("avitoEntryUnread"); if(b){b.textContent=u;b.style.display=u>0?"inline-grid":"none";} return avitoState; }
+  async function fetchAvito(){
+    avitoState=await tycoonFetch(`/avito/${encodeURIComponent(userId)}`);
+    const events=Array.isArray(avitoState?.assistants?.events)?avitoState.assistants.events:[];
+    if(events.length){
+      for(const e of events){
+        if(e.type==='sale')showAvitoAssistantSalePopup(e);
+        else showToast(e.type==='purchase'?`Помощник №${e.assistant} закупил товар`:`Помощник №${e.assistant} ведёт переговоры`);
+      }
+    }
+    const u=Number(avitoState?.unread_count||0);
+    const b=document.getElementById("avitoEntryUnread");
+    if(b){b.textContent=u;b.style.display=u>0?"inline-grid":"none";}
+    return avitoState;
+  }
+
+  function refreshAvitoLiveScreen(){
+    if(!modal.classList.contains('open') || (avitoEditing && !avitoOpenChatKey) || !document.querySelector('.avito-shell')) return;
+    if(avitoOpenChatKey){
+      const chat=(Array.isArray(avitoState?.chats)?avitoState.chats:[]).find(x=>String(x.chat_key)===String(avitoOpenChatKey));
+      if(chat && String(chat.client_type||'')==='assistant'){
+        modalBody.innerHTML=renderAvitoChat(chat);
+      }else if(!chat){
+        modalBody.innerHTML=`<div class="avito-shell avx-shell"><div class="avx-section avx-chat-large avx-assistant-chat"><div class="avito-chat-head"><div class="avito-chat-buyer">Сделка завершена</div><div class="avito-chat-stage">ПОКУПАТЕЛЬ ЗАКРЫТ</div></div><div class="avito-chat-message">Помощник завершил переговоры. Товар больше не находится в активном чате.</div><button class="avx-btn" data-avito-back-chats style="width:100%;margin-top:12px;min-height:50px">К ЧАТАМ</button></div></div>`;
+      }
+      return;
+    }
+    modalBody.innerHTML=renderAvito();
+  }
+
+  function startAvitoLiveEngine(){
+    clearInterval(avitoLivePoller);
+    avitoLivePoller=setInterval(async()=>{
+      if(document.visibilityState==='hidden' || !userId) return;
+      try{
+        await fetchAvito();
+        refreshAvitoLiveScreen();
+      }catch(_){}
+    },3000);
+  }
+  startAvitoLiveEngine();
   const AVITO_UNLOCK_SEEN_KEY='resell_avito_unlock_seen_v61';
   function getAvitoUnlockSeen(){try{return Number(localStorage.getItem(AVITO_UNLOCK_SEEN_KEY)||0)}catch(_){return 0}}
   function setAvitoUnlockSeen(v){try{localStorage.setItem(AVITO_UNLOCK_SEEN_KEY,String(v))}catch(_){}}
@@ -6168,7 +6207,7 @@ async function initFarm(){
     haptic('light'); avitoTab='buy'; openModal('Avito','<div class="loading">Загрузка площадки…</div>');
     try{ await fetchAvito(); modalBody.innerHTML=renderAvito(); showAvitoUnlockPopup(); }catch(e){ modalBody.innerHTML=`<div class="avito-shell"><div class="avito-hero marketplace"><div class="avito-kicker">AVITO · ERROR</div><div class="avito-title">Площадка недоступна</div><div class="avito-sub">${esc(e.message||'Не удалось загрузить Avito')}</div></div></div>`; }
     clearInterval(avitoPoller);
-    avitoPoller=setInterval(async()=>{ if(avitoEditing || !modal.classList.contains('open') || !document.querySelector('.avito-shell')) return; try{ await fetchAvito(); if(avitoEditing || document.querySelector('[data-avito-chat-sheet="1"]')) return; modalBody.innerHTML=renderAvito(); }catch(_){} },7000);
+    avitoPoller=null;
   }
   $('#avitoBtn')?.addEventListener('click',openAvito);
   modalBody.addEventListener('click',async(e)=>{
@@ -6214,7 +6253,7 @@ async function initFarm(){
       }catch(err){ showToast(err.message||'Не удалось опубликовать товар'); conf.disabled=false; }
       return;
     }
-    const openChat=e.target.closest('[data-open-avito-chat],[data-open-avito-chat-btn]'); if(openChat){avitoEditing=true;const key=openChat.dataset.openAvitoChat||openChat.dataset.openAvitoChatBtn;try{await tycoonFetch(`/avito/${encodeURIComponent(userId)}/chat`,{method:'POST',body:JSON.stringify({chat_key:key,action:'read'})});}catch(_){};avitoTab='chats';await fetchAvito();const chat=(avitoState.chats||[]).find(x=>String(x.chat_key)===String(key));if(!chat){showToast('Чат уже завершён');return;}openModal('Покупатель #'+chat.buyer_id,renderAvitoChat(chat));return;}
+    const openChat=e.target.closest('[data-open-avito-chat],[data-open-avito-chat-btn]'); if(openChat){avitoEditing=true;const key=openChat.dataset.openAvitoChat||openChat.dataset.openAvitoChatBtn;try{await tycoonFetch(`/avito/${encodeURIComponent(userId)}/chat`,{method:'POST',body:JSON.stringify({chat_key:key,action:'read'})});}catch(_){};avitoTab='chats';await fetchAvito();const chat=(avitoState.chats||[]).find(x=>String(x.chat_key)===String(key));if(!chat){showToast('Чат уже завершён');avitoEditing=false;avitoOpenChatKey=null;return;}avitoOpenChatKey=String(chat.client_type||'')==='assistant'?String(key):'';openModal('Покупатель #'+chat.buyer_id,renderAvitoChat(chat));return;}
     const ans=e.target.closest('[data-avito-answer]'); if(ans){ans.disabled=true;try{const p=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/chat`,{method:'POST',body:JSON.stringify({chat_key:ans.dataset.avitoAnswer,action:'answer',choice_idx:Number(ans.dataset.choice||0)})});avitoEditing=true;const chat=p.chat||null;if(chat){modalBody.innerHTML=renderAvitoChat(chat);}else{showToast(p.message||'Ответ отправлен');}}catch(err){showToast(err.message||'Не удалось отправить ответ');ans.disabled=false}return;}
     const price=e.target.closest('[data-avito-price]'); if(price){
       price.disabled=true;
@@ -6236,7 +6275,7 @@ async function initFarm(){
       return;
     }
     const newBuyer=e.target.closest('[data-avito-new-buyer]'); if(newBuyer){newBuyer.disabled=true;try{const p=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/chat`,{method:'POST',body:JSON.stringify({chat_key:newBuyer.dataset.avitoNewBuyer,action:'new_buyer'})});avitoEditing=true;if(p.chat){modalBody.innerHTML=renderAvitoChat(p.chat);showToast('Новый покупатель найден');}else{showToast(p.message||'Не удалось найти покупателя');newBuyer.disabled=false}}catch(err){showToast(err.message||'Не удалось найти нового покупателя');newBuyer.disabled=false}return;}
-    const backChats=e.target.closest('[data-avito-back-chats]'); if(backChats){avitoEditing=false;avitoTab='chats';await fetchAvito();modalBody.innerHTML=renderAvito();return;}
+    const backChats=e.target.closest('[data-avito-back-chats]'); if(backChats){avitoEditing=false;avitoOpenChatKey=null;avitoTab='chats';await fetchAvito();modalBody.innerHTML=renderAvito();return;}
     if(e.target.closest('#avitoUnpublishBtn')){try{const p=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/unpublish`,{method:'POST'});showToast(p.message||'Объявление снято');avitoTab='sales';await fetchAvito();modalBody.innerHTML=renderAvito()}catch(err){showToast(err.message||'Не удалось снять объявление')}return;}
   });
 
