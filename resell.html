@@ -2082,18 +2082,6 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
 .avx-assistant-btn:disabled{opacity:.42}
 .avx-assistant-badge{display:inline-flex;align-items:center;margin-left:5px;padding:3px 5px;border-radius:99px;background:rgba(183,255,106,.10);border:1px solid rgba(183,255,106,.14);color:#b7ff6a;font:950 5.5px/1 Montserrat,sans-serif;letter-spacing:.5px;vertical-align:middle}
 .avx-assistant-chat{border-color:rgba(183,255,106,.18)!important;background:linear-gradient(145deg,rgba(183,255,106,.045),rgba(255,255,255,.018))!important}
-.avx-assistant-sale-overlay{position:fixed;inset:0;z-index:2147483640;display:grid;place-items:center;padding:20px;box-sizing:border-box;background:rgba(0,0,0,.68);animation:avxAssistantSaleFade .22s ease-out}
-.avx-assistant-sale-card{width:min(360px,calc(100vw - 40px));box-sizing:border-box;padding:18px;border-radius:22px;background:linear-gradient(150deg,#171b17,#090b09);border:1px solid rgba(183,255,106,.24);box-shadow:0 28px 90px rgba(0,0,0,.72),0 0 55px rgba(183,255,106,.08);text-align:center}
-.avx-assistant-sale-mark{width:48px;height:48px;margin:0 auto 12px;border-radius:15px;display:grid;place-items:center;background:#b7ff6a;color:#071006;font:950 20px/1 Montserrat,sans-serif;box-shadow:0 12px 30px rgba(183,255,106,.16)}
-.avx-assistant-sale-kicker{display:block;color:#8a968d;font:950 6.5px/1 Montserrat,sans-serif;letter-spacing:1.25px}
-.avx-assistant-sale-title{margin-top:6px;color:#f5f8f5;font:950 19px/1.05 Montserrat,sans-serif}
-.avx-assistant-sale-item{margin-top:10px;color:#aeb8b0;font:800 8.5px/1.35 Nunito,sans-serif}
-.avx-assistant-sale-stats{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:14px}
-.avx-assistant-sale-stat{padding:10px 8px;border-radius:13px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07)}
-.avx-assistant-sale-stat small{display:block;color:#626b65;font:900 5.5px/1 Montserrat,sans-serif;letter-spacing:.8px}
-.avx-assistant-sale-stat b{display:block;margin-top:5px;color:#f0f4f1;font:950 10px/1 Montserrat,sans-serif}
-.avx-assistant-sale-stat.profit b{color:#b7ff6a}
-.avx-assistant-sale-close{width:100%;margin-top:12px;min-height:42px;border:0;border-radius:12px;background:#fff;color:#050505;font:950 7.5px/1 Montserrat,sans-serif;letter-spacing:.6px}
 @keyframes avxAssistantSaleFade{from{opacity:0;transform:scale(.98)}to{opacity:1;transform:scale(1)}}
 @media(max-width:520px){
   .avx-assistant-head{grid-template-columns:1fr;gap:10px;align-items:stretch}
@@ -4424,7 +4412,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     ];
     for (const endpoint of endpoints){
       try{
-        const resp = await fetch(endpoint,{cache:'no-store',headers:telegramAuthHeaders()});
+        const resp = await apiFetch(endpoint,{cache:'no-store',headers:{'Accept':'application/json'}},2);
         if (!resp.ok) continue;
         const payload = await resp.json();
         if (payload && (payload.referral || payload.referrals || payload.invite_link || payload.active !== undefined || payload.total !== undefined)){
@@ -5963,49 +5951,29 @@ async function initFarm(){
   function setAvitoNewPurchases(list){try{localStorage.setItem(AVITO_NEW_PURCHASES_KEY,JSON.stringify([...new Set(list.map(String))].slice(-100)))}catch(_){}}
   function markAvitoNewPurchase(uid){if(!uid)return;setAvitoNewPurchases([...getAvitoNewPurchases(),String(uid)])}
   function clearAvitoNewPurchase(uid){if(!uid)return;setAvitoNewPurchases(getAvitoNewPurchases().filter(x=>String(x)!==String(uid)))}
-  let __avitoAssistantSaleQueue=[];
-  let __avitoAssistantSaleShowing=false;
-  function showAvitoAssistantSalePopup(e){
-    if(!e || e.type!=='sale') return;
-    __avitoAssistantSaleQueue.push(e);
-    if(__avitoAssistantSaleShowing) return;
-    const next=()=>{
-      const itemEvent=__avitoAssistantSaleQueue.shift();
-      if(!itemEvent){__avitoAssistantSaleShowing=false;return;}
-      __avitoAssistantSaleShowing=true;
-      document.querySelectorAll('[data-avito-assistant-sale-overlay]').forEach(x=>x.remove());
-      const item=String(itemEvent.item||'Товар');
-      const finalPrice=Math.max(0,Number(itemEvent.final_price||0));
-      const profit=Number(itemEvent.profit||0);
-      const assistant=Math.max(1,Number(itemEvent.assistant||0));
-      const overlay=document.createElement('div');
-      overlay.className='avx-assistant-sale-overlay';
-      overlay.dataset.avitoAssistantSaleOverlay='1';
-      overlay.innerHTML=`<div class="avx-assistant-sale-card" role="dialog" aria-label="Продажа помощником"><div class="avx-assistant-sale-mark">✓</div><span class="avx-assistant-sale-kicker">AVITO · ПОМОЩНИК №${assistant}</span><div class="avx-assistant-sale-title">ТОВАР ПРОДАН</div><div class="avx-assistant-sale-item">${esc(item)}</div><div class="avx-assistant-sale-stats"><div class="avx-assistant-sale-stat"><small>ВЫРУЧКА</small><b>${number(finalPrice)} ₽</b></div><div class="avx-assistant-sale-stat profit"><small>ПРИБЫЛЬ</small><b>+${number(profit)} ₽</b></div></div><button class="avx-assistant-sale-close" type="button">ПРОДОЛЖИТЬ</button></div>`;
-      document.body.appendChild(overlay);
-      let closed=false;
-      const close=()=>{
-        if(closed) return;
-        closed=true;
-        clearTimeout(window.__avxAssistantSaleTimer);
-        if(overlay.isConnected)overlay.remove();
-        __avitoAssistantSaleShowing=false;
-        next();
-      };
-      overlay.addEventListener('click',e=>{if(e.target===overlay||e.target.closest('.avx-assistant-sale-close'))close()});
-      window.__avxAssistantSaleTimer=setTimeout(close,6500);
-    };
-    next();
+  // Помощники работают в фоне. Покупки не показываем отдельными popup/toast:
+  // пользователь получает только итоговую новость о завершённой продаже.
+  function showAvitoAssistantSaleNotice(events){
+    const sales=(Array.isArray(events)?events:[]).filter(e=>e && e.type==='sale');
+    if(!sales.length) return;
+    if(sales.length===1){
+      const e=sales[0];
+      const item=String(e.item||'Товар');
+      const price=Math.max(0,Number(e.final_price||0));
+      const profit=Number(e.profit||0);
+      showToast(`Продано: ${item} · ${number(price)} ₽${profit>0?` · прибыль +${number(profit)} ₽`:''}`);
+      return;
+    }
+    const total=sales.reduce((a,e)=>a+Math.max(0,Number(e.final_price||0)),0);
+    const profit=sales.reduce((a,e)=>a+Number(e.profit||0),0);
+    showToast(`Продано товаров: ${sales.length} · ${number(total)} ₽${profit>0?` · прибыль +${number(profit)} ₽`:''}`);
   }
   async function fetchAvito(){
     avitoState=await tycoonFetch(`/avito/${encodeURIComponent(userId)}`);
     const events=Array.isArray(avitoState?.assistants?.events)?avitoState.assistants.events:[];
-    if(events.length){
-      for(const e of events){
-        if(e.type==='sale')showAvitoAssistantSalePopup(e);
-        else showToast(e.type==='purchase'?`Помощник №${e.assistant} закупил товар`:`Помощник №${e.assistant} ведёт переговоры`);
-      }
-    }
+    // Не шумим событиями закупки/переговоров. Как при обычной продаже,
+    // наверху появляется только короткое сообщение об итоговой продаже.
+    showAvitoAssistantSaleNotice(events);
     const u=Number(avitoState?.unread_count||0);
     const b=document.getElementById("avitoEntryUnread");
     if(b){b.textContent=u;b.style.display=u>0?"inline-grid":"none";}
@@ -6145,7 +6113,7 @@ async function initFarm(){
     if(avitoTab==='buy'){
       content=`<div class="avx-section">
         <div class="avx-buy-head"><div><b>Закуп</b><small class="avx-buy-caption">Чем больше сделок — тем сильнее поставка</small></div><button type="button" class="avx-refresh-stock avx-refresh-stock-top" data-avito-refresh ${refreshAvailable?'':'disabled'}>${refreshLabel}</button></div>
-        <div class="avx-assistant-card"><div class="avx-assistant-head"><div><span class="avx-assistant-kicker">КОМАНДА AVITO</span><b class="avx-assistant-title">Помощники · ${assistantCount}/${assistantMax}</b><span class="avx-assistant-meta">Они закупают товары, выставляют их, ведут чаты и закрывают сделки.</span></div><button class="avx-assistant-btn" data-avito-hire-assistant ${assistantCount>=assistantMax?'disabled':''}>${assistantCount>=assistantMax?'ЛИМИТ 5':'НАНЯТЬ · '+number(assistantCost)+' ₽'}</button></div></div>
+        <div class="avx-assistant-card avx-assistant-dashboard"><div class="avx-assistant-head"><div><span class="avx-assistant-kicker">КОМАНДА AVITO</span><b class="avx-assistant-title">Помощники · ${assistantCount}/${assistantMax}</b></div><div class="avx-assistant-actions"><button class="avx-assistant-info" type="button" data-avito-assistant-info aria-label="Как работают помощники">i</button><button class="avx-assistant-btn" data-avito-hire-assistant ${assistantCount>=assistantMax?'disabled':''}>${assistantCount>=assistantMax?'ЛИМИТ 5':'НАНЯТЬ · '+number(assistantCost)+' ₽'}</button></div></div><div class="avx-assistant-status"><div><small>В РАБОТЕ</small><b>${Number(assistants.active||0)}/${assistantCount}</b></div><div><small>СТАТУС</small><b class="live">ПАССИВНО</b></div><div><small>СЛЕДУЮЩАЯ</small><b data-avito-assistant-next>${Number(assistants.next_run_at||0)>Date.now()/1000?`~${Math.max(1,Math.ceil(Number(assistants.next_run_at)-Date.now()/1000))} сек`:'ГОТОВО'}</b></div></div></div>
         <div class="avx-supply-progress"><div class="avx-supply-progress-head"><span><b>${esc(discoveryTier)}</b><small>${discoveryNextSales?`${number(discoverySales)} / ${number(discoveryNextSales)} продаж до следующего уровня`:`${number(discoverySales)} продаж · максимальный уровень`}</small></span><strong>${discoveryNextSales?`${Math.min(100,Math.round((discoverySales/Math.max(1,discoveryNextSales))*100))}%`:'MAX'}</strong></div><div class="avx-supply-progress-track"><i style="width:${discoveryNextSales?Math.min(100,Math.round((discoverySales/Math.max(1,discoveryNextSales))*100)):100}%"></i></div></div>
         <div class="avx-economy-mini"><span>ПОСТАВКА</span><b>СЛУЧАЙНО</b><em>Автомобили появляются непредсказуемо</em><i>Чем выше уровень — тем шире пул</i></div>
         <div class="avx-grid">${suppliers.slice(0,20).map(x=>{const rc=avitoRarity(x.rarity);const found=x.item_type==='avito_found';const buy=Number(x.buy_price||0);const market=Number(x.market_price||0);const margin=Math.max(0,market-buy);const apple=/iphone|ipad|macbook|airpods|apple watch|apple/i.test(String(x.name||'')+' '+String(x.cat||''));return `<div class="avx-product rarity-${rc} ${found?'avx-found-product':''} ${apple?'avx-apple-product':''}" data-rarity="${rc}"><div class="avx-product-top"><div class="avx-rarity-icon ${apple?'avx-apple-icon':''}" aria-hidden="true">${apple?'':''}</div><div class="avx-product-info"><b>${esc(x.name||'Товар')}</b><span>${esc(x.cat||'Категория')}${found?' · редкий лот в поставке':' · спрос ×'+Number(x.demand||1).toFixed(2)}</span><small class="avx-rarity-name">${avitoRarityLabel(x.rarity)}${found?' · ПОВЕЗЛО В ПОСТАВКЕ':''}</small></div></div><div class="avx-product-bottom"><strong>${number(buy)} ₽</strong><button class="avx-btn buy" data-avito-buy="${esc(x.id)}">КУПИТЬ · ${number(buy)} ₽</button></div>${found?`<div class="avx-found-profit">рынок ~ ${number(market)} ₽ · запас перепродажи +${number(margin)} ₽</div>`:''}</div>`}).join('')||'<div class="avx-empty">Поставщики временно недоступны.</div>'}</div>
@@ -6226,6 +6194,7 @@ async function initFarm(){
     }
     const tab=e.target.closest('[data-avito-tab]'); if(tab){avitoTab=tab.dataset.avitoTab;try{await fetchAvito();modalBody.innerHTML=renderAvito();showAvitoUnlockPopup()}catch(err){showToast(err.message||'Ошибка')}return;}
     const buy=e.target.closest('[data-avito-buy]'); if(buy){buy.disabled=true;try{const p=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/buy`,{method:'POST',body:JSON.stringify({item_id:buy.dataset.avitoBuy})});profileData.balance=p.balance??profileData.balance;setBalance(profileData.balance);if(p?.item?.uid)markAvitoNewPurchase(p.item.uid);showToast(p.message||'Товар закуплен');avitoTab='buy';await fetchAvito();modalBody.innerHTML=renderAvito();showAvitoUnlockPopup()}catch(err){showToast(err.message||'Не удалось купить товар');buy.disabled=false}return;}
+    const assistantInfo=e.target.closest('[data-avito-assistant-info]'); if(assistantInfo){ openModal('Помощники Avito', `<div class="avito-shell avx-shell avx-assistant-info-sheet"><div class="avx-section"><div class="avx-info-hero"><div class="avx-info-icon">i</div><div><b>Пассивная команда</b><span>Помощники работают автоматически, даже когда игра закрыта.</span></div></div><div class="avx-info-list"><div><b>01 · ЗАКУП</b><span>Самостоятельно покупают доступные товары за свои средства.</span></div><div><b>02 · ПРОДАЖА</b><span>Выставляют товар и ведут переговоры с покупателем.</span></div><div><b>03 · ПРИБЫЛЬ</b><span>После продажи деньги и прибыль автоматически зачисляются тебе.</span></div><div><b>04 · ОНЛАЙН НЕ НУЖЕН</b><span>Закрывай игру — команда продолжит работать на сервере.</span></div></div><div class="avx-info-note">Один помощник стоит 5 000 000 ₽. Максимум — 5 помощников.</div><button class="avx-btn buy" data-avito-info-close style="width:100%;margin-top:10px;min-height:46px">ПОНЯТНО</button></div></div>`); return; }
     const hire=e.target.closest('[data-avito-hire-assistant]'); if(hire){ if(hire.disabled)return; hire.disabled=true; try{ const p=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/assistant/hire`,{method:'POST'}); profileData.balance=p.balance??profileData.balance; setBalance(profileData.balance); showToast(`Помощник №${p.count} нанят за ${number(p.cost||5000000)} ₽`); await fetchAvito(); modalBody.innerHTML=renderAvito(); }catch(err){showToast(err.message||'Не удалось нанять помощника');hire.disabled=false;} return;}
     const pub=e.target.closest('[data-avito-publish]'); if(pub){avitoEditing=true;openModal('Выставить товар',`<div class="avito-shell"><div class="avito-item"><div class="avito-item-name">Выставить товар</div><div class="avito-item-meta">Напиши коротко о состоянии товара и комплекте.</div><textarea class="avito-input" id="avitoDescription" maxlength="1000" rows="5" placeholder="Например: отличное состояние, полный комплект, использовался мало…"></textarea><button class="avito-btn primary" id="avitoPublishConfirm" data-item-uid="${esc(pub.dataset.avitoPublish)}" style="margin-top:8px;width:100%">ОПУБЛИКОВАТЬ</button></div></div>`);return;}
     const conf=e.target.closest('#avitoPublishConfirm'); if(conf){
@@ -6273,6 +6242,7 @@ async function initFarm(){
       return;
     }
     const newBuyer=e.target.closest('[data-avito-new-buyer]'); if(newBuyer){newBuyer.disabled=true;try{const p=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/chat`,{method:'POST',body:JSON.stringify({chat_key:newBuyer.dataset.avitoNewBuyer,action:'new_buyer'})});avitoEditing=true;if(p.chat){modalBody.innerHTML=renderAvitoChat(p.chat);showToast('Новый покупатель найден');}else{showToast(p.message||'Не удалось найти покупателя');newBuyer.disabled=false}}catch(err){showToast(err.message||'Не удалось найти нового покупателя');newBuyer.disabled=false}return;}
+    const infoClose=e.target.closest('[data-avito-info-close]'); if(infoClose){closeModal(); return;}
     const backChats=e.target.closest('[data-avito-back-chats]'); if(backChats){avitoEditing=false;avitoOpenChatKey=null;avitoTab='chats';await fetchAvito();modalBody.innerHTML=renderAvito();return;}
     if(e.target.closest('#avitoUnpublishBtn')){try{const p=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/unpublish`,{method:'POST'});showToast(p.message||'Объявление снято');avitoTab='sales';await fetchAvito();modalBody.innerHTML=renderAvito()}catch(err){showToast(err.message||'Не удалось снять объявление')}return;}
   });
@@ -9763,6 +9733,62 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
   window.resumeResellTutorial=async function(){if(completed())return;if(!uid())return;await wait(500);try{await start({force:false})}catch(_){} };
 })();
 </script>
+
+<style id="resell-avito-assistant-ui-v2">
+.avx-assistant-dashboard{padding:13px!important}
+.avx-assistant-dashboard .avx-assistant-meta{max-width:310px!important;line-height:1.35!important}
+.avx-assistant-status{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:6px!important;margin-top:10px!important}
+.avx-assistant-status>div{min-width:0!important;padding:9px 8px!important;border-radius:11px!important;background:rgba(255,255,255,.028)!important;border:1px solid rgba(255,255,255,.055)!important}
+.avx-assistant-status small{display:block!important;color:#626b65!important;font:900 5px/1 "Montserrat",sans-serif!important;letter-spacing:.65px!important;white-space:nowrap!important}
+.avx-assistant-status b{display:block!important;margin-top:5px!important;color:#eef2ef!important;font:950 8px/1 "Montserrat",sans-serif!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+.avx-assistant-status b.live{color:#b7ff6a!important}
+@media(max-width:390px){.avx-assistant-status{gap:4px!important}.avx-assistant-status>div{padding:8px 6px!important}.avx-assistant-status small{font-size:4.5px!important}.avx-assistant-status b{font-size:7px!important}}
+</style>
+
+<style id="resell-avito-compact-v1">
+/* Compact Avito + assistant info */
+.avx-assistant-dashboard{padding:9px!important;margin:4px 0 7px!important;border-radius:13px!important}
+.avx-assistant-head{gap:7px!important}
+.avx-assistant-kicker{font-size:5.5px!important;letter-spacing:.8px!important}
+.avx-assistant-title{margin-top:3px!important;font-size:9px!important}
+.avx-assistant-actions{display:flex;align-items:center;gap:5px;flex-shrink:0}
+.avx-assistant-info{width:28px;height:28px;padding:0;border-radius:9px;border:1px solid rgba(255,255,255,.10);background:#151515;color:#aaa;font:900 11px/28px Montserrat,sans-serif;text-align:center}
+.avx-assistant-btn{min-width:118px!important;min-height:30px!important;height:30px!important;padding:0 9px!important;border-radius:9px!important;font-size:6.5px!important}
+.avx-assistant-status{gap:4px!important;margin-top:7px!important}
+.avx-assistant-status>div{padding:6px!important;border-radius:9px!important}
+.avx-assistant-status small{font-size:4.5px!important}
+.avx-assistant-status b{margin-top:3px!important;font-size:7px!important}
+.avx-assistant-info-sheet{gap:8px!important}
+.avx-info-hero{display:flex;align-items:center;gap:10px;padding:11px;border-radius:13px;background:#101010;border:1px solid rgba(255,255,255,.06)}
+.avx-info-icon{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:rgba(183,255,106,.10);color:#b7ff6a;font:900 12px/1 Montserrat,sans-serif}
+.avx-info-hero b{display:block;font:950 10px/1.1 Montserrat,sans-serif;color:#eee}
+.avx-info-hero span{display:block;margin-top:4px;color:#707070;font:700 8px/1.35 Nunito,sans-serif}
+.avx-info-list{display:grid;gap:5px}
+.avx-info-list>div{padding:9px 10px;border-radius:11px;background:#0e0e0e;border:1px solid rgba(255,255,255,.05)}
+.avx-info-list b{display:block;color:#aaa;font:900 6.5px/1 Montserrat,sans-serif;letter-spacing:.5px}
+.avx-info-list span{display:block;margin-top:4px;color:#777;font:700 8px/1.35 Nunito,sans-serif}
+.avx-info-note{padding:8px 10px;border-radius:10px;background:rgba(183,255,106,.045);color:#737873;font:700 7.5px/1.35 Nunito,sans-serif;text-align:center}
+.avito-shell{gap:8px!important}
+.avito-hero{padding:11px!important;border-radius:16px!important}
+.avito-title{font-size:20px!important}
+.avito-sub{margin-top:4px!important;font-size:8px!important}
+.avito-stats{gap:5px!important;margin-top:8px!important}
+.avito-stat{padding:7px!important;border-radius:10px!important;min-height:0!important}
+.avito-stat b{font-size:11px!important}
+.avito-stat span{margin-top:3px!important;font-size:5.5px!important}
+.avito-tabs{gap:3px!important;padding:3px!important;border-radius:11px!important}
+.avito-tab{min-height:31px!important;border-radius:8px!important;font-size:6px!important}
+.avito-section{gap:6px!important}
+.avito-list{gap:5px!important}
+.avito-item{padding:8px!important;border-radius:12px!important}
+.avito-item-meta{margin-top:3px!important;font-size:7px!important}
+.avito-item-actions{gap:4px!important;margin-top:6px!important}
+.avito-btn{min-height:32px!important;border-radius:9px!important;font-size:7px!important}
+.avx-section{gap:6px!important}
+.avx-stock-row{padding:7px!important}
+.avx-chat{padding:9px!important;border-radius:12px!important}
+@media(max-width:390px){.avx-assistant-actions{gap:4px}.avx-assistant-info{width:26px;height:26px;line-height:26px}.avx-assistant-btn{min-width:104px!important;font-size:6px!important}.avito-tab{font-size:5.5px!important}}
+</style>
 </body>
 
 
