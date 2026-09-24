@@ -756,14 +756,51 @@
     }
 
     async function loadBalance() {
-        if (balanceLoading || !userId) return;
-        balanceLoading = true;
+        if (balanceLoading) return;
         try {
-            const data = await apiFetch(`${API_BASE}/profile/${userId}`);
-            balance = data.balance ?? data.casino_balance ?? 0;
-            updateUI();
+            // В Telegram WebView userId иногда появляется только после первого обращения к WebApp.
+            telegramInitData = getInitData();
+            if (!userId) {
+                userId = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '');
+            }
+            if (!userId && telegramInitData) {
+                try {
+                    const q = new URLSearchParams(telegramInitData);
+                    const u = JSON.parse(q.get('user') || '{}');
+                    userId = String(u?.id || '');
+                } catch (_) {}
+            }
+            if (!userId) return;
+
+            balanceLoading = true;
+
+            // Главный источник баланса — тот же RESSELL /profile, откуда его получает основная игра.
+            // Состояние контейнеров используется как дополнительная синхронизация.
+            let loaded = false;
+            try {
+                const data = await apiFetch(`${API_BASE}/profile/${userId}`);
+                if (data && data.balance !== undefined && data.balance !== null) {
+                    balance = Number(data.balance) || 0;
+                    loaded = true;
+                }
+            } catch (profileError) {
+                console.warn('Профиль RESSELL не загрузил баланс:', profileError);
+            }
+
+            try {
+                const state = await apiFetch(`${API_BASE}/wheel/case/state?userId=${encodeURIComponent(userId)}`);
+                if (state && state.balance !== undefined && state.balance !== null) {
+                    balance = Number(state.balance) || 0;
+                    loaded = true;
+                }
+            } catch (stateError) {
+                console.warn('Состояние контейнеров не загрузило баланс:', stateError);
+            }
+
+            if (loaded) updateUI();
+            else balanceDisplay.textContent = '—';
         } catch (error) {
-            console.error('Не удалось получить баланс RESSELL:', error);
+            console.error('Не удалось синхронизировать баланс RESSELL:', error);
             balanceDisplay.textContent = '—';
         } finally {
             balanceLoading = false;
