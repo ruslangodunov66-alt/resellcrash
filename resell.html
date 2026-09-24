@@ -6113,8 +6113,7 @@ async function initFarm(){
     let content='';
     if(avitoTab==='buy'){
       content=`<div class="avx-section">
-        <div class="avx-buy-head"><div><b>Закуп</b><small class="avx-buy-caption">Чем больше сделок — тем сильнее поставка</small></div><div class="avx-buy-head-actions"><button type="button" class="avx-assistant-link" data-avito-open-assistants>ПОМОЩНИКИ${assistantCount?` · ${assistantCount}`:''}</button><button type="button" class="avx-refresh-stock avx-refresh-stock-top" data-avito-refresh ${refreshAvailable?'':'disabled'}>${refreshLabel}</button></div></div>
-        <div class="avx-assistant-main-btn"><button class="avx-assistant-btn" data-avito-open-assistants type="button">ПОМОЩНИКИ ${assistantCount?`· ${assistantCount}/${assistantMax}`:''}</button></div>
+        <div class="avx-buy-head"><div><b>Закуп</b><small class="avx-buy-caption">Чем больше сделок — тем сильнее поставка</small></div><div class="avx-buy-head-actions"><button type="button" class="avx-assistant-link" data-avito-open-assistants>ПОМОЩНИКИ</button><button type="button" class="avx-refresh-stock avx-refresh-stock-top" data-avito-refresh ${refreshAvailable?'':'disabled'}>${refreshLabel}</button></div></div>
         <div class="avx-supply-progress"><div class="avx-supply-progress-head"><span><b>${esc(discoveryTier)}</b><small>${discoveryNextSales?`${number(discoverySales)} / ${number(discoveryNextSales)} продаж до следующего уровня`:`${number(discoverySales)} продаж · максимальный уровень`}</small></span><strong>${discoveryNextSales?`${Math.min(100,Math.round((discoverySales/Math.max(1,discoveryNextSales))*100))}%`:'MAX'}</strong></div><div class="avx-supply-progress-track"><i style="width:${discoveryNextSales?Math.min(100,Math.round((discoverySales/Math.max(1,discoveryNextSales))*100)):100}%"></i></div></div>
         <div class="avx-economy-mini"><span>ПОСТАВКА</span><b>СЛУЧАЙНО</b><em>Автомобили появляются непредсказуемо</em><i>Чем выше уровень — тем шире пул</i></div>
         <div class="avx-grid">${suppliers.slice(0,20).map(x=>{const rc=avitoRarity(x.rarity);const found=x.item_type==='avito_found';const buy=Number(x.buy_price||0);const market=Number(x.market_price||0);const margin=Math.max(0,market-buy);const apple=/iphone|ipad|macbook|airpods|apple watch|apple/i.test(String(x.name||'')+' '+String(x.cat||''));return `<div class="avx-product rarity-${rc} ${found?'avx-found-product':''} ${apple?'avx-apple-product':''}" data-rarity="${rc}"><div class="avx-product-top"><div class="avx-rarity-icon ${apple?'avx-apple-icon':''}" aria-hidden="true">${apple?'':''}</div><div class="avx-product-info"><b>${esc(x.name||'Товар')}</b><span>${esc(x.cat||'Категория')}${found?' · редкий лот в поставке':' · спрос ×'+Number(x.demand||1).toFixed(2)}</span><small class="avx-rarity-name">${avitoRarityLabel(x.rarity)}${found?' · ПОВЕЗЛО В ПОСТАВКЕ':''}</small></div></div><div class="avx-product-bottom"><strong>${number(buy)} ₽</strong><button class="avx-btn buy" data-avito-buy="${esc(x.id)}">КУПИТЬ · ${number(buy)} ₽</button></div>${found?`<div class="avx-found-profit">рынок ~ ${number(market)} ₽ · запас перепродажи +${number(margin)} ₽</div>`:''}</div>`}).join('')||'<div class="avx-empty">Поставщики временно недоступны.</div>'}</div>
@@ -6132,14 +6131,19 @@ async function initFarm(){
       const helperListed=helperItems.filter(x=>x.assistant_listed);
       const helperChats=chats.filter(x=>String(x.client_type||'')==='assistant');
       const helperSales=Array.isArray(assistants.events)?assistants.events.filter(x=>x && x.type==='sale'):[];
+      const assistantCards=Array.from({length:assistantCount},(_,idx)=>{
+        const aid=idx+1;
+        const items=helperItems.filter(x=>Number(x.assistant_no||x.assistant_id||0)===aid);
+        const achats=helperChats.filter(x=>Number(x.assistant_id||0)===aid);
+        const listed=items.filter(x=>x.assistant_listed).length;
+        const salesCount=helperSales.filter(x=>Number(x.assistant_id||0)===aid).length;
+        return `<div class="avx-assistant-card"><div class="avx-assistant-card-head"><div><span>ПОМОЩНИК ${String(aid).padStart(2,'0')}</span><b>РАБОТАЕТ</b></div><i>${listed?'ПРОДАЁТ':'ГОТОВ'}</i></div><div class="avx-assistant-card-stats"><div><small>ТОВАРЫ</small><b>${items.length}</b></div><div><small>ЧАТЫ</small><b>${achats.length}</b></div><div><small>ПРОДАЖИ</small><b>${salesCount}</b></div></div></div>`;
+      }).join('');
       content=`<div class="avx-section avx-assistant-center">
-        <div class="avx-section-head avx-assistant-back-head"><div><b>ПОМОЩНИКИ</b><span>Отдельный экран команды</span></div><button type="button" class="avx-btn ghost" data-avito-tab="buy">НАЗАД</button></div>
-        <div class="avx-assistant-center-hero"><div><span class="avx-assistant-kicker">КОМАНДА AVITO</span><b>ТВОИ ПОМОЩНИКИ</b><small>Пассивная команда закупает товары, выставляет их и ведёт переговоры вместо тебя.</small></div><div class="avx-assistant-big-count"><strong>${assistantCount}</strong><span>из ${assistantMax}</span></div></div>
-        <div class="avx-assistant-center-actions"><button class="avx-assistant-btn" data-avito-hire-assistant ${assistantCount>=assistantMax?'disabled':''}>${assistantCount>=assistantMax?'ЛИМИТ 5':'НАНЯТЬ · '+number(assistantCost)+' ₽'}</button><button class="avx-assistant-info" type="button" data-avito-assistant-info aria-label="Как работают помощники">i</button></div>
-        <div class="avx-assistant-status avx-assistant-status-large"><div><small>В РАБОТЕ</small><b>${Number(assistants.active||0)}/${assistantCount}</b></div><div><small>СТАТУС</small><b class="live">ПАССИВНО</b></div><div><small>СЛЕДУЮЩАЯ</small><b>${Number(assistants.next_run_at||0)>Date.now()/1000?`~${Math.max(1,Math.ceil(Number(assistants.next_run_at)-Date.now()/1000))} сек`:'ГОТОВО'}</b></div></div>
-        <div class="avx-assistant-block"><div class="avx-section-head"><div><b>ТОВАРЫ ПОМОЩНИКОВ</b><span>Все закупленные командой товары находятся отдельно от твоего склада.</span></div><span class="avx-count">${helperItems.length}</span></div>${helperItems.length?helperItems.slice(0,12).map(x=>`<div class="avx-stock-row"><div class="avx-stock-left"><div class="avx-rarity-icon"></div><div><b>${esc(x.name||'Товар')}<span class="avx-assistant-badge">ПОМОЩНИК</span></b><span>Закуп ${number(x.buy_price||0)} ₽ · рынок ${number(x.market_price||0)} ₽</span><small class="avx-rarity-name">${x.assistant_listed?'В РАБОТЕ · ВЫСТАВЛЕН':'ГОТОВИТСЯ К ПРОДАЖЕ'}</small></div></div><span class="avx-assistant-kicker">${x.assistant_listed?'ПРОДАЁТСЯ':'ОБРАБАТЫВАЕТСЯ'}</span></div>`).join(''):'<div class="avx-empty">Пока нет товаров. Нанятые помощники начнут закупку автоматически.</div>'}</div>
-        <div class="avx-assistant-block"><div class="avx-section-head"><div><b>ЧАТЫ ПОМОЩНИКОВ</b><span>Переговоры команды с покупателями.</span></div><span class="avx-count">${helperChats.length}</span></div>${helperChats.length?helperChats.slice(0,8).map(chat=>`<button class="avx-chat avx-assistant-chat" data-open-avito-chat="${esc(chat.chat_key)}"><span class="avx-avatar">${esc(String(chat.buyer_id||'?').slice(-2))}</span><span class="avx-chat-main"><b>Помощник №${esc(chat.assistant_id||'?')} · Покупатель #${esc(chat.buyer_id)}<span class="avx-assistant-badge">АССИСТЕНТ</span></b><small>${esc(chat.item||'Товар')}</small><em>${esc(chat.message||'Идут переговоры')}</em></span><span class="avx-chat-side">${chat.unread?'<i>1</i>':''}<strong>${number(chat.offer||chat.price||0)} ₽</strong>›</span></button>`).join(''):'<div class="avx-empty">Пока нет переговоров. Помощники сами найдут покупателей.</div>'}</div>
-        ${helperSales.length?`<div class="avx-info-note">Последняя активность команды: ${helperSales.length} продаж в журнале.</div>`:''}
+        <div class="avx-section-head avx-assistant-back-head"><div><b>ПОМОЩНИКИ</b></div><button type="button" class="avx-btn ghost" data-avito-tab="buy">НАЗАД</button></div>
+        <div class="avx-assistant-command"><div><span>КОМАНДА</span><b>${assistantCount} / ${assistantMax}</b></div><button class="avx-assistant-btn" data-avito-hire-assistant ${assistantCount>=assistantMax?'disabled':''}>${assistantCount>=assistantMax?'ЛИМИТ':'НАНЯТЬ · '+number(assistantCost)+' ₽'}</button></div>
+        <div class="avx-assistant-status-large"><div><small>В РАБОТЕ</small><b>${Number(assistants.active||0)}/${assistantCount}</b></div><div><small>СЛЕДУЮЩАЯ</small><b>${Number(assistants.next_run_at||0)>Date.now()/1000?`~${Math.max(1,Math.ceil(Number(assistants.next_run_at)-Date.now()/1000))} сек`:'ГОТОВО'}</b></div></div>
+        <div class="avx-assistant-grid">${assistantCards||'<div class="avx-empty">Нанять первого помощника</div>'}</div>
       </div>`;
     } else if(avitoTab==='demand'){
       const dm=Array.isArray(d.demand?.all)?d.demand.all:[]; const event=d.market_event||null; const factors=Array.isArray(d.market_conditions)?d.market_conditions:[]; const hot=Array.isArray(d.demand?.hot)?d.demand.hot:dm.slice(0,3); const cold=Array.isArray(d.demand?.cold)?d.demand.cold:[]; const tone=(m)=>m>=1.15?'hot':m<.9?'cold':'mid'; const label=(m)=>m>=1.45?'ОЧЕНЬ ВЫСОКИЙ':m>=1.15?'ВЫСОКИЙ':m<.65?'КРИТИЧЕСКИЙ':m<.9?'НИЗКИЙ':'СТАБИЛЬНЫЙ';
@@ -9900,6 +9904,40 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 }
 </style>
 
+
+<style id="resell-avito-clean-assistants-v3">
+/* Achievement/unlock sheet: no background blur and no forced page scroll. */
+.avx-unlock-overlay{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:rgba(0,0,0,.78)!important;padding:14px!important}
+.avx-unlock-card{width:min(100%,340px)!important;max-height:calc(100dvh - 28px)!important;overflow:auto!important;padding:17px 15px 14px!important;border-radius:20px!important}
+.avx-unlock-card p{font-size:7.5px!important;line-height:1.35!important}
+.avx-unlock-items{margin:10px 0!important;gap:5px!important}
+.avx-unlock-item{padding:8px 9px!important}
+.avx-unlock-card .avx-btn{min-height:42px!important}
+/* One clean Helpers button on the main purchase screen. */
+.avx-assistant-main-btn{display:none!important}
+.avx-assistant-link{min-width:0!important;padding:0 10px!important;height:30px!important;font-size:6.5px!important}
+/* R-Game style manager: compact, visual, no explanatory walls of text. */
+.avx-assistant-center{gap:8px!important}
+.avx-assistant-command{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:13px;border-radius:17px;background:radial-gradient(circle at 100% 0,rgba(183,255,106,.10),transparent 38%),linear-gradient(145deg,#151815,#090b09);border:1px solid rgba(183,255,106,.13);box-shadow:inset 0 1px 0 rgba(255,255,255,.035)}
+.avx-assistant-command>div span{display:block;color:#69736c;font:950 6px/1 Montserrat,sans-serif;letter-spacing:1.3px}
+.avx-assistant-command>div b{display:block;margin-top:5px;color:#edf3ed;font:950 22px/1 Montserrat,sans-serif}
+.avx-assistant-command .avx-assistant-btn{min-height:39px!important;padding:0 12px!important}
+.avx-assistant-status-large{display:grid!important;grid-template-columns:1fr 1fr!important;gap:6px!important;margin:0!important}
+.avx-assistant-status-large>div{padding:9px 10px!important;border-radius:12px!important;background:#0d0f0d!important;border:1px solid rgba(255,255,255,.055)!important}
+.avx-assistant-status-large small{display:block;color:#555f57!important;font:950 5.5px/1 Montserrat,sans-serif!important;letter-spacing:.8px!important}
+.avx-assistant-status-large b{display:block;margin-top:5px;color:#e9efe9!important;font:950 10px/1 Montserrat,sans-serif!important}
+.avx-assistant-grid{display:grid;gap:7px!important}
+.avx-assistant-card{padding:11px!important;border-radius:15px!important;background:linear-gradient(145deg,#121512,#0a0c0a)!important;border:1px solid rgba(255,255,255,.06)!important}
+.avx-assistant-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.avx-assistant-card-head span{display:block;color:#667068;font:950 5.5px/1 Montserrat,sans-serif;letter-spacing:1px}
+.avx-assistant-card-head b{display:block;margin-top:4px;color:#eef3ee;font:950 11px/1 Montserrat,sans-serif}
+.avx-assistant-card-head i{font-style:normal;color:#b7ff6a;font:950 6px/1 Montserrat,sans-serif;letter-spacing:.7px}
+.avx-assistant-card-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-top:9px}
+.avx-assistant-card-stats>div{padding:7px 8px;border-radius:9px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.045)}
+.avx-assistant-card-stats small{display:block;color:#505950;font:950 5px/1 Montserrat,sans-serif;letter-spacing:.5px}
+.avx-assistant-card-stats b{display:block;margin-top:4px;color:#dfe7df;font:950 9px/1 Montserrat,sans-serif}
+@media(max-width:390px){.avx-assistant-command{padding:11px}.avx-assistant-command>div b{font-size:19px}.avx-assistant-command .avx-assistant-btn{font-size:6px!important;padding:0 9px!important}}
+</style>
 </body>
 
 
