@@ -512,6 +512,37 @@
     'use strict';
 
     const API_BASE = 'https://resellgame.bothost.tech';
+    const RESSELL_SESSION_KEY = 'resell_server_session_v4';
+    let telegramInitData = '';
+    let userId = String(new URLSearchParams(location.search).get('userId') || window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '');
+
+    function encodeBase64UrlUtf8(value){
+        try{
+            const bytes=new TextEncoder().encode(String(value||''));
+            let bin=''; for(const b of bytes) bin+=String.fromCharCode(b);
+            return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+        }catch(_){return '';}
+    }
+    function sessionUid(token){
+        try{const v=String(token||'').replace(/^Bearer\s+/i,'');const uid=v.split('.')[0]||'';return /^\d+$/.test(uid)?uid:'';}catch(_){return '';}
+    }
+    function getStoredSession(){try{return String(sessionStorage.getItem(RESSELL_SESSION_KEY)||localStorage.getItem(RESSELL_SESSION_KEY)||new URLSearchParams(location.search).get('resell_session')||'').trim();}catch(_){return '';}}
+    function storeSession(token){try{sessionStorage.setItem(RESSELL_SESSION_KEY,token);}catch(_){} try{localStorage.setItem(RESSELL_SESSION_KEY,token);}catch(_){} }
+    function clearSession(){try{sessionStorage.removeItem(RESSELL_SESSION_KEY);}catch(_){} try{localStorage.removeItem(RESSELL_SESSION_KEY);}catch(_){} }
+    function getInitData(){return String(window.Telegram?.WebApp?.initData||telegramInitData||'').trim();}
+    async function ensureResellSession(){
+        const init=getInitData();
+        const wanted=String(userId||'').trim();
+        const existing=getStoredSession();
+        if(existing && sessionUid(existing)===wanted) return existing;
+        if(!init) return existing || '';
+        const r=await fetch(`${API_BASE}/auth/resell/session`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'application/json','X-Telegram-Init-Data':init,'Authorization':'tma '+init},body:'{}'});
+        const d=await r.json().catch(()=>({}));
+        if(!r.ok||!d?.success||!d?.session) throw new Error(d?.error||'RESSELL-сессия не подтверждена');
+        const token=String(d.session); const uid=sessionUid(token);
+        if(wanted && uid && uid!==wanted) throw new Error('Несовпадение Telegram ID с RESSELL-сессией');
+        userId=uid||wanted; storeSession(token); return token;
+    }
 
     // БАЗОВЫЕ ПРИЗЫ
     const CASE_ITEMS = [
@@ -679,30 +710,51 @@
     async function apiFetch(url, options = {}, timeout = 10000) {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeout);
-        const headers = new Headers(options.headers || {});
-        headers.set('Accept', 'application/json');
-        const session = localStorage.getItem('resell_server_session_v4') || localStorage.getItem('resell_session_v2') || new URLSearchParams(location.search).get('resell_session') || '';
-        const initData = window.Telegram?.WebApp?.initData || '';
-        if (session) { headers.set('X-Resell-Session', session); headers.set('Authorization', 'Bearer ' + session); }
-        else if (initData) { headers.set('X-Telegram-Init-Data', initData); headers.set('Authorization', 'tma ' + initData); }
         try {
-            const response = await fetch(url, { ...options, headers, signal: controller.signal });
-            clearTimeout(timer);
-            const text = await response.text();
-            let data;
-            try { data = text ? JSON.parse(text) : {}; } 
-            catch { throw new Error('Некорректный ответ сервера'); }
-            if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+            try { window.Telegram?.WebApp?.ready?.(); window.Telegram?.WebApp?.expand?.(); } catch(_) {}
+            telegramInitData = getInitData();
+            const uidFromInit = (()=>{try{const q=new URLSearchParams(telegramInitData);const u=JSON.parse(q.get('user')||'{}');return String(u?.id||'');}catch(_){return '';}})();
+            if(uidFromInit) userId=uidFromInit;
+
+            const headers = new Headers(options.headers || {});
+            headers.set('Accept','application/json');
+            headers.set('Cache-Control','no-cache');
+            headers.delete('X-Telegram-Init-Data'); headers.delete('Authorization'); headers.delete('X-Resell-Session');
+
+            let session=getStoredSession();
+            if(session && userId && sessionUid(session) && sessionUid(session)!==String(userId)) { clearSession(); session=''; }
+            if(!session && telegramInitData && userId) session=await ensureResellSession();
+            if(session){
+                headers.set('X-Resell-Session',session);
+                headers.set('Authorization','Bearer '+session);
+            }else if(telegramInitData){
+                headers.set('X-Telegram-Init-Data',telegramInitData);
+                headers.set('Authorization','tma '+telegramInitData);
+            }
+
+            let requestUrl=String(url);
+            if(telegramInitData){
+                try{const u=new URL(requestUrl,location.href); const enc=encodeBase64UrlUtf8(telegramInitData); if(enc)u.searchParams.set('tg_auth_b64',enc); requestUrl=u.href;}catch(_){}
+            }
+            if(userId){
+                try{const u=new URL(requestUrl,location.href);u.searchParams.set('tg_id',String(userId));requestUrl=u.href;}catch(_){}
+            }
+            if(!userId) throw new Error('Не удалось определить Telegram ID. Открой RESSELL через Telegram.');
+
+            const response=await fetch(requestUrl,{...options,cache:'no-store',headers,signal:controller.signal});
+            const text=await response.text(); let data={};
+            try{data=text?JSON.parse(text):{};}catch(_){throw new Error('Некорректный ответ сервера');}
+            if(!response.ok){
+                if(response.status===401 && telegramInitData && session){ clearSession(); return await apiFetch(url,options,timeout); }
+                throw new Error(data.error||`HTTP ${response.status}`);
+            }
             return data;
-        } catch (error) {
-            clearTimeout(timer);
-            if (error.name === 'AbortError') throw new Error('Превышено время ожидания сервера');
+        } catch(error){
+            if(error.name==='AbortError') throw new Error('Превышено время ожидания сервера');
             throw error;
-        }
+        } finally { clearTimeout(timer); }
     }
 
-    const userId = new URLSearchParams(window.location.search).get('userId') || window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '';
-    
     async function loadBalance() {
         if (balanceLoading || !userId) return;
         balanceLoading = true;
@@ -1063,7 +1115,7 @@
                 }
                 slotCanvas.style.opacity='0';
                 cancelAnimationFrame(spinSparkAnimFrame);
-                setTimeout(()=>showResult(winItem),520);
+                setTimeout(()=>showResult(winItem, roundId),520);
                 return;
             }
             spinSparkAnimFrame=requestAnimationFrame(updateSlot);
@@ -1079,7 +1131,7 @@
     }
 
     // ПОКАЗ РЕЗУЛЬТАТА
-    function showResult(winItem) {
+    function showResult(winItem, roundId) {
         const resDisplay = document.getElementById('resultDisplay');
         let extraHtml = '';
         if (winItem.type === 'skin' || winItem.type === 'car') {
@@ -1179,7 +1231,7 @@
         cIndex = (cIndex + 1) % CASE_ITEMS.length;
     }, 3000);
 
-    document.getElementById('backBtn').addEventListener('click', () => { vibrate('light'); window.location.href = 'resell.html?userId=' + userId; });
+    document.getElementById('backBtn').addEventListener('click', () => { vibrate('light'); window.location.replace('resell.html'); });
 
     // СТАРТ
     loadCaseCounts();
