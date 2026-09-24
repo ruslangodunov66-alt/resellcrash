@@ -526,23 +526,81 @@
     function sessionUid(token){
         try{const v=String(token||'').replace(/^Bearer\s+/i,'');const uid=v.split('.')[0]||'';return /^\d+$/.test(uid)?uid:'';}catch(_){return '';}
     }
-    function getStoredSession(){try{return String(sessionStorage.getItem(RESSELL_SESSION_KEY)||localStorage.getItem(RESSELL_SESSION_KEY)||new URLSearchParams(location.search).get('resell_session')||'').trim();}catch(_){return '';}}
+    function getLaunchSession(){
+        try{
+            return String(new URLSearchParams(location.search).get('resell_session')||'').trim();
+        }catch(_){ return ''; }
+    }
+    function getStoredSession(){
+        try{
+            return String(getLaunchSession()||sessionStorage.getItem(RESSELL_SESSION_KEY)||localStorage.getItem(RESSELL_SESSION_KEY)||'').trim();
+        }catch(_){return '';}
+    }
     function storeSession(token){try{sessionStorage.setItem(RESSELL_SESSION_KEY,token);}catch(_){} try{localStorage.setItem(RESSELL_SESSION_KEY,token);}catch(_){} }
     function clearSession(){try{sessionStorage.removeItem(RESSELL_SESSION_KEY);}catch(_){} try{localStorage.removeItem(RESSELL_SESSION_KEY);}catch(_){} }
     function getInitData(){return String(window.Telegram?.WebApp?.initData||telegramInitData||'').trim();}
     async function ensureResellSession(){
+        const launchSession=getLaunchSession();
         const init=getInitData();
+
+        // Если контейнер открыт из RESSELL, именно эта серверная сессия
+        // связывает контейнеры с тем же игроком и тем же players.balance.
+        // Не подменяем её Telegram initData другого Mini App.
+        if(launchSession && sessionUid(launchSession)){
+            userId=sessionUid(launchSession);
+            storeSession(launchSession);
+            return launchSession;
+        }
+
         const wanted=String(userId||'').trim();
         const existing=getStoredSession();
         if(existing && sessionUid(existing)===wanted) return existing;
         if(!init) return existing || '';
-        const r=await fetch(`${API_BASE}/auth/resell/session`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'application/json','X-Telegram-Init-Data':init,'Authorization':'tma '+init},body:'{}'});
-        const d=await r.json().catch(()=>({}));
-        if(!r.ok||!d?.success||!d?.session) throw new Error(d?.error||'RESSELL-сессия не подтверждена');
-        const token=String(d.session); const uid=sessionUid(token);
-        if(wanted && uid && uid!==wanted) throw new Error('Несовпадение Telegram ID с RESSELL-сессией');
-        userId=uid||wanted; storeSession(token); return token;
+
+        try{
+            const r=await fetch(`${API_BASE}/auth/resell/session`,{
+                method:'POST',cache:'no-store',
+                headers:{'Content-Type':'application/json','Accept':'application/json','X-Telegram-Init-Data':init,'Authorization':'tma '+init},
+                body:'{}'
+            });
+            const d=await r.json().catch(()=>({}));
+            if(r.ok&&d?.success&&d?.session){
+                const token=String(d.session); const uid=sessionUid(token);
+                if(wanted && uid && uid!==wanted) throw new Error('Несовпадение Telegram ID с RESSELL-сессией');
+                userId=uid||wanted; storeSession(token); return token;
+            }
+        }catch(e){
+            console.warn('RESSELL initData session unavailable:',e);
+        }
+
+        // Прямой вход в containers.html: подтверждаем игрока через бот.
+        // Это не создаёт отдельный баланс — backend выдаёт ту же RESSELL-сессию.
+        try{
+            const cr=await fetch(`${API_BASE}/auth/resell/challenge`,{cache:'no-store',headers:{'Accept':'application/json'}});
+            const cd=await cr.json().catch(()=>({}));
+            if(cd?.success && cd?.nonce && cd?.browser_key && cd?.bot_url){
+                try{
+                    if(window.Telegram?.WebApp?.openTelegramLink) window.Telegram.WebApp.openTelegramLink(cd.bot_url);
+                    else window.open(cd.bot_url,'_blank','noopener');
+                }catch(_){}
+                const deadline=Date.now()+30000;
+                while(Date.now()<deadline){
+                    await new Promise(r=>setTimeout(r,1000));
+                    const pr=await fetch(`${API_BASE}/auth/resell/poll/${encodeURIComponent(cd.nonce)}?browser_key=${encodeURIComponent(cd.browser_key)}`,{cache:'no-store',headers:{'Accept':'application/json'}});
+                    const pd=await pr.json().catch(()=>({}));
+                    if(pd?.success&&pd?.session){
+                        const token=String(pd.session); const uid=sessionUid(token);
+                        if(uid){ userId=uid; storeSession(token); return token; }
+                    }
+                }
+            }
+        }catch(e){
+            console.warn('RESSELL challenge unavailable:',e);
+        }
+
+        return existing || '';
     }
+
 
     // БАЗОВЫЕ ПРИЗЫ
     const CASE_ITEMS = [
@@ -722,9 +780,23 @@
             headers.delete('X-Telegram-Init-Data'); headers.delete('Authorization'); headers.delete('X-Resell-Session');
 
             let session=getStoredSession();
-            if(session && userId && sessionUid(session) && sessionUid(session)!==String(userId)) { clearSession(); session=''; }
-            if(!session && telegramInitData && userId) session=await ensureResellSession();
+            const launchSession=getLaunchSession();
+
+            // Серверная RESSELL-сессия из URL имеет приоритет: она выдана
+            // основной игрой и уже привязана backend к нужному Telegram ID.
+            if(launchSession && sessionUid(launchSession)){
+                session=launchSession;
+                userId=sessionUid(launchSession);
+                storeSession(session);
+            }else if(session && userId && sessionUid(session) && sessionUid(session)!==String(userId)){
+                clearSession(); session='';
+            }
+
+            if(!session && (telegramInitData || userId)) session=await ensureResellSession();
+
             if(session){
+                const sid=sessionUid(session);
+                if(sid) userId=sid;
                 headers.set('X-Resell-Session',session);
                 headers.set('Authorization','Bearer '+session);
             }else if(telegramInitData){
@@ -789,7 +861,15 @@
 
             try {
                 const state = await apiFetch(`${API_BASE}/wheel/case/state?userId=${encodeURIComponent(userId)}`);
-                if (state && state.balance !== undefined && state.balance !== null) {
+                // /profile/{id} и wheel/case/state используют один players.balance.
+                // Профиль — главный источник отображаемого основного баланса;
+                // состояние контейнеров здесь нужно прежде всего для pending-кейса.
+                if (state?.pending?.round_id) {
+                    const caseId = state.pending.case_id && CASE_TYPES[state.pending.case_id] ? state.pending.case_id : selectedCaseId;
+                    pendingRounds[caseId] = state.pending.round_id;
+                    caseInventory[caseId] = 1;
+                }
+                if (!loaded && state && state.balance !== undefined && state.balance !== null) {
                     balance = Number(state.balance) || 0;
                     loaded = true;
                 }
