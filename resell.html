@@ -3954,9 +3954,10 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
         ${list.length ? list.map(q => {
           const pct = questProgressPercent(q);
           const completed = !!q.completed;
-          const claimable = completed && !q.reward_claimed;
-          const claimed = completed && !!q.reward_claimed;
-          const action = claimable ? `<button class="quest-action-v2 ready" data-quest-claim="${esc(q.id)}">ЗАБРАТЬ +${number(q.reward_money)} ₽</button>` : (claimed ? `<button class="quest-action-v2 claimed" disabled>НАГРАДА ПОЛУЧЕНА</button>` : '');
+          const autoReward = q.reward_mode==='auto' || q.kind==='daily';
+          const claimable = completed && !autoReward && !q.reward_claimed;
+          const claimed = completed && (autoReward || !!q.reward_claimed);
+          const action = claimable ? `<button class="quest-action-v2 ready" data-quest-claim="${esc(q.id)}">ЗАБРАТЬ +${number(q.reward_money)} ₽</button>` : (claimed ? `<button class="quest-action-v2 claimed" disabled>${autoReward?'НАГРАДА ЗАЧИСЛЕНА':'НАГРАДА ПОЛУЧЕНА'}</button>` : '');
           return `<div class="quest-card-v2 ${completed ? 'done' : ''}">
             <div class="quest-card-top-v2"><div class="quest-title-v2">${esc(q.name)}</div><div class="quest-reward-v2">+${number(q.reward_money)} ₽</div></div>
             <div class="quest-desc-v2">${esc(q.description)}</div>
@@ -3972,12 +3973,12 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     const q = profileData?.quests || {};
     const permanent = Array.isArray(q.permanent) ? q.permanent : [];
     const daily = Array.isArray(q.daily) ? q.daily : [];
-    const readyCount = [...permanent, ...daily].filter(x => x.completed && !x.reward_claimed).length;
+    const readyCount = permanent.filter(x => x.completed && !x.reward_claimed).length;
     const completedCount = [...permanent, ...daily].filter(x => x.completed).length;
-    const claimableRewards = [...permanent, ...daily].reduce((sum,x) => sum + (x.completed && !x.reward_claimed ? Number(x.reward_money || 0) : 0), 0);
+    const claimableRewards = permanent.reduce((sum,x) => sum + (x.completed && !x.reward_claimed ? Number(x.reward_money || 0) : 0), 0);
     return `
       <div class="quest-summary-v2">
-        <div class="quest-summary-row-v2"><div><div class="quest-summary-total-v2">${readyCount} <span style="font-size:.46em;color:#777">ЗАБРАТЬ</span></div><div class="quest-summary-meta-v2">3 постоянных · 5 ежедневных · выполнено ${completedCount}</div></div><div class="quest-summary-reward-v2">+${number(claimableRewards)} ₽<span>ДОСТУПНО</span></div></div>
+        <div class="quest-summary-row-v2"><div><div class="quest-summary-total-v2">${readyCount} <span style="font-size:.46em;color:#777">К ЗАБОРУ</span></div><div class="quest-summary-meta-v2">3 постоянных · 5 ежедневных · выполнено ${completedCount}</div></div><div class="quest-summary-reward-v2">+${number(claimableRewards)} ₽<span>ДОСТУПНО</span></div></div>
       </div>
       ${renderQuestGroup('Постоянные квесты', permanent, 'permanent')}
       ${renderQuestGroup('Ежедневные задания', daily, 'daily')}
@@ -6127,13 +6128,26 @@ async function initFarm(){
         ${special.length?`<div class="avx-special-list">${special.map(x=>`<div class="avx-special-item"><div class="avx-special-top">${avitoInventoryVisual(x)}<div class="avx-special-copy"><b>${esc(x.name||'Особый лот')}</b><span>${esc(x.cat||'Особый лот')} · пойманный</span></div><div class="avx-special-price">${number(x.market_price||0)} ₽</div></div><div class="avx-special-bottom"><span class="avx-special-tag">${avitoRarityLabel(x.rarity)} · HIGH VALUE</span><button class="avx-btn buy" data-avito-publish="${esc(x.uid||'')}" ${pub||!x.uid?'disabled':''}>${pub?'ЗАВЕРШИ СДЕЛКУ':'ВЫСТАВИТЬ'}</button></div></div>`).join('')}</div>`:''}
         <div class="avx-stock">${(()=>{const regularGrouped=manualGrouped.filter(x=>x.item_type!=='avito_found' && x.item_type!=='avito_hunt'); return regularGrouped.length?regularGrouped.map(x=>{const rc=avitoRarity(x.rarity);const isNew=(x.uids||[]).some(u=>newUids.includes(String(u)));return `<div class="avx-stock-row rarity-${rc} ${isNew?'avx-new-purchased':''}" data-rarity="${rc}"><div class="avx-stock-left"><div class="avx-rarity-icon" aria-hidden="true"></div><div><b>${esc(x.name||'Товар')} ${x.count>1?`×${x.count}`:''}${isNew?'<span class="avx-stock-new">НОВЫЙ</span>':''}</b><span>Закуп · рынок ${number(x.market_price||0)} ₽</span><small class="avx-rarity-name">${avitoRarityLabel(x.rarity)}</small></div></div><button class="avx-btn buy" data-avito-publish="${esc(x.uids[0]||'')}" ${pub||!x.uids.length?'disabled':''}>${pub?'ЗАВЕРШИ СДЕЛКУ':'ВЫСТАВИТЬ'}</button></div>`}).join(''):'<div class="avx-empty">Склад пуст. Перейди в «Закуп» — ценные находки появляются прямо среди обычных лотов.</div>'})()}</div>
       </div>`;
+    } else if(avitoTab==='assistants'){
+      const helperItems=inv.filter(x=>x.assistant_bought);
+      const helperListed=helperItems.filter(x=>x.assistant_listed);
+      const helperChats=chats.filter(x=>String(x.client_type||'')==='assistant');
+      const helperSales=Array.isArray(assistants.events)?assistants.events.filter(x=>x && x.type==='sale'):[];
+      content=`<div class="avx-section avx-assistant-center">
+        <div class="avx-assistant-center-hero"><div><span class="avx-assistant-kicker">КОМАНДА AVITO</span><b>ТВОИ ПОМОЩНИКИ</b><small>Пассивная команда закупает товары, выставляет их и ведёт переговоры вместо тебя.</small></div><div class="avx-assistant-big-count"><strong>${assistantCount}</strong><span>из ${assistantMax}</span></div></div>
+        <div class="avx-assistant-center-actions"><button class="avx-assistant-btn" data-avito-hire-assistant ${assistantCount>=assistantMax?'disabled':''}>${assistantCount>=assistantMax?'ЛИМИТ 5':'НАНЯТЬ · '+number(assistantCost)+' ₽'}</button><button class="avx-assistant-info" type="button" data-avito-assistant-info aria-label="Как работают помощники">i</button></div>
+        <div class="avx-assistant-status avx-assistant-status-large"><div><small>В РАБОТЕ</small><b>${Number(assistants.active||0)}/${assistantCount}</b></div><div><small>СТАТУС</small><b class="live">ПАССИВНО</b></div><div><small>СЛЕДУЮЩАЯ</small><b>${Number(assistants.next_run_at||0)>Date.now()/1000?`~${Math.max(1,Math.ceil(Number(assistants.next_run_at)-Date.now()/1000))} сек`:'ГОТОВО'}</b></div></div>
+        <div class="avx-assistant-block"><div class="avx-section-head"><div><b>ТОВАРЫ ПОМОЩНИКОВ</b><span>Все закупленные командой товары находятся отдельно от твоего склада.</span></div><span class="avx-count">${helperItems.length}</span></div>${helperItems.length?helperItems.slice(0,12).map(x=>`<div class="avx-stock-row"><div class="avx-stock-left"><div class="avx-rarity-icon"></div><div><b>${esc(x.name||'Товар')}<span class="avx-assistant-badge">ПОМОЩНИК</span></b><span>Закуп ${number(x.buy_price||0)} ₽ · рынок ${number(x.market_price||0)} ₽</span><small class="avx-rarity-name">${x.assistant_listed?'В РАБОТЕ · ВЫСТАВЛЕН':'ГОТОВИТСЯ К ПРОДАЖЕ'}</small></div></div><span class="avx-assistant-kicker">${x.assistant_listed?'ПРОДАЁТСЯ':'ОБРАБАТЫВАЕТСЯ'}</span></div>`).join(''):'<div class="avx-empty">Пока нет товаров. Нанятые помощники начнут закупку автоматически.</div>'}</div>
+        <div class="avx-assistant-block"><div class="avx-section-head"><div><b>ЧАТЫ ПОМОЩНИКОВ</b><span>Переговоры команды с покупателями.</span></div><span class="avx-count">${helperChats.length}</span></div>${helperChats.length?helperChats.slice(0,8).map(chat=>`<button class="avx-chat avx-assistant-chat" data-open-avito-chat="${esc(chat.chat_key)}"><span class="avx-avatar">${esc(String(chat.buyer_id||'?').slice(-2))}</span><span class="avx-chat-main"><b>Помощник №${esc(chat.assistant_id||'?')} · Покупатель #${esc(chat.buyer_id)}<span class="avx-assistant-badge">АССИСТЕНТ</span></b><small>${esc(chat.item||'Товар')}</small><em>${esc(chat.message||'Идут переговоры')}</em></span><span class="avx-chat-side">${chat.unread?'<i>1</i>':''}<strong>${number(chat.offer||chat.price||0)} ₽</strong>›</span></button>`).join(''):'<div class="avx-empty">Пока нет переговоров. Помощники сами найдут покупателей.</div>'}</div>
+        ${helperSales.length?`<div class="avx-info-note">Последняя активность команды: ${helperSales.length} продаж в журнале.</div>`:''}
+      </div>`;
     } else if(avitoTab==='demand'){
       const dm=Array.isArray(d.demand?.all)?d.demand.all:[]; const event=d.market_event||null; const factors=Array.isArray(d.market_conditions)?d.market_conditions:[]; const hot=Array.isArray(d.demand?.hot)?d.demand.hot:dm.slice(0,3); const cold=Array.isArray(d.demand?.cold)?d.demand.cold:[]; const tone=(m)=>m>=1.15?'hot':m<.9?'cold':'mid'; const label=(m)=>m>=1.45?'ОЧЕНЬ ВЫСОКИЙ':m>=1.15?'ВЫСОКИЙ':m<.65?'КРИТИЧЕСКИЙ':m<.9?'НИЗКИЙ':'СТАБИЛЬНЫЙ';
       content=`<div class="avx-demand-shell"><div class="avx-demand-hero"><div class="avx-demand-hero-top"><div><span class="avx-demand-kicker">AVITO · MARKET</span><b>СПРОС</b></div><span class="avx-demand-live">● LIVE</span></div><div class="avx-demand-summary">${hot.slice(0,2).map(x=>`<div class="avx-demand-mini hot"><span>${esc(x.category||'Категория')}</span><b>×${Number(x.multiplier||1).toFixed(2)}</b></div>`).join('')}${cold.slice(0,1).map(x=>`<div class="avx-demand-mini cold"><span>${esc(x.category||'Категория')}</span><b>×${Number(x.multiplier||1).toFixed(2)}</b></div>`).join('')}</div>${event?(()=>{const tx=String(event.text||'');return `<div class="avx-market-event market"><span class="avx-market-event-icon">⚡</span><div><small>СЕЙЧАС</small><b>${esc(tx)}</b></div></div>`;})():''}<div class="avx-factor-list avx-factor-cards">${factors.map(f=>`<div class="avx-factor"><span class="avx-factor-icon">${esc(f.icon||'•')}</span><div><strong>${esc(f.title||'Фактор рынка')}</strong><p>${esc(f.text||'')}</p></div></div>`).join('')}</div><div class="avx-demand-grid">${dm.map(x=>{const m=Number(x.multiplier||1);return `<div class="avx-demand-row"><div class="avx-demand-row-main"><span class="avx-demand-dot ${tone(m)}"></span><div><b>${esc(x.category||'Категория')}</b><span>${label(m)}</span></div></div><div class="avx-demand-mult ${tone(m)}">×${m.toFixed(2)}</div></div>`}).join('')||'<div class="avx-empty">Рынок обновляется.</div>'}</div></div>`;
     } else {
-      content=`<div class="avx-section"><div class="avx-section-head"><div><b>Чаты</b><span>Здесь появляются покупатели твоих объявлений.</span></div>${unread?`<span class="avx-new">${unread} новых</span>`:'<span class="avx-count">0</span>'}</div><div class="avx-chats">${chats.length?chats.map(chat=>`<button class="avx-chat ${chat.unread?'new':''} ${chat.client_type==='assistant'?'avx-assistant-chat':''}" data-open-avito-chat="${esc(chat.chat_key)}"><span class="avx-avatar">${esc(String(chat.buyer_id||'?').slice(-2))}</span><span class="avx-chat-main"><b>${chat.client_type==='assistant'?`Помощник №${esc(chat.assistant_id||'?')} · `:''}Покупатель #${esc(chat.buyer_id)}${chat.client_type==='assistant'?'<span class="avx-assistant-badge">АССИСТЕНТ</span>':''}</b><small>${esc(chat.item||'Товар')}</small><em>${esc(chat.message||'Клиент ждёт ответа')}</em></span><span class="avx-chat-side">${chat.unread?'<i>1</i>':''}<strong>${number(chat.offer||chat.price||0)} ₽</strong>›</span></button>`).join(''):'<div class="avx-empty">Пока сообщений нет. Выставь товар — клиент появится сам.</div>'}</div></div>`;
+      content=`<div class="avx-section"><div class="avx-section-head"><div><b>Чаты</b><span>Здесь появляются покупатели твоих объявлений.</span></div>${unread?`<span class="avx-new">${unread} новых</span>`:'<span class="avx-count">0</span>'}</div><div class="avx-chats">${chats.filter(chat=>String(chat.client_type||'')!=='assistant').length?chats.filter(chat=>String(chat.client_type||'')!=='assistant').map(chat=>`<button class="avx-chat ${chat.unread?'new':''} ${chat.client_type==='assistant'?'avx-assistant-chat':''}" data-open-avito-chat="${esc(chat.chat_key)}"><span class="avx-avatar">${esc(String(chat.buyer_id||'?').slice(-2))}</span><span class="avx-chat-main"><b>${chat.client_type==='assistant'?`Помощник №${esc(chat.assistant_id||'?')} · `:''}Покупатель #${esc(chat.buyer_id)}${chat.client_type==='assistant'?'<span class="avx-assistant-badge">АССИСТЕНТ</span>':''}</b><small>${esc(chat.item||'Товар')}</small><em>${esc(chat.message||'Клиент ждёт ответа')}</em></span><span class="avx-chat-side">${chat.unread?'<i>1</i>':''}<strong>${number(chat.offer||chat.price||0)} ₽</strong>›</span></button>`).join(''):'<div class="avx-empty">Пока сообщений нет. Выставь товар — клиент появится сам.</div>'}</div></div>`;
     }
-    return `<div class="avito-shell avx-shell"><div class="avx-hero"><div class="avx-brand"><div class="avx-logo">A</div><div><b class="avx-brand-title">AVITO MARKET</b><span class="avx-hero-shop">${esc(shopName)}</span></div></div><div class="avx-balance">${number(d.balance||0)} ₽</div></div><div class="avx-v59-level avx-reputation-simple"><div class="avx-v59-level-head"><div><span class="avx-v59-kicker">РЕПУТАЦИЯ</span><div class="avx-v59-level-name">${esc(shopName)}</div></div><button type="button" class="avx-review-trigger compact" data-avito-reviews><span class="avx-review-stars">${reviewsStars(reviews.average||0)}</span><span>${Number(reviews.count||0)} отзывов</span></button></div></div><div class="avx-stats"><div><b>${number(inv.length)}</b><span>на складе</span></div><div><b>${sales}</b><span>продаж</span></div><div><b>${number(profit)} ₽</b><span>прибыль</span></div></div><div class="avx-tabs"><button class="${avitoTab==='buy'?'active':''}" data-avito-tab="buy"><b>ЗАКУП</b><span>рынок</span></button><button class="${avitoTab==='sales'?'active':''}" data-avito-tab="sales"><b>ПРОДАЖИ ${inv.length?`<i class="avx-sales-badge">${inv.length}</i>`:''}</b><span>склад</span></button><button class="${avitoTab==='chats'?'active':''}" data-avito-tab="chats"><b>ЧАТЫ ${unread?`<i>${unread}</i>`:''}</b><span>клиенты</span></button><button class="${avitoTab==='demand'?'active':''} avx-demand-btn avx-demand-silver" data-avito-tab="demand"><b>СПРОС</b><span>рынок</span></button></div>${content}</div>`;
+    return `<div class="avito-shell avx-shell"><div class="avx-hero"><div class="avx-brand"><div class="avx-logo">A</div><div><b class="avx-brand-title">AVITO MARKET</b><span class="avx-hero-shop">${esc(shopName)}</span></div></div><div class="avx-balance">${number(d.balance||0)} ₽</div></div><div class="avx-v59-level avx-reputation-simple"><div class="avx-v59-level-head"><div><span class="avx-v59-kicker">РЕПУТАЦИЯ</span><div class="avx-v59-level-name">${esc(shopName)}</div></div><button type="button" class="avx-review-trigger compact" data-avito-reviews><span class="avx-review-stars">${reviewsStars(reviews.average||0)}</span><span>${Number(reviews.count||0)} отзывов</span></button></div></div><div class="avx-stats"><div><b>${number(inv.length)}</b><span>на складе</span></div><div><b>${sales}</b><span>продаж</span></div><div><b>${number(profit)} ₽</b><span>прибыль</span></div></div><div class="avx-tabs"><button class="${avitoTab==='buy'?'active':''}" data-avito-tab="buy"><b>ЗАКУП</b><span>рынок</span></button><button class="${avitoTab==='sales'?'active':''}" data-avito-tab="sales"><b>МОИ ТОВАРЫ ${inv.length?`<i class="avx-sales-badge">${inv.length}</i>`:''}</b><span>торговля</span></button><button class="${avitoTab==='chats'?'active':''}" data-avito-tab="chats"><b>МОИ ЧАТЫ ${unread?`<i>${unread}</i>`:''}</b><span>клиенты</span></button><button class="${avitoTab==='assistants'?'active':''}" data-avito-tab="assistants"><b>ПОМОЩНИКИ ${assistantCount?`<i class="avx-sales-badge">${assistantCount}</i>`:''}</b><span>команда</span></button><button class="${avitoTab==='demand'?'active':''} avx-demand-btn avx-demand-silver" data-avito-tab="demand"><b>СПРОС</b><span>рынок</span></button></div>${content}</div>`;
   }
 
   function renderAvitoChat(chat){
@@ -9789,6 +9803,82 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 .avx-chat{padding:9px!important;border-radius:12px!important}
 @media(max-width:390px){.avx-assistant-actions{gap:4px}.avx-assistant-info{width:26px;height:26px;line-height:26px}.avx-assistant-btn{min-width:104px!important;font-size:6px!important}.avito-tab{font-size:5.5px!important}}
 </style>
+
+<style id="resell-avito-clean-ui-v1">
+/* AVITO — clean compact workspace. Только визуальная уборка, функциональность не меняется. */
+.avx-shell{gap:7px!important}
+.avx-hero{padding:10px 11px!important;border-radius:15px!important}
+.avx-brand{gap:8px!important}
+.avx-logo{width:30px!important;height:30px!important;border-radius:9px!important;font-size:11px!important}
+.avx-brand-title{font-size:8px!important;letter-spacing:.8px!important}
+.avx-hero-shop{margin-top:2px!important;font-size:7px!important}
+.avx-balance{font-size:10px!important}
+.avx-reputation-simple{padding:7px 9px!important;border-radius:12px!important}
+.avx-v59-level-head{gap:7px!important}
+.avx-v59-kicker{font-size:5px!important}
+.avx-v59-level-name{margin-top:2px!important;font-size:8px!important}
+.avx-review-trigger.compact{padding:5px 7px!important;font-size:6px!important;border-radius:8px!important}
+.avx-stats{gap:4px!important;margin:0!important}
+.avx-stats>div{padding:7px 6px!important;border-radius:10px!important}
+.avx-stats b{font-size:10px!important}
+.avx-stats span{margin-top:3px!important;font-size:5px!important}
+
+/* Один компактный ряд навигации: без дублирующих подписей. */
+.avx-tabs{display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr))!important;gap:3px!important;padding:3px!important;border-radius:11px!important}
+.avx-tabs button{min-width:0!important;min-height:34px!important;padding:0 2px!important;border-radius:8px!important}
+.avx-tabs button b{display:block!important;font-size:5.8px!important;line-height:1.05!important;letter-spacing:.25px!important;white-space:nowrap!important}
+.avx-tabs button>span{display:none!important}
+.avx-tabs button i{font-size:5px!important;margin-left:2px!important}
+
+/* Внутри вкладок — меньше воздуха и декоративных блоков. */
+.avx-section-head{gap:6px!important}
+.avx-section-head>div>b{font-size:9px!important}
+.avx-section-head>div>span{font-size:6px!important}
+.avx-count{font-size:6px!important;padding:4px 6px!important}
+.avx-buy-head{margin-bottom:0!important}
+.avx-buy-caption{font-size:6px!important}
+.avx-supply-progress{padding:8px!important;border-radius:11px!important}
+.avx-economy-mini{padding:7px 9px!important;border-radius:10px!important}
+.avx-economy-mini em,.avx-economy-mini i{display:none!important}
+
+/* Помощники: один компактный статус вместо нескольких крупных карточек. */
+.avx-assistant-dashboard{margin:2px 0 5px!important;padding:8px!important}
+.avx-assistant-status>div{padding:5px!important}
+.avx-assistant-status b{font-size:6.5px!important}
+.avx-assistant-center-hero{padding:9px!important;border-radius:12px!important}
+.avx-assistant-center-hero small{font-size:6.5px!important;line-height:1.25!important}
+.avx-assistant-big-count strong{font-size:18px!important}
+.avx-assistant-center-actions{margin:0!important}
+
+/* Мои товары: помощники отображаются короткой строкой, не отдельным большим блоком. */
+.avx-assistant-card{padding:8px!important;border-radius:11px!important}
+.avx-assistant-card .avx-section-head span{font-size:5.8px!important}
+.avx-stock-row{min-height:0!important}
+.avx-stock-left b{font-size:8px!important}
+.avx-stock-left span{font-size:6px!important}
+.avx-stock-left small{font-size:5px!important}
+.avx-stock-new,.avx-assistant-badge{font-size:4.5px!important;padding:2px 4px!important}
+
+/* Карточки товаров и чатов — плотнее, но без потери действий. */
+.avx-product{padding:8px!important;border-radius:12px!important}
+.avx-product-info b{font-size:8px!important}
+.avx-product-info span{font-size:6px!important}
+.avx-product-info small{font-size:5px!important}
+.avx-product-bottom{margin-top:6px!important}
+.avx-product-bottom strong{font-size:9px!important}
+.avx-btn{min-height:30px!important;padding:0 8px!important;font-size:6px!important}
+.avx-chat{padding:8px!important}
+.avx-chat-main b{font-size:7px!important}
+.avx-chat-main small,.avx-chat-main em{font-size:6px!important}
+
+@media(max-width:390px){
+  .avx-tabs button b{font-size:5.2px!important}
+  .avx-stats>div{padding:6px 5px!important}
+  .avx-stats b{font-size:9px!important}
+  .avx-product{padding:7px!important}
+}
+</style>
+
 </body>
 
 
@@ -13053,3 +13143,29 @@ main.app{
 .bizsimple-flow b{display:block!important}
 </style>
 
+
+<style id="resell-avito-own-sections-v2">
+/* AVITO V2: player trading and passive team are separated into clear workspaces. */
+.avx-tabs{display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr))!important;gap:5px!important;padding:6px!important}
+.avx-tabs button{min-width:0!important;padding:9px 4px!important;border-radius:12px!important}
+.avx-tabs button b{font-size:8px!important;letter-spacing:.35px!important;white-space:nowrap!important}
+.avx-tabs button span{font-size:6.5px!important;white-space:nowrap!important}
+.avx-tabs button i{font-size:6px!important;margin-left:2px!important}
+.avx-assistant-center{display:flex!important;flex-direction:column!important;gap:10px!important}
+.avx-assistant-center-hero{display:flex!important;justify-content:space-between!important;align-items:center!important;gap:12px!important;padding:15px!important;border:1px solid rgba(255,255,255,.08)!important;border-radius:17px!important;background:linear-gradient(145deg,rgba(255,255,255,.055),rgba(255,255,255,.018))!important}
+.avx-assistant-center-hero>div:first-child{min-width:0!important;display:flex!important;flex-direction:column!important;gap:5px!important}
+.avx-assistant-center-hero b{font-size:17px!important;line-height:1.05!important}
+.avx-assistant-center-hero small{font-size:9px!important;line-height:1.45!important;color:#858585!important;max-width:250px!important}
+.avx-assistant-big-count{flex:0 0 auto!important;text-align:right!important;display:flex!important;align-items:baseline!important;gap:3px!important}
+.avx-assistant-big-count strong{font-size:30px!important;line-height:1!important}
+.avx-assistant-big-count span{font-size:9px!important;color:#777!important}
+.avx-assistant-center-actions{display:flex!important;gap:8px!important}
+.avx-assistant-center-actions .avx-assistant-btn{flex:1 1 auto!important;min-height:45px!important}
+.avx-assistant-center-actions .avx-assistant-info{width:45px!important;height:45px!important;flex:0 0 45px!important}
+.avx-assistant-status-large{margin:0!important}
+.avx-assistant-block{padding:11px!important;border:1px solid rgba(255,255,255,.065)!important;border-radius:15px!important;background:rgba(255,255,255,.018)!important}
+.avx-assistant-block .avx-chat{margin-top:6px!important}
+.avx-assistant-block .avx-stock-row{border-bottom:1px solid rgba(255,255,255,.055)!important}
+.avx-assistant-block .avx-stock-row:last-child{border-bottom:0!important}
+@media(max-width:390px){.avx-tabs{gap:3px!important}.avx-tabs button{padding:8px 2px!important}.avx-tabs button b{font-size:7px!important}.avx-tabs button span{font-size:6px!important}.avx-assistant-center-hero{padding:13px!important}.avx-assistant-center-hero b{font-size:15px!important}}
+</style>
