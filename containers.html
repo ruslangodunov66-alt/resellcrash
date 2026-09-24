@@ -1230,43 +1230,49 @@
         }
     }
 
-    // АУДИО
+    // АУДИО — мягкий премиальный звук, без агрессивного arcade-эффекта.
     let audioCtx = null;
-    function initAudio() { if (!audioCtx && window.AudioContext) { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } }
-    function playTone(freq, dur, vol = 0.08, type = 'sine') {
-        if (!audioCtx) return;
-        try {
-            const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
-            osc.type = type; osc.frequency.value = freq;
-            gain.gain.setValueAtTime(vol, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
-            osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + dur);
-        } catch(e) {}
+    function initAudio(){
+        if(!audioCtx && window.AudioContext){
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if(audioCtx && audioCtx.state === 'suspended'){ try{ audioCtx.resume(); }catch(_){} }
     }
-    function soundTick(step = 0) {
+    function playTone(freq,dur,vol=0.035,type='sine'){
+        if(!audioCtx) return;
+        try{
+            const osc=audioCtx.createOscillator(), gain=audioCtx.createGain();
+            const now=audioCtx.currentTime;
+            osc.type=type; osc.frequency.setValueAtTime(freq,now);
+            gain.gain.setValueAtTime(0.0001,now);
+            gain.gain.exponentialRampToValueAtTime(vol,now+0.008);
+            gain.gain.exponentialRampToValueAtTime(0.0001,now+dur);
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.start(now); osc.stop(now+dur+0.01);
+        }catch(_){}
+    }
+    function soundTick(step=0){
         initAudio();
-        if (!audioCtx) return;
-        const f = Math.min(980, 560 + (step % 7) * 48);
-        playTone(f, 0.026, 0.045, 'square');
-        try {
-            const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
-            osc.type = 'triangle'; osc.frequency.setValueAtTime(f * 1.55, audioCtx.currentTime);
-            gain.gain.setValueAtTime(0.028, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.045);
-            osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + 0.045);
-        } catch(e) {}
+        // Один короткий мягкий клик на реальное пересечение границы предмета.
+        const f=420+(step%4)*28;
+        playTone(f,0.035,0.018,'triangle');
     }
-    function soundHit() {
+    function soundHit(){
         initAudio();
-        playTone(175, 0.12, 0.14, 'square');
-        setTimeout(()=>playTone(118, 0.14, 0.09, 'triangle'), 65);
+        playTone(180,0.18,0.035,'sine');
+        setTimeout(()=>playTone(260,0.12,0.022,'triangle'),70);
     }
-
-    const sfx = {
-        spin: () => { initAudio(); playTone(400, 0.05, 0.05, 'triangle'); },
-        stop: () => { initAudio(); playTone(800, 0.1, 0.1, 'sine'); },
-        win: () => { initAudio(); playTone(523, 0.15, 0.1); setTimeout(()=>playTone(659, 0.15, 0.1), 150); setTimeout(()=>playTone(784, 0.25, 0.1), 300); },
-        lose: () => { initAudio(); playTone(200, 0.3, 0.1, 'sawtooth'); },
-        buy: () => { initAudio(); playTone(600, 0.1, 0.1); setTimeout(()=>playTone(800, 0.1, 0.1), 100); }
+    const sfx={
+        spin:()=>{initAudio();playTone(360,0.09,0.022,'triangle');},
+        stop:()=>{initAudio();playTone(520,0.12,0.032,'sine');},
+        win:()=>{
+            initAudio();
+            playTone(440,0.10,0.028,'sine');
+            setTimeout(()=>playTone(554,0.12,0.024,'sine'),110);
+            setTimeout(()=>playTone(660,0.16,0.022,'sine'),230);
+        },
+        lose:()=>{initAudio();playTone(230,0.16,0.018,'sine');},
+        buy:()=>{initAudio();playTone(480,0.08,0.022,'triangle');setTimeout(()=>playTone(620,0.10,0.018,'sine'),90);}
     };
 
     // ПОКУПКА / ОТКРЫТИЕ — сервер RESSELL является единственным источником истины.
@@ -1474,6 +1480,11 @@
     }
 
     function showSingleResult(win){
+        // Рулетка уже закончила открытие. Не держим основную кнопку в
+        // бесконечном состоянии "ОТКРЫВАЕМ..." пока игрок рассматривает приз.
+        // Сам overlay остаётся активным до нажатия "ЗАБРАТЬ ПРИЗ".
+        isOpening=false;
+        updateUI();
         const resDisplay=document.getElementById('resultDisplay');
         if(!resDisplay) return;
         resDisplay.innerHTML=`<div class="result-item" style="color:${win.item.rarityColor}">
