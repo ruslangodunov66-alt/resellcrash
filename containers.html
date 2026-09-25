@@ -891,8 +891,8 @@
             },
             moneyRanges: {
                 common: [100, 25000],
-                rare: [25000, 250000],
-                legend: [250000, 750000]
+                rare: [50000, 350000],
+                legend: [350000, 1000000]
             }
         },
         legendary: {
@@ -916,8 +916,8 @@
             },
             moneyRanges: {
                 common: [1000, 100000],
-                rare: [100000, 500000],
-                legend: [500000, 2000000]
+                rare: [150000, 750000],
+                legend: [750000, 3000000]
             }
         }
     };
@@ -950,8 +950,11 @@
     const ownedLine = document.getElementById('ownedLine');
 
     // СОСТОЯНИЕ КОНТЕЙНЕРОВ — ИСТОЧНИК ИСТИНЫ: RESSELL SERVER
+    // Локальный storage НЕ используется для количества кейсов.
+    // После перезагрузки количество всегда восстанавливается из /wheel/case/state.
     function loadCaseCounts() {
         caseInventory = { rare: 0, legendary: 0 };
+        pendingRounds = { rare: [], legendary: [] };
     }
 
     function saveCaseCounts() { /* inventory хранится на сервере */ }
@@ -1140,11 +1143,26 @@
 
             try {
                 const state = await apiFetch(`${API_BASE}/wheel/case/state?userId=${encodeURIComponent(userId)}`);
-                if (state?.pending?.round_id) {
+
+                // ВАЖНО: сервер возвращает весь список незакрытых кейсов.
+                // Раньше здесь восстанавливался только state.pending (первый кейс),
+                // поэтому после перезагрузки UI показывал 0/1 вместо реально купленного количества.
+                pendingRounds = { rare: [], legendary: [] };
+
+                if (Array.isArray(state?.pending_rounds)) {
+                    state.pending_rounds.forEach(item => {
+                        const caseId = item.case_id && CASE_TYPES[item.case_id] ? item.case_id : null;
+                        if (!caseId || !item.round_id) return;
+                        pendingRounds[caseId].push(String(item.round_id));
+                    });
+                } else if (state?.pending?.round_id) {
                     const caseId = state.pending.case_id && CASE_TYPES[state.pending.case_id] ? state.pending.case_id : selectedCaseId;
-                    pendingRounds[caseId] = [state.pending.round_id];
-                    caseInventory[caseId] = 1;
+                    pendingRounds[caseId] = [String(state.pending.round_id)];
                 }
+
+                caseInventory.rare = pendingRounds.rare.length;
+                caseInventory.legendary = pendingRounds.legendary.length;
+
                 // Только если /profile действительно не ответил, используем тот же
                 // players.balance, возвращаемый case/state, как резервный источник.
                 if (!loaded && state && state.balance !== undefined && state.balance !== null) {
@@ -1297,9 +1315,10 @@
                 caseInventory.legendary = pendingRounds.legendary.length;
             } else if (state.pending?.round_id) {
                 const caseId = state.pending.case_id && CASE_TYPES[state.pending.case_id] ? state.pending.case_id : selectedCaseId;
-                pendingRounds[caseId] = [state.pending.round_id];
-                caseInventory[caseId] = 1;
+                pendingRounds[caseId] = [String(state.pending.round_id)];
             }
+            caseInventory.rare = pendingRounds.rare.length;
+            caseInventory.legendary = pendingRounds.legendary.length;
             updateUI();
         } catch (e) {
             console.error('Не удалось синхронизировать состояние контейнеров:', e);
@@ -1562,9 +1581,15 @@
     // СТАРТ
     loadCaseCounts();
     loadSelectedCase();
-    loadBalance();
-    syncWheelState();
-    updateUI();
+
+    // Не запускаем две параллельные загрузки состояния: они могли перетирать
+    // caseInventory друг другом. Сначала получаем Telegram user/session, затем
+    // одним запросом восстанавливаем полный список незакрытых кейсов.
+    (async function initContainers() {
+        await loadBalance();
+        await syncWheelState();
+        updateUI();
+    })();
 })();
 </script>
 </body>
