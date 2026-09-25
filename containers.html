@@ -417,6 +417,18 @@
         .btn-claim:hover { filter: brightness(1.06); box-shadow: 0 5px 0 #686868, 0 18px 34px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.95); }
         .btn-claim:active { transform: translateY(4px); box-shadow: 0 2px 0 #0d6e30; }
 
+
+        .result-display { min-height: 125px; padding: 0 8px; transform: translateY(-34px); }
+        .result-item { transform: scale(.5) translateY(-24px); }
+        .result-item-img-wrap { margin-bottom: 6px; }
+        .result-item img { width: 96px; height: 96px; }
+        .result-name { font-size: 21px; line-height: 1.12; margin-bottom: 3px; }
+        .result-rarity { font-size: 11px; margin-bottom: 7px; }
+        .btn-claim { min-height: 48px; padding: 11px 20px; font-size: 15px; margin-top: 1px; }
+        .btn-sell-win { background: linear-gradient(180deg,#ffd84a,#d99b00); border: 1px solid rgba(255,255,255,.65); color:#111; font-family:'Montserrat',sans-serif; font-weight:900; font-size:14px; padding:11px 18px; border-radius:14px; cursor:pointer; box-shadow:0 5px 0 #8c6200,0 12px 24px rgba(0,0,0,.38); width:min(100%,300px); min-height:48px; margin-top:8px; text-transform:uppercase; letter-spacing:.8px; }
+        .btn-sell-win:disabled,.btn-claim:disabled { opacity:.55; cursor:default; }
+        @media (max-height:700px){ .overlay{padding:12px 16px 28px;} .single-spin-shell{gap:7px;} .single-spin-case{width:62px;height:62px;} .single-slot-frame .slot-container{height:145px;} .single-spin-status{min-height:12px;} .result-display{transform:translateY(-46px);min-height:112px;} .result-item img{width:78px;height:78px;} .result-name{font-size:18px;} .result-rarity{font-size:10px;margin-bottom:5px;} .btn-claim,.btn-sell-win{min-height:42px;padding:9px 16px;font-size:13px;} }
+
         .btn-close-overlay {
             background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
             color: var(--text-muted); padding: 12px 30px; border-radius: 14px; font-weight: 800;
@@ -761,7 +773,7 @@
     </div>
 
 
-    <div class="car-rewards-section goods-rewards-section" id="goodsRewardsSection" hidden><div class="car-rewards-head"><div><div class="section-title" style="margin-bottom:3px">ТОВАРЫ В КЕЙСЕ</div><div class="car-rewards-sub">Все призы — реальные игровые товары с рыночной стоимостью. После получения они попадают в склад и их можно сразу выставить на продажу.</div></div><div class="car-rewards-price">₽ 750 000</div></div><div class="car-rewards-grid" id="goodsRewardsGrid"></div></div>
+    <div class="car-rewards-section goods-rewards-section" id="goodsRewardsSection" hidden><div class="car-rewards-head"><div><div class="section-title" style="margin-bottom:3px">ТОВАРЫ В КЕЙСЕ</div><div class="car-rewards-sub">Все призы — реальные игровые товары с рыночной стоимостью. После получения они попадают в склад и их можно сразу выставить на продажу.</div></div><div class="car-rewards-price">₽ 30 000</div></div><div class="car-rewards-grid" id="goodsRewardsGrid"></div></div>
     <div class="car-rewards-section" id="carRewardsSection" hidden><div class="car-rewards-head"><div><div class="section-title" style="margin-bottom:3px">ВОЗМОЖНЫЕ НАГРАДЫ</div><div class="car-rewards-sub">Все автомобили, которые могут выпасть из автомобильного кейса</div></div><div class="car-rewards-price">₽ 3 000 000</div></div><div class="car-rewards-grid" id="carRewardsGrid"></div></div>
     <div class="history-section">
         <div class="section-title">ИСТОРИЯ ДРОПОВ</div>
@@ -962,7 +974,7 @@
         trader_goods: {
             id: 'trader_goods',
             name: 'Кейс товарщика',
-            price: 3000,
+            price: 30000,
             image: TRADER_GOODS_CASE_IMAGE,
             probabilities: {airpods_pro2:.18,nike_dunk:.14,iphone_11:.12,galaxy_s22:.10,iphone_13:.10,ps5_slim:.08,apple_watch:.07,iphone_15_pro:.06,airpods_max:.05,macbook_air_m3:.04,iphone_16_pm:.035,macbook_pro_m4:.02495,gold_iphone:.00005}
         },
@@ -1566,22 +1578,42 @@
         updateUI();
         const resDisplay=document.getElementById('resultDisplay');
         if(!resDisplay) return;
+        const sellable = win.item.type==='case_goods' && Number(win.item.marketPrice||win.item.value||0)>0;
+        const salePrice = Number(win.item.marketPrice||win.item.value||0);
         resDisplay.innerHTML=`<div class="result-item" style="color:${win.item.rarityColor}">
             <div class="result-item-img-wrap"><img class="single-win-glow" src="${win.item.image}" alt=""></div>
             <div class="result-name">${win.item.name}</div>
             <div class="result-rarity" style="color:${win.item.rarityColor}">${win.item.rarity}</div>
             <button class="btn-claim" id="claimAllBtn">ЗАБРАТЬ ПРИЗ</button>
+            ${sellable?`<button class="btn-sell-win" id="sellWinBtn">ПРОДАТЬ ЗА ₽ ${salePrice.toLocaleString('ru-RU')}</button>`:''}
         </div>`;
         spawnConfetti(win.item.rarityColor);sfx.win();vibrate('heavy');
+        async function finishClaim(result){
+            balance=result.balance??balance;
+            history.unshift({name:win.item.name,rarity:win.item.rarity,rarityColor:win.item.rarityColor,image:win.item.image,time:Date.now()});
+            if(history.length>30)history=history.slice(0,30);
+            updateUI();overlay.classList.remove('active');animContainer.innerHTML='';stopConfetti();isOpening=false;vibrate('success');
+        }
         document.getElementById('claimAllBtn').addEventListener('click',async function(){
             this.disabled=true;this.textContent='ПОЛУЧЕНИЕ...';
+            const sell=document.getElementById('sellWinBtn'); if(sell) sell.disabled=true;
             try{
                 const result=await apiFetch(`${API_BASE}/wheel/case/claim`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId,round_id:win.roundId})});
-                balance=result.balance??balance;
-                history.unshift({name:win.item.name,rarity:win.item.rarity,rarityColor:win.item.rarityColor,image:win.item.image,time:Date.now()});
+                await finishClaim(result);
+            }catch(e){alert('❌ Ошибка: '+e.message);this.disabled=false;this.textContent='ЗАБРАТЬ ПРИЗ';if(sell)sell.disabled=false;await syncWheelState();}
+        });
+        const sellBtn=document.getElementById('sellWinBtn');
+        if(sellBtn) sellBtn.addEventListener('click',async function(){
+            sellBtn.disabled=true;sellBtn.textContent='ПРОДАЖА...';
+            const claim=document.getElementById('claimAllBtn'); if(claim) claim.disabled=true;
+            try{
+                const claimed=await apiFetch(`${API_BASE}/wheel/case/claim`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId,round_id:win.roundId})});
+                const sold=await apiFetch(`${API_BASE}/wheel/case/sell-goods`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId,round_id:win.roundId,goods_uid:claimed.goods_uid||''})});
+                balance=sold.balance??claimed.balance??balance;
+                history.unshift({name:win.item.name,rarity:win.item.rarity,rarityColor:win.item.rarityColor,image:win.item.image,time:Date.now(),sold:true});
                 if(history.length>30)history=history.slice(0,30);
                 updateUI();overlay.classList.remove('active');animContainer.innerHTML='';stopConfetti();isOpening=false;vibrate('success');
-            }catch(e){alert('❌ Ошибка: '+e.message);this.disabled=false;this.textContent='ЗАБРАТЬ ПРИЗ';await syncWheelState();}
+            }catch(e){alert('❌ '+e.message);sellBtn.disabled=false;sellBtn.textContent=`ПРОДАТЬ ЗА ₽ ${salePrice.toLocaleString('ru-RU')}`;if(claim)claim.disabled=false;await syncWheelState();}
         });
     }
 
