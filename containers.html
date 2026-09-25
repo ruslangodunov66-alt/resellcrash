@@ -1686,19 +1686,38 @@
             <div class="result-item-img-wrap"><img class="single-win-glow" src="${win.item.image}" alt=""></div>
             <div class="result-name">${win.item.name}</div>
             <div class="result-rarity" style="color:${win.item.rarityColor}">${win.item.rarity}</div>
-            <button class="btn-claim" id="claimAllBtn">ЗАБРАТЬ ПРИЗ</button>
+            ${selectedCaseId==='trader_goods' ? `
+              <div class="goods-result-actions">
+                <button class="btn-claim" id="claimAllBtn">ЗАБРАТЬ В ИНВЕНТАРЬ</button>
+                <button class="btn-sell-goods" id="sellGoodsBtn">ПРОДАТЬ СРАЗУ · ₽ ${Number(win.item.marketPrice||win.item.value||0).toLocaleString('ru-RU')}</button>
+              </div>` : `
+              <button class="btn-claim" id="claimAllBtn">ЗАБРАТЬ ПРИЗ</button>`}
         </div>`;
         spawnConfetti(win.item.rarityColor);sfx.win();vibrate('heavy');
+        const finishResult=()=>{
+            history.unshift({name:win.item.name,rarity:win.item.rarity,rarityColor:win.item.rarityColor,image:win.item.image,time:Date.now()});
+            if(history.length>30)history=history.slice(0,30);
+            updateUI();overlay.classList.remove('active');animContainer.innerHTML='';stopConfetti();isOpening=false;vibrate('success');
+        };
         document.getElementById('claimAllBtn').addEventListener('click',async function(){
             this.disabled=true;this.textContent='ПОЛУЧЕНИЕ...';
             try{
                 const result=await apiFetch(`${API_BASE}/wheel/case/claim`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId,round_id:win.roundId})});
-                balance=result.balance??balance;
-                history.unshift({name:win.item.name,rarity:win.item.rarity,rarityColor:win.item.rarityColor,image:win.item.image,time:Date.now()});
-                if(history.length>30)history=history.slice(0,30);
-                updateUI();overlay.classList.remove('active');animContainer.innerHTML='';stopConfetti();isOpening=false;vibrate('success');
-            }catch(e){alert('❌ Ошибка: '+e.message);this.disabled=false;this.textContent='ЗАБРАТЬ ПРИЗ';await syncWheelState();}
+                balance=result.balance??balance; finishResult();
+            }catch(e){alert('❌ Ошибка: '+e.message);this.disabled=false;this.textContent=selectedCaseId==='trader_goods'?'ЗАБРАТЬ В ИНВЕНТАРЬ':'ЗАБРАТЬ ПРИЗ';await syncWheelState();}
         });
+        const sellBtn=document.getElementById('sellGoodsBtn');
+        if(sellBtn){sellBtn.addEventListener('click',async function(){
+            this.disabled=true; this.textContent='ПРОДАЁМ...';
+            const claimBtn=document.getElementById('claimAllBtn'); if(claimBtn) claimBtn.disabled=true;
+            try{
+                const claimed=await apiFetch(`${API_BASE}/wheel/case/claim`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId,round_id:win.roundId})});
+                balance=claimed.balance??balance;
+                const goodsUid=String(claimed.goods_uid||''); if(!goodsUid) throw new Error('Сервер не вернул товар для продажи');
+                const sold=await apiFetch(`${API_BASE}/wheel/case/sell-goods`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId,goods_uid:goodsUid,round_id:win.roundId})});
+                balance=sold.balance??balance; finishResult();
+            }catch(e){alert('❌ Не удалось продать товар: '+e.message);this.disabled=false;this.textContent=`ПРОДАТЬ СРАЗУ · ₽ ${Number(win.item.marketPrice||win.item.value||0).toLocaleString('ru-RU')}`;if(claimBtn) claimBtn.disabled=false;await syncWheelState();}
+        });}
     }
 
     // CONFETTI
@@ -1770,3 +1789,20 @@
 </script>
 </body>
 </html>
+
+<style id="resell-horizontal-lock-final">
+html,body{width:100%;max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!important;}
+body{touch-action:pan-y!important;}
+.game-container{width:100%;max-width:600px;overflow-x:clip;}
+.case-selector{overflow-x:auto!important;overflow-y:hidden!important;touch-action:pan-x!important;overscroll-behavior-x:contain!important;}
+.case-selector>*{touch-action:pan-x!important;}
+.overlay,.overlay-content{max-width:100%;overflow-x:hidden!important;}
+</style>
+
+<style id="resell-goods-sell-ui">
+.goods-result-actions{display:flex;flex-direction:column;align-items:center;gap:9px;width:min(100%,320px);margin:8px auto 0;}
+.goods-result-actions .btn-claim,.goods-result-actions .btn-sell-goods{width:100%;min-height:48px;border-radius:14px;font-family:'Montserrat',sans-serif;font-weight:900;letter-spacing:.2px;}
+.btn-sell-goods{border:1px solid rgba(27,209,93,.38);background:linear-gradient(180deg,rgba(27,209,93,.22),rgba(27,209,93,.11));color:#7dffae;box-shadow:0 8px 24px rgba(27,209,93,.08);padding:12px 16px;cursor:pointer;transition:.18s;}
+.btn-sell-goods:active{transform:translateY(2px) scale(.99);}
+.btn-sell-goods:disabled{opacity:.55;cursor:default;}
+</style>
