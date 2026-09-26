@@ -9803,11 +9803,38 @@ function renderInvest(s,b){
     if(!r?.success) throw new Error(r?.message||r?.error||'Действие не выполнено');
     profileData.balance=Number(r.balance??profileData.balance);setBalance(profileData.balance);window.__resellAvitoState.career=r.career||window.__resellAvitoState.career; window.__resellAvitoState.balance=profileData.balance; showToast(r.message||'Готово'); modalBody.innerHTML=renderAvitoWithCareer();
   }
-  modalBody.addEventListener('click',async e=>{
-    const choose=e.target.closest('[data-career-choose]');
-    if(choose){choose.disabled=true;avitoEditing=true;try{const r=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/career/choose`,{method:'POST',body:JSON.stringify({direction:choose.dataset.careerChoose})});if(!r?.success)throw new Error(r?.message||r?.error||'Не удалось открыть направление');profileData.balance=Number(r.balance??profileData.balance);setBalance(profileData.balance);window.__resellAvitoState.career=r.career;window.__resellAvitoState.balance=profileData.balance;showToast(r.message||'Направление открыто');modalBody.innerHTML=renderAvitoWithCareer()}catch(err){showToast(err.message||'Ошибка');choose.disabled=false}return;}
-    const back=e.target.closest('[data-career-back]'); if(back){avitoEditing=false;modalBody.innerHTML=renderAvito();return;}
-    const act=e.target.closest('[data-career-action]'); if(!act)return;
+  // Career controls use document-level capture so legacy Avito modal handlers
+  // cannot swallow the click before the career system sees it.
+  async function handleCareerClick(e){
+    const choose=e.target?.closest?.('[data-career-choose]');
+    if(choose){
+      e.preventDefault();
+      e.stopPropagation();
+      if(choose.__careerBusy) return;
+      choose.__careerBusy=true; choose.disabled=true; avitoEditing=true;
+      try{
+        const direction=String(choose.dataset.careerChoose||'').trim();
+        if(!direction) throw new Error('Направление не определено');
+        const r=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/career/choose`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({direction})});
+        if(!r?.success) throw new Error(r?.message||r?.error||'Не удалось открыть направление');
+        profileData=profileData||{};
+        profileData.balance=Number(r.balance??profileData.balance);
+        setBalance(profileData.balance);
+        window.__resellAvitoState=window.__resellAvitoState||{};
+        window.__resellAvitoState.career=r.career||{};
+        window.__resellAvitoState.balance=profileData.balance;
+        showToast(r.message||'Направление открыто');
+        modalBody.innerHTML=renderAvitoWithCareer();
+      }catch(err){
+        showToast(err?.message||'Ошибка выбора направления');
+        choose.disabled=false; choose.__careerBusy=false;
+      }
+      return;
+    }
+    const back=e.target?.closest?.('[data-career-back]');
+    if(back){e.preventDefault();e.stopPropagation();avitoEditing=false;modalBody.innerHTML=renderAvito();return;}
+    const act=e.target?.closest?.('[data-career-action]'); if(!act)return;
+    e.preventDefault();
     act.disabled=true; avitoEditing=true; const kind=act.dataset.kind; let payload={};
     if(act.dataset.careerAction==='info_create') payload={name:document.getElementById('cInfoName')?.value,niche:document.getElementById('cInfoNiche')?.value,format:document.getElementById('cInfoFormat')?.value,price:Number(document.getElementById('cInfoPrice')?.value||0)};
     if(act.dataset.careerAction==='info_build_app') payload={name:document.getElementById('cInfoAppName')?.value,app_type:document.getElementById('cInfoAppType')?.value};
@@ -9828,7 +9855,9 @@ function renderInvest(s,b){
     if(act.dataset.careerAction==='invest_sell') payload={id:act.dataset.id};
     if(act.dataset.careerAction==='invest_watch') payload={asset:act.dataset.asset};
     try{await careerPost(act.dataset.careerAction,payload)}catch(err){showToast(err.message||'Ошибка');act.disabled=false}
-  });
+  }
+  // Capture phase is intentional: older Avito handlers are registered on modalBody.
+  document.addEventListener('click',handleCareerClick,true);
   window.renderAvitoWithCareer=renderAvitoWithCareer;
   if(!window.__avcLivePulse){
     window.__avcLivePulse=setInterval(async()=>{
