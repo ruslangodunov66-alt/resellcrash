@@ -4886,8 +4886,8 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   startTaxiWearPoller();
 
   // ==================== AVITO / RESELL MARKET ====================
-  let avitoTab='buy'; let avitoState=null; let avitoPoller=null; let avitoEditing=false;
-  async function fetchAvito(){ avitoState=await tycoonFetch(`/avito/${encodeURIComponent(userId)}`); const u=Number(avitoState?.unread_count||0); const b=document.getElementById("avitoEntryUnread"); if(b){b.textContent=u;b.style.display=u>0?"inline-grid":"none";} return avitoState; }
+  let avitoTab='buy'; let avitoState=null; window.__resellAvitoState=null; let avitoPoller=null; let avitoEditing=false;
+  async function fetchAvito(){ avitoState=await tycoonFetch(`/avito/${encodeURIComponent(userId)}`); window.__resellAvitoState=avitoState; const u=Number(avitoState?.unread_count||0); const b=document.getElementById("avitoEntryUnread"); if(b){b.textContent=u;b.style.display=u>0?"inline-grid":"none";} return avitoState; }
   async function refreshAvitoUnreadBadge(){ try{ if(userId && !document.hidden){ const d=await tycoonFetch(`/avito/${encodeURIComponent(userId)}`); const u=Number(d?.unread_count||0); const b=document.getElementById("avitoEntryUnread"); if(b){b.textContent=u;b.style.display=u>0?"inline-grid":"none";} } }catch(_){} }
   setInterval(refreshAvitoUnreadBadge,5000);
   function groupInventory(inv){ const groups=new Map(); for(const item of (inv||[])){ const key=[item.name||'Товар',item.rarity||'',item.buy_price||0,item.market_price||0].join('|'); if(!groups.has(key)) groups.set(key,{...item,count:0,uids:[]}); const g=groups.get(key); g.count++; if(item.uid) g.uids.push(item.uid); } return [...groups.values()]; }
@@ -7592,11 +7592,11 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
   'use strict';
   function careerEsc(v){try{return esc(v)}catch(_){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}}
   function careerMoney(v){try{return number(v)}catch(_){return Number(v||0).toLocaleString('ru-RU')}}
-  function careerData(){return avitoState?.career||{}}
+  function careerData(){return window.__resellAvitoState?.career||{}}
   function renderAvitoWithCareer(){
     const c=careerData();
     if(c.eligible && !c.direction) return renderCareerChoice(c);
-    if(c.direction) return renderCareerDashboard(c,Number(avitoState?.balance||0));
+    if(c.direction) return renderCareerDashboard(c,Number(window.__resellAvitoState?.balance||0));
     return renderAvito();
   }
   function renderCareerChoice(c){
@@ -7663,11 +7663,11 @@ function renderInvest(s,b){
   async function careerPost(action,payload){
     const r=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/career/action`,{method:'POST',body:JSON.stringify({action,payload})});
     if(!r?.success) throw new Error(r?.message||r?.error||'Действие не выполнено');
-    profileData.balance=Number(r.balance??profileData.balance);setBalance(profileData.balance);avitoState.career=r.career||avitoState.career; avitoState.balance=profileData.balance; showToast(r.message||'Готово'); modalBody.innerHTML=renderAvitoWithCareer();
+    profileData.balance=Number(r.balance??profileData.balance);setBalance(profileData.balance);if(window.__resellAvitoState) window.__resellAvitoState.career=r.career||window.__resellAvitoState.career; if(window.__resellAvitoState) window.__resellAvitoState.balance=profileData.balance; showToast(r.message||'Готово'); modalBody.innerHTML=renderAvitoWithCareer();
   }
   modalBody.addEventListener('click',async e=>{
     const choose=e.target.closest('[data-career-choose]');
-    if(choose){choose.disabled=true;avitoEditing=true;try{const r=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/career/choose`,{method:'POST',body:JSON.stringify({direction:choose.dataset.careerChoose})});if(!r?.success)throw new Error(r?.message||r?.error||'Не удалось открыть направление');profileData.balance=Number(r.balance??profileData.balance);setBalance(profileData.balance);avitoState.career=r.career;avitoState.balance=profileData.balance;showToast(r.message||'Направление открыто');modalBody.innerHTML=renderAvitoWithCareer()}catch(err){showToast(err.message||'Ошибка');choose.disabled=false}return;}
+    if(choose){choose.disabled=true;avitoEditing=true;try{const r=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/career/choose`,{method:'POST',body:JSON.stringify({direction:choose.dataset.careerChoose})});if(!r?.success)throw new Error(r?.message||r?.error||'Не удалось открыть направление');profileData.balance=Number(r.balance??profileData.balance);setBalance(profileData.balance);if(window.__resellAvitoState) window.__resellAvitoState.career=r.career;if(window.__resellAvitoState) window.__resellAvitoState.balance=profileData.balance;showToast(r.message||'Направление открыто');modalBody.innerHTML=renderAvitoWithCareer()}catch(err){showToast(err.message||'Ошибка');choose.disabled=false}return;}
     const back=e.target.closest('[data-career-back]'); if(back){avitoEditing=false;modalBody.innerHTML=renderAvito();return;}
     const act=e.target.closest('[data-career-action]'); if(!act)return;
     act.disabled=true; avitoEditing=true; const kind=act.dataset.kind; let payload={};
@@ -7695,11 +7695,11 @@ function renderInvest(s,b){
   if(!window.__avcLivePulse){
     window.__avcLivePulse=setInterval(async()=>{
       try{
-        if(!avitoEditing || avitoState?.career?.direction!=='infobusiness' || !avitoState?.career?.infobusiness?.name) return;
+        if(!avitoEditing || window.__resellAvitoState?.career?.direction!=='infobusiness' || !window.__resellAvitoState?.career?.infobusiness?.name) return;
         const active=document.activeElement;
         if(active && /INPUT|TEXTAREA|SELECT/.test(active.tagName)) return;
         const r=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/career/action`,{method:'POST',body:JSON.stringify({action:'info_live',payload:{}})});
-        if(r?.success){avitoState.career=r.career||avitoState.career; if(modalBody?.querySelector('.avc-dashboard')) modalBody.innerHTML=renderAvitoWithCareer();}
+        if(r?.success){if(window.__resellAvitoState) window.__resellAvitoState.career=r.career||window.__resellAvitoState.career; if(modalBody?.querySelector('.avc-dashboard')) modalBody.innerHTML=renderAvitoWithCareer();}
       }catch(_){ }
     },10000);
   }
