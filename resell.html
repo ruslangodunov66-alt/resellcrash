@@ -7425,14 +7425,21 @@ async function initFarm(){
   // V26 bridge: expose only stable read/call primitives for isolated UI modules.
   window.__resellCoreV26 = {
     apiFetch,
+    tycoonFetch,
     getUserId: () => String(userId || ''),
     uid: () => String(userId || ''),
     getProfile: () => profileData || null,
+    setProfileBalance: (value) => { profileData = profileData || {}; profileData.balance = Number(value || 0); },
     getFriends: () => (friendsData && Array.isArray(friendsData.friends) ? friendsData.friends : []),
     setBalance,
     showToast,
     openModal,
-    closeModal
+    closeModal,
+    getModalBody: () => modalBody,
+    getAvitoEditing: () => !!avitoEditing,
+    setAvitoEditing: (value) => { avitoEditing = !!value; },
+    renderAvito: () => renderAvito(),
+    getAvitoState: () => avitoState
   };
 
   // Telegram can swap the signed session while this Mini App remains open.
@@ -9799,9 +9806,10 @@ function renderInvest(s,b){
       <div class="avc-panel"><div class="avc-panel-title">Твой портфель</div>${p.length?p.map(x=>{const pr=Number(x.value||0)-Number(x.invested||0);const pct=Number(x.invested)?(pr/Number(x.invested)*100):0;return `<div class="avc-row"><div class="avc-row-head"><div><b>${careerEsc(x.title)}</b><small>Вложено ${careerMoney(x.invested)} ₽ · ${pct>=0?'+':''}${pct.toFixed(2)}%</small></div><div><div class="avc-row-price ${pr<0?'avc-loss':'avc-profit'}">${careerMoney(x.value)} ₽</div><button class="avc-btn" style="margin-top:6px;min-height:30px;padding:0 9px" data-career-action="invest_sell" data-id="${careerEsc(x.id)}">ЗАКРЫТЬ ПОЗИЦИЮ</button></div></div></div>`}).join(''):'<div class="avc-note">Портфель пуст. Начни с небольшой позиции и следи за рынком.</div>'}</div></div>`;
   }
   async function careerPost(action,payload){
-    const r=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/career/action`,{method:'POST',body:JSON.stringify({action,payload})});
+    const core=window.__resellCoreV26||{}; const uid=String(core.getUserId?.()||''); const body=core.getModalBody?.()||document.getElementById('modalBody');
+    const r=await window.__resellCoreV26.tycoonFetch(`/avito/${encodeURIComponent(uid)}/career/action`,{method:'POST',body:JSON.stringify({action,payload})});
     if(!r?.success) throw new Error(r?.message||r?.error||'Действие не выполнено');
-    profileData.balance=Number(r.balance??profileData.balance);setBalance(profileData.balance);window.__resellAvitoState.career=r.career||window.__resellAvitoState.career; window.__resellAvitoState.balance=profileData.balance; showToast(r.message||'Готово'); modalBody.innerHTML=renderAvitoWithCareer();
+    const balance=Number(r.balance??window.__resellAvitoState?.balance??0); core.setProfileBalance?.(balance); core.setBalance?.(balance); window.__resellAvitoState.career=r.career||window.__resellAvitoState.career; window.__resellAvitoState.balance=balance; core.showToast?.(r.message||'Готово'); body.innerHTML=renderAvitoWithCareer();
   }
   // Career controls use document-level capture so legacy Avito modal handlers
   // cannot swallow the click before the career system sees it.
@@ -9811,31 +9819,33 @@ function renderInvest(s,b){
       e.preventDefault();
       e.stopPropagation();
       if(choose.__careerBusy) return;
-      choose.__careerBusy=true; choose.disabled=true; avitoEditing=true;
+      choose.__careerBusy=true; choose.disabled=true; const core=window.__resellCoreV26||{}; const body=core.getModalBody?.()||document.getElementById('modalBody'); core.setAvitoEditing?.(true);
       try{
         const direction=String(choose.dataset.careerChoose||'').trim();
         if(!direction) throw new Error('Направление не определено');
-        const r=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/career/choose`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({direction})});
+        const uid=String(core.getUserId?.()||'');
+        if(!uid) throw new Error('Не найден аккаунт RESSELL');
+        const r=await window.__resellCoreV26.tycoonFetch(`/avito/${encodeURIComponent(uid)}/career/choose`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({direction})});
         if(!r?.success) throw new Error(r?.message||r?.error||'Не удалось открыть направление');
-        profileData=profileData||{};
-        profileData.balance=Number(r.balance??profileData.balance);
-        setBalance(profileData.balance);
+        const balance=Number(r.balance??window.__resellAvitoState?.balance??0);
+        core.setProfileBalance?.(balance);
+        core.setBalance?.(balance);
         window.__resellAvitoState=window.__resellAvitoState||{};
         window.__resellAvitoState.career=r.career||{};
-        window.__resellAvitoState.balance=profileData.balance;
-        showToast(r.message||'Направление открыто');
-        modalBody.innerHTML=renderAvitoWithCareer();
+        window.__resellAvitoState.balance=balance;
+        core.showToast?.(r.message||'Направление открыто');
+        body.innerHTML=renderAvitoWithCareer();
       }catch(err){
-        showToast(err?.message||'Ошибка выбора направления');
+        core.showToast?.(err?.message||'Ошибка выбора направления');
         choose.disabled=false; choose.__careerBusy=false;
       }
       return;
     }
     const back=e.target?.closest?.('[data-career-back]');
-    if(back){e.preventDefault();e.stopPropagation();avitoEditing=false;modalBody.innerHTML=renderAvito();return;}
+    if(back){const core=window.__resellCoreV26||{};const body=core.getModalBody?.()||document.getElementById('modalBody');e.preventDefault();e.stopPropagation();core.setAvitoEditing?.(false);body.innerHTML=core.renderAvito?core.renderAvito():'';return;}
     const act=e.target?.closest?.('[data-career-action]'); if(!act)return;
     e.preventDefault();
-    act.disabled=true; avitoEditing=true; const kind=act.dataset.kind; let payload={};
+    const core=window.__resellCoreV26||{}; const body=core.getModalBody?.()||document.getElementById('modalBody'); act.disabled=true; core.setAvitoEditing?.(true); const kind=act.dataset.kind; let payload={};
     if(act.dataset.careerAction==='info_create') payload={name:document.getElementById('cInfoName')?.value,niche:document.getElementById('cInfoNiche')?.value,format:document.getElementById('cInfoFormat')?.value,price:Number(document.getElementById('cInfoPrice')?.value||0)};
     if(act.dataset.careerAction==='info_build_app') payload={name:document.getElementById('cInfoAppName')?.value,app_type:document.getElementById('cInfoAppType')?.value};
     if(act.dataset.careerAction==='info_feature') payload={title:document.getElementById('cInfoFeatureTitle')?.value||'Новая продуктовая функция'};
@@ -9854,7 +9864,7 @@ function renderInvest(s,b){
     if(act.dataset.careerAction==='invest_buy'){payload={asset:act.dataset.asset,amount:Number(document.getElementById('cInvestAmount')?.value||0)};}
     if(act.dataset.careerAction==='invest_sell') payload={id:act.dataset.id};
     if(act.dataset.careerAction==='invest_watch') payload={asset:act.dataset.asset};
-    try{await careerPost(act.dataset.careerAction,payload)}catch(err){showToast(err.message||'Ошибка');act.disabled=false}
+    try{await careerPost(act.dataset.careerAction,payload)}catch(err){core.showToast?.(err.message||'Ошибка');act.disabled=false}
   }
   // Capture phase is intentional: older Avito handlers are registered on modalBody.
   document.addEventListener('click',handleCareerClick,true);
@@ -9862,11 +9872,11 @@ function renderInvest(s,b){
   if(!window.__avcLivePulse){
     window.__avcLivePulse=setInterval(async()=>{
       try{
-        if(!avitoEditing || window.__resellAvitoState?.career?.direction!=='infobusiness' || !window.__resellAvitoState?.career?.infobusiness?.name) return;
+        if(!(window.__resellCoreV26?.getAvitoEditing?.()) || window.__resellAvitoState?.career?.direction!=='infobusiness' || !window.__resellAvitoState?.career?.infobusiness?.name) return;
         const active=document.activeElement;
         if(active && /INPUT|TEXTAREA|SELECT/.test(active.tagName)) return;
-        const r=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/career/action`,{method:'POST',body:JSON.stringify({action:'info_live',payload:{}})});
-        if(r?.success){window.__resellAvitoState.career=r.career||window.__resellAvitoState.career; if(modalBody?.querySelector('.avc-dashboard')) modalBody.innerHTML=renderAvitoWithCareer();}
+        const uid=String(window.__resellCoreV26?.getUserId?.()||''); if(!uid) return; const r=await window.__resellCoreV26.tycoonFetch(`/avito/${encodeURIComponent(uid)}/career/action`,{method:'POST',body:JSON.stringify({action:'info_live',payload:{}})});
+        if(r?.success){window.__resellAvitoState.career=r.career||window.__resellAvitoState.career; const body=window.__resellCoreV26?.getModalBody?.()||document.getElementById('modalBody'); if(body?.querySelector('.avc-dashboard')) body.innerHTML=renderAvitoWithCareer();}
       }catch(_){ }
     },10000);
   }
