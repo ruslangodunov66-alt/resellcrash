@@ -9786,6 +9786,48 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     return `<svg viewBox="0 0 120 120" aria-hidden="true"><defs><linearGradient id="avcInfoG" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#82c957"/><stop offset="1" stop-color="#b7ff6a"/></linearGradient></defs><circle cx="60" cy="60" r="43" fill="rgba(183,255,106,.035)" stroke="rgba(183,255,106,.2)"/><rect x="30" y="31" width="60" height="48" rx="7" fill="rgba(183,255,106,.035)" stroke="url(#avcInfoG)" stroke-width="3"/><path d="M30 43h60M40 55h13M40 64h25M40 73h18" stroke="rgba(215,255,173,.8)" stroke-width="3" stroke-linecap="round"/><circle cx="79" cy="55" r="6" fill="none" stroke="#b7ff6a" stroke-width="2.5"/><path d="M75 70l6-8 7 5" fill="none" stroke="#d7ffad" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="96" cy="25" r="3" fill="#b7ff6a"/><circle cx="103" cy="34" r="2" fill="#d7ffad"/></svg>`;
   }
 
+  function avcActivityMarkup(){
+    try{
+      const core=window.__resellCoreV26||{};
+      const uid=String(core.getUserId?.()||'guest');
+      const key='resell_avc_activity_'+uid;
+      const rows=JSON.parse(localStorage.getItem(key)||'[]');
+      const items=Array.isArray(rows)?rows.slice(-8).reverse():[];
+      if(!items.length) return '<div class="avc-note">Пока нет событий. Запусти первое действие — здесь появится журнал компании.</div>';
+      const icon={choose:'↗',info_create:'◎',info_build_app:'⌘',info_feature:'✦',info_release:'↑',info_ads:'◉',info_create_product:'＋',brand_create:'⌂',brand_store:'＋',brand_production:'▣',brand_campaign:'↗',brand_refresh:'◌',brand_add_product:'＋',brand_sell:'₽',invest_strategy:'◈',invest_buy:'↗',invest_sell:'↓',invest_watch:'☆',invest_market:'⌁'};
+      const title={choose:'Направление выбрано',info_create:'Компания создана',info_build_app:'Приложение запущено',info_feature:'Функция добавлена',info_release:'Релиз опубликован',info_ads:'Реклама обновлена',info_create_product:'Продукт создан',brand_create:'Brand House открыт',brand_store:'Магазин открыт',brand_production:'Партия произведена',brand_campaign:'Кампания запущена',brand_refresh:'Рынки обновлены',brand_add_product:'SKU добавлен',brand_sell:'Продажа оформлена',invest_strategy:'Стратегия изменена',invest_buy:'Позиция открыта',invest_sell:'Позиция закрыта',invest_watch:'Актив добавлен',invest_market:'Рынок синхронизирован'};
+      return '<div class="avc-feed">'+items.map(x=>{
+        const act=String(x?.action||'event');
+        const t=title[act]||act.replaceAll('_',' ');
+        const d=x?.ts?new Date(x.ts):null;
+        const tm=d&&!isNaN(d)?d.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}):'';
+        return '<div class="avc-feed-item"><div class="avc-feed-dot">'+(icon[act]||'•')+'</div><div><b>'+careerEsc(t)+'</b><span>Операция RESSELL · '+careerEsc(String(x?.detail||''))+'</span></div><time>'+careerEsc(tm)+'</time></div>';
+      }).join('')+'</div>';
+    }catch(_){return '<div class="avc-note">Журнал событий временно недоступен.</div>'}
+  }
+  function avcLog(action,payload){
+    try{
+      const core=window.__resellCoreV26||{}; const uid=String(core.getUserId?.()||'guest');
+      const key='resell_avc_activity_'+uid;
+      const rows=JSON.parse(localStorage.getItem(key)||'[]');
+      const detail=payload&&typeof payload==='object'?Object.entries(payload).filter(([k,v])=>v!==undefined&&v!==null&&v!=='').map(([k,v])=>k+': '+String(v)).join(' · '):'';
+      rows.push({action:String(action||'event'),detail,ts:new Date().toISOString()});
+      localStorage.setItem(key,JSON.stringify(rows.slice(-8)));
+    }catch(_){}}
+  function avcFlow(items){
+    const a=Array.isArray(items)?items:[];
+    return '<div class="avc-flow">'+a.map((x,i)=>'<div class="avc-flow-step"><b>'+careerEsc(x?.[0]||'STEP')+'</b><span>'+careerEsc(x?.[1]||'')+'</span></div>'+(i<a.length-1?'<div class="avc-flow-arrow">→</div>':'')).join('')+'</div>';
+  }
+  function avcRitual(action){
+    const el=document.getElementById('avcRitual'); if(!el)return;
+    const map={choose:['Открываем новое направление','Выбираем следующий уровень RESSELL'],info_create:['Регистрируем компанию','Создаём рабочую среду'],info_build_app:['Запускаем разработку','Собираем первый digital-продукт'],info_feature:['Отправляем функцию в разработку','Обновляем продуктовый backlog'],info_release:['Публикуем обновление','Проверяем метрики после релиза'],info_ads:['Запускаем рекламную волну','Привлекаем новую аудиторию'],info_create_product:['Создаём продукт','Добавляем новый источник выручки'],brand_create:['Открываем Brand House','Формируем основу бренда'],brand_store:['Открываем новый рынок','Подключаем новую точку продаж'],brand_production:['Запускаем производство','Готовим новую партию'],brand_campaign:['Запускаем кампанию','Усиливаем спрос на бренд'],brand_refresh:['Сканируем рынки','Обновляем международную аналитику'],brand_add_product:['Добавляем SKU','Выводим новый товар в систему'],brand_sell:['Закрываем продажу','Фиксируем заказ и выручку'],invest_strategy:['Перестраиваем стратегию','Настраиваем уровень риска'],invest_buy:['Открываем позицию','Размещаем капитал на рынке'],invest_sell:['Закрываем позицию','Фиксируем результат сделки'],invest_watch:['Добавляем в наблюдение','Следим за активом'],invest_market:['Синхронизируем рынок','Получаем свежий рыночный срез']};
+    const m=map[action]||['Запускаем операцию','Система RESSELL обрабатывает действие…'];
+    const t=document.getElementById('avcRitualTitle'),p=document.getElementById('avcRitualText'),st=document.getElementById('avcRitualStep');
+    if(t)t.textContent=m[0]; if(p)p.textContent=m[1]; if(st)st.textContent='RESSELL OS · '+String(action||'ACTION').toUpperCase();
+    el.classList.add('open');el.setAttribute('aria-hidden','false');
+  }
+  function avcRitualClose(){const el=document.getElementById('avcRitual');if(el){el.classList.remove('open');el.setAttribute('aria-hidden','true')}}
+
   function renderAvitoWithCareer(){
     const c=careerData();
     if(c.eligible && !c.direction) return renderCareerChoice(c);
