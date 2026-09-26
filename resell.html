@@ -4887,8 +4887,31 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 
   // ==================== AVITO / RESELL MARKET ====================
   let avitoTab='buy'; let avitoState=null; window.__resellAvitoState=null; let avitoPoller=null; let avitoEditing=false;
-  async function fetchAvito(){ avitoState=await tycoonFetch(`/avito/${encodeURIComponent(userId)}`); window.__resellAvitoState=avitoState; const u=Number(avitoState?.unread_count||0); const b=document.getElementById("avitoEntryUnread"); if(b){b.textContent=u;b.style.display=u>0?"inline-grid":"none";} return avitoState; }
-  async function refreshAvitoUnreadBadge(){ try{ if(userId && !document.hidden){ const d=await tycoonFetch(`/avito/${encodeURIComponent(userId)}`); const u=Number(d?.unread_count||0); const b=document.getElementById("avitoEntryUnread"); if(b){b.textContent=u;b.style.display=u>0?"inline-grid":"none";} } }catch(_){} }
+  async function fetchAvito(){ avitoState=await tycoonFetch(`/avito/${encodeURIComponent(userId)}`); window.__resellAvitoState=avitoState; const u=Number(avitoState?.unread_count||0); const b=document.getElementById("avitoEntryUnread"); if(b){b.textContent=u;b.style.display=u>0?"inline-grid":"none";} try{updateAvitoCareerEntry(avitoState);}catch(_){} return avitoState; }
+  function updateAvitoCareerEntry(d){
+    const btn=document.getElementById('avitoBtn'); if(!btn) return;
+    const c=d?.career||{}; const dir=c.direction;
+    if(!c.eligible || !dir){
+      if(btn.dataset.careerEntry==='1'){
+        btn.dataset.careerEntry='0';
+        btn.innerHTML=`<div class="avito-entry-head"><div><div class="avito-entry-kicker">RESSELL MARKETPLACE</div><div class="avito-entry-title">Avito <span class="avito-unread" id="avitoEntryUnread" style="display:none;vertical-align:middle;margin-left:7px">0</span></div><div class="avito-entry-sub">Одна площадка для трёх действий: закупить товар, выставить его и довести сделку с покупателем до конца.</div></div><div class="avito-entry-badge">LIVE<small>маркетплейс</small></div></div><div class="avito-entry-footer"><span>ОТКРЫТЬ</span><strong>→</strong></div>`;
+      }
+      return;
+    }
+    const st=dir==='infobusiness'?(c.infobusiness||{}):dir==='brand'?(c.brand||{}):(c.investments||{});
+    const name=String(st.name||'').trim()||({infobusiness:'Digital Lab',brand:'New Brand',investments:'Investment Center'}[dir]);
+    const active=dir==='infobusiness'?Number(st.active_users||st.audience||0):dir==='brand'?Number(st.orders||0):Number((st.portfolio||[]).length);
+    const second=dir==='infobusiness'?`${Number(st.daily_users||0)} daily`:dir==='brand'?`${Number(st.stores||0)} stores`:`${Number(st.cash_invested||0).toLocaleString('ru-RU')} ₽ invested`;
+    const third=dir==='infobusiness'?`${Number(st.retention||0)}% retention`:dir==='brand'?`${Number(st.warehouse||0)} units stock`:`${Number(st.day_change||0)>=0?'+':''}${Number(st.day_change||0).toFixed(2)}% market`;
+    const label=dir==='infobusiness'?'DIGITAL LAB':dir==='brand'?'BRAND OS':'CAPITAL DESK';
+    const stage=dir==='infobusiness'?(st.app_stage||'IDEA').toUpperCase():dir==='brand'?'GLOBAL COMMERCE':'MARKET LIVE';
+    const p1=dir==='infobusiness'?Number(st.active_users||0):dir==='brand'?Number(st.orders||0):100; const p2=dir==='infobusiness'?Math.max(1,p1*.84):dir==='brand'?Math.max(1,p1*.72):103;
+    const pts=`0,40 45,${Math.max(8,40-p1*.015)} 90,${Math.max(10,40-p2*.012)} 135,${Math.max(7,28-p1*.01)} 180,${Math.max(6,22-p2*.008)} 225,10 270,${Math.max(5,14-p1*.003)}`;
+    btn.dataset.careerEntry='1';
+    btn.innerHTML=`<div class="avc-home-head"><div><div class="avc-home-kicker">${label} · YOUR COMPANY</div><div class="avc-home-name">${careerEscHome(name)}</div><div class="avc-home-stage">${stage} · центр управления</div></div><div class="avc-home-live"><i></i> LIVE</div></div><div class="avc-home-grid"><div class="avc-home-stat"><b>${active.toLocaleString('ru-RU')}</b><span>${dir==='infobusiness'?'active users':dir==='brand'?'orders':'positions'}</span></div><div class="avc-home-stat"><b>${second}</b><span>${dir==='brand'?'магазины':'состояние'}</span></div><div class="avc-home-stat"><b>${third}</b><span>${dir==='investments'?'рынок':'метрика'}</span></div></div><div class="avc-home-chart"><svg viewBox="0 0 270 45" preserveAspectRatio="none"><path d="M0 44H270" stroke="rgba(255,255,255,.05)"/><polyline points="${pts}" fill="none" stroke="#b7ff6a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><div class="avc-home-footer"><span>ОТКРЫТЬ ЦЕНТР КОМПАНИИ</span><strong>→</strong></div>`;
+  }
+  function careerEscHome(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+  async function refreshAvitoUnreadBadge(){ try{ if(userId && !document.hidden){ const d=await tycoonFetch(`/avito/${encodeURIComponent(userId)}`); const u=Number(d?.unread_count||0); const b=document.getElementById("avitoEntryUnread"); if(b){b.textContent=u;b.style.display=u>0?"inline-grid":"none";} updateAvitoCareerEntry(d); } }catch(_){} }
   setInterval(refreshAvitoUnreadBadge,5000);
   function groupInventory(inv){ const groups=new Map(); for(const item of (inv||[])){ const key=[item.name||'Товар',item.rarity||'',item.buy_price||0,item.market_price||0].join('|'); if(!groups.has(key)) groups.set(key,{...item,count:0,uids:[]}); const g=groups.get(key); g.count++; if(item.uid) g.uids.push(item.uid); } return [...groups.values()]; }
   function avitoRarity(r){ const v=String(r||'').trim().toLowerCase(); if(v.includes('миф')) return 'mythic'; if(v.includes('легенд')) return 'legendary'; if(v.includes('эпич')) return 'epic'; if(v.includes('редк')) return 'rare'; return 'common'; }
@@ -7586,6 +7609,13 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
 .avc-action-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}.avc-action{min-height:45px;border:1px solid rgba(255,255,255,.07);border-radius:14px;background:#111311;color:#dce2dc;font:950 7px/1 Montserrat;letter-spacing:.3px}.avc-action span{display:block;margin-top:5px;color:#68736b;font:800 6.5px/1 Nunito}.avc-input-sm{height:42px!important}.avc-textarea{min-height:76px;resize:vertical;padding:12px!important}.avc-map{position:relative;overflow:hidden;min-height:205px;border-radius:20px;background:radial-gradient(circle at 50% 42%,rgba(183,255,106,.08),transparent 40%),#090c0a;border:1px solid rgba(255,255,255,.06)}.avc-map svg{width:100%;height:205px;display:block}.avc-map-dot{cursor:pointer}.avc-map-legend{position:absolute;left:11px;right:11px;bottom:9px;display:flex;justify-content:space-between;color:#68736b;font:800 6.5px/1 Nunito}.avc-region-list{display:grid;grid-template-columns:1fr 1fr;gap:7px}.avc-region{padding:10px;border-radius:13px;background:#111311;border:1px solid rgba(255,255,255,.05)}.avc-region b{font:950 8px/1 Montserrat}.avc-region span{display:block;margin-top:5px;color:#69736b;font:800 7px/1 Nunito}.avc-bar{height:5px;margin-top:7px;border-radius:99px;background:#1b201c;overflow:hidden}.avc-bar i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#7cae52,#b7ff6a)}
 .avc-risk-panel{padding:12px;border-radius:18px;background:#0d100e;border:1px solid rgba(255,255,255,.06)}.avc-risk-row{display:flex;align-items:center;justify-content:space-between}.avc-risk-row b{font:950 10px/1 Montserrat}.avc-risk-row span{font:900 7px/1 Montserrat;color:#8c968e}.avc-risk-track{height:7px;margin-top:10px;border-radius:99px;background:#1b1f1c;overflow:hidden}.avc-risk-track i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#b7ff6a,#ffd36a,#ff6d79)}.avc-ticker{display:flex;gap:7px;overflow:auto;padding-bottom:2px;scrollbar-width:none}.avc-ticker::-webkit-scrollbar{display:none}.avc-tick{flex:0 0 130px;padding:10px;border-radius:14px;background:#101210;border:1px solid rgba(255,255,255,.055)}.avc-tick b{display:block;font:950 8px/1 Montserrat}.avc-tick span{display:block;margin-top:6px;color:#69736b;font:800 7px/1 Nunito}.avc-tick.up{border-color:rgba(183,255,106,.14)}.avc-tick.down{border-color:rgba(255,109,121,.14)}.avc-profit{color:#b7ff6a!important}.avc-loss{color:#ff7b85!important}.avc-note{padding:13px;border-radius:15px;background:rgba(255,255,255,.025);border:1px dashed rgba(255,255,255,.07);color:#727b74;font:800 8px/1.45 Nunito}.avc-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.avc-full{grid-column:1/-1}.avc-section-title{margin-top:2px}.avc-panel-title{letter-spacing:.2px}.avc-chip.active{background:#f4f4f4!important;color:#070807!important}.avc-map-dot circle{animation:avcMapPulse 2.2s infinite}@keyframes avcMapPulse{50%{opacity:.5;transform:scale(.82);transform-origin:center}}
 @media(max-width:430px){.avc-two{grid-template-columns:1fr}.avc-kpi-grid{grid-template-columns:1fr 1fr}.avc-form-grid{grid-template-columns:1fr}.avc-full{grid-column:auto}}
+<style id="resell-avito-career-v3-ui">
+.avc-setup{display:grid;gap:12px;padding:18px;border-radius:24px;border:1px solid rgba(183,255,106,.16);background:radial-gradient(circle at 100% 0,rgba(183,255,106,.11),transparent 38%),linear-gradient(145deg,#151816,#090b09);box-shadow:0 22px 55px rgba(0,0,0,.35)}
+.avc-setup-icon{width:46px;height:46px;display:grid;place-items:center;border-radius:15px;background:rgba(255,255,255,.06);font-size:22px;border:1px solid rgba(255,255,255,.07)}
+.avc-setup-title{font:950 22px/.98 Montserrat;letter-spacing:-.7px}.avc-setup-sub{color:#737b74;font:800 8px/1.5 Nunito;max-width:95%}
+.avc-name-options{display:grid;gap:7px}.avc-name-option{display:flex;align-items:center;gap:9px;padding:10px 11px;border-radius:13px;background:#0d100e;border:1px solid rgba(255,255,255,.06);color:#aeb6af;font:900 7px/1.2 Montserrat;cursor:pointer}.avc-name-option input{accent-color:#b7ff6a}.avc-name-option b{color:#e8eee9}.avc-home-career{position:relative;overflow:hidden;display:block;width:100%;padding:16px;text-align:left;border-radius:24px;border:1px solid rgba(183,255,106,.16);background:radial-gradient(circle at 95% 5%,rgba(183,255,106,.13),transparent 35%),linear-gradient(145deg,#151816,#090b09);color:#fff;box-shadow:0 18px 48px rgba(0,0,0,.28);cursor:pointer}.avc-home-career:after{content:"";position:absolute;right:-28px;bottom:-50px;width:150px;height:150px;border-radius:50%;border:1px solid rgba(183,255,106,.08);box-shadow:0 0 0 22px rgba(183,255,106,.025),0 0 0 45px rgba(183,255,106,.015)}.avc-home-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.avc-home-kicker{color:#849187;font:950 6.5px/1 Montserrat;letter-spacing:1.2px}.avc-home-name{margin-top:6px;font:950 17px/1 Montserrat;letter-spacing:-.4px}.avc-home-stage{margin-top:5px;color:#737c75;font:800 7.5px/1.3 Nunito}.avc-home-live{display:inline-flex;align-items:center;gap:5px;padding:7px 8px;border-radius:10px;background:rgba(183,255,106,.07);color:#b7ff6a;font:950 6px/1 Montserrat;letter-spacing:.5px}.avc-home-live i{width:5px;height:5px;border-radius:50%;background:#b7ff6a;box-shadow:0 0 10px #b7ff6a}.avc-home-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:13px}.avc-home-stat{padding:9px;border-radius:12px;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.045)}.avc-home-stat b{display:block;font:950 11px/1 Montserrat}.avc-home-stat span{display:block;margin-top:4px;color:#626b64;font:800 6px/1 Nunito;text-transform:uppercase}.avc-home-chart{height:45px;margin-top:9px;opacity:.9}.avc-home-footer{display:flex;justify-content:space-between;align-items:center;margin-top:9px;color:#606a62;font:900 6.5px/1 Montserrat;letter-spacing:.5px}.avc-home-footer strong{color:#b7ff6a}.avc-career-entry-slot{margin-bottom:10px}
+@media(max-width:390px){.avc-home-grid{grid-template-columns:1fr 1fr}.avc-home-stat:last-child{grid-column:1/-1}}
+</style>
 </style>
 <script id="resell-avito-career-v1-js">
 (function(){
@@ -7604,12 +7634,26 @@ body{background:radial-gradient(circle at 50% -12%,rgba(255,255,255,.085),transp
       <div class="avc-hero"><div class="avc-kicker">AVITO · TITAN</div><div class="avc-title">Новый уровень.<br>Новая игра.</div><div class="avc-sub">Ты достиг максимума Avito. Теперь перепродажа — только начало. Выбери направление и построй собственную бизнес-систему.</div><span class="avc-max">250+ ПРОДАЖ · УРОВЕНЬ ТИТАН</span></div>
       <div class="avc-section-title">ВЫБЕРИ СВОЮ СПЕЦИАЛИЗАЦИЮ</div>
       <div class="avc-choice-grid">
-        <button class="avc-choice" data-career-choose="infobusiness"><div class="avc-choice-icon">🧠</div><b>Инфобизнес</b><span>Создавай курсы, подписки, гайды, сервисы и даже собственные digital-проекты. Аудитория и продажи — в твоих руках.</span><em>СОЗДАВАЙ · РАСТИ · МАСШТАБИРУЙ</em><i class="avc-choice-arrow">→</i></button>
-        <button class="avc-choice" data-career-choose="brand"><div class="avc-choice-icon">🏪</div><b>Свой бренд</b><span>Придумай бренд, создавай коллекции, управляй ценами, производством, запасами и продажами.</span><em>ПРОДУКТ · БРЕНД · МАСШТАБ</em><i class="avc-choice-arrow">→</i></button>
+        <button class="avc-choice" data-career-choose="infobusiness"><div class="avc-choice-icon">🧠</div><b>Инфобизнес</b><span>Создавай компании, приложения, курсы, подписки, AI- и crypto-проекты. Управляй продуктом, аудиторией и рекламой.</span><em>СОЗДАВАЙ · РАСТИ · МАСШТАБИРУЙ</em><i class="avc-choice-arrow">→</i></button>
+        <button class="avc-choice" data-career-choose="brand"><div class="avc-choice-icon">🏪</div><b>Свой бренд</b><span>Придумай бренд, создавай коллекции, управляй ценами, производством, запасами, магазинами и международными продажами.</span><em>ПРОДУКТ · БРЕНД · МАСШТАБ</em><i class="avc-choice-arrow">→</i></button>
         <button class="avc-choice" data-career-choose="investments"><div class="avc-choice-icon">📈</div><b>Инвестиционный центр</b><span>Собирай портфель из digital, брендов, недвижимости и новых проектов. Выбирай стратегию и риск.</span><em>КАПИТАЛ · РИСК · ПОРТФЕЛЬ</em><i class="avc-choice-arrow">→</i></button>
       </div>
       <div class="avc-note">Твои существующие бизнесы никуда не исчезают. Они продолжают работать отдельно и приносить свой обычный пассивный доход.</div>
     </div>`;
+  }
+  function renderCareerSetup(c,direction){
+    const isInfo=direction==='infobusiness';
+    const isBrand=direction==='brand';
+    const current=String(window.__resellAvitoState?.shop_name||'').trim();
+    const title=isInfo?'Название новой компании':'Название бренда';
+    const icon=isInfo?'🧠':'🏪';
+    const desc=isInfo?'Ты переходишь из перепродажи в собственный digital-бизнес. Назови компанию — потом откроется её рабочий центр.':'Теперь у тебя будет собственный бренд. Назови его — дальше появятся производство, магазины, логистика и мировые продажи.';
+    return `<div class="avc-shell"><div class="avc-top"><button class="avc-back" data-career-choice-back>← НАПРАВЛЕНИЯ</button><div class="avc-balance">${careerMoney(window.__resellAvitoState?.balance||0)} ₽</div></div>
+      <div class="avc-setup"><div class="avc-setup-icon">${icon}</div><div class="avc-kicker">RESSELL CAREER · SETUP</div><div class="avc-setup-title">${title}</div><div class="avc-setup-sub">${desc}</div>
+      <div class="avc-name-options">${current?`<label class="avc-name-option"><input type="radio" name="careerNameMode" value="current" checked> <span>Оставить текущее название <b>«${careerEsc(current)}»</b></span></label>`:''}<label class="avc-name-option"><input type="radio" name="careerNameMode" value="new" ${current?'':'checked'}> <span>Придумать новое название</span></label></div>
+      <input class="avc-input" id="cCareerCompanyName" value="${careerEsc(current)}" maxlength="40" placeholder="Например: R-Labs, North Studio, R Brand">
+      ${isInfo?`<div class="avc-form-grid"><input class="avc-input" id="cInfoNiche" value="Digital" placeholder="Ниша компании"><select class="avc-select" id="cInfoFormat"><option>Digital company</option><option>SaaS-сервис</option><option>AI-продукт</option><option>Криптопроект</option><option>Медиа</option><option>Образование</option></select></div>`:''}${isBrand?`<div class="avc-form-grid"><input class="avc-input" id="cBrandCat" value="Lifestyle" placeholder="Категория бренда"><input class="avc-input" id="cBrandStyle" value="Modern" placeholder="Стиль бренда"></div>`:''}
+      <button class="avc-btn primary" data-career-setup="${direction}">СОЗДАТЬ КОМПАНИЮ →</button><div class="avc-note">Название можно изменить в дальнейшем через развитие компании. Текущие бизнесы и баланс сохраняются.</div></div></div>`;
   }
   function renderCareerDashboard(c,balance){
     const dir=c.direction;
@@ -7667,7 +7711,36 @@ function renderInvest(s,b){
   }
   modalBody.addEventListener('click',async e=>{
     const choose=e.target.closest('[data-career-choose]');
-    if(choose){choose.disabled=true;avitoEditing=true;try{const r=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/career/choose`,{method:'POST',body:JSON.stringify({direction:choose.dataset.careerChoose})});if(!r?.success)throw new Error(r?.message||r?.error||'Не удалось открыть направление');profileData.balance=Number(r.balance??profileData.balance);setBalance(profileData.balance);if(window.__resellAvitoState) window.__resellAvitoState.career=r.career;if(window.__resellAvitoState) window.__resellAvitoState.balance=profileData.balance;showToast(r.message||'Направление открыто');modalBody.innerHTML=renderAvitoWithCareer()}catch(err){showToast(err.message||'Ошибка');choose.disabled=false}return;}
+    if(choose){
+      const direction=choose.dataset.careerChoose;
+      if(direction==='investments'){
+        choose.disabled=true;avitoEditing=true;
+        try{const r=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/career/choose`,{method:'POST',body:JSON.stringify({direction})});if(!r?.success)throw new Error(r?.message||r?.error||'Не удалось открыть направление');profileData.balance=Number(r.balance??profileData.balance);setBalance(profileData.balance);if(window.__resellAvitoState) window.__resellAvitoState.career=r.career;if(window.__resellAvitoState) window.__resellAvitoState.balance=profileData.balance;showToast(r.message||'Инвестиционный центр открыт');modalBody.innerHTML=renderAvitoWithCareer()}catch(err){showToast(err.message||'Ошибка');choose.disabled=false}
+      }else{ avitoEditing=true; modalBody.innerHTML=renderCareerSetup(c,direction); }
+      return;
+    }
+    const setupBack=e.target.closest('[data-career-choice-back]'); if(setupBack){avitoEditing=true;modalBody.innerHTML=renderAvitoWithCareer();return;}
+    const setup=e.target.closest('[data-career-setup]');
+    if(setup){
+      setup.disabled=true; avitoEditing=true; const direction=setup.dataset.careerSetup;
+      const mode=document.querySelector('input[name="careerNameMode"]:checked')?.value;
+      const current=String(window.__resellAvitoState?.shop_name||'').trim();
+      const name=mode==='current'&&current?current:String(document.getElementById('cCareerCompanyName')?.value||'').trim();
+      if(name.length<2){showToast('Введи название компании');setup.disabled=false;return;}
+      try{
+        const chooseRes=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/career/choose`,{method:'POST',body:JSON.stringify({direction,company_name:name})});
+        if(!chooseRes?.success)throw new Error(chooseRes?.message||chooseRes?.error||'Не удалось открыть направление');
+        if(window.__resellAvitoState) window.__resellAvitoState.career=chooseRes.career||window.__resellAvitoState.career;
+        if(direction==='infobusiness'){
+          const r=await careerPost('info_create',{name,niche:document.getElementById('cInfoNiche')?.value||'Digital',format:document.getElementById('cInfoFormat')?.value||'Digital company',price:9990});
+          if(!r?.success)throw new Error(r?.message||r?.error||'Не удалось создать компанию');
+        }else if(direction==='brand'){
+          const r=await careerPost('brand_create',{name,category:document.getElementById('cBrandCat')?.value||'Lifestyle',style:document.getElementById('cBrandStyle')?.value||'Modern'});
+          if(!r?.success)throw new Error(r?.message||r?.error||'Не удалось создать бренд');
+        }
+      }catch(err){showToast(err.message||'Ошибка');setup.disabled=false;}
+      return;
+    }
     const back=e.target.closest('[data-career-back]'); if(back){avitoEditing=false;modalBody.innerHTML=renderAvito();return;}
     const act=e.target.closest('[data-career-action]'); if(!act)return;
     act.disabled=true; avitoEditing=true; const kind=act.dataset.kind; let payload={};
