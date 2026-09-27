@@ -10069,6 +10069,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     const team=Array.isArray(p.team_members)?p.team_members:[];
     const salary=team.reduce((a,x)=>a+Number(x.salary||0),0) || Number(p.team_cost||0);
     const sprint=Math.max(0,Math.min(100,Number(sim.sprint_progress||0)));
+    const canAdvertise=sprint>=100||!!p.published;
     const stage=String(p.stage||'ПРОТОТИП');
     const typeLabel2={ai:'AI',crypto:'Крипто',education:'Образование',saas:'Сервис'};
     const graph=Array.from({length:10},(_,i)=>{const base=Math.max(8,Math.min(96,20+i*6+Math.round(users/150)+Math.round(quality/8)+((i*17)%7)));return `<i style="height:${base}%"></i>`}).join('');
@@ -10084,103 +10085,56 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
       <div class="corp-graph"><div class="corp-graph-head"><div><small>ЖИВАЯ АНАЛИТИКА</small><b>Как чувствует себя проект</b></div><span>${careerMoney(revenue)} ₽ выручки</span></div><div class="ig-bars">${graph}</div></div>
       <div class="corp-grid">
         <button class="corp-module corp-module-main ${sprint>=100?'state-disabled':'state-ready'}" data-career-action="info_ops" data-op="sprint" ${sprint>=100?'disabled':''}><span>⌘</span><div><small>ПРОДУКТ</small><b>Разработка</b><p>${sprint>=100?'Работа готова. Сначала проверь её.':'Выбери задачу и сам участвуй в разработке.'}</p></div><em>${sprint}%</em></button>
+        <button class="corp-module ${sprint<100?'state-disabled':'state-ready'}" data-career-action="info_feature" ${sprint<100?'disabled':''}><span>✦</span><div><small>ДОРАБОТКА</small><b>Новая функция</b><p>${sprint>=100?'Напиши код изменения и добавь его в продукт.':'Сначала доведи текущую разработку до 100%.'}</p></div><em>${sprint>=100?'→':'—'}</em></button>
         <button class="corp-module ${teamSlots<=team.length?'state-disabled':''}" data-career-action="info_ops" data-op="hire" ${teamSlots<=team.length?'disabled':''}><span>＋</span><div><small>КОМАНДА</small><b>${teamSlots>team.length?'Нанять сотрудника':'Команда заполнена'}</b><p>${teamSlots>team.length?`${team.length}/${teamSlots} мест · собеседование и найм`: `Открой новый слот уровнем направления`}</p></div><em>${teamSlots>team.length?'›':'—'}</em></button>
         <button class="corp-module ${sprint<70||sim.qa_done?'state-disabled':''}" data-career-action="info_ops" data-op="qa" ${(sprint<70||sim.qa_done)?'disabled':''}><span>✓</span><div><small>КАЧЕСТВО</small><b>${sim.qa_done?'Проверено':'Проверка проекта'}</b><p>${sim.qa_done?'Готово к выпуску.':'Пройди проверки и сам набери проверочный код.'}</p></div><em>${sim.qa_done?'✓':'›'}</em></button>
         <button class="corp-module ${!(sprint>=100&&sim.qa_done)?'state-disabled':'state-ready'}" data-career-action="info_ops" data-op="release" ${!(sprint>=100&&sim.qa_done)?'disabled':''}><span>↑</span><div><small>ВЫПУСК</small><b>Опубликовать версию</b><p>${sprint>=100&&sim.qa_done?'Последний шаг — ручная публикация.':'Сначала закончи разработку и проверку.'}</p></div><em>${sprint>=100&&sim.qa_done?'›':'—'}</em></button>
         <button class="corp-module ${sim.meeting_cycle===sim.release_count?'state-disabled':''}" data-career-action="info_ops" data-op="meeting" ${sim.meeting_cycle===sim.release_count?'disabled':''}><span>◉</span><div><small>РУКОВОДСТВО</small><b>Планёрка</b><p>${sim.meeting_cycle===sim.release_count?'Планёрка уже проведена в этом цикле.':'Прими одно управленческое решение за текущий цикл.'}</p></div><em>${sim.meeting_cycle===sim.release_count?'✓':'›'}</em></button>
-        <button class="corp-module" data-career-action="info_ads"><span>↗</span><div><small>РОСТ</small><b>Рекламный кабинет</b><p>Выбери блогера, бюджет и дождись результата.</p></div><em>›</em></button>
+        <button class="corp-module ${canAdvertise?'state-ready':'state-disabled'}" data-career-action="info_ads" ${canAdvertise?'':'disabled'}><span>↗</span><div><small>РОСТ</small><b>Рекламный кабинет</b><p>${canAdvertise?'Выбери блогера, бюджет и дождись результата.':'Сначала доведи разработку до 100%.'}</p></div><em>${canAdvertise?'›':'—'}</em></button>
         <button class="corp-module" data-career-action="info_ad_manager"><span>◌</span><div><small>МОНЕТИЗАЦИЯ</small><b>Рекламная сеть</b><p>Подключи монетизацию и смотри накопление.</p></div><em>›</em></button>
         ${cryptoExtra}
       </div>
+      ${openProjectBugs.length?`<section class="corp-bugs"><div class="corp-bugs-head"><div><small>QA · ПРОБЛЕМЫ</small><b>Открытые баги</b></div><span>${openProjectBugs.length}</span></div><div class="corp-bugs-list">${openProjectBugs.map(x=>`<div class="corp-bug-row"><div class="corp-bug-mark">!</div><div><b>${esc(x.title||'Ошибка')}</b><small>${esc(x.text||'Проблема требует исправления')}</small></div><button type="button" data-career-action="info_fix_bug" data-bug-id="${esc(x.id)}">ИСПРАВИТЬ</button></div>`).join('')}</div></section>`:`<section class="corp-bugs corp-bugs-empty"><div class="corp-bugs-head"><div><small>QA · ПРОБЛЕМЫ</small><b>Открытых багов нет</b></div><span>✓</span></div><p>Новые ошибки могут появиться во время разработки. Если они появятся — здесь можно будет написать фикс.</p></section>`}
       <div class="corp-sprint"><div><small>ТЕКУЩАЯ РАБОТА</small><b>${esc(sim.sprint_task||'Задача не выбрана')}</b></div><div><i><u style="width:${sprint}%"></u></i><strong>${sprint}%</strong></div></div>
       <div class="corp-bottom"><div><small>КАПИТАЛИЗАЦИЯ</small><b>${money(valuation)}</b></div><div><small>ВЫРУЧКА</small><b>${money(revenue)}</b></div><button class="ig-sell" data-career-action="info_sell_project" data-project-id="${esc(p.id)}">Продать за 70% стоимости</button></div>
     </div>`;
     return avcShell('infobusiness',p.name||'Проект','СТУДИЯ',`${typeLabel2[type]||'Проект'} · симулятор управления`,b,content);
   }
   function renderBrand(s,b){
-    const products=Array.isArray(s.products)?s.products:[];
-    const progress=s.progress||{};
-    const level=Math.max(1,Number(progress.level||s.level||1));
-    const xp=Math.max(0,Number(progress.xp??s.xp??0));
-    const nextXp=progress.next_xp==null?null:Number(progress.next_xp);
-    const rank=String(progress.rank||s.rank||'СОЗДАТЕЛЬ');
-    const storesMax=Math.max(1,Number(progress.stores||1));
-    const staffMax=Math.max(0,Number(progress.staff||0));
-    const staff=Array.isArray(s.staff)?s.staff:[];
-    const factory=s.factory||{};
-    const jobs=Array.isArray(s.production_jobs)?s.production_jobs:[];
-    const stock=products.reduce((a,p)=>a+Number(p.stock||0),0);
-    const sales=Number(s.sales||0), revenue=Number(s.revenue||0), stores=Number(s.stores||0);
-    const now=Math.floor(Date.now()/1000);
-    const pending=jobs.filter(j=>Number(j.ready_at||0)>now);
-    const ready=jobs.filter(j=>Number(j.ready_at||0)<=now);
-    const thresholds=[0,220,550,1050,1800,2800,4200];
-    const levelStart=thresholds[Math.max(0,Math.min(thresholds.length-1,level-1))]||0;
-    const levelProgress=nextXp==null?100:Math.max(0,Math.min(100,Math.round((xp-levelStart)/Math.max(1,nextXp-levelStart)*100)));
-    const money=v=>careerMoney(v||0)+' ₽';
-    const icon=t=>({Футболка:'👕',Кофта:'🧥',Обувь:'👟',Шапка:'🧢',Брюки:'👖',Куртка:'🧥',Сумка:'👜',Джинсы:'👖'}[t]||'◈');
-    const esc=v=>careerEsc(String(v??''));
-
-    const action=(a,ic,title,sub,disabled=false,primary=false)=>`<button class="ig-create-v3 ${primary?'brand-primary':''}" data-career-action="${a}" ${disabled?'disabled':''} style="text-align:left;opacity:${disabled?.48:1};${primary?'':''}"><span>${ic}</span><div><b>${esc(title)}</b><small>${esc(sub)}</small></div><em>›</em></button>`;
-
+    const products=Array.isArray(s.products)?s.products:[], prog=s.progress||{};
+    const level=Math.max(1,Number(prog.level||s.level||1)), xp=Math.max(0,Number(prog.xp??s.xp??0));
+    const next=prog.next_xp==null?null:Number(prog.next_xp), rank=String(prog.rank||s.rank||'СОЗДАТЕЛЬ');
+    const storesMax=Math.max(1,Number(prog.stores||1)), staffMax=Math.max(0,Number(prog.staff||0));
+    const staff=Array.isArray(s.staff)?s.staff:[], factory=s.factory||{}, jobs=Array.isArray(s.production_jobs)?s.production_jobs:[];
+    const stock=products.reduce((a,p)=>a+Number(p.stock||0),0), sales=Number(s.sales||0), revenue=Number(s.revenue||0), stores=Number(s.stores||0);
+    const now=Math.floor(Date.now()/1000), pending=jobs.filter(j=>Number(j.ready_at||0)>now), ready=jobs.filter(j=>Number(j.ready_at||0)<=now);
+    const thresholds=[0,220,550,1050,1800,2800,4200], startXp=thresholds[Math.max(0,level-1)]||0;
+    const levelPct=next==null?100:Math.max(0,Math.min(100,Math.round((xp-startXp)/Math.max(1,next-startXp)*100)));
+    const money=v=>careerMoney(v||0)+' ₽', icon=t=>({Футболка:'👕',Кофта:'🧥',Обувь:'👟',Шапка:'🧢',Брюки:'👖',Куртка:'🧥',Сумка:'👜',Джинсы:'👖'}[t]||'◈');
     const productRows=products.map(p=>{
       const ps=Number(p.stock||0), listed=Number(p.avito_listed||0), sold=Number(p.sold||0);
-      return `<button class="ig-project ig-project-v2" type="button" style="cursor:default;">
-        <span class="ig-project-icon">${icon(p.category||p.title)}</span>
-        <span class="ig-project-main"><b>${esc(p.title||'Товар')}</b><small>${esc(p.category||'Одежда')} · ${esc(p.fabric||'ткань не выбрана')}</small></span>
-        <span class="ig-project-stats"><small>Склад: ${careerMoney(ps)} · Продано: ${careerMoney(sold)}</small><strong>${money(p.price||0)}</strong></span>
-        <em style="display:flex;gap:5px;align-items:center">${ps?`<button type="button" data-career-action="brand_sell" data-product-id="${esc(p.id)}" style="border:0;border-radius:10px;padding:7px 8px;background:#5868f4;color:#fff;font:900 8px Montserrat">ПРОДАТЬ</button>`:''}${ps-listed>0?`<button type="button" data-career-action="brand_avito_list" data-product-id="${esc(p.id)}" style="border:1px solid #dce3ef;border-radius:10px;padding:7px 8px;background:#f6f8fc;color:#5364e9;font:900 8px Montserrat">AVITO ${listed}/5</button>`:''}</em>
-      </button>`;
-    }).join('');
-
-    const jobsRows=pending.map(j=>{
-      const left=Math.max(0,Number(j.ready_at||0)-now);
-      const mins=Math.floor(left/60), secs=String(left%60).padStart(2,'0');
-      const pct=Math.max(0,Math.min(100,Math.round((1-left/Math.max(1,Number(j.duration||60)))*100)));
-      return `<div class="ig-card" style="padding:12px;margin-top:8px"><div style="display:flex;justify-content:space-between;gap:10px"><div><b style="font-size:13px">${esc(j.product_title||'Партия')}</b><small style="display:block;color:#8792a6;margin-top:3px">${careerMoney(j.amount)} шт. · ${esc(j.fabric||'—')}</small></div><strong style="color:#5364e9">${mins}:${secs}</strong></div><div class="ig-progress"><i><u style="display:block;width:${pct}%;height:100%;background:linear-gradient(90deg,#5a73ff,#7a5df0);border-radius:99px"></u></i></div></div>`;
-    }).join('');
-    const readyRows=ready.map(j=>`<div class="ig-project" style="margin-top:8px"><span class="ig-project-icon">✓</span><span class="ig-project-main"><b>${esc(j.product_title||'Партия')}</b><small>${careerMoney(j.amount)} шт. готовы к отправке на склад</small></span><button type="button" data-career-action="brand_collect_production" style="border:0;border-radius:10px;padding:9px 10px;background:#5868f4;color:#fff;font:900 8px Montserrat">НА СКЛАД</button></div>`).join('');
-
-    return avcShell('brand',s.name||'Свой бренд','СВОЙ БРЕНД',`${esc(rank)} · уровень ${level}`,b,`<div class="ig-home-v3 brand-home-v3">
-      <div class="ig-home-top">
-        <div><small>КАПИТАЛ БРЕНДА</small><h2>${money(b)}</h2><span>${esc(s.name||'Свой бренд')} · производство и продажи</span></div>
-        <div class="ig-home-count"><b>УРОВЕНЬ ${level}</b><small>${esc(rank)}</small></div>
-      </div>
-      <div class="ig-level-card">
-        <div class="ig-level-head"><div><small>ПРОГРЕСС БРЕНДА</small><b>Уровень ${level}</b></div><strong>${careerMoney(xp)} XP${nextXp==null?'':` · ${careerMoney(nextXp-xp)} до следующего`}</strong></div>
-        <div class="ig-level-bar"><i style="width:${levelProgress}%"></i></div>
-        <div class="ig-level-foot"><span>${stores}/${storesMax} магазинов · ${staff.length}/${staffMax} сотрудников</span><span>${nextXp==null?'МАКСИМУМ':`до уровня ${level+1}`}</span></div>
-      </div>
-
-      <div class="ig-metrics">
-        <div><small>СКЛАД</small><b>${careerMoney(stock)} шт.</b></div>
-        <div><small>ВЫРУЧКА</small><b>${money(revenue)}</b></div>
-        <div><small>ПРОДАНО</small><b>${careerMoney(sales)} шт.</b></div>
-      </div>
-
-      <div class="ig-card">
-        <div class="ig-card-title"><div><small>УПРАВЛЕНИЕ</small><h3>Мой бренд</h3></div><span>◈</span></div>
-        <div class="info-simple-actions brand-action-grid">
-          ${action('brand_add_product','👕','Создать вещь','модель · цена · коллекция',false,true)}
-          ${action('brand_production','🏭','Произвести','вещь · ткань · тираж')}
-          ${action('brand_campaign','📣','Реклама','привлечь покупателей')}
-          ${action('brand_store','🏬','Открыть магазин',stores>=storesMax?'лимит уровня достигнут':'новая точка',stores>=storesMax)}
-          ${level>=2&&staffMax>0?action('brand_hire','👥','Нанять сотрудника',`${staff.length}/${staffMax} мест`):''}
-          ${level>=3?action('brand_factory','🏗️','Производство',factory.name?`${esc(factory.name)} · ${careerMoney(factory.capacity)} шт.`:'увеличить мощность'):''}
-        </div>
-      </div>
-
-      ${(pending.length||ready.length)?`<div class="ig-card"><div class="ig-card-title"><div><small>ПРОИЗВОДСТВО</small><h3>${pending.length?'Партии в работе':'Готовая партия'}</h3></div><span>🏭</span></div>${jobsRows}${readyRows}</div>`:''}
-
-      <div class="ig-card"><div class="ig-card-title"><div><small>КОЛЛЕКЦИЯ</small><h3>Товары бренда</h3></div><span>👕</span></div>${productRows||'<div class="ig-empty-company"><b>Создай первую вещь</b><span>После создания здесь появится одежда, которую можно произвести и продать.</span></div>'}</div>
-
-      <div class="ig-card"><div class="ig-card-title"><div><small>ПРОДАЖИ</small><h3>Каналы бренда</h3></div><span>↗</span></div>
-        <div class="ig-metrics" style="grid-template-columns:repeat(3,1fr)"><div><small>AVITO</small><b>до 5 шт.</b></div><div><small>МАГАЗИНЫ</small><b>${careerMoney(stores)}</b></div><div><small>КОМАНДА</small><b>${careerMoney(staff.length)}</b></div></div>
-      </div>
+      return `<article class="brand-simple-product"><div class="brand-simple-product-icon">${icon(p.category||p.title)}</div><div class="brand-simple-product-main"><b>${careerEsc(p.title||'Товар')}</b><span>${careerEsc(p.category||'Одежда')} · ${careerEsc(p.fabric||'ткань не выбрана')} · ${money(p.price||0)}</span><small>НА СКЛАДЕ <strong>${careerMoney(ps)}</strong> · ПРОДАНО ${careerMoney(sold)}</small></div><div class="brand-simple-product-actions">${ps?`<button data-career-action="brand_sell" data-product-id="${careerEsc(p.id)}">ПРОДАТЬ</button>`:''}${ps-listed>0?`<button class="light" data-career-action="brand_avito_list" data-product-id="${careerEsc(p.id)}">AVITO ${listed}/5</button>`:''}</div></article>`;
+    }).join('')||'<div class="brand-simple-empty">Создай первую вещь</div>';
+    const jobRows=pending.map(j=>{const left=Math.max(0,Number(j.ready_at||0)-now), mins=Math.floor(left/60), secs=String(left%60).padStart(2,'0'); const pct=Math.max(0,Math.min(100,Math.round((1-left/Math.max(1,Number(j.duration||60)))*100))); return `<div class="brand-simple-job"><div><b>${careerEsc(j.product_title||'Партия')}</b><small>${careerMoney(j.amount)} шт. · ${careerEsc(j.fabric||'—')}</small></div><strong>${mins}:${secs}</strong><i><u style="width:${pct}%"></u></i></div>`;}).join('');
+    const readyRows=ready.map(j=>`<div class="brand-simple-ready"><div><b>${careerEsc(j.product_title||'Партия')}</b><small>${careerMoney(j.amount)} шт. готовы</small></div><button data-career-action="brand_collect_production">НА СКЛАД</button></div>`).join('');
+    const action=(a,icon,title,sub,disabled=false)=>`<button class="brand-simple-action${disabled?' disabled':''}" data-career-action="${a}" ${disabled?'disabled':''}><span>${icon}</span><div><b>${title}</b><small>${sub}</small></div></button>`;
+    return avcShell('brand',s.name||'Свой бренд','СВОЙ БРЕНД',`${careerEsc(rank)} · уровень ${level}`,b,`<div class="brand-simple">
+      <section class="brand-simple-top"><div><small>КАПИТАЛ</small><b>${money(b)}</b><span>${careerEsc(s.name||'Свой бренд')}</span></div><div class="brand-simple-level"><b>${level}</b><small>УРОВЕНЬ</small></div><div class="brand-simple-progress"><i><u style="width:${levelPct}%"></u></i><small>${careerMoney(xp)} XP${next==null?'':' · '+careerMoney(next-xp)+' до следующего'}</small></div></section>
+      <section class="brand-simple-stats"><div><small>СКЛАД</small><b>${careerMoney(stock)}</b></div><div><small>ВЫРУЧКА</small><b>${money(revenue)}</b></div><div><small>ПРОДАНО</small><b>${careerMoney(sales)}</b></div><div><small>ТОЧКИ</small><b>${careerMoney(stores)}</b></div></section>
+      <section class="brand-simple-section"><div class="brand-simple-head"><div><small>БРЕНД</small><b>Управление</b></div></div><div class="brand-simple-actions">
+        ${action('brand_add_product','👕','Создать вещь','модель · цена · коллекция')}
+        ${action('brand_production','🏭','Произвести','выбрать вещь · ткань · тираж')}
+        ${action('brand_campaign','📣','Запустить рекламу','увеличить спрос')}
+        ${action('brand_store','🏬','Открыть точку',stores>=storesMax?'лимит уровня достигнут':'новый магазин',stores>=storesMax)}
+        ${level>=2&&staffMax>0?action('brand_hire','👥','Нанять сотрудника',`${staff.length}/${staffMax} мест`):''}
+        ${level>=3?action('brand_factory','🏗️','Построить производство',factory.name?`${careerEsc(factory.name)} · ${careerMoney(factory.capacity)} шт.`:'увеличить мощность'):''}
+      </div></section>
+      ${(pending.length||ready.length)?`<section class="brand-simple-section"><div class="brand-simple-head"><div><small>ПРОИЗВОДСТВО</small><b>${pending.length?'Партии в работе':'Готовые партии'}</b></div><span>${pending.length+ready.length}</span></div>${jobRows}${readyRows}</section>`:''}
+      <section class="brand-simple-section"><div class="brand-simple-head"><div><small>КОЛЛЕКЦИЯ</small><b>Твои вещи</b></div><button data-career-action="brand_add_product">+ ВЕЩЬ</button></div><div>${productRows}</div></section>
+      <section class="brand-simple-bottom"><div><small>КОМАНДА</small><b>${staff.length}/${staffMax}</b></div><div><small>ПРОИЗВОДСТВО</small><b>${factory.name?careerEsc(factory.name):'Базовое'}</b></div><div><small>ПРОДАЖИ</small><b>Avito до 5 шт. / товар</b></div></section>
     </div>`);
   }
-  
-function renderInvest(s,b){
+  function renderInvest(s,b){
     const pending=Array.isArray(s.pending)?s.pending:[], portfolio=Array.isArray(s.portfolio)?s.portfolio:[], feed=Array.isArray(s.deal_feed)?s.deal_feed:[];
     const prog=s.progress||{}, level=Math.max(1,Number(prog.level||s.level||1)), xp=Math.max(0,Number(prog.xp??s.xp??0)), next=prog.next_xp==null?null:Number(prog.next_xp), rank=String(prog.rank||s.rank||'НАБЛЮДАТЕЛЬ');
     const maxDeals=Math.max(1,Number(prog.deals||1)), ticket=Math.max(100000,Number(prog.ticket||100000));
@@ -10249,7 +10203,7 @@ function renderInvest(s,b){
     if(action==='info_create') payload={name:g('cInfoName')?.value,niche:g('cInfoNiche')?.value,format:g('cInfoFormat')?.value,price:Number(g('cInfoPrice')?.value||0)};
     if(action==='info_build_app') payload={name:g('cInfoAppName')?.value||g('cInfoName')?.value,app_type:g('cInfoAppType')?.value};
     if(action.startsWith('info_') && action!=='info_build_app'){payload.project_id=careerData().infobusiness?.current_project_id||'';}
-    if(action==='info_feature') payload={title:g('cInfoFeatureTitle')?.value||'Новая продуктовая функция'};
+    if(action==='info_feature') payload={project_id:careerData().infobusiness?.current_project_id||'',title:g('cInfoFeatureTitle')?.value||'Новая продуктовая функция'};
     if(action==='info_ads'){const ib=careerData().infobusiness||{};payload={enabled:!Boolean(ib.ads_enabled),budget:Number(g('cInfoAdBudget')?.value||ib.ad_budget||25000)};}
     if(action==='info_ad_manager'){const ib=careerData().infobusiness||{};payload.network=payload.network||ib.ad_network||'google';}
     if(action==='info_create_product'){const ib=careerData().infobusiness||{},count=Array.isArray(ib.products)?ib.products.length:0;payload={title:g('cInfoFeatureTitle')?.value||`${ib.niche||'Digital'} Product #${count+1}`,format:'Digital product',price:9990};}
@@ -10691,7 +10645,8 @@ function renderInvest(s,b){
       let payload=avcBasePayload(action,act);
       const special=['info_ops','info_build_app','info_team','info_ads','info_qa','info_release','info_publish','info_course','info_review','info_fix_bug','invest_project','invest_manage','brand_create','brand_add_product','brand_production','brand_campaign','brand_store','brand_hire','brand_factory'];
       if(action==='invest_discover'){ await avcInvestmentSearch(act); return; }
-      if(action==='info_build_app'){ const modal=avcInfoBuilder(); const picked=await modal.__start(); payload=Object.assign(payload,picked); await careerPost(action,payload); return; }
+      if(action==='info_build_app'){ const modal=avcInfoBuilder(); const picked=await modal.__start(); if(!picked){act.disabled=false;act.dataset.busy='0';return} payload=Object.assign(payload,picked); await careerPost(action,payload); return; }
+      if(action==='info_feature'){ const ib=careerData().infobusiness||{}; const p=(ib.projects||[]).find(x=>String(x.id)===String(ib.current_project_id))||{}; const picked=await avcInfoCodeWork(p,'core'); if(!picked){act.disabled=false;act.dataset.busy='0';return} payload=Object.assign(payload,picked); await careerPost(action,payload); return; }
       if(action==='info_ops'){ const picked=await avcInfoOps(action,act); if(!picked){act.disabled=false;act.dataset.busy='0';return} payload=Object.assign(payload,picked); await careerPost(action,payload); return; }
       if(action==='info_sales'){ const picked=await avcInfoSalesGame(); if(!picked){act.disabled=false;act.dataset.busy='0';return} payload=Object.assign(payload,picked); await careerPost(action,payload); return; }
       if(action==='info_qa'){ const picked=await avcInfoManualWork('qa',act); if(!picked){act.disabled=false;act.dataset.busy='0';return} payload=Object.assign(payload,picked); await careerPost(action,payload); return; }
@@ -10885,60 +10840,7 @@ function renderInvest(s,b){
 .career-new.brand .avp-decision-card>p{color:#718096!important}
 @media(max-width:520px){.career-new.brand{padding-left:8px!important;padding-right:8px!important}.brand-qty-controls{grid-template-columns:48px 1fr 48px}}
 </style>
-<style id="resell-brand-exact-infobusiness-ui-v1">
-/* BRAND = INFOBUSINESS SHELL. No alternate dark brand frame. */
-.career-new.brand{
-  background:#f7f8fb!important;color:#18233b!important;min-height:100%!important;
-  width:100%!important;max-width:none!important;margin:0!important;padding-bottom:32px!important;
-  padding-left:0!important;padding-right:0!important;box-shadow:none!important;border:0!important;
-}
-.career-new.brand:before,.career-new.brand:after{display:none!important}
-.career-new.brand .avc-return-avito{position:relative!important;top:auto!important;left:auto!important;margin:10px 14px 4px!important;width:118px!important;height:42px!important;border-radius:14px!important;background:#fff!important;border:1px solid #e8ebf2!important;box-shadow:0 4px 16px rgba(25,35,55,.07)!important;color:#18233b!important}
-.career-new.brand .avc-subnav{background:transparent!important;border:0!important;padding:4px 16px!important;box-shadow:none!important;color:#7b879e!important}
-.career-new.brand .avc-subnav b{color:#18233b!important}
-.career-new.brand .cn-title{padding:8px 16px 4px!important}
-.career-new.brand .cn-title small,.career-new.brand .cn-title h1,.career-new.brand .cn-title p{color:#18233b!important}
-.career-new.brand .ig-home-v3{padding:0 14px!important;display:grid!important;gap:12px!important}
-.career-new.brand .ig-home-top{display:flex!important;justify-content:space-between!important;align-items:flex-end!important;gap:12px!important;padding:10px 2px 4px!important}
-.career-new.brand .ig-home-top small,.career-new.brand .ig-level-card small,.career-new.brand .ig-card-title small,.career-new.brand .ig-metrics small{font-size:10px!important;font-weight:900!important;letter-spacing:.12em!important;color:#7b879e!important}
-.career-new.brand .ig-home-top h2{margin:3px 0!important;font-size:30px!important;line-height:1!important;font-weight:950!important;letter-spacing:-.04em!important;color:#18233b!important}
-.career-new.brand .ig-home-top span{color:#8792a6!important;font-size:11px!important}
-.career-new.brand .ig-home-count{display:grid!important;text-align:right!important}
-.career-new.brand .ig-home-count b{font-size:12px!important;color:#5364e9!important}
-.career-new.brand .ig-home-count small{margin-top:3px!important;font-size:9px!important;letter-spacing:0!important}
-.career-new.brand .ig-level-card,.career-new.brand .ig-card{background:#fff!important;border:1px solid #e5e9f1!important;border-radius:20px!important;padding:15px!important;box-shadow:0 6px 20px rgba(25,35,55,.05)!important;color:#18233b!important}
-.career-new.brand .ig-level-head{display:flex!important;justify-content:space-between!important;align-items:flex-end!important;gap:10px!important}
-.career-new.brand .ig-level-head b{display:block!important;margin-top:3px!important;font-size:18px!important;color:#18233b!important}
-.career-new.brand .ig-level-head>strong{font-size:10px!important;color:#5364e9!important;white-space:nowrap!important}
-.career-new.brand .ig-level-bar{height:7px!important;margin-top:10px!important;background:#edf0f6!important;border-radius:99px!important;overflow:hidden!important}
-.career-new.brand .ig-level-bar i{display:block!important;height:100%!important;background:linear-gradient(90deg,#5a73ff,#7a5df0)!important;border-radius:99px!important}
-.career-new.brand .ig-level-foot{display:flex!important;justify-content:space-between!important;margin-top:7px!important;color:#8792a6!important;font-size:10px!important}
-.career-new.brand .ig-metrics{display:grid!important;grid-template-columns:repeat(3,1fr)!important;gap:7px!important;margin-top:0!important}
-.career-new.brand .ig-metrics>div{background:#fff!important;border:1px solid #e5e9f1!important;border-radius:13px!important;padding:10px!important;min-width:0!important}
-.career-new.brand .ig-metrics b{display:block!important;margin-top:4px!important;font-size:12px!important;color:#25334c!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
-.career-new.brand .ig-card-title{display:flex!important;justify-content:space-between!important;align-items:center!important;gap:10px!important}
-.career-new.brand .ig-card-title h3{margin:3px 0 0!important;font-size:22px!important;font-weight:950!important;color:#18233b!important}
-.career-new.brand .ig-card-title>span{width:42px!important;height:42px!important;border-radius:13px!important;background:#eef2ff!important;color:#5969ea!important;display:grid!important;place-items:center!important;font-size:21px!important}
-.career-new.brand .brand-action-grid{display:grid!important;grid-template-columns:1fr 1fr!important;gap:8px!important;margin-top:12px!important}
-.career-new.brand .brand-action-grid .ig-create-v3{min-height:72px!important;width:100%!important;display:flex!important;align-items:center!important;gap:10px!important;padding:12px!important;border:1px solid #e5e9f1!important;border-radius:16px!important;background:#f8faff!important;color:#2b3b53!important;box-shadow:none!important;cursor:pointer!important}
-.career-new.brand .brand-action-grid .ig-create-v3>span{width:40px!important;height:40px!important;flex:none!important;border-radius:12px!important;background:#eef2ff!important;display:grid!important;place-items:center!important;font-size:20px!important}
-.career-new.brand .brand-action-grid .ig-create-v3 div{flex:1!important;min-width:0!important}
-.career-new.brand .brand-action-grid .ig-create-v3 b{display:block!important;font-size:12px!important;font-weight:950!important;color:#18233b!important}
-.career-new.brand .brand-action-grid .ig-create-v3 small{display:block!important;margin-top:3px!important;font-size:9px!important;letter-spacing:0!important;color:#8792a6!important}
-.career-new.brand .brand-action-grid .ig-create-v3 em{font-style:normal!important;font-size:21px!important;color:#9aa5b5!important}
-.career-new.brand .brand-action-grid .ig-create-v3.brand-primary{grid-column:1/-1!important;background:linear-gradient(135deg,#5868f4,#7a5cf2)!important;border:0!important;color:#fff!important;box-shadow:0 10px 24px rgba(88,104,244,.18)!important}
-.career-new.brand .brand-action-grid .ig-create-v3.brand-primary b,.career-new.brand .brand-action-grid .ig-create-v3.brand-primary small,.career-new.brand .brand-action-grid .ig-create-v3.brand-primary em{color:#fff!important}
-.career-new.brand .brand-action-grid .ig-create-v3.brand-primary>span{background:rgba(255,255,255,.16)!important}
-.career-new.brand .ig-project{width:100%!important;display:flex!important;align-items:center!important;gap:10px!important;margin-top:8px!important;padding:11px!important;border:1px solid #e7eaf1!important;background:#fff!important;border-radius:16px!important;color:#18233b!important;box-shadow:0 4px 14px rgba(25,35,55,.04)!important;box-sizing:border-box!important}
-.career-new.brand .ig-project-icon{width:42px!important;height:42px!important;flex:none!important;border-radius:12px!important;background:#eef2ff!important;color:#536df0!important;display:grid!important;place-items:center!important;font-size:20px!important}
-.career-new.brand .ig-project-main{min-width:0!important;flex:1!important;text-align:left!important}
-.career-new.brand .ig-project-main b{display:block!important;font-size:13px!important;color:#1c2b43!important}
-.career-new.brand .ig-project-main small{display:block!important;margin-top:3px!important;color:#8490a2!important;font-size:10px!important}
-.career-new.brand .ig-project-stats{text-align:right!important;display:grid!important;gap:3px!important}
-.career-new.brand .ig-project-stats small{font-size:9px!important;color:#8490a2!important;white-space:nowrap!important}
-.career-new.brand .ig-project-stats strong{font-size:12px!important;color:#5364e9!important}
-@media(max-width:520px){.career-new.brand .brand-action-grid{grid-template-columns:1fr!important}.career-new.brand .brand-action-grid .brand-primary{grid-column:auto!important}.career-new.brand .ig-metrics{grid-template-columns:repeat(2,1fr)!important}.career-new.brand .ig-metrics>div:last-child{grid-column:1/-1!important}.career-new.brand .ig-project-stats{display:none!important}}
-</style>
+<style id="resell-infobusiness-bugs-v1">.corp-bugs{padding:13px 14px;border:1px solid #e1e6ee;border-radius:18px;background:#fff;box-shadow:0 7px 20px rgba(31,52,82,.045);color:#18263d}.corp-bugs-head{display:flex;align-items:end;justify-content:space-between;gap:8px;margin-bottom:8px}.corp-bugs-head small{display:block;color:#7b879e;font:900 7px/1 Montserrat;letter-spacing:.12em}.corp-bugs-head b{display:block;margin-top:4px;font:950 16px/1 Montserrat}.corp-bugs-head>span{color:#df626b;font:950 13px/1 Montserrat}.corp-bugs-list{display:grid;gap:6px}.corp-bug-row{display:grid;grid-template-columns:31px 1fr auto;gap:9px;align-items:center;padding:9px;border-top:1px solid #edf0f4}.corp-bug-row:first-child{border-top:0}.corp-bug-mark{width:31px;height:31px;border-radius:10px;display:grid;place-items:center;background:#fff1f0;color:#df626b;font:950 11px/1 Montserrat}.corp-bug-row b{display:block;color:#1c2942;font:900 9px/1 Montserrat}.corp-bug-row small{display:block;margin-top:4px;color:#7f8aa0;font:750 7px/1.3 Nunito}.corp-bug-row button{min-height:32px;padding:0 10px;border:0;border-radius:10px;background:#eef1ff;color:#5364e9;font:950 7px/1 Montserrat}.corp-bugs-empty .corp-bugs-head>span{color:#22a06b}.corp-bugs-empty p{margin:0;color:#7f8aa0;font:750 8px/1.4 Nunito}</style>
 </body>
 
 
@@ -14469,6 +14371,25 @@ main.app{
 </style>
 
 \n<style id="resell-brand-invest-final-ui">\n/* FINAL CAREER UI: same light language as Info Business; no dark side panels */\n.career-new.brand,.career-new.investments{background:#f5f7fb!important;color:#18263d!important;min-height:100%!important;padding-left:8px!important;padding-right:8px!important}\n.career-new.brand .cn-nav,.career-new.investments .cn-nav{background:#fff!important;border:1px solid #e4e9f1!important;color:#718096!important;box-shadow:0 5px 18px rgba(31,52,84,.05)!important}\n.career-new.brand .cn-nav b,.career-new.investments .cn-nav b{color:#18263d!important}\n.career-new.brand .cn-title h1,.career-new.brand .cn-title p,.career-new.brand .cn-title small,.career-new.investments .cn-title h1,.career-new.investments .cn-title p,.career-new.investments .cn-title small{color:#18263d!important}\n.brand-simple,.invest-simple{display:grid;gap:9px;padding-bottom:20px}\n.brand-simple-top,.invest-simple-top{display:grid;grid-template-columns:1fr auto;gap:8px;padding:15px;border:1px solid #e3e8f0;border-radius:20px;background:#fff;box-shadow:0 8px 25px rgba(31,52,84,.05)}\n.brand-simple-top small,.invest-simple-top small,.brand-simple-head small,.invest-simple-head small,.brand-simple-stats small,.invest-simple-stats small,.brand-simple-bottom small{display:block;color:#8490a3;font:900 6.5px/1 Montserrat,sans-serif;letter-spacing:.9px}\n.brand-simple-top>b,.brand-simple-top div>b,.invest-simple-top div>b{display:block;color:#18263d;font:950 22px/1 Montserrat,sans-serif;margin-top:5px}.brand-simple-top span,.invest-simple-top span{display:block;margin-top:4px;color:#7d899c;font:750 7px/1.2 Nunito,sans-serif}\n.brand-simple-level,.invest-simple-level{min-width:55px;padding:9px 8px;border-radius:14px;background:#f1f4ff;text-align:center}.brand-simple-level b,.invest-simple-level b{display:block!important;color:#5d6df8!important;font:950 24px/1 Montserrat!important}.brand-simple-level small,.invest-simple-level small{margin-top:4px!important;color:#7d89a0!important}.brand-simple-progress,.invest-simple-progress{grid-column:1/-1}.brand-simple-progress i,.invest-simple-progress i{display:block;height:5px;border-radius:99px;background:#edf0f5;overflow:hidden}.brand-simple-progress u,.invest-simple-progress u{display:block;height:100%;background:#5d6df8;border-radius:99px;text-decoration:none}.brand-simple-progress small,.invest-simple-progress small{margin-top:5px;text-align:right}\n.brand-simple-stats,.invest-simple-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.invest-simple-stats{grid-template-columns:repeat(3,1fr)}.brand-simple-stats>div,.invest-simple-stats>div{padding:10px 8px;border:1px solid #e7ebf2;border-radius:13px;background:#fff;min-width:0}.brand-simple-stats b,.invest-simple-stats b{display:block;margin-top:5px;color:#25334c;font:950 10px/1 Montserrat;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.brand-simple-section,.invest-simple-section{padding:12px;border:1px solid #e3e8f0;border-radius:19px;background:#fff;box-shadow:0 6px 20px rgba(31,52,84,.035)}.brand-simple-head,.invest-simple-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:9px}.brand-simple-head b,.invest-simple-head b{display:block;margin-top:4px;color:#1c2a43;font:950 13px/1 Montserrat}.brand-simple-head>button,.invest-simple-head>button{border:1px solid #dfe5ee;border-radius:10px;padding:8px 10px;background:#f5f7fb;color:#40506a;font:950 7px/1 Montserrat}.brand-simple-head>span,.invest-simple-head>span{min-width:27px;height:27px;border-radius:9px;background:#f0f3ff;color:#5d6df8;display:grid;place-items:center;font:950 8px/1 Montserrat}\n.brand-simple-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px}.brand-simple-action{min-height:68px;border:1px solid #e1e6ef!important;border-radius:15px!important;background:#fff!important;text-align:left;padding:10px!important;color:#18263d!important;display:flex;align-items:center;gap:9px;box-shadow:0 4px 13px rgba(31,52,84,.035)}.brand-simple-action:active{transform:scale(.99)}.brand-simple-action>span{width:32px;height:32px;border-radius:10px;background:#f0f3ff;display:grid;place-items:center;font-size:16px}.brand-simple-action b{display:block;color:#1c2942;font:950 9px/1 Montserrat!important}.brand-simple-action small{display:block;margin-top:4px;color:#7a879b;font:750 6.5px/1.2 Nunito!important}.brand-simple-action.disabled{opacity:.4!important;pointer-events:none}\n.brand-simple-product{display:flex;align-items:center;gap:9px;padding:9px 0;border-top:1px solid #edf0f4}.brand-simple-product:first-child{border-top:0}.brand-simple-product-icon{width:38px;height:38px;border-radius:12px;background:#f3f5f9;display:grid;place-items:center;font-size:18px}.brand-simple-product-main{flex:1;min-width:0}.brand-simple-product-main b{display:block;color:#1d2b44;font:950 9px/1.15 Montserrat}.brand-simple-product-main span,.brand-simple-product-main small{display:block;margin-top:4px;color:#7c889a;font:750 6.5px/1.25 Nunito}.brand-simple-product-main small strong{color:#1f2f49}.brand-simple-product-actions{display:grid;gap:4px}.brand-simple-product-actions button,.brand-simple-ready button{border:0;border-radius:9px;padding:7px 8px;background:#5d6df8;color:#fff;font:950 6px/1 Montserrat}.brand-simple-product-actions button.light{background:#f0f3ff;color:#5d6df8;border:1px solid #dfe5ff}.brand-simple-empty,.invest-simple-empty{padding:18px 8px;text-align:center;color:#8793a5;font:800 8px/1.35 Nunito}.brand-simple-job,.brand-simple-ready,.invest-simple-row{position:relative;display:flex;align-items:center;gap:9px;padding:10px 0;border-top:1px solid #edf0f4}.brand-simple-job:first-child,.brand-simple-ready:first-child,.invest-simple-row:first-child{border-top:0}.brand-simple-job>div,.brand-simple-ready>div,.invest-simple-row>div{flex:1}.brand-simple-job b,.brand-simple-ready b,.invest-simple-row b{display:block;color:#1d2b44;font:950 8.5px/1.15 Montserrat}.brand-simple-job small,.brand-simple-ready small,.invest-simple-row small{display:block;margin-top:4px;color:#7c889a;font:750 6.5px/1.2 Nunito}.brand-simple-job>strong,.invest-simple-row>strong{font:950 8px/1 Montserrat;color:#5d6df8}.brand-simple-job i{position:absolute;left:0;right:0;bottom:2px;height:3px;border-radius:99px;background:#edf0f5;overflow:hidden}.brand-simple-job i u{display:block;height:100%;background:#5d6df8;text-decoration:none}.brand-simple-ready button{background:#24334e}.brand-simple-bottom{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.brand-simple-bottom>div{padding:10px;border-radius:13px;background:#fff;border:1px solid #e7ebf2}.brand-simple-bottom b{display:block;margin-top:5px;color:#26344d;font:950 8px/1.15 Montserrat}\n.invest-simple-primary{background:#5d6df8!important;color:#fff!important;border-color:#5d6df8!important}.invest-simple-primary:disabled{background:#e8ebf2!important;color:#9aa4b4!important;border-color:#e8ebf2!important}.invest-simple-deals{display:grid;gap:7px}.invest-simple-deal{width:100%;text-align:left;border:1px solid #e2e7ef;border-radius:15px;background:#fff;padding:12px;color:#18263d}.invest-simple-deal>div{display:flex;justify-content:space-between;gap:8px}.invest-simple-deal>div span{color:#5d6df8;font:900 6px/1 Montserrat}.invest-simple-deal>div strong{color:#536177;font:900 7px/1 Montserrat}.invest-simple-deal>b{display:block;margin-top:7px;color:#1c2942;font:950 12px/1 Montserrat}.invest-simple-deal>small{display:block;margin-top:5px;color:#718096;font:750 7.5px/1.35 Nunito}.invest-simple-deal>em{display:block;margin-top:8px;color:#5d6df8;font:950 7px/1 Montserrat;font-style:normal}.invest-simple-company{padding:11px;border:1px solid #e3e8ef;border-radius:15px;background:#fff;margin-top:7px}.invest-simple-company:first-child{margin-top:0}.invest-simple-company-head{display:flex;justify-content:space-between;gap:8px}.invest-simple-company-head b{display:block;color:#1c2942;font:950 10px/1 Montserrat}.invest-simple-company-head small{display:block;margin-top:4px;color:#7d899c;font:750 7px/1 Nunito}.invest-simple-company-head strong{font:950 9px/1 Montserrat}.invest-simple-company-head .plus{color:#22a06b}.invest-simple-company-head .minus{color:#df626b}.invest-simple-money{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}.invest-simple-money span{padding:8px;border-radius:10px;background:#f5f7fb}.invest-simple-money small{display:block;color:#8995a8;font:900 5.5px/1 Montserrat}.invest-simple-money b{display:block;margin-top:4px;color:#25334d;font:950 9px/1 Montserrat}.invest-simple-company>button{width:100%;margin-top:8px;border:0;border-radius:10px;background:#5d6df8;color:#fff;padding:10px;font:950 7px/1 Montserrat}\n.brand-modal-note{margin-top:9px;padding:9px 10px;border-radius:11px;background:#f3f6fb;color:#718096;font:750 7px/1.35 Nunito}.cn-special .brand-production-ui{color:#18263d}.cn-special .brand-field span,.cn-special .brand-fabric-title{color:#7d899c!important;font:900 7px/1 Montserrat!important;letter-spacing:.8px}.cn-special .brand-big-qty{padding:14px;border-radius:16px;background:#f1f4ff!important;border:1px solid #dfe5ff}.cn-special .brand-big-qty strong{color:#5d6df8!important;font:950 38px/1 Montserrat!important}.cn-special .brand-range{accent-color:#5d6df8}.cn-special .brand-fabric-grid button{border:1px solid #e0e5ed!important;background:#fff!important;color:#26344d!important;border-radius:13px!important}.cn-special .brand-fabric-grid button.active{border-color:#5d6df8!important;background:#f1f4ff!important;box-shadow:0 0 0 2px rgba(93,109,248,.08)}.cn-special .brand-production-summary>div{background:#f6f8fb!important;border:1px solid #e6eaf0!important;border-radius:12px!important}.cn-special .brand-production-summary b{color:#25334d!important}.cn-special .brand-capacity-note{color:#7b8799!important}\n@media(max-width:380px){.brand-simple-actions{grid-template-columns:1fr}.brand-simple-stats b,.invest-simple-stats b{font-size:9px}.brand-simple-product-actions button{padding:6px 7px;font-size:5.5px}}\n</style>\n
+<style id="resell-career-light-parity-v1">
+/* Final parity: Brand + Investments use the same light card language as Infobusiness. */
+.career-new.brand,.career-new.investments{background:#f4f6fa!important;color:#17253a!important;padding:6px 10px 30px!important;border-radius:0!important;font-family:Montserrat,sans-serif!important;min-height:100%!important;width:100%!important;max-width:none!important;overflow:visible!important}
+.career-new.brand *,.career-new.investments *{font-family:Montserrat,sans-serif!important;box-sizing:border-box}
+.career-new.brand .avc-return-avito,.career-new.investments .avc-return-avito{width:max-content!important;min-height:40px!important;height:40px!important;padding:6px 10px!important;gap:8px!important;border-radius:12px!important;background:#fff!important;color:#17253a!important;border:1px solid #e3e8f0!important;box-shadow:0 4px 12px rgba(30,45,70,.06)!important;margin:0 0 8px!important}
+.career-new.brand .avc-subnav,.career-new.investments .avc-subnav{margin-top:0!important;padding:0 2px!important;background:transparent!important;border:0!important;box-shadow:none!important}.career-new.brand .cn-nav span,.career-new.investments .cn-nav span{color:#77869b!important;font-size:8px!important}.career-new.brand .cn-nav b,.career-new.investments .cn-nav b{color:#233550!important}
+.career-new.brand .cn-title,.career-new.investments .cn-title{padding:4px 2px 9px!important}.career-new.brand .cn-title small,.career-new.investments .cn-title small{color:#5870ef!important}.career-new.brand .cn-title h1,.career-new.investments .cn-title h1{font-size:25px!important;color:#16263d!important}.career-new.brand .cn-title p,.career-new.investments .cn-title p{color:#718096!important}
+.career-new.brand .brand-simple,.career-new.investments .invest-simple{display:grid!important;gap:10px!important;padding:0 2px 22px!important;background:transparent!important;color:#18263d!important}
+.career-new.brand .brand-simple-top,.career-new.investments .invest-simple-top,.career-new.brand .brand-simple-section,.career-new.investments .invest-simple-section,.career-new.brand .brand-simple-stats>div,.career-new.investments .invest-simple-stats>div,.career-new.brand .brand-simple-bottom>div{background:#fff!important;border:1px solid #e3e8f0!important;box-shadow:0 6px 20px rgba(31,52,84,.035)!important;color:#18263d!important}
+.career-new.brand .brand-simple-top,.career-new.investments .invest-simple-top{border-radius:20px!important;padding:15px!important}.career-new.brand .brand-simple-top>b,.career-new.brand .brand-simple-top div>b,.career-new.investments .invest-simple-top>b,.career-new.investments .invest-simple-top div>b{font-size:30px!important;line-height:1!important;color:#18263d!important;letter-spacing:-.04em!important}.career-new.brand .brand-simple-top span,.career-new.investments .invest-simple-top span{font-size:11px!important;color:#8792a6!important}
+.career-new.brand .brand-simple-level,.career-new.investments .invest-simple-level{min-width:58px!important;padding:9px!important;border-radius:14px!important;background:#eef1ff!important}.career-new.brand .brand-simple-level b,.career-new.investments .invest-simple-level b{font-size:25px!important;color:#5364e9!important}.career-new.brand .brand-simple-progress i,.career-new.investments .invest-simple-progress i{height:6px!important;background:#edf0f6!important}.career-new.brand .brand-simple-progress u,.career-new.investments .invest-simple-progress u{background:#5d6df7!important}
+.career-new.brand .brand-simple-stats,.career-new.investments .invest-simple-stats{gap:7px!important}.career-new.brand .brand-simple-stats>div,.career-new.investments .invest-simple-stats>div{padding:10px!important;border-radius:13px!important}.career-new.brand .brand-simple-stats b,.career-new.investments .invest-simple-stats b{font-size:12px!important;color:#25334c!important}
+.career-new.brand .brand-simple-section,.career-new.investments .invest-simple-section{padding:14px!important;border-radius:19px!important}.career-new.brand .brand-simple-head b,.career-new.investments .invest-simple-head b{font-size:16px!important;color:#1c2a43!important}.career-new.brand .brand-simple-head>span,.career-new.investments .invest-simple-head>span{font-size:10px!important;color:#8a94a8!important}
+.career-new.brand .brand-simple-action,.career-new.investments .invest-simple-deal,.career-new.investments .invest-simple-company{border:1px solid #e5e9f1!important;background:#fff!important;color:#18263d!important;border-radius:17px!important;box-shadow:0 4px 14px rgba(25,35,55,.04)!important}.career-new.brand .brand-simple-action{min-height:72px!important;padding:12px!important}.career-new.brand .brand-simple-action b{font-size:14px!important;color:#18263d!important}.career-new.brand .brand-simple-action small{font-size:10px!important;color:#8994a8!important}.career-new.brand .brand-simple-action>span{width:40px!important;height:40px!important;border-radius:12px!important;background:#eef2ff!important}
+.career-new.brand .brand-simple-product{padding:11px 0!important;border-top-color:#edf0f5!important}.career-new.brand .brand-simple-product-icon{width:42px!important;height:42px!important;border-radius:13px!important;background:#eef2ff!important;font-size:21px!important}.career-new.brand .brand-simple-product-main b{font-size:14px!important;color:#18263d!important}.career-new.brand .brand-simple-product-main span,.career-new.brand .brand-simple-product-main small{font-size:10px!important;color:#8a94a8!important}.career-new.brand .brand-simple-bottom{gap:7px!important}.career-new.brand .brand-simple-bottom>div{padding:10px!important;border-radius:13px!important}
+.career-new.investments .invest-simple-deal,.career-new.investments .invest-simple-company{padding:12px!important}.career-new.investments .invest-simple-deal>div span,.career-new.investments .invest-simple-deal>em{color:#5d6df8!important}.career-new.investments .invest-simple-deal>b,.career-new.investments .invest-simple-company-head b{color:#1c2942!important}.career-new.investments .invest-simple-deal>small,.career-new.investments .invest-simple-company-head small,.career-new.investments .invest-simple-row small{color:#718096!important}.career-new.investments .invest-simple-money span{background:#f5f7fb!important}.career-new.investments .invest-simple-money b{color:#25334d!important}.career-new.investments .invest-simple-company>button,.career-new.investments .invest-simple-primary{background:#5d6df8!important;color:#fff!important;border:0!important;border-radius:13px!important;min-height:42px!important}.career-new.investments .invest-simple-primary:disabled{background:#e8ebf2!important;color:#9aa4b4!important}
+@media(max-width:520px){.career-new.brand,.career-new.investments{padding-left:8px!important;padding-right:8px!important}.career-new.brand .brand-simple-stats,.career-new.investments .invest-simple-stats{grid-template-columns:repeat(2,1fr)!important}.career-new.brand .brand-simple-actions{grid-template-columns:1fr!important}}
+</style>
+
 <style id="resell-brand-match-infobusiness-v7">
 /* BRAND V7 — visual system deliberately mirrors the Infobusiness screen. */
 .career-new:has(.brand-simple){
