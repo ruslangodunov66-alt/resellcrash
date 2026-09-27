@@ -10098,40 +10098,89 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     return avcShell('infobusiness',p.name||'Проект','СТУДИЯ',`${typeLabel2[type]||'Проект'} · симулятор управления`,b,content);
   }
   function renderBrand(s,b){
-    const products=Array.isArray(s.products)?s.products:[], prog=s.progress||{};
-    const level=Math.max(1,Number(prog.level||s.level||1)), xp=Math.max(0,Number(prog.xp??s.xp??0));
-    const next=prog.next_xp==null?null:Number(prog.next_xp), rank=String(prog.rank||s.rank||'СОЗДАТЕЛЬ');
-    const storesMax=Math.max(1,Number(prog.stores||1)), staffMax=Math.max(0,Number(prog.staff||0));
-    const staff=Array.isArray(s.staff)?s.staff:[], factory=s.factory||{}, jobs=Array.isArray(s.production_jobs)?s.production_jobs:[];
-    const stock=products.reduce((a,p)=>a+Number(p.stock||0),0), sales=Number(s.sales||0), revenue=Number(s.revenue||0), stores=Number(s.stores||0);
-    const now=Math.floor(Date.now()/1000), pending=jobs.filter(j=>Number(j.ready_at||0)>now), ready=jobs.filter(j=>Number(j.ready_at||0)<=now);
-    const thresholds=[0,220,550,1050,1800,2800,4200], startXp=thresholds[Math.max(0,level-1)]||0;
-    const levelPct=next==null?100:Math.max(0,Math.min(100,Math.round((xp-startXp)/Math.max(1,next-startXp)*100)));
-    const money=v=>careerMoney(v||0)+' ₽', icon=t=>({Футболка:'👕',Кофта:'🧥',Обувь:'👟',Шапка:'🧢',Брюки:'👖',Куртка:'🧥',Сумка:'👜',Джинсы:'👖'}[t]||'◈');
+    const products=Array.isArray(s.products)?s.products:[];
+    const progress=s.progress||{};
+    const level=Math.max(1,Number(progress.level||s.level||1));
+    const xp=Math.max(0,Number(progress.xp??s.xp??0));
+    const nextXp=progress.next_xp==null?null:Number(progress.next_xp);
+    const rank=String(progress.rank||s.rank||'СОЗДАТЕЛЬ');
+    const storesMax=Math.max(1,Number(progress.stores||1));
+    const staffMax=Math.max(0,Number(progress.staff||0));
+    const staff=Array.isArray(s.staff)?s.staff:[];
+    const factory=s.factory||{};
+    const jobs=Array.isArray(s.production_jobs)?s.production_jobs:[];
+    const stock=products.reduce((a,p)=>a+Number(p.stock||0),0);
+    const sales=Number(s.sales||0), revenue=Number(s.revenue||0), stores=Number(s.stores||0);
+    const now=Math.floor(Date.now()/1000);
+    const pending=jobs.filter(j=>Number(j.ready_at||0)>now);
+    const ready=jobs.filter(j=>Number(j.ready_at||0)<=now);
+    const thresholds=[0,220,550,1050,1800,2800,4200];
+    const levelStart=thresholds[Math.max(0,Math.min(thresholds.length-1,level-1))]||0;
+    const levelProgress=nextXp==null?100:Math.max(0,Math.min(100,Math.round((xp-levelStart)/Math.max(1,nextXp-levelStart)*100)));
+    const money=v=>careerMoney(v||0)+' ₽';
+    const icon=t=>({Футболка:'👕',Кофта:'🧥',Обувь:'👟',Шапка:'🧢',Брюки:'👖',Куртка:'🧥',Сумка:'👜',Джинсы:'👖'}[t]||'◈');
+    const esc=v=>careerEsc(String(v??''));
+
+    const action=(a,ic,title,sub,disabled=false,primary=false)=>`<button class="ig-create-v3 ${primary?'brand-primary':''}" data-career-action="${a}" ${disabled?'disabled':''} style="text-align:left;opacity:${disabled?.48:1};${primary?'':''}"><span>${ic}</span><div><b>${esc(title)}</b><small>${esc(sub)}</small></div><em>›</em></button>`;
+
     const productRows=products.map(p=>{
       const ps=Number(p.stock||0), listed=Number(p.avito_listed||0), sold=Number(p.sold||0);
-      return `<article class="brand-simple-product"><div class="brand-simple-product-icon">${icon(p.category||p.title)}</div><div class="brand-simple-product-main"><b>${careerEsc(p.title||'Товар')}</b><span>${careerEsc(p.category||'Одежда')} · ${careerEsc(p.fabric||'ткань не выбрана')} · ${money(p.price||0)}</span><small>НА СКЛАДЕ <strong>${careerMoney(ps)}</strong> · ПРОДАНО ${careerMoney(sold)}</small></div><div class="brand-simple-product-actions">${ps?`<button data-career-action="brand_sell" data-product-id="${careerEsc(p.id)}">ПРОДАТЬ</button>`:''}${ps-listed>0?`<button class="light" data-career-action="brand_avito_list" data-product-id="${careerEsc(p.id)}">AVITO ${listed}/5</button>`:''}</div></article>`;
-    }).join('')||'<div class="brand-simple-empty">Создай первую вещь</div>';
-    const jobRows=pending.map(j=>{const left=Math.max(0,Number(j.ready_at||0)-now), mins=Math.floor(left/60), secs=String(left%60).padStart(2,'0'); const pct=Math.max(0,Math.min(100,Math.round((1-left/Math.max(1,Number(j.duration||60)))*100))); return `<div class="brand-simple-job"><div><b>${careerEsc(j.product_title||'Партия')}</b><small>${careerMoney(j.amount)} шт. · ${careerEsc(j.fabric||'—')}</small></div><strong>${mins}:${secs}</strong><i><u style="width:${pct}%"></u></i></div>`;}).join('');
-    const readyRows=ready.map(j=>`<div class="brand-simple-ready"><div><b>${careerEsc(j.product_title||'Партия')}</b><small>${careerMoney(j.amount)} шт. готовы</small></div><button data-career-action="brand_collect_production">НА СКЛАД</button></div>`).join('');
-    const action=(a,icon,title,sub,disabled=false)=>`<button class="brand-simple-action${disabled?' disabled':''}" data-career-action="${a}" ${disabled?'disabled':''}><span>${icon}</span><div><b>${title}</b><small>${sub}</small></div></button>`;
-    return avcShell('brand',s.name||'Свой бренд','СВОЙ БРЕНД',`${careerEsc(rank)} · уровень ${level}`,b,`<div class="brand-simple">
-      <section class="brand-simple-top"><div><small>КАПИТАЛ</small><b>${money(b)}</b><span>${careerEsc(s.name||'Свой бренд')}</span></div><div class="brand-simple-level"><b>${level}</b><small>УРОВЕНЬ</small></div><div class="brand-simple-progress"><i><u style="width:${levelPct}%"></u></i><small>${careerMoney(xp)} XP${next==null?'':' · '+careerMoney(next-xp)+' до следующего'}</small></div></section>
-      <section class="brand-simple-stats"><div><small>СКЛАД</small><b>${careerMoney(stock)}</b></div><div><small>ВЫРУЧКА</small><b>${money(revenue)}</b></div><div><small>ПРОДАНО</small><b>${careerMoney(sales)}</b></div><div><small>ТОЧКИ</small><b>${careerMoney(stores)}</b></div></section>
-      <section class="brand-simple-section"><div class="brand-simple-head"><div><small>БРЕНД</small><b>Управление</b></div></div><div class="brand-simple-actions">
-        ${action('brand_add_product','👕','Создать вещь','модель · цена · коллекция')}
-        ${action('brand_production','🏭','Произвести','выбрать вещь · ткань · тираж')}
-        ${action('brand_campaign','📣','Запустить рекламу','увеличить спрос')}
-        ${action('brand_store','🏬','Открыть точку',stores>=storesMax?'лимит уровня достигнут':'новый магазин',stores>=storesMax)}
-        ${level>=2&&staffMax>0?action('brand_hire','👥','Нанять сотрудника',`${staff.length}/${staffMax} мест`):''}
-        ${level>=3?action('brand_factory','🏗️','Построить производство',factory.name?`${careerEsc(factory.name)} · ${careerMoney(factory.capacity)} шт.`:'увеличить мощность'):''}
-      </div></section>
-      ${(pending.length||ready.length)?`<section class="brand-simple-section"><div class="brand-simple-head"><div><small>ПРОИЗВОДСТВО</small><b>${pending.length?'Партии в работе':'Готовые партии'}</b></div><span>${pending.length+ready.length}</span></div>${jobRows}${readyRows}</section>`:''}
-      <section class="brand-simple-section"><div class="brand-simple-head"><div><small>КОЛЛЕКЦИЯ</small><b>Твои вещи</b></div><button data-career-action="brand_add_product">+ ВЕЩЬ</button></div><div>${productRows}</div></section>
-      <section class="brand-simple-bottom"><div><small>КОМАНДА</small><b>${staff.length}/${staffMax}</b></div><div><small>ПРОИЗВОДСТВО</small><b>${factory.name?careerEsc(factory.name):'Базовое'}</b></div><div><small>ПРОДАЖИ</small><b>Avito до 5 шт. / товар</b></div></section>
+      return `<button class="ig-project ig-project-v2" type="button" style="cursor:default;">
+        <span class="ig-project-icon">${icon(p.category||p.title)}</span>
+        <span class="ig-project-main"><b>${esc(p.title||'Товар')}</b><small>${esc(p.category||'Одежда')} · ${esc(p.fabric||'ткань не выбрана')}</small></span>
+        <span class="ig-project-stats"><small>Склад: ${careerMoney(ps)} · Продано: ${careerMoney(sold)}</small><strong>${money(p.price||0)}</strong></span>
+        <em style="display:flex;gap:5px;align-items:center">${ps?`<button type="button" data-career-action="brand_sell" data-product-id="${esc(p.id)}" style="border:0;border-radius:10px;padding:7px 8px;background:#5868f4;color:#fff;font:900 8px Montserrat">ПРОДАТЬ</button>`:''}${ps-listed>0?`<button type="button" data-career-action="brand_avito_list" data-product-id="${esc(p.id)}" style="border:1px solid #dce3ef;border-radius:10px;padding:7px 8px;background:#f6f8fc;color:#5364e9;font:900 8px Montserrat">AVITO ${listed}/5</button>`:''}</em>
+      </button>`;
+    }).join('');
+
+    const jobsRows=pending.map(j=>{
+      const left=Math.max(0,Number(j.ready_at||0)-now);
+      const mins=Math.floor(left/60), secs=String(left%60).padStart(2,'0');
+      const pct=Math.max(0,Math.min(100,Math.round((1-left/Math.max(1,Number(j.duration||60)))*100)));
+      return `<div class="ig-card" style="padding:12px;margin-top:8px"><div style="display:flex;justify-content:space-between;gap:10px"><div><b style="font-size:13px">${esc(j.product_title||'Партия')}</b><small style="display:block;color:#8792a6;margin-top:3px">${careerMoney(j.amount)} шт. · ${esc(j.fabric||'—')}</small></div><strong style="color:#5364e9">${mins}:${secs}</strong></div><div class="ig-progress"><i><u style="display:block;width:${pct}%;height:100%;background:linear-gradient(90deg,#5a73ff,#7a5df0);border-radius:99px"></u></i></div></div>`;
+    }).join('');
+    const readyRows=ready.map(j=>`<div class="ig-project" style="margin-top:8px"><span class="ig-project-icon">✓</span><span class="ig-project-main"><b>${esc(j.product_title||'Партия')}</b><small>${careerMoney(j.amount)} шт. готовы к отправке на склад</small></span><button type="button" data-career-action="brand_collect_production" style="border:0;border-radius:10px;padding:9px 10px;background:#5868f4;color:#fff;font:900 8px Montserrat">НА СКЛАД</button></div>`).join('');
+
+    return avcShell('brand',s.name||'Свой бренд','СВОЙ БРЕНД',`${esc(rank)} · уровень ${level}`,b,`<div class="ig-home-v3 brand-home-v3">
+      <div class="ig-home-top">
+        <div><small>КАПИТАЛ БРЕНДА</small><h2>${money(b)}</h2><span>${esc(s.name||'Свой бренд')} · производство и продажи</span></div>
+        <div class="ig-home-count"><b>УРОВЕНЬ ${level}</b><small>${esc(rank)}</small></div>
+      </div>
+      <div class="ig-level-card">
+        <div class="ig-level-head"><div><small>ПРОГРЕСС БРЕНДА</small><b>Уровень ${level}</b></div><strong>${careerMoney(xp)} XP${nextXp==null?'':` · ${careerMoney(nextXp-xp)} до следующего`}</strong></div>
+        <div class="ig-level-bar"><i style="width:${levelProgress}%"></i></div>
+        <div class="ig-level-foot"><span>${stores}/${storesMax} магазинов · ${staff.length}/${staffMax} сотрудников</span><span>${nextXp==null?'МАКСИМУМ':`до уровня ${level+1}`}</span></div>
+      </div>
+
+      <div class="ig-metrics">
+        <div><small>СКЛАД</small><b>${careerMoney(stock)} шт.</b></div>
+        <div><small>ВЫРУЧКА</small><b>${money(revenue)}</b></div>
+        <div><small>ПРОДАНО</small><b>${careerMoney(sales)} шт.</b></div>
+      </div>
+
+      <div class="ig-card">
+        <div class="ig-card-title"><div><small>УПРАВЛЕНИЕ</small><h3>Мой бренд</h3></div><span>◈</span></div>
+        <div class="info-simple-actions brand-action-grid">
+          ${action('brand_add_product','👕','Создать вещь','модель · цена · коллекция',false,true)}
+          ${action('brand_production','🏭','Произвести','вещь · ткань · тираж')}
+          ${action('brand_campaign','📣','Реклама','привлечь покупателей')}
+          ${action('brand_store','🏬','Открыть магазин',stores>=storesMax?'лимит уровня достигнут':'новая точка',stores>=storesMax)}
+          ${level>=2&&staffMax>0?action('brand_hire','👥','Нанять сотрудника',`${staff.length}/${staffMax} мест`):''}
+          ${level>=3?action('brand_factory','🏗️','Производство',factory.name?`${esc(factory.name)} · ${careerMoney(factory.capacity)} шт.`:'увеличить мощность'):''}
+        </div>
+      </div>
+
+      ${(pending.length||ready.length)?`<div class="ig-card"><div class="ig-card-title"><div><small>ПРОИЗВОДСТВО</small><h3>${pending.length?'Партии в работе':'Готовая партия'}</h3></div><span>🏭</span></div>${jobsRows}${readyRows}</div>`:''}
+
+      <div class="ig-card"><div class="ig-card-title"><div><small>КОЛЛЕКЦИЯ</small><h3>Товары бренда</h3></div><span>👕</span></div>${productRows||'<div class="ig-empty-company"><b>Создай первую вещь</b><span>После создания здесь появится одежда, которую можно произвести и продать.</span></div>'}</div>
+
+      <div class="ig-card"><div class="ig-card-title"><div><small>ПРОДАЖИ</small><h3>Каналы бренда</h3></div><span>↗</span></div>
+        <div class="ig-metrics" style="grid-template-columns:repeat(3,1fr)"><div><small>AVITO</small><b>до 5 шт.</b></div><div><small>МАГАЗИНЫ</small><b>${careerMoney(stores)}</b></div><div><small>КОМАНДА</small><b>${careerMoney(staff.length)}</b></div></div>
+      </div>
     </div>`);
   }
-  function renderInvest(s,b){
+  
+function renderInvest(s,b){
     const pending=Array.isArray(s.pending)?s.pending:[], portfolio=Array.isArray(s.portfolio)?s.portfolio:[], feed=Array.isArray(s.deal_feed)?s.deal_feed:[];
     const prog=s.progress||{}, level=Math.max(1,Number(prog.level||s.level||1)), xp=Math.max(0,Number(prog.xp??s.xp??0)), next=prog.next_xp==null?null:Number(prog.next_xp), rank=String(prog.rank||s.rank||'НАБЛЮДАТЕЛЬ');
     const maxDeals=Math.max(1,Number(prog.deals||1)), ticket=Math.max(100000,Number(prog.ticket||100000));
@@ -10835,6 +10884,60 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 .career-new.brand .avp-decision-card h3{color:#18263d!important}
 .career-new.brand .avp-decision-card>p{color:#718096!important}
 @media(max-width:520px){.career-new.brand{padding-left:8px!important;padding-right:8px!important}.brand-qty-controls{grid-template-columns:48px 1fr 48px}}
+</style>
+<style id="resell-brand-exact-infobusiness-ui-v1">
+/* BRAND = INFOBUSINESS SHELL. No alternate dark brand frame. */
+.career-new.brand{
+  background:#f7f8fb!important;color:#18233b!important;min-height:100%!important;
+  width:100%!important;max-width:none!important;margin:0!important;padding-bottom:32px!important;
+  padding-left:0!important;padding-right:0!important;box-shadow:none!important;border:0!important;
+}
+.career-new.brand:before,.career-new.brand:after{display:none!important}
+.career-new.brand .avc-return-avito{position:relative!important;top:auto!important;left:auto!important;margin:10px 14px 4px!important;width:118px!important;height:42px!important;border-radius:14px!important;background:#fff!important;border:1px solid #e8ebf2!important;box-shadow:0 4px 16px rgba(25,35,55,.07)!important;color:#18233b!important}
+.career-new.brand .avc-subnav{background:transparent!important;border:0!important;padding:4px 16px!important;box-shadow:none!important;color:#7b879e!important}
+.career-new.brand .avc-subnav b{color:#18233b!important}
+.career-new.brand .cn-title{padding:8px 16px 4px!important}
+.career-new.brand .cn-title small,.career-new.brand .cn-title h1,.career-new.brand .cn-title p{color:#18233b!important}
+.career-new.brand .ig-home-v3{padding:0 14px!important;display:grid!important;gap:12px!important}
+.career-new.brand .ig-home-top{display:flex!important;justify-content:space-between!important;align-items:flex-end!important;gap:12px!important;padding:10px 2px 4px!important}
+.career-new.brand .ig-home-top small,.career-new.brand .ig-level-card small,.career-new.brand .ig-card-title small,.career-new.brand .ig-metrics small{font-size:10px!important;font-weight:900!important;letter-spacing:.12em!important;color:#7b879e!important}
+.career-new.brand .ig-home-top h2{margin:3px 0!important;font-size:30px!important;line-height:1!important;font-weight:950!important;letter-spacing:-.04em!important;color:#18233b!important}
+.career-new.brand .ig-home-top span{color:#8792a6!important;font-size:11px!important}
+.career-new.brand .ig-home-count{display:grid!important;text-align:right!important}
+.career-new.brand .ig-home-count b{font-size:12px!important;color:#5364e9!important}
+.career-new.brand .ig-home-count small{margin-top:3px!important;font-size:9px!important;letter-spacing:0!important}
+.career-new.brand .ig-level-card,.career-new.brand .ig-card{background:#fff!important;border:1px solid #e5e9f1!important;border-radius:20px!important;padding:15px!important;box-shadow:0 6px 20px rgba(25,35,55,.05)!important;color:#18233b!important}
+.career-new.brand .ig-level-head{display:flex!important;justify-content:space-between!important;align-items:flex-end!important;gap:10px!important}
+.career-new.brand .ig-level-head b{display:block!important;margin-top:3px!important;font-size:18px!important;color:#18233b!important}
+.career-new.brand .ig-level-head>strong{font-size:10px!important;color:#5364e9!important;white-space:nowrap!important}
+.career-new.brand .ig-level-bar{height:7px!important;margin-top:10px!important;background:#edf0f6!important;border-radius:99px!important;overflow:hidden!important}
+.career-new.brand .ig-level-bar i{display:block!important;height:100%!important;background:linear-gradient(90deg,#5a73ff,#7a5df0)!important;border-radius:99px!important}
+.career-new.brand .ig-level-foot{display:flex!important;justify-content:space-between!important;margin-top:7px!important;color:#8792a6!important;font-size:10px!important}
+.career-new.brand .ig-metrics{display:grid!important;grid-template-columns:repeat(3,1fr)!important;gap:7px!important;margin-top:0!important}
+.career-new.brand .ig-metrics>div{background:#fff!important;border:1px solid #e5e9f1!important;border-radius:13px!important;padding:10px!important;min-width:0!important}
+.career-new.brand .ig-metrics b{display:block!important;margin-top:4px!important;font-size:12px!important;color:#25334c!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+.career-new.brand .ig-card-title{display:flex!important;justify-content:space-between!important;align-items:center!important;gap:10px!important}
+.career-new.brand .ig-card-title h3{margin:3px 0 0!important;font-size:22px!important;font-weight:950!important;color:#18233b!important}
+.career-new.brand .ig-card-title>span{width:42px!important;height:42px!important;border-radius:13px!important;background:#eef2ff!important;color:#5969ea!important;display:grid!important;place-items:center!important;font-size:21px!important}
+.career-new.brand .brand-action-grid{display:grid!important;grid-template-columns:1fr 1fr!important;gap:8px!important;margin-top:12px!important}
+.career-new.brand .brand-action-grid .ig-create-v3{min-height:72px!important;width:100%!important;display:flex!important;align-items:center!important;gap:10px!important;padding:12px!important;border:1px solid #e5e9f1!important;border-radius:16px!important;background:#f8faff!important;color:#2b3b53!important;box-shadow:none!important;cursor:pointer!important}
+.career-new.brand .brand-action-grid .ig-create-v3>span{width:40px!important;height:40px!important;flex:none!important;border-radius:12px!important;background:#eef2ff!important;display:grid!important;place-items:center!important;font-size:20px!important}
+.career-new.brand .brand-action-grid .ig-create-v3 div{flex:1!important;min-width:0!important}
+.career-new.brand .brand-action-grid .ig-create-v3 b{display:block!important;font-size:12px!important;font-weight:950!important;color:#18233b!important}
+.career-new.brand .brand-action-grid .ig-create-v3 small{display:block!important;margin-top:3px!important;font-size:9px!important;letter-spacing:0!important;color:#8792a6!important}
+.career-new.brand .brand-action-grid .ig-create-v3 em{font-style:normal!important;font-size:21px!important;color:#9aa5b5!important}
+.career-new.brand .brand-action-grid .ig-create-v3.brand-primary{grid-column:1/-1!important;background:linear-gradient(135deg,#5868f4,#7a5cf2)!important;border:0!important;color:#fff!important;box-shadow:0 10px 24px rgba(88,104,244,.18)!important}
+.career-new.brand .brand-action-grid .ig-create-v3.brand-primary b,.career-new.brand .brand-action-grid .ig-create-v3.brand-primary small,.career-new.brand .brand-action-grid .ig-create-v3.brand-primary em{color:#fff!important}
+.career-new.brand .brand-action-grid .ig-create-v3.brand-primary>span{background:rgba(255,255,255,.16)!important}
+.career-new.brand .ig-project{width:100%!important;display:flex!important;align-items:center!important;gap:10px!important;margin-top:8px!important;padding:11px!important;border:1px solid #e7eaf1!important;background:#fff!important;border-radius:16px!important;color:#18233b!important;box-shadow:0 4px 14px rgba(25,35,55,.04)!important;box-sizing:border-box!important}
+.career-new.brand .ig-project-icon{width:42px!important;height:42px!important;flex:none!important;border-radius:12px!important;background:#eef2ff!important;color:#536df0!important;display:grid!important;place-items:center!important;font-size:20px!important}
+.career-new.brand .ig-project-main{min-width:0!important;flex:1!important;text-align:left!important}
+.career-new.brand .ig-project-main b{display:block!important;font-size:13px!important;color:#1c2b43!important}
+.career-new.brand .ig-project-main small{display:block!important;margin-top:3px!important;color:#8490a2!important;font-size:10px!important}
+.career-new.brand .ig-project-stats{text-align:right!important;display:grid!important;gap:3px!important}
+.career-new.brand .ig-project-stats small{font-size:9px!important;color:#8490a2!important;white-space:nowrap!important}
+.career-new.brand .ig-project-stats strong{font-size:12px!important;color:#5364e9!important}
+@media(max-width:520px){.career-new.brand .brand-action-grid{grid-template-columns:1fr!important}.career-new.brand .brand-action-grid .brand-primary{grid-column:auto!important}.career-new.brand .ig-metrics{grid-template-columns:repeat(2,1fr)!important}.career-new.brand .ig-metrics>div:last-child{grid-column:1/-1!important}.career-new.brand .ig-project-stats{display:none!important}}
 </style>
 </body>
 
