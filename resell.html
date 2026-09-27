@@ -10068,7 +10068,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     const morale=Math.max(0,Math.min(100,Number(sim.morale||70)));
     const team=Array.isArray(p.team_members)?p.team_members:[];
     const salary=team.reduce((a,x)=>a+Number(x.salary||0),0) || Number(p.team_cost||0);
-    const sprint=Math.max(0,Math.min(100,Number(sim.sprint_progress||0)));
+    const sprint=Math.max(0,Math.min(100,Math.max(Number(sim.sprint_progress||0),Number(p.progress||0))));
     const canAdvertise=sprint>=100||!!p.published;
     const stage=String(p.stage||'ПРОТОТИП');
     const typeLabel2={ai:'AI',crypto:'Крипто',education:'Образование',saas:'Сервис'};
@@ -10110,48 +10110,207 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     const now=Math.floor(Date.now()/1000), pending=jobs.filter(j=>Number(j.ready_at||0)>now), ready=jobs.filter(j=>Number(j.ready_at||0)<=now);
     const thresholds=[0,220,550,1050,1800,2800,4200], startXp=thresholds[Math.max(0,level-1)]||0;
     const levelPct=next==null?100:Math.max(0,Math.min(100,Math.round((xp-startXp)/Math.max(1,next-startXp)*100)));
-    const money=v=>careerMoney(v||0)+' ₽', icon=t=>({Футболка:'👕',Кофта:'🧥',Обувь:'👟',Шапка:'🧢',Брюки:'👖',Куртка:'🧥',Сумка:'👜',Джинсы:'👖'}[t]||'◈');
+    const money=v=>careerMoney(v||0)+' ₽';
+    const icon=t=>({Футболка:'👕',Кофта:'🧥',Обувь:'👟',Шапка:'🧢',Брюки:'👖',Куртка:'🧥',Сумка:'👜',Джинсы:'👖'}[t]||'◈');
+
     const productRows=products.map(p=>{
       const ps=Number(p.stock||0), listed=Number(p.avito_listed||0), sold=Number(p.sold||0);
-      return `<article class="brand-simple-product"><div class="brand-simple-product-icon">${icon(p.category||p.title)}</div><div class="brand-simple-product-main"><b>${careerEsc(p.title||'Товар')}</b><span>${careerEsc(p.category||'Одежда')} · ${careerEsc(p.fabric||'ткань не выбрана')} · ${money(p.price||0)}</span><small>НА СКЛАДЕ <strong>${careerMoney(ps)}</strong> · ПРОДАНО ${careerMoney(sold)}</small></div><div class="brand-simple-product-actions">${ps?`<button data-career-action="brand_sell" data-product-id="${careerEsc(p.id)}">ПРОДАТЬ</button>`:''}${ps-listed>0?`<button class="light" data-career-action="brand_avito_list" data-product-id="${careerEsc(p.id)}">AVITO ${listed}/5</button>`:''}</div></article>`;
+      return `<article class="brand-simple-product">
+        <div class="brand-simple-product-icon">${icon(p.category||p.title)}</div>
+        <div class="brand-simple-product-main">
+          <b>${careerEsc(p.title||'Товар')}</b>
+          <span>${careerEsc(p.category||'Одежда')} · ${careerEsc(p.fabric||'ткань не выбрана')} · ${money(p.price||0)}</span>
+          <small>НА СКЛАДЕ <strong>${careerMoney(ps)}</strong> · ПРОДАНО ${careerMoney(sold)}</small>
+        </div>
+        <div class="brand-simple-product-actions">
+          ${ps?`<button data-career-action="brand_sell" data-product-id="${careerEsc(p.id)}">ПРОДАТЬ</button>`:''}
+          ${ps-listed>0?`<button class="light" data-career-action="brand_avito_list" data-product-id="${careerEsc(p.id)}">AVITO ${listed}/5</button>`:''}
+        </div>
+      </article>`;
     }).join('')||'<div class="brand-simple-empty">Создай первую вещь</div>';
-    const jobRows=pending.map(j=>{const left=Math.max(0,Number(j.ready_at||0)-now), mins=Math.floor(left/60), secs=String(left%60).padStart(2,'0'); const pct=Math.max(0,Math.min(100,Math.round((1-left/Math.max(1,Number(j.duration||60)))*100))); return `<div class="brand-simple-job"><div><b>${careerEsc(j.product_title||'Партия')}</b><small>${careerMoney(j.amount)} шт. · ${careerEsc(j.fabric||'—')}</small></div><strong>${mins}:${secs}</strong><i><u style="width:${pct}%"></u></i></div>`;}).join('');
+
+    const jobRows=pending.map(j=>{
+      const left=Math.max(0,Number(j.ready_at||0)-now), mins=Math.floor(left/60), secs=String(left%60).padStart(2,'0');
+      const pct=Math.max(0,Math.min(100,Math.round((1-left/Math.max(1,Number(j.duration||60)))*100)));
+      return `<div class="brand-simple-job">
+        <div><b>${careerEsc(j.product_title||'Партия')}</b><small>${careerMoney(j.amount)} шт. · ${careerEsc(j.fabric||'—')}</small></div>
+        <strong>${mins}:${secs}</strong>
+        <i><u style="width:${pct}%"></u></i>
+      </div>`;
+    }).join('');
     const readyRows=ready.map(j=>`<div class="brand-simple-ready"><div><b>${careerEsc(j.product_title||'Партия')}</b><small>${careerMoney(j.amount)} шт. готовы</small></div><button data-career-action="brand_collect_production">НА СКЛАД</button></div>`).join('');
-    const action=(a,icon,title,sub,disabled=false)=>`<button class="brand-simple-action${disabled?' disabled':''}" data-career-action="${a}" ${disabled?'disabled':''}><span>${icon}</span><div><b>${title}</b><small>${sub}</small></div></button>`;
-    return avcShell('brand',s.name||'Свой бренд','СВОЙ БРЕНД',`${careerEsc(rank)} · уровень ${level}`,b,`<div class="brand-simple">
-      <section class="brand-simple-top"><div><small>КАПИТАЛ</small><b>${money(b)}</b><span>${careerEsc(s.name||'Свой бренд')}</span></div><div class="brand-simple-level"><b>${level}</b><small>УРОВЕНЬ</small></div><div class="brand-simple-progress"><i><u style="width:${levelPct}%"></u></i><small>${careerMoney(xp)} XP${next==null?'':' · '+careerMoney(next-xp)+' до следующего'}</small></div></section>
-      <section class="brand-simple-stats"><div><small>СКЛАД</small><b>${careerMoney(stock)}</b></div><div><small>ВЫРУЧКА</small><b>${money(revenue)}</b></div><div><small>ПРОДАНО</small><b>${careerMoney(sales)}</b></div><div><small>ТОЧКИ</small><b>${careerMoney(stores)}</b></div></section>
-      <section class="brand-simple-section"><div class="brand-simple-head"><div><small>БРЕНД</small><b>Управление</b></div></div><div class="brand-simple-actions">
-        ${action('brand_add_product','👕','Создать вещь','модель · цена · коллекция')}
-        ${action('brand_production','🏭','Произвести','выбрать вещь · ткань · тираж')}
-        ${action('brand_campaign','📣','Запустить рекламу','увеличить спрос')}
-        ${action('brand_store','🏬','Открыть точку',stores>=storesMax?'лимит уровня достигнут':'новый магазин',stores>=storesMax)}
-        ${level>=2&&staffMax>0?action('brand_hire','👥','Нанять сотрудника',`${staff.length}/${staffMax} мест`):''}
-        ${level>=3?action('brand_factory','🏗️','Построить производство',factory.name?`${careerEsc(factory.name)} · ${careerMoney(factory.capacity)} шт.`:'увеличить мощность'):''}
-      </div></section>
-      ${(pending.length||ready.length)?`<section class="brand-simple-section"><div class="brand-simple-head"><div><small>ПРОИЗВОДСТВО</small><b>${pending.length?'Партии в работе':'Готовые партии'}</b></div><span>${pending.length+ready.length}</span></div>${jobRows}${readyRows}</section>`:''}
-      <section class="brand-simple-section"><div class="brand-simple-head"><div><small>КОЛЛЕКЦИЯ</small><b>Твои вещи</b></div><button data-career-action="brand_add_product">+ ВЕЩЬ</button></div><div>${productRows}</div></section>
-      <section class="brand-simple-bottom"><div><small>КОМАНДА</small><b>${staff.length}/${staffMax}</b></div><div><small>ПРОИЗВОДСТВО</small><b>${factory.name?careerEsc(factory.name):'Базовое'}</b></div><div><small>ПРОДАЖИ</small><b>Avito до 5 шт. / товар</b></div></section>
-    </div>`);
+
+    const action=(a,icon,title,sub,disabled=false)=>`<button class="brand-simple-action${disabled?' disabled':''}" data-career-action="${a}" ${disabled?'disabled':''}>
+      <span>${icon}</span><div><b>${title}</b><small>${sub}</small></div><em>›</em>
+    </button>`;
+
+    return avcShell('brand',s.name||'Моя компания','СТУДИЯ',`${careerEsc(rank)} · уровень ${level}`,b,`
+      <div class="career-unified-page">
+        <section class="career-unified-capital">
+          <div>
+            <small>ТВОЙ КАПИТАЛ</small>
+            <h2>${money(b)}</h2>
+            <span>Деньги на запуск и развитие</span>
+          </div>
+          <div class="career-unified-level">
+            <b>УРОВЕНЬ ${level}</b>
+            <small>${careerEsc(rank)}</small>
+          </div>
+        </section>
+
+        <section class="career-unified-progress">
+          <div class="career-unified-progress-head">
+            <div><small>ПРОГРЕСС НАПРАВЛЕНИЯ</small><b>Уровень ${level}</b></div>
+            <strong>${careerMoney(xp)} XP${next==null?'':` · ${careerMoney(next-xp)} до следующего`}</strong>
+          </div>
+          <div class="career-unified-bar"><i style="width:${levelPct}%"></i></div>
+          <div class="career-unified-progress-foot">
+            <span>${stores}/${storesMax} точек · ${staff.length}/${staffMax} сотрудников</span>
+            <span>${next==null?'МАКСИМУМ':`до уровня ${level+1}`}</span>
+          </div>
+        </section>
+
+        <section class="career-unified-stats">
+          <div><small>СКЛАД</small><b>${careerMoney(stock)}</b></div>
+          <div><small>ВЫРУЧКА</small><b>${money(revenue)}</b></div>
+          <div><small>ПРОДАНО</small><b>${careerMoney(sales)}</b></div>
+          <div><small>ТОЧКИ</small><b>${careerMoney(stores)}</b></div>
+        </section>
+
+        <section class="career-unified-section">
+          <div class="career-unified-head">
+            <div><small>БРЕНД</small><b>Управление</b></div>
+          </div>
+          <div class="brand-simple-actions">
+            ${action('brand_add_product','👕','Создать вещь','модель · цена · коллекция')}
+            ${action('brand_production','🏭','Произвести','выбрать вещь · ткань · тираж')}
+            ${action('brand_campaign','📣','Запустить рекламу','увеличить спрос')}
+            ${action('brand_store','🏬','Открыть точку',stores>=storesMax?'лимит уровня достигнут':'новый магазин',stores>=storesMax)}
+            ${level>=2&&staffMax>0?action('brand_hire','👥','Нанять сотрудника',`${staff.length}/${staffMax} мест`):''}
+            ${level>=3?action('brand_factory','🏗️','Построить производство',factory.name?`${careerEsc(factory.name)} · ${careerMoney(factory.capacity)} шт.`:'увеличить мощность'):''}
+          </div>
+        </section>
+
+        ${(pending.length||ready.length)?`
+          <section class="career-unified-section">
+            <div class="career-unified-head">
+              <div><small>ПРОИЗВОДСТВО</small><b>${pending.length?'Партии в работе':'Готовые партии'}</b></div>
+              <span>${pending.length+ready.length}</span>
+            </div>
+            ${jobRows}${readyRows}
+          </section>`:''}
+
+        <section class="career-unified-section">
+          <div class="career-unified-head">
+            <div><small>КОЛЛЕКЦИЯ</small><b>Твои вещи</b></div>
+            <button data-career-action="brand_add_product">＋ Вещь</button>
+          </div>
+          <div>${productRows}</div>
+        </section>
+
+        <section class="career-unified-bottom">
+          <div><small>КОМАНДА</small><b>${staff.length}/${staffMax}</b></div>
+          <div><small>ПРОИЗВОДСТВО</small><b>${factory.name?careerEsc(factory.name):'Базовое'}</b></div>
+          <div><small>ПРОДАЖИ</small><b>Avito до 5 шт. / товар</b></div>
+        </section>
+      </div>`);
   }
+
   function renderInvest(s,b){
     const pending=Array.isArray(s.pending)?s.pending:[], portfolio=Array.isArray(s.portfolio)?s.portfolio:[], feed=Array.isArray(s.deal_feed)?s.deal_feed:[];
     const prog=s.progress||{}, level=Math.max(1,Number(prog.level||s.level||1)), xp=Math.max(0,Number(prog.xp??s.xp??0)), next=prog.next_xp==null?null:Number(prog.next_xp), rank=String(prog.rank||s.rank||'НАБЛЮДАТЕЛЬ');
     const maxDeals=Math.max(1,Number(prog.deals||1)), ticket=Math.max(100000,Number(prog.ticket||100000));
-    const totalInvested=portfolio.reduce((a,x)=>a+Number(x.invested||0),0), totalValue=portfolio.reduce((a,x)=>a+Number(x.value||x.invested||0),0), now=Math.floor(Date.now()/1000), nextRefresh=Math.max(0,Number(s.deal_refresh_at||0)-now);
+    const totalInvested=portfolio.reduce((a,x)=>a+Number(x.invested||0),0), totalValue=portfolio.reduce((a,x)=>a+Number(x.value||x.invested||0),0);
+    const now=Math.floor(Date.now()/1000), nextRefresh=Math.max(0,Number(s.deal_refresh_at||0)-now);
     const thresholds=[0,180,500,1000,1800,3000,4800], start=thresholds[Math.max(0,level-1)]||0, pct=next==null?100:Math.max(0,Math.min(100,Math.round((xp-start)/Math.max(1,next-start)*100)));
     const money=v=>careerMoney(v||0)+' ₽';
-    const pendingRows=pending.map(x=>{const left=Math.max(0,Number(x.resolve_at||0)-now);return `<div class="invest-simple-row"><div><b>${careerEsc(x.title||'Инвестиция')}</b><small>${careerEsc(x.sector||'Проект')}</small></div><strong>${Math.floor(left/60)}:${String(left%60).padStart(2,'0')}</strong></div>`}).join('')||'<div class="invest-simple-empty">Нет сделок в работе</div>';
-    const owned=portfolio.map(x=>{const invested=Number(x.invested||0),value=Number(x.value||invested),p=invested?(value-invested)/invested*100:0;return `<article class="invest-simple-company"><div class="invest-simple-company-head"><div><b>${careerEsc(x.title||'Проект')}</b><small>${careerEsc(x.sector||'Бизнес')}</small></div><strong class="${p>=0?'plus':'minus'}">${p>=0?'+':''}${p.toFixed(1)}%</strong></div><div class="invest-simple-money"><span><small>ВЛОЖЕНО</small><b>${money(invested)}</b></span><span><small>СТОИМОСТЬ</small><b>${money(value)}</b></span></div><button data-career-action="invest_manage" data-invest-id="${careerEsc(x.id||'')}">УПРАВЛЯТЬ БИЗНЕСОМ</button></article>`}).join('')||'<div class="invest-simple-empty">Портфель пока пуст</div>';
-    const cards=feed.map(p=>`<button class="invest-simple-deal" data-career-action="invest_project" data-project-id="${careerEsc(p.id)}"><div><span>${careerEsc(p.sector||'БИЗНЕС')}</span><strong>${money(p.ask||0)}</strong></div><b>${careerEsc(p.name||'Проект')}</b><small>${careerEsc(p.short||p.problem||'Компания ищет капитал')}</small><em>ОТКРЫТЬ БИЗНЕС-ПЛАН →</em></button>`).join('')||'<div class="invest-simple-empty">Нажми «Найти бизнесы», чтобы получить новые предложения</div>';
+
+    const pendingRows=pending.map(x=>{
+      const left=Math.max(0,Number(x.resolve_at||0)-now);
+      return `<div class="career-unified-row"><div><b>${careerEsc(x.title||'Инвестиция')}</b><small>${careerEsc(x.sector||'Проект')}</small></div><strong>${Math.floor(left/60)}:${String(left%60).padStart(2,'0')}</strong></div>`;
+    }).join('')||'<div class="career-unified-empty">Нет сделок в работе</div>';
+
+    const owned=portfolio.map(x=>{
+      const invested=Number(x.invested||0), value=Number(x.value||invested), p=invested?(value-invested)/invested*100:0;
+      return `<article class="career-unified-company">
+        <div class="career-unified-company-head">
+          <div><b>${careerEsc(x.title||'Проект')}</b><small>${careerEsc(x.sector||'Бизнес')}</small></div>
+          <strong class="${p>=0?'plus':'minus'}">${p>=0?'+':''}${p.toFixed(1)}%</strong>
+        </div>
+        <div class="career-unified-money">
+          <span><small>ВЛОЖЕНО</small><b>${money(invested)}</b></span>
+          <span><small>СТОИМОСТЬ</small><b>${money(value)}</b></span>
+        </div>
+        <button data-career-action="invest_manage" data-invest-id="${careerEsc(x.id||'')}">УПРАВЛЯТЬ БИЗНЕСОМ</button>
+      </article>`;
+    }).join('')||'<div class="career-unified-empty">Портфель пока пуст</div>';
+
+    const cards=feed.map(p=>`<button class="career-unified-deal" data-career-action="invest_project" data-project-id="${careerEsc(p.id)}">
+      <div><span>${careerEsc(p.sector||'БИЗНЕС')}</span><strong>${money(p.ask||0)}</strong></div>
+      <b>${careerEsc(p.name||'Проект')}</b>
+      <small>${careerEsc(p.short||p.problem||'Компания ищет капитал')}</small>
+      <em>ОТКРЫТЬ БИЗНЕС-ПЛАН →</em>
+    </button>`).join('')||'<div class="career-unified-empty">Нажми «Найти бизнесы», чтобы получить новые предложения</div>';
+
     const searchLabel=nextRefresh?`ПОИСК ЧЕРЕЗ ${Math.floor(nextRefresh/60)}:${String(nextRefresh%60).padStart(2,'0')}`:'НАЙТИ БИЗНЕСЫ';
-    return avcShell('investments','Инвестиции','ИНВЕСТИЦИИ',`${careerEsc(rank)} · уровень ${level}`,b,`<div class="invest-simple">
-      <section class="invest-simple-top"><div><small>СВОБОДНЫЙ КАПИТАЛ</small><b>${money(b)}</b><span>В портфеле ${money(totalValue)}</span></div><div class="invest-simple-level"><b>${level}</b><small>УРОВЕНЬ</small></div><div class="invest-simple-progress"><i><u style="width:${pct}%"></u></i><small>${careerMoney(xp)} XP${next==null?'':' · '+careerMoney(next-xp)+' до следующего'}</small></div></section>
-      <section class="invest-simple-stats"><div><small>ПОРТФЕЛЬ</small><b>${portfolio.length}</b></div><div><small>СДЕЛКИ</small><b>${portfolio.length+pending.length}/${maxDeals}</b></div><div><small>ЛИМИТ</small><b>${careerMoney(ticket)} ₽</b></div></section>
-      <section class="invest-simple-section"><div class="invest-simple-head"><div><small>РЫНОК</small><b>Новые бизнесы</b></div><button class="invest-simple-primary" data-career-action="invest_discover" ${nextRefresh?'disabled':''}>${searchLabel}</button></div><div class="invest-simple-deals">${cards}</div></section>
-      <section class="invest-simple-section"><div class="invest-simple-head"><div><small>МОИ ИНВЕСТИЦИИ</small><b>Портфель</b></div><span>${portfolio.length}</span></div>${owned}</section>
-      <section class="invest-simple-section"><div class="invest-simple-head"><div><small>В РАБОТЕ</small><b>Ожидание результата</b></div><span>${pending.length}</span></div>${pendingRows}</section>
-    </div>`);
+
+    return avcShell('investments','Моя компания','СТУДИЯ',`${careerEsc(rank)} · уровень ${level}`,b,`
+      <div class="career-unified-page">
+        <section class="career-unified-capital">
+          <div>
+            <small>ТВОЙ КАПИТАЛ</small>
+            <h2>${money(b)}</h2>
+            <span>Свободные деньги · в портфеле ${money(totalValue)}</span>
+          </div>
+          <div class="career-unified-level">
+            <b>УРОВЕНЬ ${level}</b>
+            <small>${careerEsc(rank)}</small>
+          </div>
+        </section>
+
+        <section class="career-unified-progress">
+          <div class="career-unified-progress-head">
+            <div><small>ПРОГРЕСС НАПРАВЛЕНИЯ</small><b>Уровень ${level}</b></div>
+            <strong>${careerMoney(xp)} XP${next==null?'':` · ${careerMoney(next-xp)} до следующего`}</strong>
+          </div>
+          <div class="career-unified-bar"><i style="width:${pct}%"></i></div>
+          <div class="career-unified-progress-foot">
+            <span>${portfolio.length}/${maxDeals} активных инвестиций</span>
+            <span>Лимит ${money(ticket)}</span>
+          </div>
+        </section>
+
+        <section class="career-unified-stats career-unified-stats-3">
+          <div><small>ПОРТФЕЛЬ</small><b>${portfolio.length}</b></div>
+          <div><small>СДЕЛКИ</small><b>${portfolio.length+pending.length}/${maxDeals}</b></div>
+          <div><small>ЛИМИТ</small><b>${careerMoney(ticket)} ₽</b></div>
+          <div><small>ВЛОЖЕНО</small><b>${money(totalInvested)}</b></div>
+        </section>
+
+        <section class="career-unified-section">
+          <div class="career-unified-head">
+            <div><small>РЫНОК</small><b>Новые бизнесы</b></div>
+            <button class="career-unified-primary" data-career-action="invest_discover" ${nextRefresh?'disabled':''}>${searchLabel}</button>
+          </div>
+          <div class="career-unified-deals">${cards}</div>
+        </section>
+
+        <section class="career-unified-section">
+          <div class="career-unified-head">
+            <div><small>МОИ ИНВЕСТИЦИИ</small><b>Портфель</b></div>
+            <span>${portfolio.length}</span>
+          </div>
+          ${owned}
+        </section>
+
+        <section class="career-unified-section">
+          <div class="career-unified-head">
+            <div><small>В РАБОТЕ</small><b>Ожидание результата</b></div>
+            <span>${pending.length}</span>
+          </div>
+          ${pendingRows}
+        </section>
+      </div>`);
   }
 
   function avcDecisionDefs(action){
@@ -10452,10 +10611,12 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     modal.classList.add('open');modal.setAttribute('aria-hidden','false');
     const input=modal.querySelector('#infoFixTyping'),code=modal.querySelector('#infoFixCode'),bar=modal.querySelector('#infoFixBar'),pct=modal.querySelector('#infoFixPct'),done=modal.querySelector('#infoFixDone');let pos=0,closed=false;
     const render=()=>{const v=Math.round((pos/template.length)*100);bar.style.width=v+'%';pct.textContent=v+'%';done.disabled=v<100;if(v>=100)input.disabled=true;};
-    input.addEventListener('input',()=>{const value=input.value||'';input.value='';if(closed||pos>=template.length)return;pos=Math.min(template.length,pos+Array.from(value).length);code.textContent=template.slice(0,pos);code.scrollTop=code.scrollHeight;render();});
+    const acceptTyped=(raw)=>{const value=String(raw||'');if(!value||closed||pos>=template.length)return;input.value='';pos=Math.min(template.length,pos+Array.from(value).length);code.textContent=template.slice(0,pos);code.scrollTop=code.scrollHeight;render();};
+    input.addEventListener('input',()=>acceptTyped(input.value));
+    input.addEventListener('paste',e=>{e.preventDefault();acceptTyped(e.clipboardData?.getData('text')||'');});
     modal.querySelector('#infoFixHideKeyboard').onclick=()=>input.blur();modal.querySelector('#infoFixFocusKeyboard').onclick=()=>{if(!input.disabled)input.focus();};
     let resolve;const promise=new Promise(r=>{resolve=r;});const close=()=>{closed=true;input.blur();modal.classList.remove('open');modal.setAttribute('aria-hidden','true');resolve(null);};
-    modal.querySelector('[data-decision-cancel]').onclick=close;done.onclick=()=>{if(pos<template.length)return;closed=true;input.blur();modal.classList.remove('open');modal.setAttribute('aria-hidden','true');resolve({project_id:ib.current_project_id,bug_id:bugId,mode:'hotfix',code_percent:100,code_chars:pos,manual:true});};
+    modal.querySelector('[data-decision-cancel]').onclick=close;const finish=()=>{if(pos<template.length)return;closed=true;input.blur();modal.classList.remove('open');modal.setAttribute('aria-hidden','true');resolve({project_id:ib.current_project_id,bug_id:bugId,mode:'hotfix',code_percent:100,code_chars:pos,manual:true});}; done.onclick=finish; done.addEventListener('pointerup',finish);
     render();setTimeout(()=>{if(!closed)input.focus();},60);return promise;
   }
   async function avcInvestmentSearch(act){
@@ -10549,14 +10710,16 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
       const take=Math.min(count,template.length-pos);
       pos+=take; code.textContent=template.slice(0,pos); code.scrollTop=code.scrollHeight; render();
     };
-    input.addEventListener('input',()=>{const value=input.value||'';input.value='';typeChars(Array.from(value).length);});
+    const acceptTyped=(raw)=>{const value=String(raw||'');if(!value)return;input.value='';typeChars(Array.from(value).length);};
+    input.addEventListener('input',()=>acceptTyped(input.value));
+    input.addEventListener('paste',e=>{e.preventDefault();acceptTyped(e.clipboardData?.getData('text')||'');});
     modal.querySelector('#infoDevHideKeyboard').onclick=()=>input.blur();
     modal.querySelector('#infoDevFocusKeyboard').onclick=()=>{if(!input.disabled){input.focus();}};
     const close=()=>{closed=true;input.blur();modal.classList.remove('open');modal.setAttribute('aria-hidden','true');resolve(null);};
     let resolve;
     const promise=new Promise(r=>{resolve=r;});
     modal.querySelector('[data-decision-cancel]').onclick=close;
-    done.onclick=()=>{if(pos<template.length)return;closed=true;input.blur();modal.classList.remove('open');modal.setAttribute('aria-hidden','true');resolve({code_percent:100,code_chars:pos,code_quality:100,manual:true});};
+    const finish=()=>{if(pos<template.length)return;closed=true;input.blur();modal.classList.remove('open');modal.setAttribute('aria-hidden','true');resolve({code_percent:100,code_chars:pos,code_quality:100,manual:true});}; done.onclick=finish; done.addEventListener('pointerup',finish);
     render(); setTimeout(()=>{if(!closed)input.focus();},60);
     return promise;
   }
@@ -10588,14 +10751,16 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     let pos=0,closed=false;const checked=new Set();
     const render=()=>{const v=Math.round((pos/template.length)*100);bar.style.width=v+'%';pct.textContent=v+'%';const ready=isQa?checked.size===checks.length&&v>=100:v>=100;if(isQa)hint.textContent=ready?'Все проверки пройдены · можно завершить QA':`Пройдено ${checked.size}/${checks.length} · код ${v}%`;else hint.textContent=ready?'Код готов · можно подготовить обновление':`Код обновления ${v}%`;done.disabled=!ready;if(v>=100)input.disabled=true;};
     const typeChars=(count)=>{if(closed||pos>=template.length)return;const take=Math.min(count,template.length-pos);pos+=take;code.textContent=template.slice(0,pos);code.scrollTop=code.scrollHeight;render();};
-    input.addEventListener('input',()=>{const value=input.value||'';input.value='';typeChars(Array.from(value).length);});
+    const acceptTyped=(raw)=>{const value=String(raw||'');if(!value)return;input.value='';typeChars(Array.from(value).length);};
+    input.addEventListener('input',()=>acceptTyped(input.value));
+    input.addEventListener('paste',e=>{e.preventDefault();acceptTyped(e.clipboardData?.getData('text')||'');});
     if(isQa)modal.querySelectorAll('[data-manual-check]').forEach(btn=>btn.onclick=()=>{checked.add(btn.dataset.manualCheck);btn.classList.add('done');btn.querySelector('span').textContent='Проверено';render();});
     modal.querySelector('#manualWorkHideKeyboard').onclick=()=>input.blur();
     modal.querySelector('#manualWorkFocusKeyboard').onclick=()=>{if(!input.disabled)input.focus();};
     let resolve;const promise=new Promise(r=>{resolve=r;});
     const close=()=>{closed=true;input.blur();modal.classList.remove('open');modal.setAttribute('aria-hidden','true');resolve(null);};
     modal.querySelector('[data-decision-cancel]').onclick=close;
-    done.onclick=()=>{const v=Math.round((pos/template.length)*100);if(isQa&&(checked.size<checks.length||v<100))return;if(!isQa&&v<100)return;closed=true;input.blur();modal.classList.remove('open');modal.setAttribute('aria-hidden','true');resolve({project_id:p.id,op:isQa?'qa':'release',manual:true,code_percent:100,code_chars:pos,checks:isQa?[...checked]:[],release_mode:'stable'});};
+    const finish=()=>{const v=Math.round((pos/template.length)*100);if(isQa&&(checked.size<checks.length||v<100))return;if(!isQa&&v<100)return;closed=true;input.blur();modal.classList.remove('open');modal.setAttribute('aria-hidden','true');resolve({project_id:p.id,op:isQa?'qa':'release',manual:true,code_percent:100,code_chars:pos,checks:isQa?[...checked]:[],release_mode:'stable'});}; done.onclick=finish; done.addEventListener('pointerup',finish);
     render();setTimeout(()=>{if(!closed)input.focus();},60);return promise;
   }
   function avcInfoOps(action,act){
@@ -10841,6 +11006,291 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 @media(max-width:520px){.career-new.brand{padding-left:8px!important;padding-right:8px!important}.brand-qty-controls{grid-template-columns:48px 1fr 48px}}
 </style>
 <style id="resell-infobusiness-bugs-v1">.corp-bugs{padding:13px 14px;border:1px solid #e1e6ee;border-radius:18px;background:#fff;box-shadow:0 7px 20px rgba(31,52,82,.045);color:#18263d}.corp-bugs-head{display:flex;align-items:end;justify-content:space-between;gap:8px;margin-bottom:8px}.corp-bugs-head small{display:block;color:#7b879e;font:900 7px/1 Montserrat;letter-spacing:.12em}.corp-bugs-head b{display:block;margin-top:4px;font:950 16px/1 Montserrat}.corp-bugs-head>span{color:#df626b;font:950 13px/1 Montserrat}.corp-bugs-list{display:grid;gap:6px}.corp-bug-row{display:grid;grid-template-columns:31px 1fr auto;gap:9px;align-items:center;padding:9px;border-top:1px solid #edf0f4}.corp-bug-row:first-child{border-top:0}.corp-bug-mark{width:31px;height:31px;border-radius:10px;display:grid;place-items:center;background:#fff1f0;color:#df626b;font:950 11px/1 Montserrat}.corp-bug-row b{display:block;color:#1c2942;font:900 9px/1 Montserrat}.corp-bug-row small{display:block;margin-top:4px;color:#7f8aa0;font:750 7px/1.3 Nunito}.corp-bug-row button{min-height:32px;padding:0 10px;border:0;border-radius:10px;background:#eef1ff;color:#5364e9;font:950 7px/1 Montserrat}.corp-bugs-empty .corp-bugs-head>span{color:#22a06b}.corp-bugs-empty p{margin:0;color:#7f8aa0;font:750 8px/1.4 Nunito}</style>
+
+<style id="career-unified-v4">
+.career-new.brand,.career-new.investments{
+  background:#f7f8fb!important;color:#19273f!important;
+  padding:6px 10px 34px!important;min-height:100%!important;
+  overflow:visible!important;
+}
+.career-new.brand *,.career-new.investments *{box-sizing:border-box}
+.career-new.brand .avc-return-avito,.career-new.investments .avc-return-avito{
+  width:max-content!important;min-height:42px!important;height:42px!important;
+  padding:7px 11px!important;margin:0 0 8px!important;border-radius:14px!important;
+  background:#fff!important;color:#19273f!important;border:1px solid #e3e8f0!important;
+  box-shadow:0 4px 14px rgba(25,40,65,.06)!important;
+}
+.career-new.brand .cn-nav,.career-new.investments .cn-nav{
+  padding:0 4px!important;margin:0 0 4px!important;background:transparent!important;
+  border:0!important;box-shadow:none!important;color:#7e899b!important;
+}
+.career-new.brand .cn-nav span,.career-new.investments .cn-nav span{font-size:8px!important;color:#7c889d!important}
+.career-new.brand .cn-nav b,.career-new.investments .cn-nav b{font-size:11px!important;color:#243550!important}
+.career-new.brand .cn-title,.career-new.investments .cn-title{padding:4px 4px 10px!important}
+.career-new.brand .cn-title small,.career-new.investments .cn-title small{font-size:7px!important;color:#5d6df8!important;letter-spacing:1.4px!important}
+.career-new.brand .cn-title h1,.career-new.investments .cn-title h1{
+  margin-top:7px!important;font-size:28px!important;line-height:1!important;letter-spacing:-.9px!important;color:#18263d!important;
+}
+.career-new.brand .cn-title p,.career-new.investments .cn-title p{
+  margin-top:7px!important;font-size:9px!important;color:#8792a5!important;
+}
+.career-unified-page{display:grid;gap:10px;padding:0 2px 20px!important}
+.career-unified-capital{
+  display:grid!important;grid-template-columns:minmax(0,1fr) auto!important;gap:10px!important;
+  align-items:start!important;padding:16px 14px!important;border-radius:22px!important;
+  background:#fff!important;border:1px solid #e1e6ef!important;
+  box-shadow:0 8px 24px rgba(28,43,68,.045)!important;
+}
+.career-unified-capital small,.career-unified-progress small,.career-unified-stats small,.career-unified-head small,.career-unified-bottom small{
+  display:block!important;color:#808ca0!important;font:900 7px/1 "Montserrat",sans-serif!important;letter-spacing:1.1px!important;
+}
+.career-unified-capital h2{
+  margin-top:7px!important;font:950 30px/1 "Montserrat",sans-serif!important;color:#18263d!important;letter-spacing:-1.3px!important;
+}
+.career-unified-capital span{
+  display:block!important;margin-top:6px!important;color:#929cad!important;font:800 9px/1.25 "Nunito",sans-serif!important;
+}
+.career-unified-level{
+  align-self:start!important;min-width:116px!important;padding:8px 10px!important;border-radius:13px!important;
+  background:transparent!important;text-align:right!important;
+}
+.career-unified-level b{display:block!important;font:950 18px/1 "Montserrat",sans-serif!important;color:#19273f!important}
+.career-unified-level small{margin-top:7px!important;color:#8b96a8!important;text-align:right!important;font-size:8px!important;letter-spacing:.5px!important}
+.career-unified-progress{
+  padding:15px 14px!important;border-radius:20px!important;background:#fff!important;border:1px solid #e1e6ef!important;
+  box-shadow:0 7px 22px rgba(28,43,68,.035)!important;
+}
+.career-unified-progress-head{display:flex;justify-content:space-between;align-items:end;gap:12px}
+.career-unified-progress-head b{display:block!important;margin-top:7px!important;font:950 16px/1 "Montserrat",sans-serif!important;color:#1c2b45!important}
+.career-unified-progress-head strong{
+  color:#5e6878!important;font:900 9px/1.2 "Montserrat",sans-serif!important;text-align:right!important;
+}
+.career-unified-bar{height:7px!important;margin-top:14px!important;border-radius:99px!important;background:#edf0f4!important;overflow:hidden!important}
+.career-unified-bar i{display:block!important;height:100%!important;border-radius:inherit!important;background:#111!important;transition:width .35s ease!important}
+.career-unified-progress-foot{display:flex;justify-content:space-between;gap:8px;margin-top:9px!important;color:#8791a0!important;font:800 8px/1.2 "Nunito",sans-serif!important}
+.career-unified-stats{display:grid!important;grid-template-columns:1fr 1fr!important;gap:8px!important}
+.career-unified-stats-3{grid-template-columns:1fr 1fr!important}
+.career-unified-stats>div{
+  min-width:0!important;padding:12px 11px!important;border-radius:15px!important;background:#fff!important;
+  border:1px solid #e2e7ef!important;box-shadow:0 5px 16px rgba(28,43,68,.03)!important;
+}
+.career-unified-stats b{display:block!important;margin-top:6px!important;color:#24344f!important;font:950 12px/1 "Montserrat",sans-serif!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+.career-unified-section{
+  padding:14px!important;border-radius:21px!important;background:#fff!important;border:1px solid #e1e6ef!important;
+  box-shadow:0 7px 20px rgba(28,43,68,.03)!important;
+}
+.career-unified-head{display:flex!important;justify-content:space-between!important;align-items:center!important;gap:10px!important;margin-bottom:10px!important}
+.career-unified-head b{display:block!important;margin-top:6px!important;color:#1b2942!important;font:950 16px/1 "Montserrat",sans-serif!important}
+.career-unified-head>button{
+  min-height:36px!important;padding:0 12px!important;border-radius:12px!important;
+  background:#f2f5fa!important;color:#3167dc!important;border:0!important;font:950 8px/1 "Montserrat",sans-serif!important;
+}
+.career-unified-head>span{
+  min-width:28px!important;height:28px!important;padding:0 8px!important;border-radius:10px!important;
+  display:grid!important;place-items:center!important;background:#f0f3ff!important;color:#5567ea!important;font:950 8px/1 "Montserrat",sans-serif!important;
+}
+.career-unified-page .brand-simple-actions{display:grid!important;grid-template-columns:1fr 1fr!important;gap:8px!important}
+.career-unified-page .brand-simple-action{
+  position:relative!important;min-height:78px!important;padding:12px!important;
+  display:flex!important;align-items:center!important;gap:10px!important;
+  text-align:left!important;border:1px solid #e4e8ef!important;border-radius:16px!important;
+  background:#fff!important;color:#18263d!important;box-shadow:0 4px 12px rgba(25,35,55,.035)!important;
+}
+.career-unified-page .brand-simple-action>span{
+  width:40px!important;height:40px!important;border-radius:12px!important;background:#eef2ff!important;
+  display:grid!important;place-items:center!important;font-size:17px!important;flex:none!important;
+}
+.career-unified-page .brand-simple-action>div{min-width:0!important}
+.career-unified-page .brand-simple-action b{display:block!important;color:#1d2c45!important;font:950 10px/1.1 "Montserrat",sans-serif!important}
+.career-unified-page .brand-simple-action small{display:block!important;margin-top:5px!important;color:#8792a4!important;font:800 8px/1.25 "Nunito",sans-serif!important}
+.career-unified-page .brand-simple-action em{
+  margin-left:auto!important;color:#9aa4b2!important;font:950 19px/1 "Montserrat",sans-serif!important;font-style:normal!important;
+}
+.career-unified-page .brand-simple-action.disabled{opacity:.4!important;pointer-events:none!important}
+.career-unified-product{}
+.career-unified-row{display:flex!important;align-items:center!important;gap:10px!important;padding:11px 0!important;border-top:1px solid #edf0f4!important}
+.career-unified-row:first-child{border-top:0!important}
+.career-unified-row>div{min-width:0!important;flex:1!important}
+.career-unified-row b{display:block!important;color:#1e2e48!important;font:950 9px/1.15 "Montserrat",sans-serif!important}
+.career-unified-row small{display:block!important;margin-top:4px!important;color:#8792a5!important;font:800 7px/1.2 "Nunito",sans-serif!important}
+.career-unified-row>strong{color:#5d6df8!important;font:950 8px/1 "Montserrat",sans-serif!important}
+.career-unified-empty{padding:16px 8px!important;text-align:center!important;color:#8792a5!important;font:800 9px/1.35 "Nunito",sans-serif!important}
+.career-unified-deals{display:grid!important;gap:8px!important}
+.career-unified-deal{
+  width:100%!important;text-align:left!important;padding:13px!important;border:1px solid #e1e6ef!important;border-radius:16px!important;
+  background:#fff!important;color:#18263d!important;box-shadow:0 4px 12px rgba(25,35,55,.03)!important;
+}
+.career-unified-deal>div{display:flex!important;justify-content:space-between!important;gap:8px!important}
+.career-unified-deal>div span{color:#5d6df8!important;font:900 6px/1 "Montserrat",sans-serif!important}
+.career-unified-deal>div strong{color:#596579!important;font:900 8px/1 "Montserrat",sans-serif!important}
+.career-unified-deal>b{display:block!important;margin-top:7px!important;color:#1c2b44!important;font:950 13px/1 "Montserrat",sans-serif!important}
+.career-unified-deal>small{display:block!important;margin-top:6px!important;color:#778497!important;font:800 8px/1.3 "Nunito",sans-serif!important}
+.career-unified-deal>em{display:block!important;margin-top:8px!important;color:#5d6df8!important;font:950 7px/1 "Montserrat",sans-serif!important;font-style:normal!important}
+.career-unified-primary{background:#5d6df8!important;color:#fff!important}
+.career-unified-money{display:grid!important;grid-template-columns:1fr 1fr!important;gap:7px!important;margin-top:9px!important}
+.career-unified-money span{padding:9px!important;border-radius:11px!important;background:#f5f7fb!important}
+.career-unified-money small{display:block!important;color:#8995a8!important;font:900 6px/1 "Montserrat",sans-serif!important}
+.career-unified-money b{display:block!important;margin-top:4px!important;color:#25334d!important;font:950 10px/1 "Montserrat",sans-serif!important}
+.career-unified-company{padding:12px!important;border:1px solid #e2e7ef!important;border-radius:16px!important;background:#fff!important;margin-top:8px!important}
+.career-unified-company:first-child{margin-top:0!important}
+.career-unified-company-head{display:flex!important;justify-content:space-between!important;gap:8px!important}
+.career-unified-company-head b{display:block!important;color:#1e2d46!important;font:950 10px/1 "Montserrat",sans-serif!important}
+.career-unified-company-head small{display:block!important;margin-top:4px!important;color:#8792a4!important;font:800 7px/1 "Nunito",sans-serif!important}
+.career-unified-company-head strong{font:950 9px/1 "Montserrat",sans-serif!important}
+.career-unified-company-head .plus{color:#20a36f!important}.career-unified-company-head .minus{color:#dc626d!important}
+.career-unified-company>button{width:100%!important;margin-top:9px!important;border:0!important;border-radius:11px!important;background:#5d6df8!important;color:#fff!important;padding:11px!important;font:950 7px/1 "Montserrat",sans-serif!important}
+.career-unified-bottom{display:grid!important;grid-template-columns:1fr 1fr 1fr!important;gap:7px!important}
+.career-unified-bottom>div{padding:11px!important;border-radius:14px!important;background:#fff!important;border:1px solid #e4e8ef!important}
+.career-unified-bottom b{display:block!important;margin-top:5px!important;color:#26344d!important;font:950 8px/1.15 "Montserrat",sans-serif!important}
+@media(max-width:520px){
+  .career-unified-page .brand-simple-actions{grid-template-columns:1fr!important}
+  .career-unified-capital h2{font-size:27px!important}
+  .career-unified-level{min-width:103px!important}
+}
+</style>
+
+<style id="career-full-white-parity-v3">
+/* Exact full-screen light shell parity with the working Info Business screen. */
+.modal:has(.career-new.brand),
+.modal:has(.career-new.investments){
+  background:#fff!important;
+  color:#18263d!important;
+}
+.modal:has(.career-new.brand) .sheet,
+.modal:has(.career-new.investments) .sheet{
+  width:100%!important;
+  max-width:none!important;
+  min-height:100%!important;
+  height:100%!important;
+  background:#fff!important;
+  color:#18263d!important;
+  border:0!important;
+  border-radius:0!important;
+  box-shadow:none!important;
+}
+.modal:has(.career-new.brand) .sheet-handle,
+.modal:has(.career-new.investments) .sheet-handle{
+  background:#d8dde5!important;
+  margin-bottom:10px!important;
+}
+.modal:has(.career-new.brand) .sheet-head,
+.modal:has(.career-new.investments) .sheet-head{
+  background:#fff!important;
+  color:#18263d!important;
+  border:0!important;
+  padding:2px 4px 8px!important;
+}
+.modal:has(.career-new.brand) .sheet-title,
+.modal:has(.career-new.investments) .sheet-title{
+  color:#18263d!important;
+  font:950 17px/1 Montserrat,sans-serif!important;
+}
+.modal:has(.career-new.brand) .sheet-close,
+.modal:has(.career-new.investments) .sheet-close{
+  background:#f1f3f7!important;
+  color:#18263d!important;
+  border:1px solid #e2e6ed!important;
+}
+.modal:has(.career-new.brand) .sheet-body,
+.modal:has(.career-new.investments) .sheet-body{
+  margin-top:0!important;
+  background:#fff!important;
+  padding:0 0 calc(20px + env(safe-area-inset-bottom))!important;
+  overflow-x:hidden!important;
+}
+.career-new.brand,
+.career-new.investments{
+  width:100%!important;
+  max-width:none!important;
+  min-height:100%!important;
+  background:#fff!important;
+  color:#18263d!important;
+  padding:3px 10px 28px!important;
+  border-radius:0!important;
+  overflow:visible!important;
+  box-shadow:none!important;
+}
+.career-new.brand:before,
+.career-new.brand:after,
+.career-new.investments:before,
+.career-new.investments:after{display:none!important}
+.career-new.brand .avc-return-avito,
+.career-new.investments .avc-return-avito{
+  position:absolute!important;
+  top:5px!important;
+  left:10px!important;
+  margin:0!important;
+  z-index:5!important;
+  width:auto!important;
+  min-height:34px!important;
+  height:34px!important;
+  padding:5px 9px!important;
+  border-radius:10px!important;
+  background:#fff!important;
+  color:#18263d!important;
+  border:1px solid #e0e5ed!important;
+  box-shadow:0 4px 14px rgba(30,45,70,.07)!important;
+  gap:6px!important;
+}
+.career-new.brand .avc-subnav,
+.career-new.investments .avc-subnav{
+  padding:0!important;
+  margin:0!important;
+  min-height:34px!important;
+  justify-content:flex-end!important;
+  background:transparent!important;
+  border:0!important;
+  box-shadow:none!important;
+  color:#7c899c!important;
+}
+.career-new.brand .avc-subnav span,
+.career-new.investments .avc-subnav span{display:none!important}
+.career-new.brand .avc-subnav b,
+.career-new.investments .avc-subnav b{
+  font:950 11px/1 Montserrat,sans-serif!important;
+  color:#18263d!important;
+}
+.career-new.brand .cn-title,
+.career-new.investments .cn-title{padding:6px 0 9px!important}
+.career-new.brand .cn-title small,
+.career-new.investments .cn-title small{
+  display:block!important;
+  font:950 7px/1 Montserrat,sans-serif!important;
+  letter-spacing:1.1px!important;
+  color:#6475ee!important;
+}
+.career-new.brand .cn-title h1,
+.career-new.investments .cn-title h1{
+  margin:5px 0 0!important;
+  font:950 24px/.98 Montserrat,sans-serif!important;
+  color:#18263d!important;
+  letter-spacing:-.7px!important;
+}
+.career-new.brand .cn-title p,
+.career-new.investments .cn-title p{display:none!important}
+/* Keep every internal surface white/light; no legacy dark canvas can leak through. */
+.career-new.brand .career-unified-page,
+.career-new.investments .career-unified-page{background:#fff!important}
+.career-new.brand .career-unified-capital,
+.career-new.brand .career-unified-progress,
+.career-new.brand .career-unified-stats>div,
+.career-new.brand .career-unified-section,
+.career-new.brand .career-unified-company,
+.career-new.brand .career-unified-deal,
+.career-new.brand .career-unified-bottom>div,
+.career-new.investments .career-unified-capital,
+.career-new.investments .career-unified-progress,
+.career-new.investments .career-unified-stats>div,
+.career-new.investments .career-unified-section,
+.career-new.investments .career-unified-company,
+.career-new.investments .career-unified-deal,
+.career-new.investments .career-unified-bottom>div{
+  background:#fff!important;
+}
+@media(max-width:520px){
+  .career-new.brand,.career-new.investments{padding-left:10px!important;padding-right:10px!important}
+}
+</style>
 </body>
 
 
