@@ -10087,7 +10087,13 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
   function renderCareerDashboard(c,balance){
     const dir=c.direction;
     if(dir==='infobusiness') return renderInfo(c.infobusiness||{},balance);
-    if(dir==='brand') return renderBrand(c.brand||{},balance);
+    // Brand V3 lives in a separate script block. Use the explicit bridge so
+    // Safari/Telegram WebView cannot silently fall back to the legacy Brand UI.
+    if(dir==='brand'){
+      const v3=window.__resellRenderBrandV3;
+      if(typeof v3==='function') return v3(c.brand||{},balance);
+      return renderBrand(c.brand||{},balance);
+    }
     return renderInvest(c.investments||{},balance);
   }
   function avcJourney(dir){
@@ -11914,6 +11920,28 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     });
   }
 
+  async function brandV3StorePicker(){
+    const st=brandState()||{};
+    const markets=Array.isArray(st.market_conditions)?st.market_conditions:[];
+    const existing=new Set(brandStores().map(x=>String(x.city||'')));
+    const cities=Object.keys(cityCoords).filter(x=>!existing.has(String(x)));
+    if(!cities.length){coreToast('Все доступные города уже заняты магазинами.');return null;}
+    return new Promise(resolve=>{
+      const modal=brandV3OpenModalRaw(`<div class="brand-v3-modal-card brand-v3-store-builder"><button class="brand-v3-close" id="bsCancel">×</button><small class="brand-v3-kicker">RETAIL NETWORK · MARKET</small><h3>Новый магазин</h3><p>Выбери город и формат магазина. Рынок города будет сохранён за этой точкой и будет влиять на спрос.</p><label>ГОРОД<select id="bsCity" class="brand-v3-input">${cities.map(x=>`<option value="${escV(x)}">${cityFlags[x]||''} ${escV(x)}</option>`).join('')}</select></label><label>ФОРМАТ<select id="bsType" class="brand-v3-input"><option value="store">Store · 900 000 ₽</option><option value="outlet">Outlet · 520 000 ₽</option><option value="flagship">Flagship · 2 500 000 ₽</option></select></label><div id="bsMarketPreview" class="brand-v3-market-preview"></div><button class="brand-v3-primary" id="bsConfirm">ОТКРЫТЬ МАГАЗИН</button></div>`);
+      const renderMarket=()=>{
+        const city=String($('#bsCity',modal).value||'');
+        const m=markets.find(x=>String(x.city)===city)||{};
+        const type=String($('#bsType',modal).value||'store');
+        const costs={store:900000,outlet:520000,flagship:2500000};
+        $('#bsMarketPreview',modal).innerHTML=`<div><span>РЫНОК</span><b>${cityFlags[city]||''} ${escV(city)}</b></div><div><span>УСЛОВИЯ</span><b>${escV(m.event_title||'Стабильный рынок')}</b></div><div><span>ПОГОДА</span><b>${escV(m.weather||'—')} · ${nV(m.temperature,0)>0?'+':''}${nV(m.temperature,0)}°C</b></div><div><span>СТОИМОСТЬ</span><b>${moneyV(costs[type]||costs.store)}</b></div>`;
+      };
+      $('#bsCity',modal).onchange=renderMarket; $('#bsType',modal).onchange=renderMarket;
+      $('#bsCancel',modal).onclick=()=>{brandV3CloseModal();resolve(null)};
+      $('#bsConfirm',modal).onclick=()=>{const city=String($('#bsCity',modal).value||'');const store_type=String($('#bsType',modal).value||'store');brandV3CloseModal();resolve({city,store_type});};
+      renderMarket();
+    });
+  }
+
   async function brandV3FactoryPicker(){
     const markets=Array.isArray(brandState().market_conditions)?brandState().market_conditions:[];
     return new Promise(resolve=>{
@@ -11967,6 +11995,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
   }
 
   // Replace only the Brand renderer; all other career modules keep their existing renderer.
+  window.__resellRenderBrandV3=renderBrandV3;
   try{ renderBrand=renderBrandV3; }catch(_){ window.renderBrand=renderBrandV3; }
 
   const __legacyAvcRunAction=window.avcRunAction||avcRunAction;
