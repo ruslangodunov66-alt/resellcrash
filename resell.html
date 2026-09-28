@@ -10994,6 +10994,41 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 
   // Career controls use document-level capture so legacy Avito modal handlers cannot swallow the click.
   async function handleCareerClick(e){
+    const hub=e.target?.closest?.('[data-avito-open-career]');
+    if(hub){
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      if(hub.__careerHubBusy)return;
+      hub.__careerHubBusy=true;
+      hub.disabled=true;
+      const core=window.__resellCoreV26||{};
+      const body=core.getModalBody?.()||document.getElementById('modalBody');
+      try{
+        const state=(window.__resellAvitoState&&typeof window.__resellAvitoState==='object')?window.__resellAvitoState:{};
+        const c=(state.career&&typeof state.career==='object')?state.career:{};
+        const eligible=(c.eligible===true || Number(c.eligible||0)>0);
+        if(!eligible){
+          core.showToast?.('Новая ветка откроется после максимального уровня продаж Avito');
+          return;
+        }
+        window.__resellAvitoState=state;
+        window.__avcForceBaseAvito=false;
+        window.__careerTab='overview';
+        core.setAvitoEditing?.(true);
+        const html=renderAvitoWithCareer();
+        if(!html || !String(html).trim()) throw new Error('Раздел бизнеса пуст');
+        if(body){ body.innerHTML=html; body.scrollTop=0; }
+        else throw new Error('Контейнер Avito не найден');
+      }catch(err){
+        console.error('[CAREER HUB] direct open failed',err);
+        core.showToast?.(err?.message||'Не удалось открыть раздел бизнеса');
+      }finally{
+        hub.disabled=false;
+        hub.__careerHubBusy=false;
+      }
+      return;
+    }
     const choose=e.target?.closest?.('[data-career-choose]');
     if(choose){
       e.preventDefault();e.stopPropagation();
