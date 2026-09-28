@@ -10037,17 +10037,25 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 
   function renderAvitoWithCareer(){
     try {
-      /* This module is isolated from the legacy Avito IIFE. Never call the
-         legacy renderAvito() by bare name here: Safari/WebView correctly
-         treats it as out-of-scope. Use the stable bridge instead. */
-      window.__avcForceBaseAvito=true;
       const core=window.__resellCoreV26||{};
+      const c=careerData()||{};
+      const balance=Number(window.__resellAvitoState?.balance ?? profileData?.balance ?? 0);
+      // Keep the user inside the selected career niche after every action.
+      // The old implementation always rendered legacy Avito here, which made
+      // successful Brand actions appear to redirect to the main Resell screen.
+      if(c.direction && (c[c.direction] || c.direction==='brand')){
+        window.__avcForceBaseAvito=false;
+        core.setAvitoEditing?.(true);
+        window.__careerTab=window.__careerTab||'overview';
+        return renderCareerDashboard(c,balance);
+      }
+      window.__avcForceBaseAvito=true;
       if(typeof core.renderAvito!=='function') throw new Error('Avito renderer is not initialized');
       return core.renderAvito();
     } catch(err) {
       console.warn('[AVITO CAREER] renderer bridge fallback',err);
       const core=window.__resellCoreV26||{};
-      return typeof core.renderAvito==='function' ? core.renderAvito() : '<div class=\"avito-shell\"><div class=\"avx-empty\">Интерфейс Авито ещё загружается. Нажми «Открыть Avito» ещё раз.</div></div>';
+      return typeof core.renderAvito==='function' ? core.renderAvito() : '<div class="avito-shell"><div class="avx-empty">Интерфейс ещё загружается. Попробуй открыть нишу ещё раз.</div></div>';
     }
   }
 
