@@ -6267,6 +6267,13 @@ async function initFarm(){
   }
   $('#avitoBtn')?.addEventListener('click',openAvito);
   modalBody.addEventListener('click',async(e)=>{
+    const safeRetry=e.target.closest('[data-avito-safe-retry]');
+    if(safeRetry){
+      e.preventDefault(); e.stopPropagation();
+      try{ await fetchAvito(); window.__avcForceBaseAvito=true; modalBody.innerHTML=window.renderAvitoWithCareer?window.renderAvitoWithCareer():renderAvito(); showToast('Avito обновлён'); }
+      catch(err){ showToast(err?.message||'Не удалось загрузить Avito'); }
+      return;
+    }
     const unlockClose=e.target.closest('[data-avito-unlock-close]'); if(unlockClose){e.target.closest('[data-avito-unlock-overlay]')?.remove();return;}
     const reviewOpen=e.target.closest('[data-avito-reviews]'); if(reviewOpen){avitoEditing=true;openModal('Avito',renderAvitoReviews());return;}
     const reviewClose=e.target.closest('[data-avito-review-close]'); if(reviewClose){avitoEditing=false;modalBody.innerHTML=renderAvito();return;}
@@ -9991,17 +9998,27 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     return '<div class="avc-flow">'+a.map((x,i)=>'<div class="avc-flow-step"><b>'+careerEsc(x?.[0]||'STEP')+'</b><span>'+careerEsc(x?.[1]||'')+'</span></div>'+(i<a.length-1?'<div class="avc-flow-arrow">→</div>':'')).join('')+'</div>';
   }
   function renderAvitoWithCareer(){
+    const baseAvito=()=>{
+      try{
+        const core=window.__resellCoreV26||{};
+        if(typeof core.renderAvito==='function') return core.renderAvito();
+      }catch(err){ console.warn('[AVITO] base renderer failed',err); }
+      return '<div class=\"avito-shell\"><div class=\"avito-hero marketplace\"><div class=\"avito-kicker\">AVITO</div><div class=\"avito-title\">Площадка временно недоступна</div><div class=\"avito-sub\">Не удалось отрисовать торговую площадку. Повтори вход.</div></div></div>';
+    };
     try {
-      if(window.__avcForceBaseAvito===true) return renderAvito();
+      if(window.__avcForceBaseAvito===true) return baseAvito();
       const c=careerData()||{};
-      /* Career is gated by the server-provided eligibility flag. Treat 1/true/positive values
-         as eligible so older cached responses do not break the normal Avito renderer. */
+      /* Career opens ONLY from the server-provided eligibility flag. A saved direction
+         without eligibility must never hijack the ordinary Avito marketplace. */
       const eligibleRaw=c.eligible;
       const careerEligible=(eligibleRaw===true || Number(eligibleRaw||0)>0);
       if(careerEligible && !c.direction) return renderCareerChoice(c);
       if(careerEligible && c.direction) return renderCareerDashboard(c,Number(window.__resellAvitoState?.balance||0));
-      return renderAvito();
-    } catch(err) { console.warn('[AVITO CAREER] fallback',err); return renderAvito(); }
+      return baseAvito();
+    } catch(err) {
+      console.warn('[AVITO CAREER] fallback to base Avito',err);
+      return baseAvito();
+    }
   }
   function renderCareerChoice(c){
     return `<div class="career-new choice-screen">
