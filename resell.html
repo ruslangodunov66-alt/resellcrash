@@ -9997,8 +9997,11 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
              The flag is reset only when Avito is opened again from the main app. */
           if(window.__avcForceBaseAvito===true) return renderAvito();
           const c=careerData();
-          if(c.eligible && !c.direction) return renderCareerChoice(c);
-          if(c.direction) return renderCareerDashboard(c,Number(window.__resellAvitoState?.balance||0));
+          /* Career is unlocked ONLY after the real Avito reaches the hard sales cap.
+             A stale/old direction must never hijack the normal marketplace before the cap. */
+          const careerEligible=Number(c.eligible||0)===1;
+          if(careerEligible && !c.direction) return renderCareerChoice(c);
+          if(careerEligible && c.direction) return renderCareerDashboard(c,Number(window.__resellAvitoState?.balance||0));
           return renderAvito();
         
     } catch(err) { console.warn('[AVITO CAREER] fallback',err); return renderAvito(); }
@@ -15411,7 +15414,9 @@ main.app{
   function showStoreSetup(btn){
     const uid=String(window.__resellCoreV26?.getUserId?.()||'');
     const career=window.__resellAvitoState?.career||{};
-    if(!uid||!career.direction)return false;
+    /* This setup belongs to the career branch, never to ordinary Avito.
+       The branch itself is unlocked by the server at 250 real Avito sales. */
+    if(!uid||!career.direction||Number(career.eligible||0)!==1)return false;
     const key='resell_career_store_setup_v1_'+uid;
     if(localStorage.getItem(key)==='1')return false;
     const current=String(window.__resellAvitoState?.shop_name||'').trim();
@@ -15426,7 +15431,14 @@ main.app{
     create?.addEventListener('click',async()=>{const name=String(input.value||'').trim();if(name.length<2)return;create.disabled=true;try{const r=await window.__resellCoreV26.tycoonFetch(`/avito/${encodeURIComponent(uid)}/career/store-name`,{method:'POST',body:JSON.stringify({name})});if(!r?.success)throw new Error(r?.error||'Не удалось сохранить');window.__resellAvitoState.shop_name=name;localStorage.setItem(key,'1');openAvito();}catch(e){create.disabled=false;window.__resellCoreV26.showToast?.(e.message||'Не удалось сохранить название');}});
     return true;
   }
-  document.addEventListener('click',function(e){const btn=e.target?.closest?.('#avitoBtn');if(!btn)return;if(window.__resellCareerStoreBypass){window.__resellCareerStoreBypass=false;return;}if(showStoreSetup(btn)){e.preventDefault();e.stopImmediatePropagation();}},true);
+  /* Store naming must NOT intercept the real Avito entry anymore.
+     Career unlock is handled by the 250-sales gate inside renderAvitoWithCareer();
+     the brand branch can ask for its store name inside its own UI. */
+  document.addEventListener('click',function(e){
+    const btn=e.target?.closest?.('#avitoBtn');
+    if(!btn)return;
+    if(window.__resellCareerStoreBypass){window.__resellCareerStoreBypass=false;}
+  },true);
 })();
 </script>
 <style id="resell-career-store-setup-v1-style">
