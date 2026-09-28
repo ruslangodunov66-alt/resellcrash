@@ -9986,6 +9986,38 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     if(dir==='brand') return renderBrand(c.brand||{},balance);
     return renderInvest(c.investments||{},balance);
   }
+  function avcJourney(dir){
+    const c=careerData()||{}; const s=c[dir]&&typeof c[dir]==='object'?c[dir]:{};
+    let steps=[],idx=0,next='',desc='',action='';
+    if(dir==='infobusiness'){
+      const p=(s.projects||[]).find(x=>String(x.id)===String(s.current_project_id))||null;
+      steps=['Идея','Продукт','Проверка','Продажи','Команда','Масштаб'];
+      if(!p){idx=0;next='Создать первый проект';desc='Начни с идеи и собери продукт, на котором дальше появятся реальные решения.';action='info_build_app';}
+      else if(!s.app_built){idx=1;next='Собрать продукт';desc='Настрой архитектуру, платформу и качество. Выбор изменит стоимость и результат.';action='info_build_app';}
+      else if(!s.qa_done){idx=2;next='Проверить продукт';desc='Проведи QA и проверь ключевые сценарии до выхода на рынок.';action='info_qa';}
+      else if(s.app_stage!=='live'){idx=3;next='Выпустить продукт';desc='Выбери стратегию запуска: стабильность, рост или высокий риск.';action='info_release';}
+      else if(!(s.products||[]).length){idx=3;next='Создать предложение';desc='Сформируй продукт и модель монетизации — дальше можно строить продажи.';action='info_create_product';}
+      else if(!s.ads_enabled){idx=3;next='Проверить спрос';desc='Не масштабируй вслепую: сначала найди аудиторию и настрой канал привлечения.';action='info_ads';}
+      else {idx=4;next='Развивать продажи';desc='Усиливай воронку, команду и качество, а не просто собирай XP.';action='info_sales';}
+    } else if(dir==='brand'){
+      steps=['Концепция','Коллекция','Производство','Запуск','Продажи','Масштаб'];
+      const products=Array.isArray(s.products)?s.products:[], jobs=Array.isArray(s.production_jobs)?s.production_jobs:[];
+      if(!s.name){idx=0;next='Создать бренд';desc='Выбери стиль, аудиторию и позиционирование. Это именно бренд одежды, не личный бренд.';action='brand_create';}
+      else if(!products.length){idx=1;next='Создать первую вещь';desc='Собери первый SKU: категория, сегмент и цена определят дальнейшую экономику.';action='brand_add_product';}
+      else if(!products.some(x=>Number(x.stock||0)>0)||jobs.length){idx=2;next=jobs.length?'Дождаться производства':'Запустить производство';desc='Размер партии влияет на расходы и риск остатков. Не производи вслепую.';action=jobs.length?'brand_collect_production':'brand_production';}
+      else if(Number(s.sales||0)<=0){idx=3;next='Запустить спрос';desc='Выбери канал продвижения и только потом переходи к продажам.';action='brand_campaign';}
+      else {idx=4;next='Продолжить продажи';desc='Следи за остатками, конверсией и прибылью. Затем расширяй коллекцию или масштабируй канал.';action='brand_sell';}
+    } else {
+      steps=['Анализ','Проверка','Покупка','Портфель','События','Ребалансировка'];
+      const analysis=s.analysis&&typeof s.analysis==='object'?s.analysis:{}; const pf=Array.isArray(s.portfolio)?s.portfolio:[]; const feed=Array.isArray(s.deal_feed)?s.deal_feed:[];
+      if(!Object.keys(analysis).length){idx=0;next='Проанализировать актив';desc='Сначала данные и тезис. Покупка без анализа недоступна.';action='invest_analyze';}
+      else if(!s.dd_reports||!Object.keys(s.dd_reports).length){idx=1;next='Проверить предложение';desc='Для бизнеса отдельно проверь команду, traction, unit economics и юридические риски.';action=feed.length?'invest_due_diligence':'invest_discover';}
+      else if(!pf.length){idx=2;next='Найти сделку';desc='После анализа найди подходящий проект, проверь его и только потом открывай позицию.';action='invest_discover';}
+      else {idx=4;next='Управлять портфелем';desc='Следи за событиями, дивидендами и долями. Ребалансировка меняет структуру риска.';action='invest_event';}
+    }
+    const pct=Math.round((idx/Math.max(1,steps.length-1))*100);
+    return `<section class="career-journey"><div class="career-journey-head"><div><small>ТЕКУЩИЙ ЭТАП</small><b>${careerEsc(steps[idx]||steps[0])}</b></div><span>${idx+1}/${steps.length}</span></div><div class="career-journey-steps">${steps.map((x,i)=>`<i class="${i<idx?'done ':''}${i===idx?'current':''}"><u></u><b>${careerEsc(x)}</b></i>`).join('')}</div><div class="career-journey-task"><div><small>СЕЙЧАС</small><strong>${careerEsc(next)}</strong><p>${careerEsc(desc)}</p></div>${action?`<button type="button" data-career-action="${action}">Продолжить →</button>`:''}</div></section>`;
+  }
   function avcShell(dir,title,kicker,sub,balance,content){
     return `<div class="career-new ${dir}">
       <button type="button" class="avc-return-avito" data-career-back aria-label="Авито">
@@ -9994,7 +10026,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
         <em>›</em>
       </button>
       <div class="cn-nav avc-subnav"><span>${careerEsc(kicker)}</span><b>${careerMoney(balance)} ₽</b></div>
-      <div class="cn-title"><small>${careerEsc(kicker)}</small><h1>${careerEsc(title)}</h1><p>${careerEsc(sub)}</p></div>${content}</div>`;
+      <div class="cn-title"><small>${careerEsc(kicker)}</small><h1>${careerEsc(title)}</h1><p>${careerEsc(sub)}</p></div>${avcJourney(dir)}${content}</div>`;
   }
   function cnMetric(label,val,sub){return `<div class="cn-metric"><small>${careerEsc(label)}</small><b>${careerEsc(String(val))}</b><span>${careerEsc(sub||'')}</span></div>`;}
   function cnButton(action,icon,title,sub,cls=''){return `<button class="cn-action ${cls}" data-career-action="${action}"><i>${icon}</i><div><b>${careerEsc(title)}</b><span>${careerEsc(sub)}</span></div><em>→</em></button>`;}
@@ -10182,11 +10214,11 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
   function avcOpenDecision(action,act,basePayload){
     const def=avcDecisionDefs(action); if(!def)return Promise.resolve(basePayload);
     const modal=avcEnsureDecision();
-    modal.innerHTML=`<div class="avp-decision-card"><button type="button" class="avp-decision-close" data-decision-cancel>×</button><div class="avp-decision-kicker">${careerEsc(def.kicker)}</div><h3>${careerEsc(def.title)}</h3><p>${careerEsc(def.text)}</p><div class="avp-choice-list">${def.choices.map((c,i)=>`<button type="button" class="avp-decision-choice" data-choice="${careerEsc(c[0])}"><span class="avp-choice-no">0${i+1}</span><div><b>${careerEsc(c[1])}</b><strong>${careerEsc(c[2])}</strong><small>${careerEsc(c[3])}</small></div><em>${careerEsc(c[4])}</em></button>`).join('')}</div><div class="avp-decision-preview" id="avpDecisionPreview">Выбери вариант — система покажет, какой профиль риска ты принимаешь.</div><button type="button" class="avp-primary avp-confirm" id="avpDecisionConfirm" disabled>ПОДТВЕРДИТЬ РЕШЕНИЕ →</button></div>`;
+    modal.innerHTML=`<div class="avp-decision-card"><button type="button" class="avp-decision-close" data-decision-cancel>×</button><div class="avp-decision-kicker">${careerEsc(def.kicker)}</div><h3>${careerEsc(def.title)}</h3><p>${careerEsc(def.text)}</p><div class="avp-choice-list">${def.choices.map((c,i)=>`<button type="button" class="avp-decision-choice" data-choice="${careerEsc(c[0])}"><span class="avp-choice-no">0${i+1}</span><div><b>${careerEsc(c[1])}</b><strong>${careerEsc(c[2])}</strong><small>${careerEsc(c[3])}</small></div><em>${careerEsc(c[4])}</em></button>`).join('')}</div><div class="avp-decision-preview" id="avpDecisionPreview"><b>ПОСЛЕДСТВИЕ</b><span>Выбери вариант — здесь появится конкретно то, что изменится после решения.</span></div><button type="button" class="avp-primary avp-confirm" id="avpDecisionConfirm" disabled>ПОДТВЕРДИТЬ РЕШЕНИЕ →</button></div>`;
     modal.classList.add('open'); modal.setAttribute('aria-hidden','false');
     let selected=null;
     const preview=modal.querySelector('#avpDecisionPreview'), confirm=modal.querySelector('#avpDecisionConfirm');
-    modal.querySelectorAll('[data-choice]').forEach(btn=>btn.addEventListener('click',()=>{modal.querySelectorAll('[data-choice]').forEach(x=>x.classList.remove('selected'));btn.classList.add('selected');selected=btn.dataset.choice;const item=def.choices.find(x=>x[0]===selected);if(preview)preview.textContent=`Выбрано: ${item?.[1]||selected} · ${item?.[3]||''}`;if(confirm)confirm.disabled=false;}));
+    modal.querySelectorAll('[data-choice]').forEach(btn=>btn.addEventListener('click',()=>{modal.querySelectorAll('[data-choice]').forEach(x=>x.classList.remove('selected'));btn.classList.add('selected');selected=btn.dataset.choice;const item=def.choices.find(x=>x[0]===selected);if(preview)preview.innerHTML=`<b>ПОСЛЕДСТВИЕ</b><span>${careerEsc(item?.[1]||selected)}: ${careerEsc(item?.[3]||'Выбранный профиль будет применён к следующему шагу.')}</span>`;if(confirm)confirm.disabled=false;}));
     return new Promise(resolve=>{
       const close=()=>{modal.classList.remove('open');modal.setAttribute('aria-hidden','true');resolve(null)};
       modal.querySelector('[data-decision-cancel]').onclick=close;
@@ -10885,6 +10917,13 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 .career-new.infobusiness .info-how{grid-template-columns:repeat(4,1fr)}
 .career-new.infobusiness .info-how span{color:#607088}
 @media(max-width:520px){.career-new.infobusiness .info-how{grid-template-columns:1fr 1fr}.avc-return-avito{min-height:62px}.avc-return-copy b{font-size:17px}}
+</style>
+<style id="resell-career-journey-v2">
+.career-journey{margin:4px 0 11px;padding:13px 12px;border:1px solid #e2e7ef;border-radius:18px;background:linear-gradient(180deg,#fff,#f8fafc);box-shadow:0 7px 22px rgba(30,45,70,.055)}
+.career-journey-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}.career-journey-head small,.career-journey-task small{display:block;color:#7b8799;font:900 7px/1 Montserrat;letter-spacing:1px}.career-journey-head b{display:block;margin-top:5px;color:#172840;font:950 16px/1 Montserrat}.career-journey-head>span{min-width:32px;height:25px;padding:0 7px;border-radius:9px;background:#edf1ff;color:#5c6eea;display:grid;place-items:center;font:950 8px/1 Montserrat}.career-journey-steps{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;margin:13px 0 11px}.career-journey-steps i{position:relative;display:grid;gap:5px;font-style:normal}.career-journey-steps i u{display:block;height:4px;border-radius:99px;background:#e9edf3;text-decoration:none}.career-journey-steps i.done u{background:#6878ef}.career-journey-steps i.current u{background:#6878ef;box-shadow:0 0 0 2px rgba(104,120,239,.12)}.career-journey-steps b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#98a2b1;font:850 5.8px/1 Montserrat}.career-journey-steps i.current b{color:#5365dc}.career-journey-task{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px;border-radius:13px;background:#f5f7fb;border:1px solid #e8ecf3}.career-journey-task strong{display:block;margin-top:4px;color:#1b2c45;font:950 11px/1.1 Montserrat}.career-journey-task p{margin:4px 0 0;color:#748196;font:750 7.5px/1.35 Nunito}.career-journey-task button{flex:0 0 auto;border:0;border-radius:11px;padding:10px 12px;background:#596cf0;color:#fff;font:950 7px/1 Montserrat;box-shadow:0 6px 15px rgba(89,108,240,.18)}
+.avp-decision-preview b{display:block;color:#6574e8;font:950 6px/1 Montserrat;letter-spacing:.8px}.avp-decision-preview span{display:block;margin-top:4px}
+.career-new.brand .career-journey-task button{background:#4f8064}.career-new.investments .career-journey-task button{background:#596cf0}
+@media(max-width:420px){.career-journey-steps b{font-size:5px}.career-journey-task{align-items:flex-end}.career-journey-task button{padding:9px 10px}.career-journey-task p{max-width:205px}}
 </style>
 
 <style id="info-control-redesign-v1">
