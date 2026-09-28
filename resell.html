@@ -7637,7 +7637,10 @@ async function initFarm(){
     getAvitoEditing: () => !!avitoEditing,
     setAvitoEditing: (value) => { avitoEditing = !!value; },
     renderAvito: () => renderAvito(),
-    getAvitoState: () => avitoState
+    getAvitoState: () => avitoState,
+    // Authoritative Avito/career refresh for isolated career UI handlers.
+    // Exposed only as a read/refresh bridge; normal Avito rendering remains unchanged.
+    fetchAvito: () => fetchAvito()
   };
 
   // Telegram can swap the signed session while this Mini App remains open.
@@ -11009,9 +11012,15 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
       const core=window.__resellCoreV26||{};
       const body=core.getModalBody?.()||document.getElementById('modalBody');
       try{
-        const state=(window.__resellAvitoState&&typeof window.__resellAvitoState==='object')?window.__resellAvitoState:{};
+        // The button must open the already selected business directly.
+        // Refresh first so we never depend on a stale career snapshot from Avito.
+        try{ await core.fetchAvito?.(); }catch(refreshErr){ console.warn('[CAREER HUB] refresh failed, using current state',refreshErr); }
+        const state=(window.__resellAvitoState&&typeof window.__resellAvitoState==='object')
+          ? window.__resellAvitoState
+          : (core.getAvitoState?.()||{});
         const c=(state.career&&typeof state.career==='object')?state.career:{};
-        const eligible=(c.eligible===true || Number(c.eligible||0)>0 || !!String(c.direction||'').trim());
+        const dir=String(c.direction||'').trim();
+        const eligible=(c.eligible===true || Number(c.eligible||0)>0 || !!dir);
         if(!eligible){
           core.showToast?.('Новая ветка откроется после максимального уровня продаж Avito');
           return;
@@ -11020,13 +11029,33 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
         window.__avcForceBaseAvito=false;
         window.__careerTab='overview';
         core.setAvitoEditing?.(true);
-        const html=renderAvitoWithCareer();
+
+        // Do not route back through the Avito renderer here. Pick the selected
+        // career renderer immediately: BRAND / INFOBUSINESS / INVESTMENTS.
+        let html='';
+        const balance=Number(state.balance??window.__resellAvitoState?.balance??0);
+        if(dir==='brand'){
+          const renderer=window.__resellBrandRenderer;
+          if(typeof renderer!=='function') throw new Error('BRAND STUDIO renderer unavailable');
+          html=renderer(c.brand||{},balance);
+        }else if(dir==='infobusiness'){
+          if(typeof renderInfo!=='function') throw new Error('APP LAB renderer unavailable');
+          html=renderInfo(c.infobusiness||{},balance);
+        }else if(dir==='investments'){
+          if(typeof renderInvest!=='function') throw new Error('CAPITAL DESK renderer unavailable');
+          html=renderInvest(c.investments||{},balance);
+        }else{
+          // A saved direction from an older backend version still opens the
+          // corresponding dashboard through the normal career dispatcher.
+          html=renderCareerDashboard(c,balance);
+        }
         if(!html || !String(html).trim()) throw new Error('Раздел бизнеса пуст');
-        if(body){ body.innerHTML=html; body.scrollTop=0; }
-        else throw new Error('Контейнер Avito не найден');
+        if(!body) throw new Error('Контейнер Avito не найден');
+        body.innerHTML=html;
+        body.scrollTop=0;
       }catch(err){
         console.error('[CAREER HUB] direct open failed',err);
-        core.showToast?.(err?.message||'Не удалось открыть раздел бизнеса');
+        core.showToast?.(err?.message||'Не удалось открыть бизнес');
       }finally{
         hub.disabled=false;
         hub.__careerHubBusy=false;
