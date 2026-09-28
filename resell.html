@@ -6283,7 +6283,7 @@ async function initFarm(){
         const state=(window.__resellAvitoState&&typeof window.__resellAvitoState==='object')
           ? window.__resellAvitoState : (avitoState&&typeof avitoState==='object'?avitoState:{});
         const c=(state.career&&typeof state.career==='object') ? state.career : {};
-        const eligible=(c.eligible===true || Number(c.eligible||0)>0);
+        const eligible=(c.eligible===true || Number(c.eligible||0)>0 || !!String(c.direction||'').trim());
         if(!eligible){ showToast('Новая ветка откроется после максимального уровня продаж Avito'); return; }
         window.__resellAvitoState=state;
         window.__avcForceBaseAvito=false;
@@ -10046,9 +10046,13 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
       /* Career opens ONLY from the server-provided eligibility flag. A saved direction
          without eligibility must never hijack the ordinary Avito marketplace. */
       const eligibleRaw=c.eligible;
-      const careerEligible=(eligibleRaw===true || Number(eligibleRaw||0)>0);
-      if(careerEligible && !c.direction) return renderCareerChoice(c);
-      if(careerEligible && c.direction) return renderCareerDashboard(c,Number(window.__resellAvitoState?.balance||0));
+      const savedDirection=String(c.direction||'').trim();
+      /* Once the server has persisted a direction, that direction is enough to reopen
+         the selected business. The direction can only be written by /career/choose,
+         so this does not bypass the 250-sales gate. */
+      const careerEligible=(eligibleRaw===true || Number(eligibleRaw||0)>0 || !!savedDirection);
+      if(careerEligible && !savedDirection) return renderCareerChoice(c);
+      if(careerEligible && savedDirection) return renderCareerDashboard(c,Number(window.__resellAvitoState?.balance||0));
       return baseAvito();
     } catch(err) {
       console.warn('[AVITO CAREER] fallback to base Avito',err);
@@ -11007,7 +11011,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
       try{
         const state=(window.__resellAvitoState&&typeof window.__resellAvitoState==='object')?window.__resellAvitoState:{};
         const c=(state.career&&typeof state.career==='object')?state.career:{};
-        const eligible=(c.eligible===true || Number(c.eligible||0)>0);
+        const eligible=(c.eligible===true || Number(c.eligible||0)>0 || !!String(c.direction||'').trim());
         if(!eligible){
           core.showToast?.('Новая ветка откроется после максимального уровня продаж Avito');
           return;
