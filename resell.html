@@ -3037,6 +3037,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
 
   function closeModal(){
     avitoEditing=false;
+    try{window.__resellSetNicheContext?.(null);}catch(_){}
     modal.classList.remove('open');
     document.body.style.overflow = '';
   }
@@ -6238,10 +6239,13 @@ async function initFarm(){
     }catch(_){}
   }
 
-  async function openAvito(){
-    window.__avcForceBaseAvito=false;
+  async function openAvito({routeManaged=false,routeToken=0}={}){
+    // Avito is a top-level niche. Its entry point must always render the
+    // marketplace shell; career screens are opened explicitly by the router.
+    window.__avcForceBaseAvito=true;
     haptic('light');
-    openModal('Avito','<div class="loading">Загрузка площадки…</div>');
+    if(!routeManaged) openModal('Avito','<div class="loading">Загрузка площадки…</div>');
+    const isCurrentRoute=()=>!routeManaged || Number(window.__resellNicheState?.token||0)===Number(routeToken||0);
     try {
       try { await fetchAvito(); }
       catch (err) {
@@ -6249,23 +6253,30 @@ async function initFarm(){
         avitoState = avitoState && typeof avitoState === 'object' ? avitoState : {};
         window.__resellAvitoState = avitoState;
       }
+      if(!isCurrentRoute()) return;
+      window.__avcForceBaseAvito=true;
       modalBody.innerHTML=(window.renderAvitoWithCareer?window.renderAvitoWithCareer():renderAvito());
-      try { showAvitoUnlockPopup(); } catch(_) {}
+      try { if(isCurrentRoute()) showAvitoUnlockPopup(); } catch(_) {}
     } catch(e) {
       console.error('[AVITO] render failed', e);
-      modalBody.innerHTML=`<div class="avito-shell"><div class="avito-hero marketplace"><div class="avito-kicker">AVITO</div><div class="avito-title">Площадка готовится</div><div class="avito-sub">Твоя площадка создаётся автоматически. Переключение ниши не требуется для обычной торговли.</div><button class="avx-btn buy" data-avito-safe-retry>ОБНОВИТЬ</button></div></div>`;
+      if(isCurrentRoute()){
+        modalBody.innerHTML=`<div class="avito-shell"><div class="avito-hero marketplace"><div class="avito-kicker">AVITO</div><div class="avito-title">Площадка готовится</div><div class="avito-sub">Твоя площадка создаётся автоматически. Переключение ниши не требуется для обычной торговли.</div><button class="avx-btn buy" data-avito-safe-retry>ОБНОВИТЬ</button></div></div>`;
+      }
     }
     clearInterval(avitoPoller);
     avitoPoller=setInterval(async()=>{
       if(avitoEditing || !modal.classList.contains('open') || !document.querySelector('.avito-shell')) return;
+      if(routeManaged && (Number(window.__resellNicheState?.token||0)!==Number(routeToken||0) || window.__resellNicheState?.id!=='avito')) return;
       try {
         await fetchAvito();
-        if(avitoEditing || document.querySelector('[data-avito-chat-sheet="1"]')) return;
+        if(avitoEditing || !isCurrentRoute() || document.querySelector('[data-avito-chat-sheet="1"]')) return;
+        window.__avcForceBaseAvito=true;
         modalBody.innerHTML=(window.renderAvitoWithCareer?window.renderAvitoWithCareer():renderAvito());
       } catch(_) {}
     },7000);
   }
-  $('#avitoBtn')?.addEventListener('click',openAvito);
+  window.__resellLegacyOpenAvito=openAvito;
+  $('#avitoBtn')?.addEventListener('click',()=>window.__resellOpenNiche?.('avito'));
   modalBody.addEventListener('click',async(e)=>{
     const unlockClose=e.target.closest('[data-avito-unlock-close]'); if(unlockClose){e.target.closest('[data-avito-unlock-overlay]')?.remove();return;}
     const reviewOpen=e.target.closest('[data-avito-reviews]'); if(reviewOpen){avitoEditing=true;openModal('Avito',renderAvitoReviews());return;}
@@ -10007,12 +10018,19 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 
   function renderAvitoWithCareer(){
     try {
-      /* Avito is always the Avito marketplace. A selected career direction must
-         never replace this screen. The player's business is opened only by the
-         dedicated button rendered inside Avito. */
-      window.__avcForceBaseAvito=true;
-      return renderAvito();
-    } catch(err) { console.warn('[AVITO CAREER] fallback',err); return renderAvito(); }
+      // Explicit top-level context: marketplace vs currently opened career niche.
+      if(window.__avcForceBaseAvito!==false) return renderAvito();
+      const c=careerData()||{};
+      const balance=Number(window.__resellAvitoState?.balance ?? profileData?.balance ?? 0);
+      if(c.direction) return renderCareerDashboard(c,balance);
+      return renderCareerChoice(c);
+    } catch(err) {
+      console.warn('[AVITO CAREER] render failed',err);
+      // Fallback to Avito is allowed only while the marketplace route is
+      // explicitly active. A career route must never silently turn into Avito.
+      if(window.__avcForceBaseAvito!==false) return renderAvito();
+      throw err;
+    }
   }
 
   function openCareerBusinessDirect(){
@@ -10971,19 +10989,20 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     }
     const choose=e.target?.closest?.('[data-career-choose]');
     if(choose){
-      e.preventDefault();e.stopPropagation();
-      if(choose.__careerBusy)return;choose.__careerBusy=true;choose.disabled=true;
-      const core=window.__resellCoreV26||{},body=core.getModalBody?.()||document.getElementById('modalBody');core.setAvitoEditing?.(true);
+      e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
+      const direction=String(choose.dataset.careerChoose||'').trim();
+      if(!direction)return;
+      if(choose.__careerBusy)return;
+      choose.__careerBusy=true; choose.disabled=true;
       try{
-        const direction=String(choose.dataset.careerChoose||'').trim(); if(!direction)throw new Error('Направление не определено');
-        const picked=await avcOpenDecision('choose',choose,{}).catch(()=>null);
-        const finalDirection=picked?.direction||picked?.choice||direction;
-        const uid=String(core.getUserId?.()||'');if(!uid)throw new Error('Не найден аккаунт RESSELL');
-        const r=await window.__resellCoreV26.tycoonFetch(`/avito/${encodeURIComponent(uid)}/career/choose`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({direction:finalDirection})});
-        if(!r?.success)throw new Error(r?.message||r?.error||'Не удалось открыть направление');
-        const balance=Number(r.balance??window.__resellAvitoState?.balance??0);core.setProfileBalance?.(balance);core.setBalance?.(balance);window.__resellAvitoState=window.__resellAvitoState||{};window.__resellAvitoState.career=r.career||{};window.__resellAvitoState.balance=balance;window.__careerTab='overview';
-        body.innerHTML=renderAvitoWithCareer();
-      }catch(err){core.showToast?.(err?.message||'Ошибка выбора направления');choose.disabled=false;choose.__careerBusy=false}
+        const opener=window.__resellOpenNiche;
+        if(typeof opener!=='function')throw new Error('Система открытия ниш ещё не готова');
+        const opened=await opener(direction,{fromCareerChoice:true});
+        if(opened===false){choose.disabled=false;choose.__careerBusy=false;}
+      }catch(err){
+        (window.__resellCoreV26||{}).showToast?.(err?.message||'Ошибка выбора направления');
+        choose.disabled=false; choose.__careerBusy=false;
+      }
       return;
     }
     const project=e.target?.closest?.('[data-info-project]');
@@ -10996,7 +11015,9 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     if(back){
       const core=window.__resellCoreV26||{},body=core.getModalBody?.()||document.getElementById('modalBody');
       e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
-      /* Do NOT reopen the selected career direction. Return to the actual Avito marketplace. */
+      /* Return to the actual top-level Avito route without carrying the
+         career route token into the marketplace. */
+      try{window.__resellSetNicheContext?.('avito');}catch(_){}
       window.__avcForceBaseAvito=true;
       core.setAvitoEditing?.(false);
       if(body){ body.innerHTML=typeof core.renderAvito==='function'?core.renderAvito():''; body.scrollTop=0; }
@@ -11010,6 +11031,44 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
   // Capture phase is intentional: older Avito handlers are registered on modalBody.
   document.addEventListener('click',handleCareerClick,true);
   window.renderAvitoWithCareer=renderAvitoWithCareer;
+  window.__resellOpenCareerNiche=async function(direction,routeToken=0){
+    const dir=String(direction||'').trim().toLowerCase();
+    const allowed={infobusiness:1,brand:1,investments:1};
+    if(!allowed[dir])throw new Error('Неизвестное направление');
+    const core=window.__resellCoreV26||{};
+    const body=core.getModalBody?.()||document.getElementById('modalBody');
+    if(!body)throw new Error('Экран ниши недоступен');
+    const current=careerData()||{};
+    window.__avcForceBaseAvito=false;
+    core.setAvitoEditing?.(true);
+    window.__careerTab='overview';
+    if(current.direction && current.direction!==dir){
+      throw new Error('У аккаунта уже открыто другое направление.');
+    }
+    if(current.direction===dir){
+      const balance=Number(window.__resellAvitoState?.balance ?? profileData?.balance ?? 0);
+      if(Number(window.__resellNicheState?.token||0)===Number(routeToken||0)){
+        body.innerHTML=renderCareerDashboard({...current,direction:dir},balance);
+        body.scrollTop=0;
+      }
+      return true;
+    }
+    const uid=String(core.getUserId?.()||'');
+    if(!uid)throw new Error('Не найден аккаунт RESSELL');
+    const r=await core.tycoonFetch(`/avito/${encodeURIComponent(uid)}/career/choose`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({direction:dir})});
+    if(!r?.success)throw new Error(r?.message||r?.error||'Не удалось открыть направление');
+    if(Number(window.__resellNicheState?.token||0)!==Number(routeToken||0))return false;
+    const balance=Number(r.balance??window.__resellAvitoState?.balance??0);
+    core.setProfileBalance?.(balance); core.setBalance?.(balance);
+    window.__resellAvitoState=window.__resellAvitoState||{};
+    window.__resellAvitoState.career=r.career||{};
+    window.__resellAvitoState.balance=balance;
+    window.__avcForceBaseAvito=false;
+    body.innerHTML=renderCareerDashboard(window.__resellAvitoState.career,balance);
+    body.scrollTop=0;
+    return true;
+  };
+  window.__resellOpenCareerEntry=openCareerBusinessDirect;
   if(!window.__avcLivePulse){
     // Read-only UI ticker. It never posts career actions, never grants money, and never mutates server state.
     window.__avcLivePulse=setInterval(()=>{
@@ -15422,7 +15481,8 @@ main.app{
 (function(){'use strict';
   const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
   function tile(){
-    const btn=document.getElementById('avitoBtn'); const c=window.__resellAvitoState?.career||{}; if(!btn||!c.direction)return;
+    const btn=document.getElementById('avitoBtn'); if(btn?.dataset?.nicheProtected==='1')return;
+    const c=window.__resellAvitoState?.career||{}; if(!btn||!c.direction)return;
     const dir=c.direction, st=c[dir]||{}, name=String(st.name||'').trim(); if(!name)return;
     const users=dir==='infobusiness'?(st.projects||[]).reduce((a,p)=>a+Number(p.users||p.metrics?.users||0),0):dir==='brand'?Number(st.orders||0):Number(st.portfolio?.length||0);
     const val=dir==='infobusiness'?(st.projects||[]).reduce((a,p)=>a+Number(p.valuation||0),0):dir==='brand'?Number(st.revenue||0):Number(st.cash_invested||0)+Number(st.realized_profit||0);
@@ -15458,7 +15518,13 @@ main.app{
     create?.addEventListener('click',async()=>{const name=String(input.value||'').trim();if(name.length<2)return;create.disabled=true;try{const r=await window.__resellCoreV26.tycoonFetch(`/avito/${encodeURIComponent(uid)}/career/store-name`,{method:'POST',body:JSON.stringify({name})});if(!r?.success)throw new Error(r?.error||'Не удалось сохранить');window.__resellAvitoState.shop_name=name;localStorage.setItem(key,'1');openAvito();}catch(e){create.disabled=false;window.__resellCoreV26.showToast?.(e.message||'Не удалось сохранить название');}});
     return true;
   }
-  document.addEventListener('click',function(e){const btn=e.target?.closest?.('#avitoBtn');if(!btn)return;if(window.__resellCareerStoreBypass){window.__resellCareerStoreBypass=false;return;}if(showStoreSetup(btn)){e.preventDefault();e.stopImmediatePropagation();}},true);
+  document.addEventListener('click',function(e){
+    const btn=e.target?.closest?.('#avitoBtn'); if(!btn)return;
+    // Top-level route entries must never be intercepted by a career setup sheet.
+    if(btn.dataset.nicheProtected==='1')return;
+    if(window.__resellCareerStoreBypass){window.__resellCareerStoreBypass=false;return;}
+    if(showStoreSetup(btn)){e.preventDefault();e.stopImmediatePropagation();}
+  },true);
 })();
 </script>
 <style id="resell-career-store-setup-v1-style">
@@ -15606,3 +15672,125 @@ main.app{
 .career-new.brand .avc-return-avito .avc-avito-mark{display:block!important;width:30px!important;height:29px!important;position:relative!important;transform:scale(.78)!important;}
 .career-new.brand .avc-return-avito .avc-return-copy,.career-new.brand .avc-return-avito em{display:none!important;}
 </style>
+
+
+<style id="resell-unified-niche-router-v1-style">
+.resell-niche-loading,.resell-niche-error{display:grid;place-items:center;min-height:240px;padding:26px;text-align:center;color:#858c86}
+.resell-niche-loading-card,.resell-niche-error-card{width:min(420px,100%);padding:22px;border-radius:22px;background:linear-gradient(145deg,#151715,#0a0b0a);border:1px solid rgba(255,255,255,.08);box-shadow:0 18px 50px rgba(0,0,0,.28)}
+.resell-niche-loading-mark{width:42px;height:42px;margin:0 auto 14px;border-radius:13px;display:grid;place-items:center;background:#fff;color:#080908;font:950 15px/1 Montserrat,sans-serif}
+.resell-niche-loading-title,.resell-niche-error-title{font:950 13px/1 Montserrat,sans-serif;color:#f4f5f3}
+.resell-niche-loading-sub,.resell-niche-error-sub{margin-top:7px;color:#686f69;font:800 9px/1.4 Nunito,sans-serif}
+.resell-niche-spinner{width:22px;height:22px;margin:15px auto 0;border-radius:50%;border:2px solid rgba(255,255,255,.10);border-top-color:#b7ff6a;animation:resellNicheSpin .72s linear infinite}
+@keyframes resellNicheSpin{to{transform:rotate(360deg)}}
+.resell-niche-retry,.resell-niche-close{width:100%;min-height:44px;margin-top:15px;border-radius:13px;font:950 8px/1 Montserrat,sans-serif;letter-spacing:.5px}
+.resell-niche-retry{background:#fff;color:#080908}
+.resell-niche-close{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#c5cac6}
+</style>
+<script id="resell-unified-niche-router-v1">
+(function(){
+  'use strict';
+
+  const callGlobal=(name,...args)=>{
+    const fn=window[name];
+    if(typeof fn!=='function')throw new Error('Компонент ниши ещё не готов.');
+    return fn(...args);
+  };
+  const registry=Object.freeze({
+    avito:{id:'avito',title:'Avito',open:ctx=>callGlobal('__resellLegacyOpenAvito',{routeManaged:true,routeToken:ctx.token})},
+    infobusiness:{id:'infobusiness',title:'Инфобизнес',open:ctx=>callGlobal('__resellOpenCareerNiche','infobusiness',ctx.token)},
+    brand:{id:'brand',title:'Создание бренда',open:ctx=>callGlobal('__resellOpenCareerNiche','brand',ctx.token)},
+    investments:{id:'investments',title:'Инвестиции',open:ctx=>callGlobal('__resellOpenCareerNiche','investments',ctx.token)},
+    brands:{id:'brand',title:'Создание бренда',aliasOf:'brand',open:ctx=>callGlobal('__resellOpenCareerNiche','brand',ctx.token)},
+    career:{id:'career',title:'Resell Career',open:ctx=>callGlobal('__resellOpenCareerEntry')}
+  });
+
+  const state=window.__resellNicheState={id:null,token:0,openedAt:0};
+  const normalize=id=>{const key=String(id??'').trim().toLowerCase();return key==='brands'?'brand':key;};
+  const body=()=>document.getElementById('modalBody');
+  const setEditing=value=>{try{window.__resellCoreV26?.setAvitoEditing?.(!!value)}catch(_){}};
+  const isCurrent=(id,token)=>state.id===id && Number(state.token)===Number(token);
+  window.__resellSetNicheContext=id=>{
+    const normalized=normalize(id),descriptor=registry[normalized];
+    state.token+=1; state.id=descriptor?.id||normalized||null; state.openedAt=Date.now();
+    return state.id;
+  };
+  const safe=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+
+  function loading(title){
+    return `<div class="resell-niche-loading" data-resell-niche-loading="1"><div class="resell-niche-loading-card"><div class="resell-niche-loading-mark">R</div><div class="resell-niche-loading-title">${safe(title)}</div><div class="resell-niche-loading-sub">Открываем основной интерфейс ниши.</div><div class="resell-niche-spinner" aria-hidden="true"></div></div></div>`;
+  }
+  function errorView(title,message,id){
+    return `<div class="resell-niche-error" data-resell-niche-error="1"><div class="resell-niche-error-card"><div class="resell-niche-loading-mark">R</div><div class="resell-niche-error-title">${safe(title)}</div><div class="resell-niche-error-sub">${safe(message||'Не удалось открыть интерфейс.')}</div><button type="button" class="resell-niche-retry" data-resell-niche-retry="${safe(id)}">ПОВТОРИТЬ</button><button type="button" class="resell-niche-close" data-resell-niche-close>ЗАКРЫТЬ</button></div></div>`;
+  }
+  function ensureModal(title,html){
+    const modal=document.getElementById('modal'),titleEl=document.getElementById('modalTitle'),b=body();
+    if(!modal||!titleEl||!b)throw new Error('Модальное окно недоступно.');
+    titleEl.textContent=title;b.innerHTML=html;modal.classList.add('open');document.body.style.overflow='hidden';
+  }
+
+  async function openNiche(id,meta={}){
+    const normalized=normalize(id),descriptor=registry[normalized];
+    if(!descriptor)throw new Error(`Ниша "${normalized}" не зарегистрирована.`);
+    state.token+=1;
+    const token=state.token,routeId=descriptor.id;
+    state.id=routeId;state.openedAt=Date.now();
+    window.__avcForceBaseAvito=routeId==='avito';
+    setEditing(routeId!=='avito');
+
+    // Every top-level niche starts from the same explicit shell. The niche
+    // renderer replaces only the inner content; no sub-niche is resolved here.
+    try{
+      ensureModal(descriptor.title,loading(descriptor.title));
+      const timeoutMs=15000;
+      let timer=0;
+      const timeout=new Promise((_,reject)=>{
+        timer=window.setTimeout(()=>reject(new Error('Интерфейс не ответил вовремя. Попробуй открыть нишу ещё раз.')),timeoutMs);
+      });
+      await Promise.race([
+        Promise.resolve(descriptor.open({token,meta})),
+        timeout
+      ]).finally(()=>window.clearTimeout(timer));
+      if(!isCurrent(routeId,token))return false;
+      return true;
+    }catch(err){
+      if(isCurrent(routeId,token)){
+        // Invalidate the timed-out route so an old pending request cannot
+        // repaint the screen after a retry or a different niche is opened.
+        state.token+=1;
+        const b=body();if(b)b.innerHTML=errorView(descriptor.title,err?.message||'Не удалось открыть интерфейс.',routeId);
+        setEditing(true);
+      }
+      return false;
+    }
+  }
+
+  window.__resellNicheRegistry=registry;
+  window.__resellOpenNiche=openNiche;
+  window.openNiche=openNiche;
+
+  document.addEventListener('click',function(e){
+    const retry=e.target?.closest?.('[data-resell-niche-retry]');
+    if(retry){
+      e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
+      void openNiche(retry.dataset.resellNicheRetry,{fromRetry:true});
+      return;
+    }
+    const close=e.target?.closest?.('[data-resell-niche-close]');
+    if(close){
+      e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
+      try{document.getElementById('modal')?.classList.remove('open');document.body.style.overflow='';setEditing(false)}catch(_){}
+    }
+  },true);
+
+  const protectAvitoEntry=()=>{
+    const btn=document.getElementById('avitoBtn');
+    if(!btn)return;
+    btn.dataset.nicheProtected='1';
+    btn.dataset.nicheId='avito';
+    btn.setAttribute('aria-label','Открыть Avito');
+  };
+  protectAvitoEntry();
+  window.setTimeout(protectAvitoEntry,250);
+  window.setTimeout(protectAvitoEntry,1000);
+})();
+</script>
