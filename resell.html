@@ -6274,17 +6274,32 @@ async function initFarm(){
   modalBody.addEventListener('click',async(e)=>{
     const openCareer=e.target.closest('[data-avito-open-career]');
     if(openCareer){
-      e.preventDefault(); e.stopPropagation();
+      e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+      openCareer.disabled=true;
       try{
-        const c=(window.__resellAvitoState&&window.__resellAvitoState.career&&typeof window.__resellAvitoState.career==='object')
-          ? window.__resellAvitoState.career : {};
+        // Always refresh the authoritative Avito/career state before opening the hub.
+        // This avoids a stale local snapshot and also clears the previous "force base Avito" flag.
+        try { await fetchAvito(); } catch(refreshErr) { console.warn('[CAREER HUB] refresh failed, using current state', refreshErr); }
+        const state=(window.__resellAvitoState&&typeof window.__resellAvitoState==='object')
+          ? window.__resellAvitoState : (avitoState&&typeof avitoState==='object'?avitoState:{});
+        const c=(state.career&&typeof state.career==='object') ? state.career : {};
         const eligible=(c.eligible===true || Number(c.eligible||0)>0);
         if(!eligible){ showToast('Новая ветка откроется после максимального уровня продаж Avito'); return; }
+        window.__resellAvitoState=state;
         window.__avcForceBaseAvito=false;
         window.__careerTab='overview';
-        modalBody.innerHTML=window.renderAvitoWithCareer?window.renderAvitoWithCareer():renderAvito();
+        const renderer=window.renderAvitoWithCareer;
+        if(typeof renderer!=='function') throw new Error('Career renderer unavailable');
+        const html=renderer();
+        if(!html || !String(html).trim()) throw new Error('Career screen is empty');
+        modalBody.innerHTML=html;
         modalBody.scrollTop=0;
-      }catch(err){ showToast(err?.message||'Не удалось открыть бизнес'); }
+      }catch(err){
+        console.error('[CAREER HUB] open failed',err);
+        showToast(err?.message||'Не удалось открыть бизнес');
+      }finally{
+        openCareer.disabled=false;
+      }
       return;
     }
     const safeRetry=e.target.closest('[data-avito-safe-retry]');
