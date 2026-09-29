@@ -12027,22 +12027,82 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 
   async function brandV3LogisticsPicker(){
     window.__brandPreviewName=String(brandState().name||'Бренд');
-    const models=brandModels(), wh=brandWarehouse(), stores=brandStores(), facs=brandFactories();
-    if(!wh.length||!stores.length){coreToast('Нужны готовый товар на складе и открытый магазин.');return null;}
-    const available=wh.filter(x=>nV(x.qty)-nV(x.reserved_qty)>0); if(!available.length){coreToast('На заводском складе нет доступного товара.');return null;}
+    const models=brandModels(), wh=brandWarehouse(), stores=brandStores(), facs=brandFactories(), lg=brandLogistics();
+    if(!wh.length){coreToast('Склад пуст. Сначала дождись готовой партии.');return null;}
+    if(!stores.length){coreToast('Сначала открой хотя бы один магазин.');return null;}
+    const available=wh.filter(x=>nV(x.qty)-nV(x.reserved_qty)>0);
+    if(!available.length){coreToast('На складе нет свободного товара.');return null;}
     return new Promise(resolve=>{
-      const first=available[0], modal=brandV3OpenModalRaw(`<div class="brand-v3-modal-card brand-v3-distribution"><button class="brand-v3-close" id="bdCancel">×</button><small class="brand-v3-kicker">SUPPLY CHAIN · DISTRIBUTION</small><h3>Распределить партию</h3><p>Одну партию можно разделить между несколькими городами за одно подтверждение: New York — 40, London — 25, Paris — 20 и так далее. Товар сначала резервируется на заводе, затем едет и только после прибытия поступает в магазин.</p><label>МОДЕЛЬ / ЗАВОД<select id="bdWh" class="brand-v3-input">${available.map(x=>`<option value="${escV(x.factory_id)}|${escV(x.model_id)}">${escV(x.title)} · ${careerMoney(nV(x.qty)-nV(x.reserved_qty))} шт. · ${escV(x.factory_city||'Завод')}</option>`).join('')}</select></label><div class="brand-v3-route-limit">Выбери от 1 до 5 магазинов. Пунктирные маршруты появятся сразу при выборе.</div><div id="bdRoutePreview" class="brand-v3-live-route-preview"></div><div id="bdCities" class="brand-v3-distribution-list"></div><div id="bdTotals" class="brand-v3-order-summary"></div><div id="bdForecast" class="brand-v3-forecast"></div><button class="brand-v3-primary" id="bdConfirm">ОТПРАВИТЬ РАСПРЕДЕЛЕНИЕ</button></div>`);
-      const getSource=()=>{const [fid,mid]=String($('#bdWh',modal).value||'|').split('|');const src=available.find(x=>String(x.factory_id)===fid&&String(x.model_id)===mid)||first;const model=models.find(x=>String(x.id)===mid)||{};const factory=facs.find(x=>String(x.id)===fid)||{};return {fid,mid,src,model,factory}};
-      const route=(factory,store,qty)=>{const a=cityCoords[factory.city]||[0,0],z=cityCoords[store.city]||[0,0],dist=Math.hypot(a[0]-z[0],a[1]-z[1]);const ship=Math.round((2500+dist*85+qty*8)*nV(brandLogistics().shipping_modifier,1));const hours=Math.max(6,Math.min(72,Math.round(8+dist*.24+qty/800)));return {ship,hours};};
-      const renderCities=()=>{const {src,model,factory}=getSource();const max=Math.max(0,nV(src.qty)-nV(src.reserved_qty));$('#bdCities',modal).innerHTML=stores.map((store,i)=>{const existingValue=i===0?Math.min(50,max):0;const m=store.market||{};const demand=nV(store.category_demand?.[model.category],0);return `<div class="brand-v3-distribution-row" data-store-row="${escV(store.id)}"><div><b>${cityFlags[store.city]||''} ${escV(store.city)}</b><span>${nV(m.temperature)>0?'+':''}${Math.round(nV(m.temperature))}°C · ${escV(m.weather||'—')} · спрос ${demand>=0?'+':''}${Math.round(demand)}%</span><small>Сейчас в магазине: ${careerMoney(nV(store.stock_total))} шт. · конкуренция ${escV(store.competition_label||'Средняя')}</small></div><input class="brand-v3-input bd-city-qty" data-store-id="${escV(store.id)}" type="number" min="0" max="${Math.max(0,max)}" value="${existingValue}"></div>`}).join(''); updateTotals();};
-      const updateTotals=()=>{const {src,model,factory}=getSource();const max=Math.max(0,nV(src.qty)-nV(src.reserved_qty));let totalQty=0,totalShip=0,maxHours=0,expected=0,selectedStores=0;const selected=[];$$('.bd-city-qty',modal).forEach(input=>{const store=stores.find(x=>String(x.id)===String(input.dataset.storeId));const qty=Math.max(0,Math.min(max,Math.round(nV(input.value,0))));input.value=qty;if(!store||qty<=0)return;selectedStores++;selected.push({store,qty});const r=route(factory,store,qty);totalQty+=qty;totalShip+=r.ship;maxHours=Math.max(maxHours,r.hours);const demand=Math.max(0.35,1+nV(store.category_demand?.[model.category],0)/100);const daily=Math.max(1,(6+nV(store.activity,68)*.34)*({'store':1,'flagship':1.65,'outlet':.78}[store.store_type]||1)*demand);expected+=Math.min(qty,Math.round(daily));});
-        const preview=$('#bdRoutePreview',modal);if(preview){const pt=city=>{const c=cityCoords[city]||[0,0];return{x:clampV((c[1]+180)/360*680+20,24,696),y:clampV((90-c[0])/180*270+35,35,305)}};const p0=pt(factory.city);preview.innerHTML=`<div class="brand-v3-live-route-head"><b>${selectedStores}/5 магазинов</b><span>${escV(window.__brandPreviewName||'Бренд')} · грузовик</span></div><svg viewBox="0 0 720 340"><rect width="720" height="340" rx="14" fill="#f6f8f5"/><g fill="none" stroke="#dbe2dc" stroke-width="1"><path d="M20 85H700M20 170H700M20 255H700M164 20V320M308 20V320M452 20V320M596 20V320" stroke-dasharray="3 8"/></g><text x="${p0.x}" y="${p0.y-12}" text-anchor="middle">🏭</text>${selected.map((q,i)=>{const z=pt(q.store.city),mx=(p0.x+z.x)/2,my=(p0.y+z.y)/2-22-i*5,d=`M ${p0.x} ${p0.y} Q ${mx} ${my} ${z.x} ${z.y}`;return `<g class="live-route" style="--delay:${i*.18}s"><path d="${d}"/><text x="${z.x}" y="${z.y+17}" text-anchor="middle">${escV(q.store.city)}</text><g class="live-truck"><g><rect x="-12" y="-6" width="24" height="11" rx="2"/><rect x="6" y="-4" width="9" height="8" rx="1"/><circle cx="-6" cy="6" r="2"/><circle cx="9" cy="6" r="2"/><text x="0" y="2" text-anchor="middle" class="truck-brand-label">${escV(String(window.__brandPreviewName||'Бренд').slice(0,10))}</text><animateMotion dur="4.8s" repeatCount="indefinite" path="${d}"/></g></g></g>`}).join('')}</svg>`;}
-        const availableBalance=nV(window.__resellAvitoState?.balance,0);$('#bdTotals',modal).innerHTML=`<div><span>РАСПРЕДЕЛЕНО</span><b>${careerMoney(totalQty)} / ${careerMoney(max)} шт.</b></div><div><span>ДОСТАВКА</span><b>${moneyV(totalShip)}</b></div><div><span>СРОК</span><b>${maxHours?`до ${maxHours} ч.`:'—'}</b></div><div><span>ОСТАНЕТСЯ</span><b>${careerMoney(Math.max(0,max-totalQty))} шт.</b></div>`;const risk=totalQty<=Math.max(1,expected*1.5)?'Низкий':totalQty<=Math.max(1,expected*3)?'Средний':'Высокий';$('#bdForecast',modal).innerHTML=`<div><small>ПРОГНОЗ 24Ч</small><b>~${careerMoney(expected)} шт.</b></div><div><small>ПРОГНОЗ ВЫРУЧКИ</small><b>${moneyV(expected*nV(model.price,0))}</b></div><div><small>РИСК ЗАЛЕЖИВАНИЯ</small><b>${risk}</b></div>`;$('#bdConfirm',modal).disabled=totalQty<=0||totalQty>max||totalShip>availableBalance||selectedStores>5;};
-      $('#bdWh',modal).onchange=renderCities;
-      $('#bdCities',modal).addEventListener('input',e=>{if(e.target?.classList?.contains('bd-city-qty')){const positives=$$('.bd-city-qty',modal).filter(x=>Number(x.value)>0);if(positives.length>5){e.target.value='0';coreToast('Можно выбрать максимум 5 магазинов.');}}updateTotals();});
+      const first=available[0];
+      const mapPoint=(city)=>{
+        const c=cityCoords[String(city)]||[0,0];
+        return {x:clampV((c[1]+180)/360*680+20,24,696),y:clampV((90-c[0])/180*250+42,34,292)};
+      };
+      const modal=brandV3OpenModalRaw(`
+        <div class="brand-v3-modal-card brand-v3-logistics-simple">
+          <button class="brand-v3-close" id="bdCancel">×</button>
+          <small class="brand-v3-kicker">RESSELL · ЛОГИСТИКА</small>
+          <h3>Отправить партию</h3>
+          <p class="brand-v3-logistics-help">Выбери готовую партию, затем нажми на город на карте. Один грузовик везёт одну партию. Срок — от нескольких минут до 2 часов.</p>
+          <div class="brand-v3-logistics-party" id="bdParty"></div>
+          <div class="brand-v3-mini-map" id="bdMap"></div>
+          <div class="brand-v3-logistics-selected" id="bdSelected">Выбери город на карте</div>
+          <div class="brand-v3-logistics-summary" id="bdTotals"></div>
+          <div class="brand-v3-truck-status"><span>ГРУЗОВИКИ</span><b>${Math.max(1,nV(lg.fleet_level,1))} шт.</b><button type="button" id="bdBuyTruck">КУПИТЬ · 2 000 000 ₽</button></div>
+          <button class="brand-v3-primary" id="bdConfirm" disabled>ОТПРАВИТЬ ПАРТИЮ</button>
+        </div>`);
+      let selectedStore=null, selectedWh=first;
+
+      const renderParty=()=>{
+        const m=models.find(x=>String(x.id)===String(selectedWh.model_id))||{};
+        $('#bdParty',modal).innerHTML=`
+          <div class="brand-v3-party-art">${brandV3BlueprintSvg(m.category,{...(m.colors||{}),cut:m.cut,length_pct:m.length_pct,width_pct:m.width_pct,sleeves:m.sleeves,pocket:m.pocket,collar:m.collar,hood:m.hood,logoText:m.logo_text,printText:m.print_text})}</div>
+          <div><small>ПАРТИЯ</small><b>${escV(selectedWh.title||m.title||'Модель')}</b><span>${escV(categoryName(m.category||selectedWh.category))} · ${careerMoney(Math.max(0,nV(selectedWh.qty)-nV(selectedWh.reserved_qty)))} шт.</span></div>`;
+      };
+      const renderMap=()=>{
+        const src=selectedWh.factory_city||'Moscow';
+        const a=mapPoint(src);
+        const active=selectedStore?[selectedStore]:[];
+        const storePins=stores.map((store,i)=>{
+          const z=mapPoint(store.city), selected=selectedStore&&String(selectedStore.id)===String(store.id);
+          return `<button type="button" class="brand-v3-log-pin ${selected?'active':''}" style="left:${(z.x/720*100)}%;top:${(z.y/320*100)}%" data-log-store="${escV(store.id)}" title="${escV(store.city)}"><i></i><b>${cityFlags[store.city]||''}</b><span>${escV(store.city)}</span></button>`;
+        }).join('');
+        let routeSvg='';
+        if(active.length){
+          const z=mapPoint(active[0].city), mx=(a.x+z.x)/2, my=(a.y+z.y)/2-25;
+          const d=`M ${a.x} ${a.y} Q ${mx} ${my} ${z.x} ${z.y}`;
+          routeSvg=`<svg class="brand-v3-log-route" viewBox="0 0 720 320" preserveAspectRatio="none"><path d="${d}" class="route-dash"/><g class="live-truck"><g><rect x="-13" y="-6" width="25" height="11" rx="2"/><rect x="6" y="-4" width="10" height="8" rx="1"/><circle cx="-6" cy="6" r="2"/><circle cx="9" cy="6" r="2"/><text x="0" y="2" text-anchor="middle">${escV(String(window.__brandPreviewName||'R').slice(0,7))}</text><animateMotion dur="3.6s" repeatCount="indefinite" path="${d}"/></g></g></svg>`;
+        }
+        $('#bdMap',modal).innerHTML=`<div class="brand-v3-log-map-head"><span>МИНИ-КАРТА</span><b>🏭 ${escV(src)} → ${selectedStore?escV(selectedStore.city):'выбери город'}</b></div><div class="brand-v3-log-map-canvas"><img src="https://upload.wikimedia.org/wikipedia/commons/8/8b/Blank_map_of_the_world.svg" alt=""><div class="brand-v3-log-factory-pin" style="left:${a.x/720*100}%;top:${a.y/320*100}%">🏭</div>${storePins}${routeSvg}</div>`;
+        $$('[data-log-store]',modal).forEach(btn=>btn.onclick=()=>{selectedStore=stores.find(x=>String(x.id)===String(btn.dataset.logStore))||null;renderMap();renderTotals()});
+      };
+      const renderTotals=()=>{
+        const max=Math.max(0,nV(selectedWh.qty)-nV(selectedWh.reserved_qty));
+        const activeRoutes=Number(brandLogistics().fleet_level||1);
+        if(!selectedStore){$('#bdSelected',modal).textContent='Нажми на точку магазина на карте';$('#bdTotals',modal).innerHTML='';$('#bdConfirm',modal).disabled=true;return;}
+        const fc=cityCoords[selectedWh.factory_city]||[0,0], sc=cityCoords[selectedStore.city]||[0,0];
+        const dist=Math.hypot(fc[0]-sc[0],fc[1]-sc[1]);
+        const qty=Math.min(max,Math.max(1,Math.min(100,Math.floor(max))));
+        const ship=Math.max(1000,Math.round((2500+dist*85+qty*8)*nV(lg.shipping_modifier,1)));
+        const hours=Math.max(.10,Math.min(2,0.18+dist/180+qty/18000));
+        const activeOrders=(Array.isArray(brandState().logistics_orders)?brandState().logistics_orders:[]).filter(x=>String(x.status)==='in_transit').length;
+        $('#bdSelected',modal).innerHTML=`<b>${cityFlags[selectedStore.city]||''} ${escV(selectedStore.city)}</b><span>Товар приедет в этот магазин автоматически.</span>`;
+        $('#bdTotals',modal).innerHTML=`<div><small>ПАРТИЯ</small><b>${careerMoney(qty)} шт.</b></div><div><small>ДОСТАВКА</small><b>${moneyV(ship)}</b></div><div><small>В ПУТИ</small><b>${hours<1?Math.max(6,Math.round(hours*60))+' мин.':hours.toFixed(1)+' ч.'}</b></div><div><small>СВОБОДНО</small><b>${careerMoney(max)} шт.</b></div>`;
+        const can=activeOrders<activeRoutes && ship<=nV(window.__resellAvitoState?.balance,0) && max>0;
+        $('#bdConfirm',modal).disabled=!can;
+        $('#bdConfirm').title=activeOrders>=activeRoutes?'Все грузовики сейчас заняты.':ship>nV(window.__resellAvitoState?.balance,0)?'Недостаточно денег на доставку.':'';
+      };
+      $('#bdParty',modal); renderParty(); renderMap(); renderTotals();
+      $('#bdWh',modal);
+      $('#bdBuyTruck',modal).onclick=async()=>{try{await careerPost('brand_v3_buy_truck',{});}catch(e){coreToast(e?.message||'Не удалось купить грузовик.')}};
       $('#bdCancel',modal).onclick=()=>{brandV3CloseModal();resolve(null)};
-      $('#bdConfirm',modal).onclick=()=>{const {fid,mid}=getSource();const allocations=$$('.bd-city-qty',modal).map(x=>({store_id:x.dataset.storeId,quantity:Math.max(0,Math.round(nV(x.value,0)))})).filter(x=>x.quantity>0);if(!allocations.length)return;brandV3CloseModal();resolve({model_id:mid,from_factory_id:fid,allocations})};
-      renderCities();
+      $('#bdConfirm',modal).onclick=()=>{
+        if(!selectedStore||$('#bdConfirm',modal).disabled)return;
+        const max=Math.max(0,nV(selectedWh.qty)-nV(selectedWh.reserved_qty));
+        const qty=Math.min(max,Math.max(1,Math.min(100,Math.floor(max))));
+        const data={model_id:String(selectedWh.model_id),from_factory_id:String(selectedWh.factory_id),allocations:[{store_id:String(selectedStore.id),quantity:qty}]};
+        brandV3CloseModal();resolve(data);
+      };
     });
   }
 
@@ -12091,8 +12151,17 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     return `<div class="brand-v3-route-map"><div class="brand-v3-route-head"><div><small>LIVE SUPPLY CHAIN</small><b>${active.length} маршрут${active.length===1?'':'а'} · ${escV(brandName||'BRAND')}</b></div><span>пунктир строится в реальном времени</span></div><svg viewBox="0 0 720 340" preserveAspectRatio="none"><rect width="720" height="340" rx="18" fill="#f6f8f5"/><g fill="none" stroke="#d8e0d9" stroke-width="1"><path d="M20 85H700M20 170H700M20 255H700M164 20V320M308 20V320M452 20V320M596 20V320" stroke-dasharray="3 8"/></g>${routes}</svg></div>`;
   }
 
-  function renderBrandV3(s,b){
-    const st=s&&typeof s==='object'?s:{}; try{saveBrandMapCache(st)}catch(_){} const balance=nV(b), models=Array.isArray(st.models)?st.models:[], factories=Array.isArray(st.factories)&&st.factories.length?st.factories:(Array.isArray(st.network_factories)?st.network_factories:[]), stores=Array.isArray(st.stores)&&st.stores.length?st.stores:(Array.isArray(st.network_stores)?st.network_stores:[]), jobs=Array.isArray(st.production_jobs)?st.production_jobs:[], orders=Array.isArray(st.logistics_orders)?st.logistics_orders:[], wh=Array.isArray(st.warehouse)?st.warehouse:[], campaigns=Array.isArray(st.campaigns)?st.campaigns:[], sales=Array.isArray(st.sales_history)?st.sales_history:[];
+  function saveBrandMapCache(st){
+    try{
+      const payload={stores:Array.isArray(st?.stores)?st.stores:[],factories:Array.isArray(st?.factories)?st.factories:[],savedAt:Date.now()};
+      if(payload.stores.length||payload.factories.length)localStorage.setItem('resell_brand_network_v3',JSON.stringify(payload));
+    }catch(_){}
+  }
+  function readBrandMapCache(){
+    try{const x=JSON.parse(localStorage.getItem('resell_brand_network_v3')||'null');return x&&typeof x==='object'?x:null}catch(_){return null}
+  }
+    function renderBrandV3(s,b){
+    const st=s&&typeof s==='object'?s:{}; const cache=readBrandMapCache(); try{saveBrandMapCache(st)}catch(_){} const balance=nV(b), models=Array.isArray(st.models)?st.models:[], factories0=Array.isArray(st.factories)&&st.factories.length?st.factories:(Array.isArray(st.network_factories)?st.network_factories:[]), stores0=Array.isArray(st.stores)&&st.stores.length?st.stores:(Array.isArray(st.network_stores)?st.network_stores:[]), factories=(factories0.length>=(cache?.factories?.length||0)?factories0:(cache?.factories||factories0)), stores=(stores0.length>=(cache?.stores?.length||0)?stores0:(cache?.stores||stores0)), jobs=Array.isArray(st.production_jobs)?st.production_jobs:[], orders=Array.isArray(st.logistics_orders)?st.logistics_orders:[], wh=Array.isArray(st.warehouse)?st.warehouse:[], campaigns=Array.isArray(st.campaigns)?st.campaigns:[], sales=Array.isArray(st.sales_history)?st.sales_history:[];
     const revenue=Math.max(0,nV(st.available_revenue)), profit=nV(st.total_profit), hype=clampV(st.hype,0,100); const activeJobs=jobs.filter(x=>String(x.status)==='running'), readyJobs=jobs.filter(x=>String(x.status)==='done'||String(x.status)==='ready');
     if(!st.name) return avcShell('brand','Создание бренда','BRAND STUDIO','Быстрый старт собственного бренда',balance,`<div class="brand-v4-create"><div class="brand-v4-mark">R</div><small>СОБСТВЕННЫЙ БРЕНД</small><h2>Создай бренд</h2><p>Название, стиль и первый завод. Затем — одна простая цепочка: модель → производство → логистика → магазины.</p><button class="brand-v3-primary" data-career-action="brand_v3_create_brand">СОЗДАТЬ БРЕНД · 50 000 ₽</button></div>`);
     const progress=activeJobs[0]?Math.max(2,Math.min(100,((nowV()-nV(activeJobs[0].started_at))/(Math.max(1,nV(activeJobs[0].ready_at)-nV(activeJobs[0].started_at))))*100)):0;
@@ -12103,7 +12172,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     return avcShell('brand',escV(st.name),'BRAND STUDIO',`${escV(st.brand_style||'streetwear')} · уровень ${nV(st.level,1)}`,balance,`<div class="brand-v4-page">
       <section class="brand-v4-head"><div class="brand-v4-logo">${st.logo?`<img src="${careerEsc(st.logo)}" alt="">`:'R'}</div><div><small>БРЕНД</small><h2>${escV(st.name)}</h2><span>Хайп ${Math.round(hype)}% · ${models.length} моделей</span></div><strong>${moneyV(balance)}</strong></section>
       ${income}${readyText}
-      <section class="brand-v4-kpis"><div><small>ПРИБЫЛЬ</small><b>${moneyV(profit)}</b></div><div><small>МАГАЗИНЫ</small><b>${stores.length}</b></div><div><small>ПРОИЗВОДСТВА</small><b>${factories.length}</b></div><div><small>В ПУТИ</small><b>${careerMoney(orders.filter(x=>String(x.status)==='in_transit').reduce((a,x)=>a+nV(x.qty),0))}</b></div></section>
+      <section class="brand-v4-kpis"><div><small>ПРИБЫЛЬ</small><b>${moneyV(profit)}</b></div><div><small>МАГАЗИНЫ</small><b>${stores.length}</b></div><div><small>ПРОИЗВОДСТВА</small><b>${factories.length}</b></div><div><small>В ПУТИ</small><b>${careerMoney(orders.filter(x=>String(x.status)==='in_transit').reduce((a,x)=>a+nV(x.qty),0))}</b><span class="brand-v4-kpi-sub">${Math.max(1,nV((st.logistics||{}).fleet_level,1))} груз.</span></div></section>
       <section class="brand-v4-actions">
         <button data-career-action="brand_v3_new_model"><span>01</span><div><b>Создать модель</b><small>Технический чертёж · цвет · логотип · цена</small></div><em>→</em></button>
         <button data-career-action="brand_v3_production"><span>02</span><div><b>Производство</b><small>${current?`В работе · ${careerMoney(current.quantity)} шт.`:'Создай первую партию'}</small></div><em>→</em></button>
@@ -12112,7 +12181,8 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
       </section>
       ${modelPreview}
       ${current?`<section class="brand-v4-production-live"><div><small>СЕЙЧАС ПРОИЗВОДИТСЯ</small><b>${escV(current.title||current.model_id)}</b><span>${careerMoney(current.quantity)} шт. · осталось ${(()=>{const r=Math.max(0,nV(current.ready_at)-nowV());return r>=3600?`${Math.floor(r/3600)} ч. ${Math.ceil((r%3600)/60)} мин.`:`${Math.ceil(r/60)} мин.`})()}</span></div><i><u style="width:${progress}%"></u></i></section>`:''}
-      <section class="brand-v4-warehouse"><div class="brand-v4-section-head"><div><small>СКЛАД</small><b>Готовые вещи</b></div><span>${wh.reduce((a,x)=>a+nV(x.qty),0)} шт.</span></div>${wh.length?`<div class="brand-v4-warehouse-list">${(()=>{const g={}; wh.forEach(x=>{const k=String(x.model_id||x.title||'item'); if(!g[k])g[k]={...x,qty:0,reserved_qty:0};g[k].qty+=nV(x.qty);g[k].reserved_qty+=nV(x.reserved_qty)});return Object.values(g).map(x=>`<div class="brand-v4-warehouse-row"><div><b>${escV(x.title||'Модель')}</b><small>${escV(x.factory_city||'Производство')} · ${careerMoney(x.qty)} шт. готово</small></div><strong>${careerMoney(Math.max(0,nV(x.qty)-nV(x.reserved_qty)))}</strong></div>`).join('')})()}</div><div class="brand-v4-warehouse-hint">Здесь лежат все готовые партии. Выбери «Логистика», чтобы отправить вещи в свои магазины.</div>`:`<div class="brand-v4-warehouse-empty">Пока пусто. После завершения производства вещи автоматически попадут сюда.</div>`}</section>
+      <section class="brand-v4-warehouse"><div class="brand-v4-section-head"><div><small>СКЛАД</small><b>Готовые партии</b></div><span>${careerMoney(wh.reduce((a,x)=>a+nV(x.qty),0))} шт.</span></div>${wh.length?`<div class="brand-v4-warehouse-list">${(()=>{const g={}; wh.forEach(x=>{const k=String(x.model_id||x.title||'item'); if(!g[k])g[k]={...x,qty:0,reserved_qty:0};g[k].qty+=nV(x.qty);g[k].reserved_qty+=nV(x.reserved_qty)});return Object.values(g).map(x=>{const m=models.find(z=>String(z.id)===String(x.model_id))||{};return `<div class="brand-v4-warehouse-card"><div class="brand-v4-warehouse-thumb">${brandV3BlueprintSvg(m.category||x.category,{...(m.colors||{}),cut:m.cut,length_pct:m.length_pct,width_pct:m.width_pct,sleeves:m.sleeves,pocket:m.pocket,collar:m.collar,hood:m.hood,logoText:m.logo_text,printText:m.print_text})}</div><div><b>${escV(x.title||m.title||'Модель')}</b><small>${escV(categoryName(m.category||x.category))} · ${careerMoney(Math.max(0,nV(x.qty)-nV(x.reserved_qty)))} свободно</small><span>${careerMoney(nV(x.reserved_qty))} шт. уже в логистике</span></div></div>`}).join('')})()}</div><button class="brand-v4-warehouse-action" data-career-action="brand_v3_logistics">ОТПРАВИТЬ СО СКЛАДА →</button>`:`<div class="brand-v4-warehouse-empty">Пока пусто. После завершения производства вещи автоматически появятся здесь.</div>`}</section>
+      ${brandV3RouteMap(orders,factories,stores,st.name)}
       ${brandV3Map(stores,factories)}
       <div class="brand-v4-footer"><span>${careerMoney(nV(st.sales_units))} шт. продано</span><span>${moneyV(nV(st.total_revenue))} выручка</span><span>${wh.length} складских позиций</span></div>
     </div>`);
@@ -15934,4 +16004,13 @@ main.app{
 .career-new.brand .avc-return-avito{display:inline-flex!important;visibility:visible!important;opacity:1!important;position:relative!important;z-index:99999!important;width:44px!important;min-width:44px!important;height:38px!important;min-height:38px!important;margin:2px 0 7px 2px!important;padding:5px!important;align-items:center!important;justify-content:center!important;border-radius:11px!important;background:#fff!important;border:1px solid #e3e8f0!important;box-shadow:0 4px 12px rgba(30,45,70,.08)!important;pointer-events:auto!important;touch-action:manipulation!important;}
 .career-new.brand .avc-return-avito .avc-avito-mark{display:block!important;width:30px!important;height:29px!important;position:relative!important;transform:scale(.78)!important;}
 .career-new.brand .avc-return-avito .avc-return-copy,.career-new.brand .avc-return-avito em{display:none!important;}
+</style>
+
+<style id="brand-v3-logistics-v5-polish">
+.brand-v3-logistics-simple{max-width:680px!important}.brand-v3-logistics-help{margin:0 0 10px;color:#7d8781;font:750 7px/1.4 Nunito}
+.brand-v3-logistics-party{display:grid;grid-template-columns:92px 1fr;gap:10px;align-items:center;padding:8px;border:1px solid #e0e6e0;border-radius:13px;background:#f7f9f7}.brand-v3-party-art{width:92px;height:62px;overflow:hidden;border-radius:9px;background:#fff;border:1px solid #e0e6e0}.brand-v3-party-art .brand-blueprint-sheet-v4{height:62px!important}.brand-v3-party-art svg{width:100%;height:100%!important}.brand-v3-logistics-party small,.brand-v3-truck-status>span{display:block;color:#8b958f;font:900 5px/1 Montserrat;letter-spacing:.6px}.brand-v3-logistics-party b{display:block;margin-top:4px;color:#27332c;font:950 8px/1 Montserrat}.brand-v3-logistics-party span{display:block;margin-top:4px;color:#7f8982;font:750 6px/1.2 Nunito}
+.brand-v3-mini-map{margin-top:9px;border:1px solid #dfe6df;border-radius:15px;background:#f4f7f4;padding:8px}.brand-v3-log-map-head{display:flex;justify-content:space-between;gap:8px;align-items:center;margin:0 2px 6px}.brand-v3-log-map-head span{color:#8b958f;font:900 5px/1 Montserrat;letter-spacing:.7px}.brand-v3-log-map-head b{color:#3a4d40;font:900 6px/1 Montserrat}.brand-v3-log-map-canvas{position:relative;aspect-ratio:720/320;overflow:hidden;border-radius:11px;background:#e9ede9}.brand-v3-log-map-canvas>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.72}.brand-v3-log-pin,.brand-v3-log-factory-pin{position:absolute;transform:translate(-50%,-50%);z-index:4}.brand-v3-log-pin{width:28px;height:28px;border:2px solid #fff;border-radius:50%;background:#6f9d76;box-shadow:0 4px 13px rgba(40,65,48,.25);color:#fff;display:grid;place-items:center;cursor:pointer}.brand-v3-log-pin b{font-size:9px}.brand-v3-log-pin span{position:absolute;top:29px;left:50%;transform:translateX(-50%);padding:3px 5px;border-radius:5px;background:#fff;color:#526157;font:900 5px/1 Montserrat;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.08)}.brand-v3-log-pin.active{background:#1e3025;transform:translate(-50%,-50%) scale(1.12)}.brand-v3-log-factory-pin{font-size:18px;z-index:3}.brand-v3-log-route{position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:none}.brand-v3-log-route .route-dash{fill:none;stroke:#557960;stroke-width:3;stroke-dasharray:7 7;filter:drop-shadow(0 1px 2px rgba(0,0,0,.12))}.brand-v3-log-route .live-truck{fill:#26362c;color:#fff}.brand-v3-log-route text{font:900 5px Montserrat;fill:#fff}.brand-v3-logistics-selected{margin-top:8px;padding:9px 10px;border-radius:11px;background:#f5f8f4;border:1px solid #e1e7e1;color:#6e7b73;font:750 6px/1.3 Nunito}.brand-v3-logistics-selected b{display:block;color:#2e4135;font:950 8px/1 Montserrat}.brand-v3-logistics-selected span{display:block;margin-top:4px}.brand-v3-logistics-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-top:7px}.brand-v3-logistics-summary>div{padding:7px;border-radius:9px;background:#f6f8f5;border:1px solid #e2e8e2}.brand-v3-logistics-summary small{display:block;color:#8b958f;font:900 4.5px/1 Montserrat}.brand-v3-logistics-summary b{display:block;margin-top:4px;color:#33443a;font:950 6.5px/1 Montserrat}.brand-v3-truck-status{display:flex;align-items:center;gap:8px;margin-top:8px;padding:8px;border-radius:11px;background:#111812;color:#fff}.brand-v3-truck-status>b{font:950 8px/1 Montserrat}.brand-v3-truck-status button{margin-left:auto;border:0;border-radius:8px;padding:7px 9px;background:#b7ff6a;color:#071007;font:950 5.5px/1 Montserrat}
+.brand-v4-warehouse-card{display:grid;grid-template-columns:72px 1fr;gap:9px;align-items:center;padding:8px;border:1px solid #e1e7e1;border-radius:12px;background:#fff}.brand-v4-warehouse-thumb{width:72px;height:52px;overflow:hidden;border-radius:8px;background:#f7f9f7}.brand-v4-warehouse-thumb .brand-blueprint-sheet-v4{height:52px!important}.brand-v4-warehouse-thumb svg{width:100%;height:100%!important}.brand-v4-warehouse-card b{display:block;color:#27332c;font:950 7px/1.1 Montserrat}.brand-v4-warehouse-card small,.brand-v4-warehouse-card span{display:block;margin-top:4px;color:#818b85;font:750 5.7px/1.2 Nunito}.brand-v4-warehouse-action{width:100%;margin-top:7px;border:0;border-radius:11px;background:#17211d;color:#fff;min-height:38px;font:950 6px/1 Montserrat}
+.brand-v4-kpi-sub{display:block!important;margin-top:3px;color:#87918a;font:750 5px/1 Nunito}
+@media(max-width:430px){.brand-v3-logistics-summary{grid-template-columns:repeat(2,1fr)}.brand-v3-truck-status{flex-wrap:wrap}.brand-v3-truck-status button{margin-left:0;width:100%}}
 </style>
