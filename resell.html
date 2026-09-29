@@ -11086,6 +11086,15 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
   };
   // Capture phase is intentional: older Avito handlers are registered on modalBody.
   document.addEventListener('click',handleCareerClick,true);
+  // Compatibility bridge for the Brand V3 script. Keep all existing career logic intact;
+  // expose only the already-existing helpers so separate Telegram WebView script scopes
+  // cannot turn them into ReferenceError/"career money" errors.
+  window.__resellCareerMoney=careerMoney;
+  window.__resellCareerEsc=careerEsc;
+  window.__resellCareerData=careerData;
+  window.__resellCareerPost=careerPost;
+  window.__resellAvcEnsureDecision=avcEnsureDecision;
+  window.__resellRenderAvitoWithCareer=renderAvitoWithCareer;
   window.renderAvitoWithCareer=renderAvitoWithCareer;
   if(!window.__avcLivePulse){
     // Read-only UI ticker. It never posts career actions, never grants money, and never mutates server state.
@@ -11670,6 +11679,14 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 
 /* ==================== RESELL BRAND V3 FRONTEND ==================== */
 (function(){
+  // Cross-script compatibility aliases. These do not replace or modify any existing
+  // Brand V3 feature; they only resolve helpers owned by the Career script.
+  const careerEsc=window.__resellCareerEsc||((v)=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])));
+  const careerMoney=window.__resellCareerMoney||((v)=>Math.round(Number(v)||0).toLocaleString('ru-RU'));
+  const careerData=window.__resellCareerData||(()=>window.__resellAvitoState?.career||{});
+  const careerPost=window.__resellCareerPost;
+  const avcEnsureDecision=window.__resellAvcEnsureDecision;
+  const renderAvitoWithCareer=window.__resellRenderAvitoWithCareer||window.renderAvitoWithCareer;
   const $=(sel,root=document)=>root.querySelector(sel);
   const $$=(sel,root=document)=>Array.from(root.querySelectorAll(sel));
   const escV=v=>{try{return careerEsc(v)}catch(_){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}};
@@ -12022,7 +12039,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
   window.__resellBrandV3Run=__brandV3Run;
 
   document.addEventListener('click',function(e){
-    const tab=e.target?.closest?.('[data-brand-tab]'); if(tab){e.preventDefault();e.stopPropagation();window.__brandTab=String(tab.dataset.brandTab||'overview');const body=(window.__resellCoreV26||{}).getModalBody?.()||document.getElementById('modalBody');if(body){body.innerHTML=renderAvitoWithCareer();body.scrollTop=0;}return;}
+    const tab=e.target?.closest?.('[data-brand-tab]'); if(tab){e.preventDefault();e.stopPropagation();window.__brandTab=String(tab.dataset.brandTab||'overview');const body=(window.__resellCoreV26||{}).getModalBody?.()||document.getElementById('modalBody');if(body){body.innerHTML=(typeof renderAvitoWithCareer==='function'?renderAvitoWithCareer():'');body.scrollTop=0;}return;}
     const city=e.target?.closest?.('[data-brand-city]'); if(city){e.preventDefault();e.stopPropagation();brandV3CityDetail(city.dataset.brandCity||'');return;}
     const info=e.target?.closest?.('[data-brand-info]');if(info){e.preventDefault();e.stopPropagation();brandV3Explain(info.dataset.brandInfo||'hype');return;}
     const back=e.target?.closest?.('.brand-v3-back');if(back){e.preventDefault();e.stopPropagation();return;}
