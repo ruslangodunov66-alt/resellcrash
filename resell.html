@@ -2973,6 +2973,8 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
   }catch(_){ }
 
   let adminState = {players:[], selected:null};
+  // Shared launch state for finishLaunch() and the bootstrap sequence.
+  let bootData = null;
 
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => [...document.querySelectorAll(s)];
@@ -4708,6 +4710,9 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
   let farmServerSyncAt = 0;
   let farmHapticId = null;
   let farmHapticLast = 0;
+  // Compatibility binding used by the existing farm animation path.
+  // It is intentionally a no-op; the server remains authoritative.
+  let syncActiveFarmSnapshot = async function(){ return; };
 
   function startFarmHaptics(){
     if(farmHapticId) clearInterval(farmHapticId);
@@ -6707,12 +6712,13 @@ async function initFarm(){
     </div>`;
   }
 
+  let _adminLogGridSeq=0;
   function renderAdminLog(l){
     const delta=Number(l.balance_delta||0);
     const status=Number(l.status_code||0);
     const money=delta!==0 ? `<span class="admin-log-money ${delta>0?'up':'down'}">${delta>0?'+':''}${number(delta)} ₽</span>` : '';
     const req=l.request_json?`<details class="admin-log-more"><summary>Входные данные</summary><pre>${esc(l.request_json)}</pre></details>`:'';
-    const gridId='bpgrid_'+_brandBlueprintSeq++; const tech=(l.method||l.path||l.ip||l.duration_ms)?`<div class="admin-log-tech"><b>${esc(l.method||'')}</b> ${esc(l.path||'')} · HTTP ${status||'—'} · ${Number(l.duration_ms||0).toFixed(0)} ms${l.ip?' · IP '+esc(l.ip):''}${l.request_id?' · req '+esc(String(l.request_id).slice(0,12)):''}</div>`:'';
+    const gridId='adminloggrid_'+(++_adminLogGridSeq); const tech=(l.method||l.path||l.ip||l.duration_ms)?`<div class="admin-log-tech"><b>${esc(l.method||'')}</b> ${esc(l.path||'')} · HTTP ${status||'—'} · ${Number(l.duration_ms||0).toFixed(0)} ms${l.ip?' · IP '+esc(l.ip):''}${l.request_id?' · req '+esc(String(l.request_id).slice(0,12)):''}</div>`:'';
     const state=(l.before_balance!==null&&l.before_balance!==undefined)?`<div class="admin-log-state">Баланс: ${number(l.before_balance)} ₽ → <b>${number(l.after_balance)} ₽</b> ${money}</div>`:'';
     return `<div class="admin-log ${delta!==0?'has-money':''}"><div class="admin-log-top"><span class="admin-log-action">${esc(l.action)}</span><span>${formatTime(l.created_at)}</span></div>${tech}${state}<div class="admin-log-detail">${l.target_tg_id?'Игрок: '+esc(l.target_tg_id)+' · ':''}${l.amount?((Number(l.amount)>0?'+':'')+number(l.amount)+' ₽ · '):''}${esc(l.details||'')}</div>${req}</div>`;
   }
@@ -7521,7 +7527,7 @@ async function initFarm(){
     }catch(_){return false;}
   }
 
-    let bootData=null;
+    bootData=null;
     setBootWelcome({identified:false});
     setBootState('ОПРЕДЕЛЯЕМ ВАШ АККАУНТ',6);
     // Wait for Telegram initData BEFORE the first profile request.
@@ -7622,6 +7628,49 @@ async function initFarm(){
     getAvitoState: () => avitoState
   };
 
+  // Stable global compatibility bridge for the isolated legacy UI modules.
+  // Each property points to the real live binding in this core scope, so
+  // later <script> blocks can safely use the original names without
+  // changing their existing mechanics. Setters are included only for
+  // bindings that existing modules already reassign.
+  const exposeLiveGlobal=(name,getter,setter)=>{
+    try{
+      const own=Object.prototype.hasOwnProperty.call(window,name);
+      const desc=own?Object.getOwnPropertyDescriptor(window,name):null;
+      if(!own || desc?.configurable){
+        Object.defineProperty(window,name,{configurable:true,enumerable:false,get:getter,set:setter||undefined});
+      }
+    }catch(_){}
+  };
+  exposeLiveGlobal('API_BASE',()=>API_BASE);
+  exposeLiveGlobal('userId',()=>userId,v=>{if(v!==undefined)userId=String(v||'');});
+  exposeLiveGlobal('telegramUserId',()=>telegramUserId,v=>{if(v!==undefined)telegramUserId=String(v||'');});
+  exposeLiveGlobal('profileData',()=>profileData,v=>{profileData=v;});
+  exposeLiveGlobal('friendsData',()=>friendsData,v=>{friendsData=v;});
+  exposeLiveGlobal('modalBody',()=>modalBody);
+  exposeLiveGlobal('currentLang',()=>currentLang,v=>{currentLang=v==='en'?'en':'ru';});
+  exposeLiveGlobal('avitoTab',()=>avitoTab,v=>{avitoTab=String(v||'buy');});
+  exposeLiveGlobal('engagementData',()=>engagementData,v=>{engagementData=v;});
+  exposeLiveGlobal('esc',()=>esc);
+  exposeLiveGlobal('number',()=>number);
+  exposeLiveGlobal('showToast',()=>showToast,v=>{if(typeof v==='function')showToast=v;});
+  exposeLiveGlobal('openModal',()=>openModal);
+  exposeLiveGlobal('closeModal',()=>closeModal);
+  exposeLiveGlobal('apiFetch',()=>apiFetch);
+  exposeLiveGlobal('telegramAuthHeaders',()=>telegramAuthHeaders);
+  exposeLiveGlobal('loadProfile',()=>loadProfile);
+  exposeLiveGlobal('loadEngagement',()=>loadEngagement);
+  exposeLiveGlobal('loadFriends',()=>loadFriends);
+  exposeLiveGlobal('setBalance',()=>setBalance);
+  exposeLiveGlobal('haptic',()=>haptic);
+  exposeLiveGlobal('openAvito',()=>openAvito);
+  exposeLiveGlobal('fetchAvito',()=>fetchAvito);
+  exposeLiveGlobal('renderAvito',()=>renderAvito);
+  exposeLiveGlobal('openFriendCompare',()=>openFriendCompare);
+  exposeLiveGlobal('$$',()=>$$);
+  exposeLiveGlobal('claimDailyCheckin',()=>claimDailyCheckin);
+  window.__resellCoreGlobalsReady=true;
+
   // Telegram can swap the signed session while this Mini App remains open.
   // Re-resolve identity on resume/focus before the next protected request.
   const refreshSessionIdentity=async()=>{
@@ -7634,7 +7683,7 @@ async function initFarm(){
         userId=signed; telegramUserId=signed;
         isOwner=String(userId)===ADMIN_OWNER_ID;
         if(before && before!==signed){
-          profileData=null; epochData=null; businessState=null; marketState=null;
+          profileData=null; epochData=null; businessState=null; try{window.__resellResetMarketState?.();}catch(_){}
           try{ sessionStorage.setItem('resell_account_switched','1'); }catch(_){}
         }
       }
@@ -7819,6 +7868,13 @@ async function initFarm(){
   }
 
   window.__resellOpenFriendsV19 = openFriendsV19;
+  window.__resellFirstLetter = firstLetter;
+  window.__resellFmtFriendMoney = fmtFriendMoney;
+  window.__resellFriendSearchMarkup = friendSearchMarkup;
+  window.__resellOpenFriendProfileV19 = openFriendProfileV19;
+  window.__resellRestoreRholdSkinV19 = restoreRholdSkinLocalV19;
+  window.__resellWatchRholdPanelV20 = watchRholdPanelV20;
+  window.__resellLoadRholdSkinV19 = loadRholdSkinV19;
   async function openRholdShopV19(){
     openModal(currentLang==='en'?'R-HOLD Store':'Магазин R-HOLD','<div class="loading">Загрузка коллекции…</div>');
     try{
@@ -7882,7 +7938,7 @@ async function initFarm(){
     document.querySelectorAll('.momentum-v19').forEach(x=>x.remove());
   }
   // Keep the working V18/V16 event system, only intercept Friends and add V19-only surfaces.
-  const timer=setInterval(()=>{ensureRholdButtonV19();ensureMomentumV19();if(engagementData)renderMomentumV19(document.querySelector('.momentum-v19'));},700);setTimeout(()=>clearInterval(timer),20000);
+  const timer=setInterval(()=>{ensureRholdButtonV19();ensureMomentumV19();try{if(engagementData&&typeof renderMomentumV19==='function')renderMomentumV19(document.querySelector('.momentum-v19'));}catch(_){ }},700);setTimeout(()=>clearInterval(timer),20000);
   setTimeout(()=>{if(profileData?.language==='en'&&!localStorage.getItem('resell_language')){try{localStorage.setItem('resell_language','en');}catch(_){};}currentLang=localStorage.getItem('resell_language')==='en'?'en':'ru';resellSetLanguage(currentLang);},1400);
   // Apply current language to existing registration and main UI after all V18 handlers are ready.
   window.addEventListener('load',()=>{try{currentLang=localStorage.getItem('resell_language')==='en'?'en':'ru';resellSetLanguage(currentLang);}catch(_){};});
@@ -8529,7 +8585,7 @@ async function initFarm(){
     document.querySelector('[data-v35-club-security]')?.addEventListener('click',()=>post('/resell/nightclub/{uid}/security',{},'Охрана усилена'));
     document.querySelector('[data-v35-club-collect]')?.addEventListener('click',()=>post('/resell/nightclub/{uid}/collect',{},'Доход клуба зачислен'));
     document.querySelectorAll('[data-v29-style],[data-v35-style]').forEach(b=>b.addEventListener('click',()=>post('/resell/nightclub/{uid}/style',{style_id:b.dataset.v29Style||b.dataset.v35Style},'Стиль клуба изменён')));
-    try{polishClub();}catch(_){}
+    try{window.__resellPolishClub?.();}catch(_){}
     document.querySelectorAll('[data-v33-go]').forEach(b=>b.remove());
     if(window.__resellMarketV6Timer){clearInterval(window.__resellMarketV6Timer);window.__resellMarketV6Timer=null;}  }
   async function openMarket(){
@@ -8545,6 +8601,8 @@ async function initFarm(){
   let lastSnapshot=null,unlockQueue=[],unlockShowing=false;
   function unlockRoot(){let o=document.getElementById('v33UnlockOverlay');if(o)return o;o=document.createElement('div');o.id='v33UnlockOverlay';o.className='v33-unlock-overlay';o.innerHTML='<div class="v33-unlock-card"><div class="v33-unlock-icon" id="v33UnlockIcon">✓</div><div class="v33-unlock-kicker" id="v33UnlockKicker">RESSELL UNLOCK</div><div class="v33-unlock-title" id="v33UnlockTitle">НОВЫЙ УРОВЕНЬ</div><div class="v33-unlock-sub" id="v33UnlockSub"></div><div class="v33-unlock-tag">ПОЛУЧЕНО</div><button class="v33-unlock-close" id="v33UnlockClose">ПРОДОЛЖИТЬ</button></div></div>';document.body.appendChild(o);o.addEventListener('click',e=>{if(e.target===o)nextUnlock();});o.querySelector('#v33UnlockClose').onclick=nextUnlock;return o;}
   function nextUnlock(){if(unlockQueue.length){const x=unlockQueue.shift();paintUnlock(x);return;}unlockShowing=false;unlockRoot().classList.remove('open');}
+  window.__resellResetMarketState=()=>{marketState=null;marketTab='home';marketBusy=false;};
+
   function paintUnlock(x){unlockShowing=true;const o=unlockRoot();o.querySelector('#v33UnlockIcon').textContent=x.icon;o.querySelector('#v33UnlockKicker').textContent=x.kicker;o.querySelector('#v33UnlockTitle').textContent=x.title;o.querySelector('#v33UnlockSub').textContent=x.sub;o.classList.add('open');try{core().showToast?.(x.toast||x.title)}catch(_){}}
   function canShowUnlockNow(){return !window.avitoEditing && !document.querySelector('[data-avito-chat-sheet="1"]');}
   function flushUnlockQueue(){if(!unlockShowing&&unlockQueue.length&&canShowUnlockNow()){const x=unlockQueue.shift();paintUnlock(x);}}
@@ -10454,7 +10512,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     modal.classList.add('open'); modal.setAttribute('aria-hidden','false');
     const toggles={};modal.querySelectorAll('[data-sp-toggle]').forEach(x=>x.onclick=()=>{const k=x.dataset.spToggle;toggles[k]=!toggles[k];x.classList.toggle('active',!!toggles[k]);});
     if(action==='brand_add_product'){ const cats=modal.querySelectorAll('[data-product-cat]'); cats.forEach((x,i)=>x.onclick=()=>{cats.forEach(y=>y.classList.remove('active'));x.classList.add('active')}); cats[0]?.classList.add('active'); modal.querySelectorAll('[data-tier]').forEach(x=>x.onclick=()=>{modal.querySelectorAll('[data-tier]').forEach(y=>y.classList.remove('active'));x.classList.add('active')}); }
-    if(action==='brand_production'){ const productionCap=Math.max(50,Number(cap)||300), range=modal.querySelector('#spBatch'), qty=modal.querySelector('#spQtyShow'), unit=modal.querySelector('#spUnitShow'), total=modal.querySelector('#spTotalShow'), tm=modal.querySelector('#spTimeShow'); let fabric=modal.querySelector('[data-fabric].active'), supplier=modal.querySelector('[data-supplier].active'), supplierDeal=modal.querySelector('[data-supplier-deal].active'); const normalize=()=>{if(!range)return 50; let n=parseInt(range.value,10); if(!Number.isFinite(n))n=50; n=Math.max(50,Math.min(productionCap,n)); n=Math.floor(n/50)*50; if(n<50)n=50; range.value=String(n); return n}; const calc=()=>{const n=normalize(), base=Number(fabric?.dataset.fabricCost||1200), mult={local:1.15,asia:.82,premium:1.35}[supplier?.dataset.supplier||'local']||1.15; const dealMult={standard:1,bargain:.93,rush:1.10}[supplierDeal?.dataset.supplierDeal||'standard']||1; mult*=dealMult; const c=Math.max(100,Math.round(base*mult)), t=Math.max(1,Math.ceil(1+n/150+(supplier?.dataset.supplier==='asia'?3:0))); if(qty)qty.textContent=n.toLocaleString('ru-RU');if(unit)unit.textContent=c.toLocaleString('ru-RU')+' ₽';if(total)total.textContent=(n*c).toLocaleString('ru-RU')+' ₽';if(tm)tm.textContent='~ '+t+' мин.'}; modal.querySelectorAll('[data-fabric]').forEach(x=>x.onclick=()=>{modal.querySelectorAll('[data-fabric]').forEach(y=>y.classList.remove('active'));x.classList.add('active');fabric=x;calc()}); modal.querySelectorAll('[data-supplier]').forEach(x=>x.onclick=()=>{modal.querySelectorAll('[data-supplier]').forEach(y=>y.classList.remove('active'));x.classList.add('active');supplier=x;calc()}); modal.querySelectorAll('[data-supplier-deal]').forEach(x=>x.onclick=()=>{modal.querySelectorAll('[data-supplier-deal]').forEach(y=>y.classList.remove('active'));x.classList.add('active');supplierDeal=x;calc()}); modal.querySelectorAll('[data-qty-preset]').forEach(x=>x.onclick=()=>{range.value=String(Math.min(productionCap,Math.max(50,Number(x.dataset.qtyPreset)||50)));calc()}); modal.querySelector('#spQtyMinus')?.addEventListener('click',()=>{range.value=String(Math.max(50,normalize()-50));calc()}); modal.querySelector('#spQtyPlus')?.addEventListener('click',()=>{range.value=String(Math.min(productionCap,normalize()+50));calc()}); range?.addEventListener('input',calc);range?.addEventListener('change',calc);calc(); }
+    if(action==='brand_production'){ const productionCap=Math.max(50,Number((careerData().brand?.factory||{}).capacity)||300), range=modal.querySelector('#spBatch'), qty=modal.querySelector('#spQtyShow'), unit=modal.querySelector('#spUnitShow'), total=modal.querySelector('#spTotalShow'), tm=modal.querySelector('#spTimeShow'); let fabric=modal.querySelector('[data-fabric].active'), supplier=modal.querySelector('[data-supplier].active'), supplierDeal=modal.querySelector('[data-supplier-deal].active'); const normalize=()=>{if(!range)return 50; let n=parseInt(range.value,10); if(!Number.isFinite(n))n=50; n=Math.max(50,Math.min(productionCap,n)); n=Math.floor(n/50)*50; if(n<50)n=50; range.value=String(n); return n}; const calc=()=>{const n=normalize(), base=Number(fabric?.dataset.fabricCost||1200), mult={local:1.15,asia:.82,premium:1.35}[supplier?.dataset.supplier||'local']||1.15; const dealMult={standard:1,bargain:.93,rush:1.10}[supplierDeal?.dataset.supplierDeal||'standard']||1; mult*=dealMult; const c=Math.max(100,Math.round(base*mult)), t=Math.max(1,Math.ceil(1+n/150+(supplier?.dataset.supplier==='asia'?3:0))); if(qty)qty.textContent=n.toLocaleString('ru-RU');if(unit)unit.textContent=c.toLocaleString('ru-RU')+' ₽';if(total)total.textContent=(n*c).toLocaleString('ru-RU')+' ₽';if(tm)tm.textContent='~ '+t+' мин.'}; modal.querySelectorAll('[data-fabric]').forEach(x=>x.onclick=()=>{modal.querySelectorAll('[data-fabric]').forEach(y=>y.classList.remove('active'));x.classList.add('active');fabric=x;calc()}); modal.querySelectorAll('[data-supplier]').forEach(x=>x.onclick=()=>{modal.querySelectorAll('[data-supplier]').forEach(y=>y.classList.remove('active'));x.classList.add('active');supplier=x;calc()}); modal.querySelectorAll('[data-supplier-deal]').forEach(x=>x.onclick=()=>{modal.querySelectorAll('[data-supplier-deal]').forEach(y=>y.classList.remove('active'));x.classList.add('active');supplierDeal=x;calc()}); modal.querySelectorAll('[data-qty-preset]').forEach(x=>x.onclick=()=>{range.value=String(Math.min(productionCap,Math.max(50,Number(x.dataset.qtyPreset)||50)));calc()}); modal.querySelector('#spQtyMinus')?.addEventListener('click',()=>{range.value=String(Math.max(50,normalize()-50));calc()}); modal.querySelector('#spQtyPlus')?.addEventListener('click',()=>{range.value=String(Math.min(productionCap,normalize()+50));calc()}); range?.addEventListener('input',calc);range?.addEventListener('change',calc);calc(); }
 
     if(action==='brand_sell'){ modal.querySelectorAll('[data-sale-channel]').forEach(x=>x.onclick=()=>{modal.querySelectorAll('[data-sale-channel]').forEach(y=>y.classList.remove('active'));x.classList.add('active');state.channel=x.dataset.saleChannel||'avito';}); modal.querySelectorAll('[data-negotiation]').forEach(x=>x.onclick=()=>{modal.querySelectorAll('[data-negotiation]').forEach(y=>y.classList.remove('active'));x.classList.add('active');state.negotiation=x.dataset.negotiation||'firm';}); }
     modal.querySelectorAll('[data-sp-thesis]').forEach(x=>x.onclick=()=>{modal.querySelectorAll('[data-sp-thesis]').forEach(y=>y.classList.remove('active'));x.classList.add('active');state.thesis=x.dataset.spThesis;const btn=modal.querySelector('#cnSpecialConfirm');if(btn&&action==='invest_project'){btn.textContent=state.thesis==='watch'?'НАБЛЮДАТЬ':state.thesis==='skip'?'ПРОПУСТИТЬ':'ВЛОЖИТЬСЯ →';const amount=modal.querySelector('.inv-amount-label');if(amount)amount.style.display=state.thesis==='value'?'block':'none';}});
@@ -10927,7 +10985,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
       shell('РЕКЛАМА','Найди своего блогера','Не просто потрать бюджет: договорись о цене и получи реальный прирост спроса.',`${bloggers.map((x,i)=>`<button data-bv-blogger="${x.id}" class="brand-v2-blogger ${i===0?'selected':''}"><b>${x.handle}</b><span>${careerMoney(x.audience)} аудитории · ${careerMoney(x.price)} ₽</span><small>Охват ~${careerMoney(x.reach)} · соответствие ${'★'.repeat(x.fit)}</small></button>`).join('')||'<div class="brand-v2-empty">Обнови экран, чтобы получить список блогеров.</div>'}`,'Начать переговоры');
       modal.querySelectorAll('[data-bv-blogger]').forEach(x=>x.onclick=()=>{modal.querySelectorAll('[data-bv-blogger]').forEach(y=>y.classList.remove('selected'));x.classList.add('selected');selected=x.dataset.bvBlogger});return new Promise(resolve=>{modal.querySelector('[data-brand-cancel]').onclick=()=>{close();resolve(null)};modal.querySelector('#brandV2Confirm').onclick=()=>{const b=bloggers.find(x=>x.id===selected)||bloggers[0];close();resolve({blogger_id:selected,amount:Math.max(100000,Math.round(Number(b.price||180000)*.75)),model:'cash'})}});
     }
-    if(action==='brand_warehouse_v2'){shell('СКЛАД','Твои товары','Выбери товар, чтобы посмотреть остаток и результат продаж.',products.map(p=>`<div class="brand-v2-list-row"><b>${text(p.title)}</b><span>${careerMoney(p.stock)} шт. · ${careerMoney(p.sold)} продано · ${money(p.price)}</span></div>`).join('')||'<div class="brand-v2-empty">Склад пуст.</div>','Закрыть');return new Promise(resolve=>{modal.querySelector('[data-brand-cancel]').onclick=()=>{close();resolve(null)};modal.querySelector('#brandV2Confirm').onclick=()=>{close();resolve(null)}})}
+    if(action==='brand_warehouse_v2'){shell('СКЛАД','Твои товары','Выбери товар, чтобы посмотреть остаток и результат продаж.',products.map(p=>`<div class="brand-v2-list-row"><b>${text(p.title)}</b><span>${careerMoney(p.stock)} шт. · ${careerMoney(p.sold)} продано · ${careerMoney(p.price)} ₽</span></div>`).join('')||'<div class="brand-v2-empty">Склад пуст.</div>','Закрыть');return new Promise(resolve=>{modal.querySelector('[data-brand-cancel]').onclick=()=>{close();resolve(null)};modal.querySelector('#brandV2Confirm').onclick=()=>{close();resolve(null)}})}
     return null;
   }
 
@@ -11090,6 +11148,8 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
   // expose only the already-existing helpers so separate Telegram WebView script scopes
   // cannot turn them into ReferenceError/"career money" errors.
   window.__resellCareerMoney=careerMoney;
+  window.__resellCareerRunAction=avcRunAction;
+  window.avcRunAction=avcRunAction;
   window.__resellCareerEsc=careerEsc;
   window.__resellCareerData=careerData;
   window.__resellCareerPost=careerPost;
@@ -12024,9 +12084,9 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 
   // Replace only the Brand renderer; all other career modules keep their existing renderer.
   window.__resellRenderBrandV3=renderBrandV3;
-  try{ renderBrand=renderBrandV3; }catch(_){ window.renderBrand=renderBrandV3; }
+  window.renderBrand=renderBrandV3;
 
-  const __legacyAvcRunAction=window.avcRunAction||avcRunAction;
+  const __legacyAvcRunAction=window.avcRunAction||window.__resellCareerRunAction||((act)=>{ try{window.__resellCoreV26?.showToast?.('Действие карьеры недоступно');}catch(_){} });
   const __brandV3Run=async function(act){
     const action=String(act?.dataset?.careerAction||'');
     if(!action.startsWith('brand_v3_')) return __legacyAvcRunAction(act);
@@ -12046,7 +12106,8 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
       await careerPost(action,{});
     }catch(err){coreToast(err?.message||'Действие бренда не выполнено.');act.disabled=false;act.dataset.busy='0';}
   };
-  try{ avcRunAction=__brandV3Run; }catch(_){}
+  window.avcRunAction=__brandV3Run;
+  window.__resellCareerRunAction=__brandV3Run;
   window.__resellBrandV3Run=__brandV3Run;
 
   document.addEventListener('click',function(e){
@@ -12618,6 +12679,7 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
       root.querySelectorAll('[data-v35-club-security] b').forEach(b=>{b.textContent='УСИЛИТЬ ОХРАНУ';});
     }
   });
+  window.__resellPolishClub=polishClub;
 })();
 </script>
 
@@ -13998,7 +14060,7 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
   // initData / RESSELL session correctly. Do not replace it with a separate
   // core-only transport here.
   const core=()=>window.__resellCoreV26||{};
-  const legacyUid=()=>String((typeof userId!=='undefined'&&userId)||window.telegramUserId||window.userId||'').trim();
+  const legacyUid=()=>String(window.userId||window.telegramUserId||core().getUserId?.()||'').trim();
   const uid=()=>legacyUid() || String(core().getUserId?.()||'').trim();
   const api=(path,options={},attempts=2)=>{
     const url=`${API}${path}`;
@@ -14109,6 +14171,9 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
       await openFriendsV80();
     }catch(e){btn.disabled=false;toast(e.message||'Ошибка');}
   }
+
+  const syncFriendRequests=()=>window.__resellSyncFriendRequests?.()||Promise.resolve(null);
+  const legacyOpenFriends=()=>window.__resellLegacyFriendsOpen?.()||window.__resellOpenFriends?.();
 
   async function sendRequest(friendTg,btn){
     btn.disabled=true; const old=btn.textContent; btn.textContent='ОТПРАВКА…';
