@@ -10199,6 +10199,33 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
   function cnMetric(label,val,sub){return `<div class="cn-metric"><small>${careerEsc(label)}</small><b>${careerEsc(String(val))}</b><span>${careerEsc(sub||'')}</span></div>`;}
   function cnButton(action,icon,title,sub,cls=''){return `<button class="cn-action ${cls}" data-career-action="${action}"><i>${icon}</i><div><b>${careerEsc(title)}</b><span>${careerEsc(sub)}</span></div><em>→</em></button>`;}
   function cnBar(label,val){const v=Math.max(0,Math.min(100,Number(val)||0));return `<div class="cn-bar"><div><span>${careerEsc(label)}</span><b>${Math.round(v)}%</b></div><i><u style="width:${v}%"></u></i></div>`;}
+  function renderInfoAudienceMap(projectsOrProject, quality=50){
+    const items=Array.isArray(projectsOrProject)?projectsOrProject:[projectsOrProject||{}];
+    const cities=[
+      ['Москва',55.76,37.62,1.00],['Санкт-Петербург',59.93,30.33,.72],['Лондон',51.51,-0.13,.92],
+      ['Париж',48.86,2.35,.88],['Берлин',52.52,13.41,.76],['Стамбул',41.01,28.97,.82],
+      ['Дубай',25.20,55.27,.78],['Нью-Йорк',40.71,-74.01,.95],['Лос-Анджелес',34.05,-118.24,.82],
+      ['Мехико',19.43,-99.13,.70],['Сан-Паулу',-23.55,-46.63,.73],['Токио',35.68,139.65,.93],
+      ['Сеул',37.57,126.98,.84],['Сингапур',1.35,103.82,.77],['Бангкок',13.76,100.50,.68],
+      ['Дели',28.61,77.21,.74],['Мумбаи',19.08,72.88,.71],['Сидней',-33.87,151.21,.67]
+    ];
+    const totalUsers=items.reduce((a,p)=>a+Math.max(0,Number(p?.users||p?.metrics?.users||p?.metrics?.students||p?.metrics?.holders||0)),0);
+    const marketing=items.reduce((a,p)=>a+Math.max(0,Number(p?.marketing||p?.sim?.marketing||0)),0);
+    const base=Math.max(0,Math.min(100,Number(quality)||0));
+    const typeScore=items.reduce((a,p)=>a+({ai:1.08,crypto:1.12,education:0.96,saas:1.0}[String(p?.type||'saas')]||1),0)/Math.max(1,items.length);
+    const scale=Math.min(1.45,0.62+Math.log10(1+totalUsers)/7+marketing/700+base/420) * typeScore;
+    const blocks=cities.map(([name,lat,lon,bias],i)=>{
+      const wave=0.84+(((i*37)%17)/100);
+      const intensity=Math.max(.08,Math.min(1,scale*bias*wave));
+      const w=Math.max(3.1,Math.min(8.4,4.6+intensity*3.4));
+      const h=Math.max(2.8,Math.min(7.2,4.0+intensity*2.8));
+      const x=Math.max(.8,Math.min(95.2,(lon+180)/360*100-w/2));
+      const y=Math.max(4.5,Math.min(91,(90-lat)/180*100-h/2));
+      return `<div class="info-heat-block" style="left:${x.toFixed(2)}%;top:${y.toFixed(2)}%;width:${w.toFixed(2)}%;height:${h.toFixed(2)}%;opacity:${(.18+intensity*.62).toFixed(2)}" title="${careerEsc(name)} · индекс ${Math.round(intensity*100)}"></div>`;
+    }).join('');
+    return `<section class="career-world-heat"><div class="career-world-heat-head"><div><small>ГЕОГРАФИЯ АУДИТОРИИ</small><b>Где проект уже востребован</b><span>Красные зоны — относительная концентрация аудитории. Визуализация не меняет экономику.</span></div><strong>${careerMoney(totalUsers)}</strong></div><div class="career-world-heat-map"><img src="https://upload.wikimedia.org/wikipedia/commons/8/8b/Blank_map_of_the_world.svg" alt="Карта мира" loading="lazy">${blocks}<div class="career-world-heat-legend"><span><i></i> выше интерес</span><span><i></i> ниже интерес</span></div></div></section>`;
+  }
+
   function renderInfo(s,b){
     const projects=Array.isArray(s.projects)?s.projects:[];
     const esc=v=>careerEsc(String(v??''));
@@ -10246,7 +10273,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     }).join('');
 
     if(!projects.length){
-      return avcShell('infobusiness','Инфобизнес','СТУДИЯ','Твои проекты и капитал.',b,`<div class="ig-home-v3">
+      return avcShell('infobusiness','Инфобизнес','СТУДИЯ','Твои проекты и капитал.',b,`<div class="career-unified-page ig-home-v3">
         <div class="ig-home-top"><div><small>ТВОЙ КАПИТАЛ</small><h2>${money(b)}</h2></div><div class="ig-home-count"><b>УРОВЕНЬ ${level}</b><small>${esc(rank)}</small></div></div>
         <div class="ig-level-card"><div class="ig-level-head"><div><small>УРОВЕНЬ ИНФОБИЗНЕСА</small><b>${level} · ${esc(rank)}</b></div><strong>${xp}${nextXp==null?'':` / ${nextXp}`} XP</strong></div><div class="ig-level-bar"><i style="width:${levelProgress}%"></i></div><div class="ig-level-foot"><span>${levelProjects} проект${levelProjects===1?'':'а'} · ${teamSlots} мест в команде</span><span>${nextXp==null?'МАКСИМУМ':`до уровня ${level+1}`}</span></div></div>
         <button class="ig-create-v3" data-career-action="info_build_app"><span>＋</span><div><b>Создать проект</b><small>Первый бизнес начинается здесь</small></div><em>›</em></button>
@@ -10255,7 +10282,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     }
 
     if(!current){
-      return avcShell('infobusiness','Моя компания','СТУДИЯ',`${projects.length}/${maxProjects} проектов`,b,`<div class="ig-home-v3">
+      return avcShell('infobusiness','Моя компания','СТУДИЯ',`${projects.length}/${maxProjects} проектов`,b,`<div class="career-unified-page ig-home-v3">
         <div class="ig-home-top">
           <div><small>ТВОЙ КАПИТАЛ</small><h2>${money(b)}</h2><span>Деньги на запуск и развитие</span></div>
           <div class="ig-home-count"><b>УРОВЕНЬ ${level}</b><small>${esc(rank)}</small></div>
@@ -10266,6 +10293,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
           <div class="ig-company-total"><small>КАПИТАЛИЗАЦИЯ КОМПАНИИ</small><b>${money(totalCap)}</b><span>суммарная стоимость всех твоих проектов</span></div>
           <div class="ig-overview-metrics"><div><small>ПОЛЬЗОВАТЕЛИ</small><b>${careerMoney(totalUsers)}</b></div><div><small>ВЫРУЧКА</small><b>${money(totalRevenue)}</b></div><div><small>КАЧЕСТВО</small><b>${avgQuality}%</b></div><div><small>ПРОГНОЗ</small><b>${money(forecast)}</b></div></div>
           <div class="ig-company-graph"><div class="ig-graph-head"><div><b>Рост компании</b><span>капитализация за последнее время</span></div><strong>${money(totalCap)}</strong></div><div class="ig-bars ig-bars-company">${companyGraph}</div><div class="ig-graph-foot"><span>Сейчас</span><span>Прогноз</span></div></div>
+          ${renderInfoAudienceMap(projects,avgQuality)}
         </div>
       </div>`);
     }
@@ -10291,12 +10319,13 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     const cryptoExtra=type==='crypto'?`<button class="corp-module corp-module-wide" data-career-action="info_ops" data-op="token_sell"><span>₿</span><div><b>Казначейство монеты</b><small>Продать часть предложения и вывести капитал</small></div><em>›</em></button>`:'';
     const story=p.story||{};
     const eventHtml=story.offer||story.event?`<button class="corp-event" data-career-action="${story.event==='podcast'?'info_podcast':story.event==='review'?'info_review':'info_sales'}"><small>ВХОДЯЩЕЕ СОБЫТИЕ</small><b>${esc(story.title||'Новое событие')}</b><span>${esc(story.text||'В проект пришёл новый запрос.')}</span><em>Открыть переговоры →</em></button>`:'';
-    const content=`<div class="corp-sim">
+    const content=`<div class="career-unified-page corp-sim">
       <div class="corp-top"><button class="ig-back-project" data-info-home>‹ Мои проекты</button><div><small>${esc(typeLabel2[type]||'Проект')} · ${esc(stage)}</small><h2>${esc(p.name||'Проект')}</h2></div><strong>${money(valuation)}</strong></div>
       <div class="corp-level-strip"><div><small>УРОВЕНЬ НАПРАВЛЕНИЯ</small><b>${level} · ${esc(rank)}</b></div><div class="corp-level-xp"><i style="width:${levelProgress}%"></i><span>${careerMoney(xp)}${nextXp==null?'':' / '+careerMoney(nextXp)} XP</span></div><em>${projects.length}/${levelProjects} проектов</em></div>
       ${eventHtml}
       <div class="corp-live"><div><small>ПУЛЬТ ПРОЕКТА</small><b>${careerMoney(online)}</b><span>сейчас онлайн</span></div><div><small>ПОЛЬЗОВАТЕЛИ</small><b>${careerMoney(users)}</b><span>всего</span></div><div><small>КОМАНДА</small><b>${team.length}</b><span>${careerMoney(salary)} ₽ / мес.</span></div><div><small>СОСТОЯНИЕ</small><b>${morale}%</b><span>мораль команды</span></div></div>
       <div class="corp-graph"><div class="corp-graph-head"><div><small>ЖИВАЯ АНАЛИТИКА</small><b>Как чувствует себя проект</b></div><span>${careerMoney(revenue)} ₽ выручки</span></div><div class="ig-bars">${graph}</div></div>
+      ${renderInfoAudienceMap(p,quality)}
       <div class="corp-grid">
         <button class="corp-module corp-module-main ${sprint>=100?'state-disabled':'state-ready'}" data-career-action="info_ops" data-op="sprint" ${sprint>=100?'disabled':''}><span>⌘</span><div><small>ПРОДУКТ</small><b>Разработка</b><p>${sprint>=100?'Работа готова. Сначала проверь её.':'Выбери задачу и сам участвуй в разработке.'}</p></div><em>${sprint}%</em></button>
         <button class="corp-module ${sprint<100?'state-disabled':'state-ready'}" data-career-action="info_feature" ${sprint<100?'disabled':''}><span>✦</span><div><small>ДОРАБОТКА</small><b>Новая функция</b><p>${sprint>=100?'Напиши код изменения и добавь его в продукт.':'Сначала доведи текущую разработку до 100%.'}</p></div><em>${sprint>=100?'→':'—'}</em></button>
@@ -10340,7 +10369,17 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     const research=Object.entries(s.analysis&&typeof s.analysis==='object'?s.analysis:{}).slice(-8).reverse().map(([asset,x])=>`<div class="career-unified-row"><div><b>${careerEsc(asset)}</b><small>проверки ${(x.checks||[]).length} · уверенность ${num(x.conviction)}/5</small></div><strong>${num(x.score)}/9</strong></div>`).join('')||'<div class="career-unified-empty">Исследований пока нет.</div>';
     const thresholds=[0,180,500,1000,1800,3000,4800]; const start=thresholds[Math.max(0,Math.min(thresholds.length-1,level-1))]??0; const levelPct=next==null?100:Math.max(0,Math.min(100,Math.round((xp-start)/Math.max(1,next-start)*100)));
     let content='';
-    if(tab==='overview') content=`${feedback}<section class="career-unified-capital"><div><small>КАПИТАЛ</small><h2>${money(b)}</h2><span>В портфеле ${money(totalValue)} · cashflow ${money(cashflow)}</span></div><div class="career-unified-level"><b>УРОВЕНЬ ${level}</b><small>${careerEsc(rank)}</small></div></section><section class="career-unified-progress"><div class="career-unified-progress-head"><div><small>ПРОГРЕСС</small><b>${level} · ${careerEsc(rank)}</b></div><strong>${careerMoney(xp)} XP${next==null?'':` · ${careerMoney(Math.max(0,next-xp))} до следующего`}</strong></div><div class="career-unified-bar"><i style="width:${levelPct}%"></i></div></section><section class="career-unified-stats career-unified-stats-3"><div><small>РЫНОК</small><b>${market.toFixed(1)}</b></div><div><small>ИЗМЕНЕНИЕ</small><b>${change>=0?'+':''}${change.toFixed(1)}%</b></div><div><small>ПОЗИЦИИ</small><b>${pf.length}</b></div><div><small>ВЛОЖЕНО</small><b>${money(invested)}</b></div></section><section class="career-unified-section"><div class="career-unified-head"><div><small>ЦИКЛ ИНВЕСТОРА</small><b>Данные → DD → тезис → сделка</b></div></div><div class="career-action-grid">${action('invest_market','Рыночный срез','выбрать тему анализа')}${action('invest_analyze','Анализ актива','4 критерия + conviction')}${action('invest_discover','Найти бизнесы','лента новых проектов')}${action('invest_rebalance','Ребалансировка','изменить доли')}${action('invest_event','Событие рынка','защитить решение')}${action('invest_strategy','Стратегия','пересобрать подход')}</div></section>`;
+    const recovery=s.recovery_preview&&typeof s.recovery_preview==='object'?s.recovery_preview:{};
+    const recoveryAmount=Math.max(0,Number(recovery.eligible_amount||0));
+    const recoveryStatus=String(recovery.status||'unknown');
+    const recoveryHtml=recoveryStatus==='paid'
+      ? `<section class="career-recovery-card success"><div><small>ВОЗВРАТ ПО СТАРОЙ СИСТЕМЕ</small><b>Компенсация уже выдана</b><span>${money(Number(recovery.paid_amount||0))} · повторно получить её нельзя.</span></div><em>✓</em></section>`
+      : recoveryStatus==='none'
+      ? `<section class="career-recovery-card muted"><div><small>ПРОВЕРКА ИНВЕСТИЦИЙ</small><b>Потери по проверенной истории не найдены</b><span>${esc(String(recovery.message||'Текущего подтверждённого остатка для возврата нет.'))}</span></div><em>—</em></section>`
+      : recoveryAmount>0
+      ? `<section class="career-recovery-card"><div><small>ВОЗВРАТ ПО СТАРОЙ СИСТЕМЕ</small><b>${money(recoveryAmount)} к возврату</b><span>Сумма собрана только из подтверждённых действий старой инвестиционной системы и ограничена текущей ёмкостью портфеля.</span></div><button type="button" data-career-action="invest_recovery">ПОЛУЧИТЬ</button></section>`
+      : `<section class="career-recovery-card muted"><div><small>ВОЗВРАТ ПО СТАРОЙ СИСТЕМЕ</small><b>Проверка выполнена</b><span>${esc(String(recovery.message||'Подтверждённой суммы к возврату сейчас нет.'))}</span></div><em>—</em></section>`;
+    if(tab==='overview') content=`${feedback}<section class="career-unified-capital"><div><small>КАПИТАЛ</small><h2>${money(b)}</h2><span>В портфеле ${money(totalValue)} · cashflow ${money(cashflow)}</span></div><div class="career-unified-level"><b>УРОВЕНЬ ${level}</b><small>${careerEsc(rank)}</small></div></section><section class="career-unified-progress"><div class="career-unified-progress-head"><div><small>ПРОГРЕСС</small><b>${level} · ${careerEsc(rank)}</b></div><strong>${careerMoney(xp)} XP${next==null?'':` · ${careerMoney(Math.max(0,next-xp))} до следующего`}</strong></div><div class="career-unified-bar"><i style="width:${levelPct}%"></i></div></section><section class="career-unified-stats career-unified-stats-3"><div><small>РЫНОК</small><b>${market.toFixed(1)}</b></div><div><small>ИЗМЕНЕНИЕ</small><b>${change>=0?'+':''}${change.toFixed(1)}%</b></div><div><small>ПОЗИЦИИ</small><b>${pf.length}</b></div><div><small>ВЛОЖЕНО</small><b>${money(invested)}</b></div></section>${recoveryHtml}<section class="career-unified-section"><div class="career-unified-head"><div><small>СДЕЛАЙ СЕЙЧАС</small><b>Три главных шага</b><span>Остальные инструменты остаются во вкладках «Рынок», «Исследование» и «Портфель».</span></div></div><div class="career-primary-path"><button data-career-action="invest_discover"><strong>01</strong><span><b>Найти бизнес</b><small>Обновить ленту предложений</small></span><em>→</em></button><button data-career-action="invest_analyze"><strong>02</strong><span><b>Провести анализ</b><small>4 критерия перед входом</small></span><em>→</em></button><button data-career-tab="portfolio"><strong>03</strong><span><b>Открыть портфель</b><small>Следить, управлять, выйти</small></span><em>→</em></button></div></section>`;
     else if(tab==='market') content=`${feedback}<section class="career-unified-section"><div class="career-unified-head"><div><small>MARKET DESK</small><b>${market.toFixed(1)} · ${s.market_signal||'NEUTRAL'}</b></div><button data-career-action="invest_market">ОБНОВИТЬ СРЕЗ</button></div><div class="career-unified-stats"><div><small>ИНДЕКС</small><b>${market.toFixed(1)}</b></div><div><small>ДЕНЬ</small><b>${change>=0?'+':''}${change.toFixed(1)}%</b></div><div><small>РИСК ПОРТФЕЛЯ</small><b>${num(s.risk,50)}%</b></div><div><small>WATCHLIST</small><b>${wl.length}</b></div></div><div class="career-action-grid">${action('invest_event','Событие','решить, как реагировать')}${action('invest_watch','Добавить в радар','триггер и причина')}</div></section><section class="career-unified-section"><div class="career-unified-head"><div><small>WATCHLIST</small><b>Наблюдение</b></div></div><div class="career-chip-row">${wl.map(x=>`<span class="career-chip">${careerEsc(x.title||x.asset||x)}</span>`).join('')||'<span class="career-unified-empty">Радар пуст.</span>'}</div></section>`;
     else if(tab==='research') content=`${feedback}<section class="career-unified-section"><div class="career-unified-head"><div><small>RESEARCH</small><b>Исследования</b></div></div><div class="career-action-grid">${action('invest_analyze','Анализ актива','valuation · cashflow · moat · downside')}${action('invest_due_diligence','Due diligence','команда · traction · legal')}${action('invest_event','Market event','сценарий реакции')}</div>${research}</section><section class="career-unified-section"><div class="career-unified-head"><div><small>ПРЕДЛОЖЕНИЯ</small><b>Бизнесы</b></div></div>${cards}</section>`;
     else content=`${feedback}<section class="career-unified-section"><div class="career-unified-head"><div><small>ПОРТФЕЛЬ</small><b>${pf.length} / ${Math.max(1,num(prog.deals,1))}</b></div><span>лимит ${money(ticket)}</span></div>${owns}</section><section class="career-unified-section"><div class="career-unified-head"><div><small>В РАБОТЕ</small><b>Ожидание результата</b></div></div>${pendingRows}<button class="career-unified-primary" data-career-action="invest_collect">ЗАБРАТЬ ГОТОВЫЕ РЕЗУЛЬТАТЫ</button></section>`;
@@ -10689,6 +10728,9 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
       const r=await core.tycoonFetch(`/avito/${encodeURIComponent(uid)}/career/action`,{method:'POST',body:JSON.stringify({action:'invest_discover',payload:{}})});
       if(!r?.success)throw new Error(r?.message||'Не удалось обновить проекты');
       window.__resellAvitoState.career=r.career||window.__resellAvitoState.career;
+      // Discovery creates the offer feed; show it immediately in Research.
+      // This is navigation only and does not alter the investment mechanic.
+      window.__careerTab='research';
       if(body)body.innerHTML=renderAvitoWithCareer();
     }catch(e){core.showToast?.(e?.message||'Не удалось найти проекты');}
     finally{overlay.classList.remove('open');setTimeout(()=>overlay.remove(),220); if(act){act.disabled=false;act.dataset.busy='0';}}
@@ -11888,12 +11930,12 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
   }
   function brandRoutePoint(city){
     const c=cityCoords[String(city)]||[0,0];
-    return {x:clampV((c[1]+180)/360*720,10,710),y:clampV((90-c[0])/180*225,8,217)};
+    return {x:clampV((c[1]+180)/360*360,1.5,358.5),y:clampV((90-c[0])/180*180,2,178)};
   }
   function brandV3Map(stores,factories,orders=[],brandName='R-Game'){
     const listStores=Array.isArray(stores)?stores:[], listFactories=Array.isArray(factories)?factories:[], now=nowV(), active=(Array.isArray(orders)?orders:[]).filter(o=>String(o.status)==='in_transit'&&nV(o.arrival_at,0)>now);
     const pos=brandRoutePoint;
-    const pin=(x,kind)=>{const city=String(x.city||'');const z=pos(city);return `<button type="button" class="brand-v4-map-pin ${kind}" style="left:${(z.x/7.2).toFixed(2)}%;top:${(z.y/2.25).toFixed(2)}%" data-brand-city="${escV(city)}" title="${escV(city)}"><i></i><span>${kind==='store'?'МАГАЗИН':'ПРОИЗВОДСТВО'} · ${escV(city)}</span></button>`};
+    const pin=(x,kind)=>{const city=String(x.city||'');const z=pos(city);return `<button type="button" class="brand-v4-map-pin ${kind}" style="left:${(z.x/3.6).toFixed(2)}%;top:${(z.y/1.8).toFixed(2)}%" data-brand-city="${escV(city)}" title="${escV(city)}"><i></i><span>${kind==='store'?'МАГАЗИН':'ПРОИЗВОДСТВО'} · ${escV(city)}</span></button>`};
     const pins=[...listFactories.map(x=>pin(x,'factory')),...listStores.map(x=>pin(x,'store'))].join('');
     const routeSvg=active.map((o,i)=>{
       const a=pos(o.factory_city), z=pos(o.store_city);
@@ -11901,7 +11943,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
       const start=nV(o.started_at,nowV()), arrival=nV(o.arrival_at,start+1), routeId=escV(String(o.id||i));
       return `<path class="brand-v4-live-route" d="${d}"/><g class="brand-v4-live-truck" data-route-truck="${routeId}" data-x1="${a.x}" data-y1="${a.y}" data-cx="${((a.x+z.x)/2).toFixed(2)}" data-cy="${((a.y+z.y)/2).toFixed(2)}" data-x2="${z.x}" data-y2="${z.y}" data-start="${start}" data-arrival="${arrival}"><g><rect x="-11" y="-5" width="21" height="9" rx="2"/><rect x="6" y="-3.5" width="9" height="7" rx="1"/><circle cx="-5" cy="5" r="1.8"/><circle cx="9" cy="5" r="1.8"/></g></g>`;
     }).join('');
-    const routeLayer=active.length?`<svg class="brand-v4-map-routes" viewBox="0 0 720 225" preserveAspectRatio="none">${routeSvg}</svg>`:'';
+    const routeLayer=active.length?`<svg class="brand-v4-map-routes" viewBox="0 0 360 180" preserveAspectRatio="none">${routeSvg}</svg>`:'';
     const map=`<section class="brand-v4-world"><div class="brand-v4-world-head"><div><small>МИРОВАЯ СЕТЬ</small><h3>Магазины и производство</h3></div><button type="button" data-career-action="brand_v3_new_store">+ МАГАЗИН</button></div><div class="brand-v4-map"><img src="https://upload.wikimedia.org/wikipedia/commons/8/8b/Blank_map_of_the_world.svg" alt="Карта мира" loading="lazy">${routeLayer}${pins}<div class="brand-v4-map-legend"><span><i class="store"></i> Магазин</span><span><i class="factory"></i> Производство</span>${active.length?`<span><i class="truck"></i> ${active.length} в пути</span>`:''}</div></div><div class="brand-v4-map-foot"><span>${listStores.length} магазинов</span><span>${listFactories.length} производств</span><span>${active.length?`🚚 ${active.length} маршрут${active.length===1?'':'а'} в пути`:'Выбери логистику, чтобы отправить товар'}</span></div></section>`;
     return map;
   }
@@ -12115,8 +12157,8 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
         }).join('');
         let route='';
         if(selectedStore){
-          const z=mapPos(selectedStore.city); const x1=fp.left/100*720,y1=fp.top/100*225,x2=z.left/100*720,y2=z.top/100*225; const d=`M ${x1.toFixed(1)} ${y1.toFixed(1)} L ${x2.toFixed(1)} ${y2.toFixed(1)}`;
-          route=`<svg class="brand-v3-log-world-routes" viewBox="0 0 720 225" preserveAspectRatio="none"><path d="${d}" class="brand-v3-log-route-line"/></svg>`;
+          const z=mapPos(selectedStore.city); const x1=fp.left/100*360,y1=fp.top/100*180,x2=z.left/100*360,y2=z.top/100*180; const d=`M ${x1.toFixed(1)} ${y1.toFixed(1)} L ${x2.toFixed(1)} ${y2.toFixed(1)}`;
+          route=`<svg class="brand-v3-log-world-routes" viewBox="0 0 360 180" preserveAspectRatio="none"><path d="${d}" class="brand-v3-log-route-line"/></svg>`;
         }
         $('#bdMap',modal).innerHTML=`<div class="brand-v3-log-world-head"><span>МИРОВАЯ СЕТЬ</span><b>${escV(src)} → ${selectedStore?escV(selectedStore.city):'выбери магазин'}</b></div><div class="brand-v3-log-world-canvas"><img src="https://upload.wikimedia.org/wikipedia/commons/8/8b/Blank_map_of_the_world.svg" alt="Карта мира" loading="lazy"><div class="brand-v3-log-factory-pin" style="left:${fp.left}%;top:${fp.top}%"><i>🏭</i></div>${route}${storesHtml}<div class="brand-v3-log-world-legend"><span><i class="store"></i> магазин</span><span><i class="factory"></i> производство</span></div></div>`;
         $$('[data-log-store]',modal).forEach(btn=>btn.onclick=()=>{selectedStore=stores.find(x=>String(x.id)===String(btn.dataset.logStore))||null;renderMap();renderTotals()});
@@ -12192,9 +12234,9 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
   function brandV3RouteMap(orders=[],factories=[],stores=[],brandName='BRAND'){
     const active=(Array.isArray(orders)?orders:[]).filter(o=>String(o.status)==='in_transit');
     if(!active.length) return `<div class="brand-v3-route-empty"><span>ЛОГИСТИКА</span><b>Маршрутов в пути пока нет</b><small>Выбери до 5 магазинов — здесь появится живой маршрут с грузовиком бренда.</small></div>`;
-    const pt=(city)=>{const c=cityCoords[String(city)]||[0,0];return {x:clampV((c[1]+180)/360*680+20,24,696),y:clampV((90-c[0])/180*270+35,35,305)}};
+    const pt=(city)=>{const c=cityCoords[String(city)]||[0,0];return {x:clampV((c[1]+180)/360*360,2,358),y:clampV((90-c[0])/180*180,2,178)}};
     const routes=active.map((o,i)=>{const a=pt(o.factory_city),z=pt(o.store_city),mx=(a.x+z.x)/2,my=(a.y+z.y)/2-24-Math.min(30,i*4),d=`M ${a.x} ${a.y} Q ${mx} ${my} ${z.x} ${z.y}`;return `<g class="brand-route-line"><path class="route-glow" d="${d}"/><path class="route-dash" d="${d}"/><text x="${a.x}" y="${a.y-11}" text-anchor="middle">🏭</text><text x="${z.x}" y="${z.y+18}" text-anchor="middle">${escV(o.store_city||'')}</text><g class="truck-symbol"><g><rect x="-12" y="-6" width="24" height="11" rx="2"/><rect x="6" y="-4" width="9" height="8" rx="1"/><circle cx="-6" cy="6" r="2"/><circle cx="9" cy="6" r="2"/><text x="0" y="2" text-anchor="middle" class="truck-brand-label">${escV(String(brandName||'BRAND').slice(0,10))}</text><animateMotion dur="5.8s" repeatCount="indefinite" rotate="auto" calcMode="paced" path="${d}"/></g></g><title>${escV(brandName||'BRAND')} · ${escV(o.store_city||'')}</title></g>`}).join('');
-    return `<div class="brand-v3-route-map"><div class="brand-v3-route-head"><div><small>LIVE SUPPLY CHAIN</small><b>${active.length} маршрут${active.length===1?'':'а'} · ${escV(brandName||'BRAND')}</b></div><span>пунктир строится в реальном времени</span></div><svg viewBox="0 0 720 340" preserveAspectRatio="none"><rect width="720" height="340" rx="18" fill="#f6f8f5"/><g fill="none" stroke="#d8e0d9" stroke-width="1"><path d="M20 85H700M20 170H700M20 255H700M164 20V320M308 20V320M452 20V320M596 20V320" stroke-dasharray="3 8"/></g>${routes}</svg></div>`;
+    return `<div class="brand-v3-route-map"><div class="brand-v3-route-head"><div><small>LIVE SUPPLY CHAIN</small><b>${active.length} маршрут${active.length===1?'':'а'} · ${escV(brandName||'BRAND')}</b></div><span>пунктир строится в реальном времени</span></div><svg viewBox="0 0 360 180" preserveAspectRatio="none"><rect width="360" height="180" rx="14" fill="#f6f8f5"/><g fill="none" stroke="#d8e0d9" stroke-width="1"><path d="M0 45H360M0 90H360M0 135H360M72 0V180M144 0V180M216 0V180M288 0V180" stroke-dasharray="2 7"/></g>${routes}</svg></div>`;
   }
 
   function saveBrandMapCache(st){
@@ -12233,11 +12275,45 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
       ${modelPreview}
       ${current?`<section class="brand-v4-production-live"><div><small>ПРОИЗВОДСТВО</small><b>${escV(current.title||current.model_id)}</b><span>${careerMoney(current.quantity)} шт. · ${(()=>{const r=Math.max(0,nV(current.ready_at)-nowV());return r<=0?'ГОТОВО — забери на склад':r>=3600?`осталось ${Math.floor(r/3600)} ч. ${Math.ceil((r%3600)/60)} мин.`:`осталось ${Math.ceil(r/60)} мин.`})()}</span></div><i><u style="width:${progress}%"></u></i><strong>${Math.round(progress)}%</strong>${String(current.status)==='ready'||nV(current.ready_at)<=nowV()?`<button type="button" data-career-action="brand_v3_collect_production">ЗАБРАТЬ НА СКЛАД →</button>`:''}</section>`:''}
       ${warehouseHtml}
-      <section class="brand-v4-sales-guide"><div><small>ПРОДАЖИ</small><b>Магазины продают автоматически</b><p>Отправь вещь в магазин. После доставки магазин сам продаёт товар, а деньги копятся в «Накопленной выручке».</p></div><div class="brand-v4-sales-flow"><span>СКЛАД</span><i>→</i><span>МАГАЗИН</span><i>→</i><span>ПРОДАЖИ</span><i>→</i><span>ВЫРУЧКА</span></div>${stores.some(x=>nV(x.stock_total)>0||nV(x.revenue_pending)>0)?`<div class="brand-v4-sales-state"><b>Продажи идут</b><span>${careerMoney(stores.reduce((a,x)=>a+nV(x.stock_total),0))} шт. сейчас в магазинах · ${moneyV(revenue)} накоплено</span></div>`:`<div class="brand-v4-sales-state muted"><b>Пока продаж нет</b><span>Сначала отправь готовую партию со склада в один из магазинов.</span></div>`}</section>
+      <section class="brand-v4-sales-guide"><div><small>ПРОДАЖИ</small><b>После доставки магазин продаёт сам</b><p>Ничего вручную продавать не нужно: товар доезжает → попадает в магазин → продажи проходят автоматически → выручка накапливается здесь.</p></div><div class="brand-v4-sales-flow"><span>СКЛАД</span><i>→</i><span>ДОСТАВКА</span><i>→</i><span>МАГАЗИН</span><i>→</i><span>АВТОПРОДАЖИ</span><i>→</i><span>ВЫРУЧКА</span></div>${stores.some(x=>nV(x.sales_today)>0||nV(x.revenue_pending)>0)?`<div class="brand-v4-sales-state"><b>Продажи есть</b><span>${careerMoney(stores.reduce((a,x)=>a+nV(x.units_today),0))} шт. продано сегодня · ${careerMoney(stores.reduce((a,x)=>a+nV(x.stock_total),0))} шт. в магазинах · ${moneyV(revenue)} накоплено</span></div>`:stores.some(x=>nV(x.stock_total)>0)?`<div class="brand-v4-sales-state muted"><b>Товар уже в магазинах</b><span>Продажи идут автоматически серверным циклом. Экран обновится сам, когда появится новая выручка.</span></div>`:`<div class="brand-v4-sales-state muted"><b>Пока товар не продаётся</b><span>Сначала создай партию, дождись склада и отправь готовые вещи в магазин.</span></div>`}</section>
       ${brandV3Map(stores,factories,orders,st.name)}
       <div class="brand-v4-footer"><span>${careerMoney(nV(st.sales_units))} шт. продано</span><span>${moneyV(nV(st.total_revenue))} выручка</span><span>${wh.length} складских позиций</span></div>
     </div>`);
   }
+
+  // Brand V3 live refresh: only re-reads the existing authoritative state so
+  // automatic sales become visible without pressing another button. No new income
+  // or pricing logic is introduced here.
+  (function initBrandV3AutoRefresh(){
+    if(window.__brandV3AutoRefreshBound) return;
+    window.__brandV3AutoRefreshBound=true;
+    let timer=0, busy=false;
+    const tick=async()=>{
+      timer=0;
+      if(busy) return;
+      if(!document.querySelector('.brand-v4-page')) return;
+      if(document.querySelector('.brand-v3-overlay.open')) return;
+      const core=window.__resellCoreV26||{}; const uid=String(core.getUserId?.()||'');
+      if(!uid||typeof core.tycoonFetch!=='function') return;
+      busy=true;
+      try{
+        const r=await core.tycoonFetch(`/avito/${encodeURIComponent(uid)}`);
+        if(r?.success){
+          window.__resellAvitoState=window.__resellAvitoState||{};
+          window.__resellAvitoState.balance=Number(r.balance??window.__resellAvitoState.balance??0);
+          window.__resellAvitoState.career=r.career||window.__resellAvitoState.career||{};
+          core.setProfileBalance?.(window.__resellAvitoState.balance); core.setBalance?.(window.__resellAvitoState.balance);
+          const c=window.__resellAvitoState.career||{};
+          if(c.direction==='brand'&&c.brand) { if(typeof renderCareerDashboard==='function') renderCareerDashboard(c,window.__resellAvitoState.balance); else if(typeof window.__resellRenderBrandV3==='function') window.__resellRenderBrandV3(c.brand,window.__resellAvitoState.balance); }
+          setTimeout(()=>{try{animateBrandRouteTrucks(document)}catch(_){ }},30);
+        }
+      }catch(_){ }
+      finally{busy=false; if(document.querySelector('.brand-v4-page')) timer=setTimeout(tick,30000);}
+    };
+    const schedule=()=>{if(!timer&&!busy) timer=setTimeout(tick,30000)};
+    const obs=new MutationObserver(schedule); obs.observe(document.body,{subtree:true,childList:true});
+    schedule();
+  })();
 
   // Replace only the Brand renderer; all other career modules keep their existing renderer.
   window.__resellRenderBrandV3=renderBrandV3;
@@ -12324,6 +12400,43 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 <style id="brand-v4-ad-overrides">
 .brand-v4-ad-list{display:grid;gap:7px;margin:12px 0}.brand-v4-ad-list button{display:grid;grid-template-columns:34px 1fr auto;align-items:center;gap:9px;text-align:left;padding:10px;border:1px solid #e0e5df;border-radius:13px;background:#fff;color:#202622}.brand-v4-ad-list button.active{border-color:#202722;background:#f5f7f4}.brand-v4-ad-list button:disabled{opacity:.55}.brand-v4-ad-list>button>span{width:30px;height:30px;display:grid;place-items:center;border-radius:9px;background:#f0f3ef;font:900 8px/1 Montserrat,sans-serif}.brand-v4-ad-list b{display:block;font:950 11px/1.1 Montserrat,sans-serif}.brand-v4-ad-list small{display:block;margin-top:3px;color:#87908a;font:800 8px/1.2 Nunito,sans-serif}.brand-v4-ad-list strong{font:900 7px/1 Montserrat,sans-serif;white-space:nowrap}.brand-v4-model-mini{cursor:pointer;width:100%;text-align:left}.brand-v4-edit-hint{display:block!important;margin-top:5px;color:#6d8270!important;font-weight:900!important}
 </style>
+
+<style id="resell-career-unification-v25">
+/* Unified Career System V25: same surface, spacing, hierarchy and action language. */
+.career-new.infobusiness,.career-new.brand,.career-new.investments{background:#f7f8f5!important;color:#202622!important;min-height:100%;}
+.career-new .cn-nav{border-bottom:1px solid #e4e8e3!important;color:#7b847d!important}
+.career-new .cn-title h1{letter-spacing:-.025em!important}
+.career-unified-page.ig-home-v3,.career-unified-page.corp-sim{padding:0 0 26px!important;background:transparent!important}
+.career-new.infobusiness .ig-home-top,.career-new.infobusiness .ig-level-card,.career-new.infobusiness .ig-home-section,.career-new.infobusiness .ig-company-overview,.career-new.infobusiness .corp-top,.career-new.infobusiness .corp-level-strip,.career-new.infobusiness .corp-live,.career-new.infobusiness .corp-graph,.career-new.infobusiness .corp-grid,.career-new.infobusiness .corp-bugs{border-color:#e1e6e0!important}
+.career-new.infobusiness .ig-create-v3,.career-new.infobusiness .ig-create-mini,.career-new.infobusiness .corp-module,.career-new.investments .career-unified-deal,.career-new.brand .brand-v5-actions>button,.career-new.brand .brand-v5-marketing{border-radius:14px!important;border:1px solid #dfe5df!important;background:#fff!important;color:#202622!important;box-shadow:none!important}
+.career-new.infobusiness .corp-module:hover,.career-new.investments .career-unified-deal:hover,.career-new.brand .brand-v5-actions>button:hover,.career-new.brand .brand-v5-marketing:hover{transform:none!important;border-color:#cfd8cf!important}
+.career-world-heat{margin-top:12px;border:1px solid #e0e5df;border-radius:17px;background:#fff;overflow:hidden}
+.career-world-heat-head{display:flex;justify-content:space-between;gap:10px;padding:13px 14px;border-bottom:1px solid #edf0ed;align-items:flex-start}
+.career-world-heat-head small{display:block;color:#8a928c;font:900 8px/1 Montserrat,sans-serif;letter-spacing:.08em}
+.career-world-heat-head b{display:block;margin-top:5px;font:950 14px/1.05 Montserrat,sans-serif}
+.career-world-heat-head span{display:block;margin-top:5px;color:#8a928c;font:800 8px/1.35 Nunito,sans-serif;max-width:290px}
+.career-world-heat-head>strong{font:950 12px/1 Montserrat,sans-serif;white-space:nowrap}
+.career-world-heat-map{position:relative;aspect-ratio:2/1;overflow:hidden;background:#f6f8f5}
+.career-world-heat-map img{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;opacity:.55;filter:grayscale(1) contrast(.9)}
+.info-heat-block{position:absolute;border:1px solid rgba(150,0,0,.35);background:rgba(190,25,25,.72);border-radius:4px;box-shadow:0 3px 10px rgba(90,0,0,.08);z-index:2}
+.career-world-heat-legend{position:absolute;left:8px;bottom:8px;display:flex;gap:10px;padding:6px 8px;border-radius:9px;background:rgba(255,255,255,.93);font:800 7px/1 Montserrat,sans-serif;color:#7b827d;z-index:4}
+.career-world-heat-legend i{display:inline-block;width:7px;height:7px;border-radius:2px;background:rgba(190,25,25,.8);margin-right:3px}.career-world-heat-legend span:last-child i{opacity:.25}
+.career-recovery-card{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0;padding:13px 14px;border:1px solid #dfe5df;border-radius:15px;background:#fff}
+.career-recovery-card small{display:block;color:#8b938d;font:900 8px/1 Montserrat,sans-serif;letter-spacing:.08em}.career-recovery-card b{display:block;margin-top:5px;font:950 13px/1.1 Montserrat,sans-serif}.career-recovery-card span{display:block;margin-top:5px;color:#7f8882;font:800 8px/1.35 Nunito,sans-serif;max-width:300px}.career-recovery-card button{flex:none;border:0;border-radius:11px;background:#202622;color:#fff;padding:10px 12px;font:950 8px/1 Montserrat,sans-serif}.career-recovery-card em{font-style:normal;font:950 15px/1 Montserrat,sans-serif;color:#707971}.career-recovery-card.success{border-color:#cfded2;background:#f7faf7}.career-recovery-card.muted{background:#fafbf9}
+.career-primary-path{display:grid;gap:7px}.career-primary-path button{display:grid;grid-template-columns:30px 1fr auto;align-items:center;gap:9px;width:100%;padding:11px 12px;border:1px solid #e0e5df;border-radius:13px;background:#fff;color:#202622;text-align:left}.career-primary-path strong{width:26px;height:26px;display:grid;place-items:center;border-radius:8px;background:#f0f3ef;font:950 8px/1 Montserrat,sans-serif}.career-primary-path b{display:block;font:950 10px/1.05 Montserrat,sans-serif}.career-primary-path small{display:block;margin-top:3px;color:#87908a;font:800 8px/1.2 Nunito,sans-serif}.career-primary-path em{font-style:normal;font:950 12px/1 Montserrat,sans-serif}
+.career-new.brand .brand-v4-map{aspect-ratio:2/1!important;min-height:0!important}.career-new.brand .brand-v4-map img{object-fit:fill!important}.career-new.brand .brand-v4-map-routes{position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:none}.career-new.brand .brand-v3-route-map{aspect-ratio:2/1;overflow:hidden;border:1px solid #dfe5df;border-radius:17px}.career-new.brand .brand-v3-route-map svg{width:100%!important;height:100%!important;display:block}.career-new.brand .brand-v4-sales-flow{flex-wrap:wrap!important;row-gap:5px!important}
+@media(max-width:420px){.career-world-heat-head{padding:11px}.career-world-heat-head b{font-size:12px}.career-recovery-card{align-items:flex-start}.career-recovery-card span{max-width:250px}}
+</style>
+<script id="resell-career-unification-v25-js">
+(function(){
+  if(window.__careerV25TabsBound) return; window.__careerV25TabsBound=true;
+  document.addEventListener('click',function(e){
+    const tab=e.target?.closest?.('[data-career-tab]'); if(!tab) return;
+    const name=tab.dataset.careerTab; if(!name) return;
+    window.__careerTab=name;
+  },true);
+})();
+</script>
 </body>
 
 
@@ -16108,3 +16221,17 @@ main.app{
 .brand-v5-next{padding:13px 14px;border:1px solid #d8e4d8;border-radius:16px;background:linear-gradient(145deg,#f2f8f1,#fff);display:grid;gap:4px}.brand-v5-next small{font:900 6px/1 Montserrat;color:#7e8b81;letter-spacing:.12em}.brand-v5-next b{font:950 13px/1.1 Montserrat;color:#243128}.brand-v5-next span{font:750 7px/1.35 Nunito;color:#77837a}.brand-v5-actions{grid-template-columns:1fr!important;gap:6px!important}.brand-v5-actions>button{min-height:58px!important}.brand-v5-actions>button span{width:30px!important;height:30px!important;display:grid;place-items:center}.brand-v5-marketing{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border:1px solid #e0e6df;border-radius:13px;background:#fff;color:#334139;text-align:left}.brand-v5-marketing b{font:950 8px/1 Montserrat}.brand-v5-marketing span{font:750 6.5px/1.2 Nunito;color:#8a938d;flex:1}.brand-v5-marketing em{font:950 10px/1 Montserrat;color:#87938a;font-style:normal}.brand-v4-market-fit{display:flex!important;align-items:center;gap:6px;margin-top:6px!important;padding:5px 7px;border-radius:8px;background:#eef6ee;width:max-content}.brand-v4-market-fit b{font:950 7px/1 Montserrat!important;color:#41694b!important}.brand-v4-market-fit span{font:750 6px/1 Nunito!important;color:#6f7c73!important}.brand-v4-warehouse-card{grid-template-columns:84px minmax(0,1fr) 92px!important}.brand-v4-warehouse-thumb{width:84px!important;height:70px!important}.brand-v4-warehouse-thumb .brand-blueprint-sheet-v4{height:70px!important}.brand-v4-warehouse-send{min-height:36px!important;font-size:6.5px!important;padding:0 9px!important}
 @media(max-width:430px){.brand-v4-warehouse-card{grid-template-columns:72px minmax(0,1fr)!important}.brand-v4-warehouse-thumb{width:72px!important;height:62px!important}.brand-v4-warehouse-thumb .brand-blueprint-sheet-v4{height:62px!important}.brand-v4-warehouse-send{grid-column:1/-1;width:100%!important}.brand-v5-next b{font-size:12px}}
 </style>
+<style id="resell-career-final-v25-overrides">
+/* Final source-order overrides: older appended styles cannot restore the wide map or dark career skin. */
+.career-new.brand .brand-v4-map,.career-new.brand .brand-v3-log-world-canvas{aspect-ratio:2/1!important;min-height:0!important;height:auto!important}
+.career-new.brand .brand-v4-map img,.career-new.brand .brand-v3-log-world-canvas>img{object-fit:fill!important;object-position:center!important}
+.career-new.brand .brand-v4-map-routes,.career-new.brand .brand-v3-log-world-routes{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;display:block!important}
+.career-new.investments .career-unified-page{background:#f7f8f5!important;color:#202622!important}
+.career-new.investments .career-unified-section,.career-new.investments .career-unified-capital,.career-new.investments .career-unified-progress,.career-new.investments .career-unified-company,.career-new.investments .career-unified-row,.career-new.investments .career-unified-progress-head,.career-new.investments .career-unified-head{background:#fff!important;border-color:#e0e5df!important;color:#202622!important}
+.career-new.investments .career-tabs button{background:#fff!important;color:#758078!important;border-color:#dfe5df!important}.career-new.investments .career-tabs button.active{background:#202622!important;color:#fff!important;border-color:#202622!important}
+.career-new.investments .career-unified-company-head b,.career-new.investments .career-unified-company-head small,.career-new.investments .career-unified-money b,.career-new.investments .career-unified-money small,.career-new.investments .career-unified-row b,.career-new.investments .career-unified-row small,.career-new.investments .career-unified-head b,.career-new.investments .career-unified-head small,.career-new.investments .career-unified-head span{color:#202622!important}
+.career-new.investments .career-unified-company-head small,.career-new.investments .career-unified-money small,.career-new.investments .career-unified-row small,.career-new.investments .career-unified-head small,.career-new.investments .career-unified-head span{color:#7f8882!important}
+.career-new.investments .career-inline-actions button,.career-new.investments .career-unified-deal{background:#f7f9f6!important;color:#263129!important;border-color:#dfe5df!important}
+.career-new.investments .career-unified-primary{background:#202622!important;color:#fff!important;border:0!important}
+</style>
+
