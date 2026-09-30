@@ -6256,7 +6256,7 @@ async function initFarm(){
       try { showAvitoUnlockPopup(); } catch(_) {}
     } catch(e) {
       console.error('[AVITO] render failed', e);
-      modalBody.innerHTML=`<div class="avito-shell"><div class="avito-hero marketplace"><div class="avito-kicker">AVITO</div><div class="avito-title">Площадка готовится</div><div class="avito-sub">Твоя площадка создаётся автоматически. Переключение ниши не требуется для обычной торговли.</div><button class="avx-btn buy" data-avito-safe-retry>ОБНОВИТЬ</button></div></div>`;
+      modalBody.innerHTML=renderAvitoSafeFallback();
     }
     clearInterval(avitoPoller);
     avitoPoller=setInterval(async()=>{
@@ -6264,12 +6264,33 @@ async function initFarm(){
       try {
         await fetchAvito();
         if(avitoEditing || document.querySelector('[data-avito-chat-sheet="1"]')) return;
-        modalBody.innerHTML=(window.renderAvitoWithCareer?window.renderAvitoWithCareer():renderAvito());
+        try {
+          modalBody.innerHTML=(window.renderAvitoWithCareer?window.renderAvitoWithCareer():renderAvito());
+        } catch(_) {
+          modalBody.innerHTML=renderAvitoSafeFallback();
+        }
       } catch(_) {}
     },7000);
   }
   $('#avitoBtn')?.addEventListener('click',openAvito);
   modalBody.addEventListener('click',async(e)=>{
+    const safeRetry=e.target.closest('[data-avito-safe-retry]');
+    if(safeRetry){
+      e.preventDefault(); e.stopPropagation();
+      if(safeRetry.disabled) return;
+      safeRetry.disabled=true;
+      try{
+        await fetchAvito();
+        modalBody.innerHTML=renderAvitoWithCareer();
+        showAvitoUnlockPopup();
+      }catch(err){
+        console.warn('[AVITO] safe retry failed',err);
+        modalBody.innerHTML=renderAvitoSafeFallback();
+      }finally{
+        const b=document.querySelector('[data-avito-safe-retry]'); if(b) b.disabled=false;
+      }
+      return;
+    }
     const unlockClose=e.target.closest('[data-avito-unlock-close]'); if(unlockClose){e.target.closest('[data-avito-unlock-overlay]')?.remove();return;}
     const reviewOpen=e.target.closest('[data-avito-reviews]'); if(reviewOpen){avitoEditing=true;openModal('Avito',renderAvitoReviews());return;}
     const reviewClose=e.target.closest('[data-avito-review-close]'); if(reviewClose){avitoEditing=false;modalBody.innerHTML=renderAvito();return;}
@@ -9994,7 +10015,13 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     return '<div class="avc-flow">'+a.map((x,i)=>'<div class="avc-flow-step"><b>'+careerEsc(x?.[0]||'STEP')+'</b><span>'+careerEsc(x?.[1]||'')+'</span></div>'+(i<a.length-1?'<div class="avc-flow-arrow">→</div>':'')).join('')+'</div>';
   }
   function careerAccessButton(c){
-    if(c?.eligible!==true) return '';
+    // Access is permanent once the player has reached the Avito threshold.
+    // Do not depend on a single cached `career.eligible` flag: older saves and
+    // older servers may omit it even though the player already has 250+ sales.
+    const salesNow=Number(avitoState?.reputation?.total_sales||0);
+    const metaUnlocked=!!c?.meta?.career_unlocked;
+    const eligible=Boolean(c?.eligible===true || metaUnlocked || salesNow>=250);
+    if(!eligible) return '';
     const dir=String(c?.direction||'').trim();
     const map={
       infobusiness:['APP LAB','Открыть мой инфобизнес','info'],
@@ -10009,14 +10036,29 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     return `<button type="button" class="avx-career-access ${m[2]}" data-avito-open-career aria-label="${careerEsc(m[1])}"><span class="avx-career-access-mark">${dir==='brand'?'R':dir==='investments'?'₽':'A'}</span><span class="avx-career-access-copy"><small>${careerEsc(m[0])}</small><b>${careerEsc(sub||m[1])}</b></span><strong>→</strong></button>`;
   }
 
+  function renderAvitoSafeFallback(){
+    // Last-resort marketplace renderer. It intentionally has no career-specific
+    // dependencies, so one broken optional card can never turn Avito into a
+    // dead "Площадка готовится" screen.
+    const d=(avitoState&&typeof avitoState==='object')?avitoState:{};
+    const sales=Number(d?.reputation?.total_sales||0);
+    const eligible=Boolean(d?.career?.eligible===true || d?.career?.meta?.career_unlocked || sales>=250);
+    const career=eligible ? careerAccessButton(d.career||{}) : '';
+    const balance=number(d.balance||0);
+    const inv=Array.isArray(d.inventory)?d.inventory:[];
+    const suppliers=Array.isArray(d.suppliers)?d.suppliers.slice(0,8):[];
+    const rows=suppliers.length?suppliers.map(x=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid rgba(255,255,255,.08)"><div><b>${esc(x.name||'Товар')}</b><small style="display:block;opacity:.55;margin-top:3px">${esc(x.cat||'Товар')} · ${number(x.buy_price||x.price||0)} ₽</small></div><button class="avx-btn buy" data-avito-buy="${esc(x.id||'')}">КУПИТЬ</button></div>`).join(''):'<div class="avx-empty">Поставка временно обновляется. Нажми «Обновить».</div>';
+    return `<div class="avito-shell avx-shell"><div class="avx-hero"><div class="avx-brand"><div class="avx-logo">A</div><div><b class="avx-brand-title">AVITO MARKET</b><span class="avx-hero-shop">${esc(d.shop_name||'Мой магазин')}</span></div></div><div class="avx-hero-right">${career}<div class="avx-balance">${balance} ₽</div></div></div><div class="avx-stats"><div><b>${number(inv.length)}</b><span>на складе</span></div><div><b>${number(sales)}</b><span>продаж</span></div><div><b>${number(d.reputation?.total_profit||0)} ₽</b><span>прибыль</span></div></div><div class="avx-section"><div class="avx-section-head"><div><b>ЗАКУП</b><span>Торговая площадка доступна.</span></div><button type="button" class="avx-btn ghost" data-avito-safe-retry>ОБНОВИТЬ</button></div><div>${rows}</div></div></div>`;
+  }
+
   function renderAvitoWithCareer(){
+    window.__avcForceBaseAvito=true;
     try {
-      /* Avito is always the Avito marketplace. A selected career direction must
-         never replace this screen. The player's business is opened only by the
-         dedicated button rendered inside Avito. */
-      window.__avcForceBaseAvito=true;
       return renderAvito();
-    } catch(err) { console.warn('[AVITO CAREER] fallback',err); return renderAvito(); }
+    } catch(err) {
+      console.error('[AVITO CAREER] render fallback:',err);
+      return renderAvitoSafeFallback();
+    }
   }
 
   function openCareerBusinessDirect(){
