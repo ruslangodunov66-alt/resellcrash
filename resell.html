@@ -2973,6 +2973,8 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
   }catch(_){ }
 
   let adminState = {players:[], selected:null};
+  // Shared launch state for finishLaunch() and the bootstrap sequence.
+  let bootData = null;
 
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => [...document.querySelectorAll(s)];
@@ -3157,7 +3159,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     if(firstRun || (!bootData && userId)){
       if(!registrationRequired) openRegistration();
     } else if(userId){
-      try{setTimeout(()=>window.resumeResellTutorial?.(),180)}catch(_){}
+      // Новичковое обучение отключено: при повторном входе обучение автоматически не запускается.
     }
   }
 
@@ -3334,7 +3336,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
       profileData=await loadProfile();
       await attachIncomingReferral();
       referralData=await fetchReferralData();updateReferralCard();
-      try{ await startResellTutorial({force:true}); }catch(_){ }
+      // Новичковое обучение отключено: после регистрации игрок сразу попадает в главное меню RESSELL.
       if(payload?.referral?.activated){
         const reward=Number(payload.referral.invitee_reward||250000);
         showToast(`🎁 +${number(reward)} ₽ за приглашение`);
@@ -4708,6 +4710,9 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
   let farmServerSyncAt = 0;
   let farmHapticId = null;
   let farmHapticLast = 0;
+  // Compatibility binding used by the existing farm animation path.
+  // It is intentionally a no-op; the server remains authoritative.
+  let syncActiveFarmSnapshot = async function(){ return; };
 
   function startFarmHaptics(){
     if(farmHapticId) clearInterval(farmHapticId);
@@ -6147,6 +6152,18 @@ async function initFarm(){
     const pub=d.published;
     const sales=Number(d.reputation?.total_sales||0);
     const profit=Number(d.reputation?.total_profit||0);
+    // Career access is unlocked by the authoritative Avito cap.  Do not make
+    // the visibility of the career entry depend on career-state hydration: a
+    // player who has reached the maximum Avito level must still see the entry
+    // even when the optional career object is absent/stale for this render.
+    const avitoLevelInfo=d?.avito_level||{};
+    const career=d?.career||{};
+    const careerUnlocked=!!career.eligible || sales>=250 || Number(avitoLevelInfo.level||0)>=7;
+    const careerDirection=String(career.direction||'').trim();
+    const careerNames={infobusiness:'Мой инфобизнес',brand:'Мой бренд',investments:'Мои инвестиции'};
+    const careerGate=careerUnlocked
+      ? `<section class="avx-career-gate"><div class="avx-career-gate-copy"><small>${careerDirection?'RESSELL CAREER':'НОВЫЙ УРОВЕНЬ'}</small><b>${careerDirection?(careerNames[careerDirection]||'Моё направление'):'Открыть своё направление'}</b><span>${careerDirection?'Вернуться к развитию выбранной ниши.':'Максимальный уровень Авито достигнут. Выбери направление: Инфобизнес, Бренд или Инвестиции.'}</span></div><button type="button" class="avx-career-gate-btn" data-avito-open-career>${careerDirection?'ОТКРЫТЬ':'ВЫБРАТЬ НИШУ'} <strong>→</strong></button></section>`
+      : '';
     const supplierRefresh=d.supplier_refresh||{};
     const refreshAvailable=supplierRefresh.available!==false;
     const refreshLabel='ОБНОВИТЬ';
@@ -6207,7 +6224,7 @@ async function initFarm(){
       const chatRows=(list,helper=false)=>list.length?list.map(chat=>`<button class="avx-chat ${chat.unread?'new':''} ${helper?'avx-assistant-chat':''}" data-open-avito-chat="${esc(chat.chat_key)}"><span class="avx-avatar">${esc(String(chat.buyer_id||'?').slice(-2))}</span><span class="avx-chat-main"><b>${helper?`Помощник №${esc(chat.assistant_id||'?')} · `:''}Покупатель #${esc(chat.buyer_id)}${helper?'<span class="avx-assistant-badge">АССИСТЕНТ</span>':''}</b><small>${esc(chat.item||'Товар')}</small><em>${esc(chat.message||'Клиент ждёт ответа')}</em></span><span class="avx-chat-side">${chat.unread?'<i>1</i>':''}<strong>${number(chat.offer||chat.price||0)} ₽</strong>›</span></button>`).join(''):'<div class="avx-empty">Пока сообщений нет.</div>';
       content=`<div class="avx-section"><div class="avx-section-head"><div><b>ТВОИ ЧАТЫ</b><span>Переговоры по твоим объявлениям.</span></div>${unread?`<span class="avx-new">${unread} новых</span>`:'<span class="avx-count">${myChats.length}</span>'}</div><div class="avx-chats">${chatRows(myChats)}</div>${helperChats.length?`<button type="button" class="avx-helper-chats-toggle ${avitoShowAssistantChats?'open':''}" data-avito-toggle-helper-chats><span><b>ЧАТЫ ПОМОЩНИКОВ</b><small>${helperChats.length} ${helperChats.length===1?'чат':'чата'}</small></span><strong>${avitoShowAssistantChats?'СВЕРНУТЬ':'РАЗВЕРНУТЬ'} ${avitoShowAssistantChats?'↑':'↓'}</strong></button>${avitoShowAssistantChats?`<div class="avx-chats avx-helper-chats-list">${chatRows(helperChats,true)}</div>`:''}`:''}</div>`;
     }
-    return `<div class="avito-shell avx-shell"><div class="avx-hero"><div class="avx-brand"><div class="avx-logo">A</div><div><b class="avx-brand-title">AVITO MARKET</b><span class="avx-hero-shop">${esc(shopName)}</span></div></div><div class="avx-hero-right">${careerAccessButton(careerData()||{})}<div class="avx-balance">${number(d.balance||0)} ₽</div></div></div><div class="avx-v59-level avx-reputation-simple"><div class="avx-v59-level-head"><div><span class="avx-v59-kicker">РЕПУТАЦИЯ</span><div class="avx-v59-level-name">${esc(shopName)}</div></div><button type="button" class="avx-review-trigger compact" data-avito-reviews><span class="avx-review-stars">${reviewsStars(reviews.average||0)}</span><span>${Number(reviews.count||0)} отзывов</span></button></div></div><div class="avx-stats"><div><b>${number(inv.length)}</b><span>на складе</span></div><div><b>${sales}</b><span>продаж</span></div><div><b>${number(profit)} ₽</b><span>прибыль</span></div></div><div class="avx-tabs"><button class="${avitoTab==='buy'?'active':''}" data-avito-tab="buy"><b>ЗАКУП</b><span>рынок</span></button><button class="${avitoTab==='sales'?'active':''}" data-avito-tab="sales"><b>ПРОДАЖИ</b><span>склад</span></button><button class="${avitoTab==='chats'?'active':''}" data-avito-tab="chats"><b>МОИ ЧАТЫ ${unread?`<i>${unread}</i>`:''}</b><span>клиенты</span></button><button class="${avitoTab==='demand'?'active':''} avx-demand-btn avx-demand-silver" data-avito-tab="demand"><b>СПРОС</b><span>рынок</span></button></div>${content}</div>`;
+    return `<div class="avito-shell avx-shell"><div class="avx-hero"><div class="avx-brand"><div class="avx-logo">A</div><div><b class="avx-brand-title">AVITO MARKET</b><span class="avx-hero-shop">${esc(shopName)}</span></div></div><div class="avx-hero-right">${(()=>{try{const c=window.__resellAvitoState?.career||{};if(typeof window.__resellCareerAccessButton==='function')return window.__resellCareerAccessButton(c);const d=String(c.direction||'').trim();const names={infobusiness:'Мой инфобизнес',brand:'Мой бренд',investments:'Мои инвестиции'};const labels={infobusiness:'APP LAB',brand:'BRAND STUDIO',investments:'CAPITAL DESK'};return `<button type="button" class="avx-career-access ${d==='brand'?'brand':d==='investments'?'invest':''}" data-avito-open-career aria-label="Открыть ${labels[d]||'направление'}"><span class="avx-career-access-mark">${d==='brand'?'R':d==='investments'?'₽':'A'}</span><span class="avx-career-access-copy"><small>${labels[d]||'RESSELL CAREER'}</small><b>${names[d]||'Открыть своё направление'}</b></span><strong>→</strong></button>`}catch(_){return `<button type="button" class="avx-career-access" data-avito-open-career aria-label="Открыть направление"><span class="avx-career-access-mark">R</span><span class="avx-career-access-copy"><small>RESSELL CAREER</small><b>Открыть своё направление</b></span><strong>→</strong></button>`}})()}<div class="avx-balance">${number(d.balance||0)} ₽</div></div></div><div class="avx-v59-level avx-reputation-simple"><div class="avx-v59-level-head"><div><span class="avx-v59-kicker">РЕПУТАЦИЯ</span><div class="avx-v59-level-name">${esc(shopName)}</div></div><button type="button" class="avx-review-trigger compact" data-avito-reviews><span class="avx-review-stars">${reviewsStars(reviews.average||0)}</span><span>${Number(reviews.count||0)} отзывов</span></button></div></div><div class="avx-stats"><div><b>${number(inv.length)}</b><span>на складе</span></div><div><b>${sales}</b><span>продаж</span></div><div><b>${number(profit)} ₽</b><span>прибыль</span></div></div>${careerGate}<div class="avx-tabs"><button class="${avitoTab==='buy'?'active':''}" data-avito-tab="buy"><b>ЗАКУП</b><span>рынок</span></button><button class="${avitoTab==='sales'?'active':''}" data-avito-tab="sales"><b>ПРОДАЖИ</b><span>склад</span></button><button class="${avitoTab==='chats'?'active':''}" data-avito-tab="chats"><b>МОИ ЧАТЫ ${unread?`<i>${unread}</i>`:''}</b><span>клиенты</span></button><button class="${avitoTab==='demand'?'active':''} avx-demand-btn avx-demand-silver" data-avito-tab="demand"><b>СПРОС</b><span>рынок</span></button></div>${content}</div>`;
   }
 
   function renderAvitoChat(chat){
@@ -6238,10 +6255,13 @@ async function initFarm(){
     }catch(_){}
   }
 
-  async function openAvito(){
-    window.__avcForceBaseAvito=false;
+  async function openAvito({routeManaged=false,routeToken=0}={}){
+    // AVITO is a top-level niche. Opening it must never depend on a selected
+    // career/sub-niche. The existing Avito renderer and API remain untouched.
+    window.__avcForceBaseAvito=true;
     haptic('light');
-    openModal('Avito','<div class="loading">Загрузка площадки…</div>');
+    if(!routeManaged) openModal('Avito','<div class="loading">Загрузка площадки…</div>');
+    const isCurrentRoute=()=>!routeManaged || Number(window.__resellNicheState?.token||0)===Number(routeToken||0);
     try {
       try { await fetchAvito(); }
       catch (err) {
@@ -6249,11 +6269,19 @@ async function initFarm(){
         avitoState = avitoState && typeof avitoState === 'object' ? avitoState : {};
         window.__resellAvitoState = avitoState;
       }
-      modalBody.innerHTML=(window.renderAvitoWithCareer?window.renderAvitoWithCareer():renderAvito());
-      try { showAvitoUnlockPopup(); } catch(_) {}
+      if(!isCurrentRoute()) return;
+      window.__avcForceBaseAvito=true;
+      modalBody.innerHTML=renderAvito();
+      try { if(isCurrentRoute()) showAvitoUnlockPopup(); } catch(_) {}
     } catch(e) {
       console.error('[AVITO] render failed', e);
-      modalBody.innerHTML=`<div class="avito-shell"><div class="avito-hero marketplace"><div class="avito-kicker">AVITO</div><div class="avito-title">Площадка готовится</div><div class="avito-sub">Твоя площадка создаётся автоматически. Переключение ниши не требуется для обычной торговли.</div><button class="avx-btn buy" data-avito-safe-retry>ОБНОВИТЬ</button></div></div>`;
+      if(isCurrentRoute()){
+        // Never leave the user on the old "platform is preparing" dead end.
+        // Even if the API/renderer fails, show a deterministic Avito shell with
+        // a retry action; a later poll can replace it with the full interface.
+        const msg=String(e?.message||'Ошибка открытия интерфейса');
+        modalBody.innerHTML=`<div class="avito-shell avx-shell"><div class="avx-section"><div class="avx-info-hero"><div class="avx-info-icon">A</div><div><b>AVITO</b><span>Интерфейс не удалось отрисовать с первого раза.</span></div></div><div class="avx-info-note">${esc(msg).slice(0,180)}</div><button class="avx-btn buy" data-avito-safe-retry style="width:100%;margin-top:10px;min-height:46px">ОТКРЫТЬ AVITO</button></div></div>`;
+      }
     }
     clearInterval(avitoPoller);
     avitoPoller=setInterval(async()=>{
@@ -6261,11 +6289,31 @@ async function initFarm(){
       try {
         await fetchAvito();
         if(avitoEditing || document.querySelector('[data-avito-chat-sheet="1"]')) return;
-        modalBody.innerHTML=(window.renderAvitoWithCareer?window.renderAvitoWithCareer():renderAvito());
+        modalBody.innerHTML=renderAvito();
       } catch(_) {}
     },7000);
   }
-  $('#avitoBtn')?.addEventListener('click',openAvito);
+  window.__resellLegacyOpenAvito=openAvito;
+  // AVITO ENTRY FIX: this script appears before #avitoBtn in the HTML, so a
+  // direct query here can run too early and bind nothing. Bind after parsing
+  // without touching any other sections or mechanics.
+  const bindAvitoEntry=()=>{
+    const btn=document.getElementById('avitoBtn');
+    if(!btn || btn.dataset.resellAvitoBound==='1') return;
+    btn.dataset.resellAvitoBound='1';
+    btn.addEventListener('click',e=>{
+      e.preventDefault();
+      const router=window.__resellOpenNiche;
+      const legacy=window.__resellLegacyOpenAvito;
+      try{
+        if(typeof router==='function') return void Promise.resolve(router('avito')).catch(err=>console.error('[AVITO ENTRY]',err));
+        if(typeof legacy==='function') return void Promise.resolve(legacy()).catch(err=>console.error('[AVITO ENTRY]',err));
+      }catch(err){ console.error('[AVITO ENTRY]',err); }
+    });
+  };
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',bindAvitoEntry,{once:true});
+  else bindAvitoEntry();
+  setTimeout(bindAvitoEntry,150);
   modalBody.addEventListener('click',async(e)=>{
     const unlockClose=e.target.closest('[data-avito-unlock-close]'); if(unlockClose){e.target.closest('[data-avito-unlock-overlay]')?.remove();return;}
     const reviewOpen=e.target.closest('[data-avito-reviews]'); if(reviewOpen){avitoEditing=true;openModal('Avito',renderAvitoReviews());return;}
@@ -6497,7 +6545,7 @@ async function initFarm(){
       if (game === 'bot') openBot();
       if (game === 'business') openBusiness();
       if (game === 'trading') navigate(URLS.trading);
-      if (game === 'containers') { openContainersGame(); }
+      if (game === 'containers') { navigate(URLS.containers); }
       if (game === 'run') navigate(URLS.run);
     });
   });
@@ -6683,12 +6731,13 @@ async function initFarm(){
     </div>`;
   }
 
+  let _adminLogGridSeq=0;
   function renderAdminLog(l){
     const delta=Number(l.balance_delta||0);
     const status=Number(l.status_code||0);
     const money=delta!==0 ? `<span class="admin-log-money ${delta>0?'up':'down'}">${delta>0?'+':''}${number(delta)} ₽</span>` : '';
     const req=l.request_json?`<details class="admin-log-more"><summary>Входные данные</summary><pre>${esc(l.request_json)}</pre></details>`:'';
-    const gridId='bpgrid_'+_brandBlueprintSeq++; const tech=(l.method||l.path||l.ip||l.duration_ms)?`<div class="admin-log-tech"><b>${esc(l.method||'')}</b> ${esc(l.path||'')} · HTTP ${status||'—'} · ${Number(l.duration_ms||0).toFixed(0)} ms${l.ip?' · IP '+esc(l.ip):''}${l.request_id?' · req '+esc(String(l.request_id).slice(0,12)):''}</div>`:'';
+    const gridId='adminloggrid_'+(++_adminLogGridSeq); const tech=(l.method||l.path||l.ip||l.duration_ms)?`<div class="admin-log-tech"><b>${esc(l.method||'')}</b> ${esc(l.path||'')} · HTTP ${status||'—'} · ${Number(l.duration_ms||0).toFixed(0)} ms${l.ip?' · IP '+esc(l.ip):''}${l.request_id?' · req '+esc(String(l.request_id).slice(0,12)):''}</div>`:'';
     const state=(l.before_balance!==null&&l.before_balance!==undefined)?`<div class="admin-log-state">Баланс: ${number(l.before_balance)} ₽ → <b>${number(l.after_balance)} ₽</b> ${money}</div>`:'';
     return `<div class="admin-log ${delta!==0?'has-money':''}"><div class="admin-log-top"><span class="admin-log-action">${esc(l.action)}</span><span>${formatTime(l.created_at)}</span></div>${tech}${state}<div class="admin-log-detail">${l.target_tg_id?'Игрок: '+esc(l.target_tg_id)+' · ':''}${l.amount?((Number(l.amount)>0?'+':'')+number(l.amount)+' ₽ · '):''}${esc(l.details||'')}</div>${req}</div>`;
   }
@@ -7497,7 +7546,7 @@ async function initFarm(){
     }catch(_){return false;}
   }
 
-    let bootData=null;
+    bootData=null;
     setBootWelcome({identified:false});
     setBootState('ОПРЕДЕЛЯЕМ ВАШ АККАУНТ',6);
     // Wait for Telegram initData BEFORE the first profile request.
@@ -7598,6 +7647,49 @@ async function initFarm(){
     getAvitoState: () => avitoState
   };
 
+  // Stable global compatibility bridge for the isolated legacy UI modules.
+  // Each property points to the real live binding in this core scope, so
+  // later <script> blocks can safely use the original names without
+  // changing their existing mechanics. Setters are included only for
+  // bindings that existing modules already reassign.
+  const exposeLiveGlobal=(name,getter,setter)=>{
+    try{
+      const own=Object.prototype.hasOwnProperty.call(window,name);
+      const desc=own?Object.getOwnPropertyDescriptor(window,name):null;
+      if(!own || desc?.configurable){
+        Object.defineProperty(window,name,{configurable:true,enumerable:false,get:getter,set:setter||undefined});
+      }
+    }catch(_){}
+  };
+  exposeLiveGlobal('API_BASE',()=>API_BASE);
+  exposeLiveGlobal('userId',()=>userId,v=>{if(v!==undefined)userId=String(v||'');});
+  exposeLiveGlobal('telegramUserId',()=>telegramUserId,v=>{if(v!==undefined)telegramUserId=String(v||'');});
+  exposeLiveGlobal('profileData',()=>profileData,v=>{profileData=v;});
+  exposeLiveGlobal('friendsData',()=>friendsData,v=>{friendsData=v;});
+  exposeLiveGlobal('modalBody',()=>modalBody);
+  exposeLiveGlobal('currentLang',()=>currentLang,v=>{currentLang=v==='en'?'en':'ru';});
+  exposeLiveGlobal('avitoTab',()=>avitoTab,v=>{avitoTab=String(v||'buy');});
+  exposeLiveGlobal('engagementData',()=>engagementData,v=>{engagementData=v;});
+  exposeLiveGlobal('esc',()=>esc);
+  exposeLiveGlobal('number',()=>number);
+  exposeLiveGlobal('showToast',()=>showToast,v=>{if(typeof v==='function')showToast=v;});
+  exposeLiveGlobal('openModal',()=>openModal);
+  exposeLiveGlobal('closeModal',()=>closeModal);
+  exposeLiveGlobal('apiFetch',()=>apiFetch);
+  exposeLiveGlobal('telegramAuthHeaders',()=>telegramAuthHeaders);
+  exposeLiveGlobal('loadProfile',()=>loadProfile);
+  exposeLiveGlobal('loadEngagement',()=>loadEngagement);
+  exposeLiveGlobal('loadFriends',()=>loadFriends);
+  exposeLiveGlobal('setBalance',()=>setBalance);
+  exposeLiveGlobal('haptic',()=>haptic);
+  exposeLiveGlobal('openAvito',()=>openAvito);
+  exposeLiveGlobal('fetchAvito',()=>fetchAvito);
+  exposeLiveGlobal('renderAvito',()=>renderAvito);
+  exposeLiveGlobal('openFriendCompare',()=>openFriendCompare);
+  exposeLiveGlobal('$$',()=>$$);
+  exposeLiveGlobal('claimDailyCheckin',()=>claimDailyCheckin);
+  window.__resellCoreGlobalsReady=true;
+
   // Telegram can swap the signed session while this Mini App remains open.
   // Re-resolve identity on resume/focus before the next protected request.
   const refreshSessionIdentity=async()=>{
@@ -7610,7 +7702,7 @@ async function initFarm(){
         userId=signed; telegramUserId=signed;
         isOwner=String(userId)===ADMIN_OWNER_ID;
         if(before && before!==signed){
-          profileData=null; epochData=null; businessState=null; marketState=null;
+          profileData=null; epochData=null; businessState=null; try{window.__resellResetMarketState?.();}catch(_){}
           try{ sessionStorage.setItem('resell_account_switched','1'); }catch(_){}
         }
       }
@@ -7795,6 +7887,13 @@ async function initFarm(){
   }
 
   window.__resellOpenFriendsV19 = openFriendsV19;
+  window.__resellFirstLetter = firstLetter;
+  window.__resellFmtFriendMoney = fmtFriendMoney;
+  window.__resellFriendSearchMarkup = friendSearchMarkup;
+  window.__resellOpenFriendProfileV19 = openFriendProfileV19;
+  window.__resellRestoreRholdSkinV19 = restoreRholdSkinLocalV19;
+  window.__resellWatchRholdPanelV20 = watchRholdPanelV20;
+  window.__resellLoadRholdSkinV19 = loadRholdSkinV19;
   async function openRholdShopV19(){
     openModal(currentLang==='en'?'R-HOLD Store':'Магазин R-HOLD','<div class="loading">Загрузка коллекции…</div>');
     try{
@@ -7858,7 +7957,7 @@ async function initFarm(){
     document.querySelectorAll('.momentum-v19').forEach(x=>x.remove());
   }
   // Keep the working V18/V16 event system, only intercept Friends and add V19-only surfaces.
-  const timer=setInterval(()=>{ensureRholdButtonV19();ensureMomentumV19();if(engagementData)renderMomentumV19(document.querySelector('.momentum-v19'));},700);setTimeout(()=>clearInterval(timer),20000);
+  const timer=setInterval(()=>{ensureRholdButtonV19();ensureMomentumV19();try{if(engagementData&&typeof renderMomentumV19==='function')renderMomentumV19(document.querySelector('.momentum-v19'));}catch(_){ }},700);setTimeout(()=>clearInterval(timer),20000);
   setTimeout(()=>{if(profileData?.language==='en'&&!localStorage.getItem('resell_language')){try{localStorage.setItem('resell_language','en');}catch(_){};}currentLang=localStorage.getItem('resell_language')==='en'?'en':'ru';resellSetLanguage(currentLang);},1400);
   // Apply current language to existing registration and main UI after all V18 handlers are ready.
   window.addEventListener('load',()=>{try{currentLang=localStorage.getItem('resell_language')==='en'?'en':'ru';resellSetLanguage(currentLang);}catch(_){};});
@@ -8505,7 +8604,7 @@ async function initFarm(){
     document.querySelector('[data-v35-club-security]')?.addEventListener('click',()=>post('/resell/nightclub/{uid}/security',{},'Охрана усилена'));
     document.querySelector('[data-v35-club-collect]')?.addEventListener('click',()=>post('/resell/nightclub/{uid}/collect',{},'Доход клуба зачислен'));
     document.querySelectorAll('[data-v29-style],[data-v35-style]').forEach(b=>b.addEventListener('click',()=>post('/resell/nightclub/{uid}/style',{style_id:b.dataset.v29Style||b.dataset.v35Style},'Стиль клуба изменён')));
-    try{polishClub();}catch(_){}
+    try{window.__resellPolishClub?.();}catch(_){}
     document.querySelectorAll('[data-v33-go]').forEach(b=>b.remove());
     if(window.__resellMarketV6Timer){clearInterval(window.__resellMarketV6Timer);window.__resellMarketV6Timer=null;}  }
   async function openMarket(){
@@ -8521,6 +8620,8 @@ async function initFarm(){
   let lastSnapshot=null,unlockQueue=[],unlockShowing=false;
   function unlockRoot(){let o=document.getElementById('v33UnlockOverlay');if(o)return o;o=document.createElement('div');o.id='v33UnlockOverlay';o.className='v33-unlock-overlay';o.innerHTML='<div class="v33-unlock-card"><div class="v33-unlock-icon" id="v33UnlockIcon">✓</div><div class="v33-unlock-kicker" id="v33UnlockKicker">RESSELL UNLOCK</div><div class="v33-unlock-title" id="v33UnlockTitle">НОВЫЙ УРОВЕНЬ</div><div class="v33-unlock-sub" id="v33UnlockSub"></div><div class="v33-unlock-tag">ПОЛУЧЕНО</div><button class="v33-unlock-close" id="v33UnlockClose">ПРОДОЛЖИТЬ</button></div></div>';document.body.appendChild(o);o.addEventListener('click',e=>{if(e.target===o)nextUnlock();});o.querySelector('#v33UnlockClose').onclick=nextUnlock;return o;}
   function nextUnlock(){if(unlockQueue.length){const x=unlockQueue.shift();paintUnlock(x);return;}unlockShowing=false;unlockRoot().classList.remove('open');}
+  window.__resellResetMarketState=()=>{marketState=null;marketTab='home';marketBusy=false;};
+
   function paintUnlock(x){unlockShowing=true;const o=unlockRoot();o.querySelector('#v33UnlockIcon').textContent=x.icon;o.querySelector('#v33UnlockKicker').textContent=x.kicker;o.querySelector('#v33UnlockTitle').textContent=x.title;o.querySelector('#v33UnlockSub').textContent=x.sub;o.classList.add('open');try{core().showToast?.(x.toast||x.title)}catch(_){}}
   function canShowUnlockNow(){return !window.avitoEditing && !document.querySelector('[data-avito-chat-sheet="1"]');}
   function flushUnlockQueue(){if(!unlockShowing&&unlockQueue.length&&canShowUnlockNow()){const x=unlockQueue.shift();paintUnlock(x);}}
@@ -9544,7 +9645,36 @@ html[lang="en"] #resellHomeMoney #mainAssetsSection .main-tycoon-tag{display:inl
       return await r.json();
     }catch(_){return null;}
   }
-  function show(d){const o=document.getElementById('resellMaintenanceOverlay');if(!o)return;if(d?.enabled&&!d?.is_admin){o.classList.add('open');o.setAttribute('aria-hidden','false');document.body.style.overflow='hidden';}}
+  function show(d){
+    const o=document.getElementById('resellMaintenanceOverlay');
+    if(!o)return;
+    if(d?.enabled&&!d?.is_admin){
+      o.classList.add('open');
+      o.setAttribute('aria-hidden','false');
+      document.body.style.overflow='hidden';
+      // Maintenance must not block the Avito entry point. Keep the global
+      // maintenance screen for the rest of the app, but lift only Avito above it.
+      const avitoBtn=document.getElementById('avitoBtn');
+      if(avitoBtn){
+        avitoBtn.style.position='relative';
+        avitoBtn.style.zIndex='2147483647';
+        avitoBtn.style.pointerEvents='auto';
+        avitoBtn.dataset.maintenanceBypass='1';
+        avitoBtn.addEventListener('click',()=>{
+          o.classList.remove('open');
+          o.setAttribute('aria-hidden','true');
+          document.body.style.overflow='';
+          avitoBtn.style.position='';
+          avitoBtn.style.zIndex='';
+          avitoBtn.style.pointerEvents='';
+          delete avitoBtn.dataset.maintenanceBypass;
+        },{once:true,capture:true});
+      }
+    }
+  }
+  // The maintenance status can resolve before the main page button is parsed.
+  // Re-apply the Avito-only bypass after DOM construction without changing any
+  // other maintenance behaviour.
   status().then(show);
 })();
 </script>
@@ -9836,6 +9966,8 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
   async function go(index){if(rtBusy||index<0||index>=steps.length)return;rtBusy=true;try{saveIndex(index);rtIndex=index;const step=steps[index];if(step.action)await actionFor(step);render();await position();if(typeof haptic==='function')haptic('light')}finally{rtBusy=false}}
   function finishTutorial(){if(q('#modal')?.classList.contains('open'))closeModal();document.querySelectorAll('.resell-home-tab').forEach(x=>x.classList.remove('active'));homeNav()?.classList.add('active');if(moneyPage())moneyPage().hidden=false;if(morePage())morePage().hidden=true;markDone();window.__resellTutorialActive=false;rt?.classList.remove('open');document.body.style.overflow='';window.scrollTo({top:0,behavior:'smooth'});if(typeof haptic==='function')haptic('success')}
   async function start(opts={}){
+    // Legacy RESSELL onboarding is intentionally disabled. The main menu is the first screen for every player.
+    return;
     if(rtBusy)return;if(!opts.force&&completed())return;window.__resellTutorialActive=true;
     const saved=readState();rtIndex=opts.force?0:Math.max(0,Math.min(steps.length-1,Number(saved.index)||0));ensure();rt.classList.add('open');document.body.style.overflow='';render();await position();
   }
@@ -10005,14 +10137,34 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     return `<button type="button" class="avx-career-access ${m[2]}" data-avito-open-career aria-label="${careerEsc(m[1])}"><span class="avx-career-access-mark">${dir==='brand'?'R':dir==='investments'?'₽':'A'}</span><span class="avx-career-access-copy"><small>${careerEsc(m[0])}</small><b>${careerEsc(sub||m[1])}</b></span><strong>→</strong></button>`;
   }
 
+  // Stable cross-script bridge: legacy Avito is in a different script scope.
+  // Never expose the lexical function itself as a dependency of the legacy module.
+  window.__resellCareerData = careerData;
+  window.__resellCareerAccessButton = careerAccessButton;
+  setTimeout(()=>{try{if(window.__resellAvitoState?.career && window.__avcForceBaseAvito!==false){const body=(window.__resellCoreV26||{}).getModalBody?.()||document.getElementById('modalBody');if(body&&body.querySelector('.avito-shell')&&typeof window.__resellCoreV26?.renderAvito==='function'){body.innerHTML=window.__resellCoreV26.renderAvito();}}}catch(_){ }},0);
+
   function renderAvitoWithCareer(){
     try {
-      /* Avito is always the Avito marketplace. A selected career direction must
-         never replace this screen. The player's business is opened only by the
-         dedicated button rendered inside Avito. */
+      const core=window.__resellCoreV26||{};
+      const c=careerData()||{};
+      const balance=Number(window.__resellAvitoState?.balance ?? profileData?.balance ?? 0);
+      // Keep the user inside the selected career niche after every action.
+      // The old implementation always rendered legacy Avito here, which made
+      // successful Brand actions appear to redirect to the main Resell screen.
+      if(c.direction && (c[c.direction] || c.direction==='brand')){
+        window.__avcForceBaseAvito=false;
+        core.setAvitoEditing?.(true);
+        window.__careerTab=window.__careerTab||'overview';
+        return renderCareerDashboard(c,balance);
+      }
       window.__avcForceBaseAvito=true;
-      return renderAvito();
-    } catch(err) { console.warn('[AVITO CAREER] fallback',err); return renderAvito(); }
+      if(typeof core.renderAvito!=='function') throw new Error('Avito renderer is not initialized');
+      return core.renderAvito();
+    } catch(err) {
+      console.warn('[AVITO CAREER] renderer bridge fallback',err);
+      const core=window.__resellCoreV26||{};
+      return typeof core.renderAvito==='function' ? core.renderAvito() : '<div class="avito-shell"><div class="avx-empty">Интерфейс ещё загружается. Попробуй открыть нишу ещё раз.</div></div>';
+    }
   }
 
   function openCareerBusinessDirect(){
@@ -10043,7 +10195,13 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
   function renderCareerDashboard(c,balance){
     const dir=c.direction;
     if(dir==='infobusiness') return renderInfo(c.infobusiness||{},balance);
-    if(dir==='brand') return renderBrand(c.brand||{},balance);
+    // Brand V3 lives in a separate script block. Use the explicit bridge so
+    // Safari/Telegram WebView cannot silently fall back to the legacy Brand UI.
+    if(dir==='brand'){
+      const v3=window.__resellRenderBrandV3;
+      if(typeof v3==='function') return v3(c.brand||{},balance);
+      return renderBrand(c.brand||{},balance);
+    }
     return renderInvest(c.investments||{},balance);
   }
   function avcJourney(dir){
@@ -10404,7 +10562,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     modal.classList.add('open'); modal.setAttribute('aria-hidden','false');
     const toggles={};modal.querySelectorAll('[data-sp-toggle]').forEach(x=>x.onclick=()=>{const k=x.dataset.spToggle;toggles[k]=!toggles[k];x.classList.toggle('active',!!toggles[k]);});
     if(action==='brand_add_product'){ const cats=modal.querySelectorAll('[data-product-cat]'); cats.forEach((x,i)=>x.onclick=()=>{cats.forEach(y=>y.classList.remove('active'));x.classList.add('active')}); cats[0]?.classList.add('active'); modal.querySelectorAll('[data-tier]').forEach(x=>x.onclick=()=>{modal.querySelectorAll('[data-tier]').forEach(y=>y.classList.remove('active'));x.classList.add('active')}); }
-    if(action==='brand_production'){ const productionCap=Math.max(50,Number(cap)||300), range=modal.querySelector('#spBatch'), qty=modal.querySelector('#spQtyShow'), unit=modal.querySelector('#spUnitShow'), total=modal.querySelector('#spTotalShow'), tm=modal.querySelector('#spTimeShow'); let fabric=modal.querySelector('[data-fabric].active'), supplier=modal.querySelector('[data-supplier].active'), supplierDeal=modal.querySelector('[data-supplier-deal].active'); const normalize=()=>{if(!range)return 50; let n=parseInt(range.value,10); if(!Number.isFinite(n))n=50; n=Math.max(50,Math.min(productionCap,n)); n=Math.floor(n/50)*50; if(n<50)n=50; range.value=String(n); return n}; const calc=()=>{const n=normalize(), base=Number(fabric?.dataset.fabricCost||1200), mult={local:1.15,asia:.82,premium:1.35}[supplier?.dataset.supplier||'local']||1.15; const dealMult={standard:1,bargain:.93,rush:1.10}[supplierDeal?.dataset.supplierDeal||'standard']||1; mult*=dealMult; const c=Math.max(100,Math.round(base*mult)), t=Math.max(1,Math.ceil(1+n/150+(supplier?.dataset.supplier==='asia'?3:0))); if(qty)qty.textContent=n.toLocaleString('ru-RU');if(unit)unit.textContent=c.toLocaleString('ru-RU')+' ₽';if(total)total.textContent=(n*c).toLocaleString('ru-RU')+' ₽';if(tm)tm.textContent='~ '+t+' мин.'}; modal.querySelectorAll('[data-fabric]').forEach(x=>x.onclick=()=>{modal.querySelectorAll('[data-fabric]').forEach(y=>y.classList.remove('active'));x.classList.add('active');fabric=x;calc()}); modal.querySelectorAll('[data-supplier]').forEach(x=>x.onclick=()=>{modal.querySelectorAll('[data-supplier]').forEach(y=>y.classList.remove('active'));x.classList.add('active');supplier=x;calc()}); modal.querySelectorAll('[data-supplier-deal]').forEach(x=>x.onclick=()=>{modal.querySelectorAll('[data-supplier-deal]').forEach(y=>y.classList.remove('active'));x.classList.add('active');supplierDeal=x;calc()}); modal.querySelectorAll('[data-qty-preset]').forEach(x=>x.onclick=()=>{range.value=String(Math.min(productionCap,Math.max(50,Number(x.dataset.qtyPreset)||50)));calc()}); modal.querySelector('#spQtyMinus')?.addEventListener('click',()=>{range.value=String(Math.max(50,normalize()-50));calc()}); modal.querySelector('#spQtyPlus')?.addEventListener('click',()=>{range.value=String(Math.min(productionCap,normalize()+50));calc()}); range?.addEventListener('input',calc);range?.addEventListener('change',calc);calc(); }
+    if(action==='brand_production'){ const productionCap=Math.max(50,Number((careerData().brand?.factory||{}).capacity)||300), range=modal.querySelector('#spBatch'), qty=modal.querySelector('#spQtyShow'), unit=modal.querySelector('#spUnitShow'), total=modal.querySelector('#spTotalShow'), tm=modal.querySelector('#spTimeShow'); let fabric=modal.querySelector('[data-fabric].active'), supplier=modal.querySelector('[data-supplier].active'), supplierDeal=modal.querySelector('[data-supplier-deal].active'); const normalize=()=>{if(!range)return 50; let n=parseInt(range.value,10); if(!Number.isFinite(n))n=50; n=Math.max(50,Math.min(productionCap,n)); n=Math.floor(n/50)*50; if(n<50)n=50; range.value=String(n); return n}; const calc=()=>{const n=normalize(), base=Number(fabric?.dataset.fabricCost||1200), mult={local:1.15,asia:.82,premium:1.35}[supplier?.dataset.supplier||'local']||1.15; const dealMult={standard:1,bargain:.93,rush:1.10}[supplierDeal?.dataset.supplierDeal||'standard']||1; mult*=dealMult; const c=Math.max(100,Math.round(base*mult)), t=Math.max(1,Math.ceil(1+n/150+(supplier?.dataset.supplier==='asia'?3:0))); if(qty)qty.textContent=n.toLocaleString('ru-RU');if(unit)unit.textContent=c.toLocaleString('ru-RU')+' ₽';if(total)total.textContent=(n*c).toLocaleString('ru-RU')+' ₽';if(tm)tm.textContent='~ '+t+' мин.'}; modal.querySelectorAll('[data-fabric]').forEach(x=>x.onclick=()=>{modal.querySelectorAll('[data-fabric]').forEach(y=>y.classList.remove('active'));x.classList.add('active');fabric=x;calc()}); modal.querySelectorAll('[data-supplier]').forEach(x=>x.onclick=()=>{modal.querySelectorAll('[data-supplier]').forEach(y=>y.classList.remove('active'));x.classList.add('active');supplier=x;calc()}); modal.querySelectorAll('[data-supplier-deal]').forEach(x=>x.onclick=()=>{modal.querySelectorAll('[data-supplier-deal]').forEach(y=>y.classList.remove('active'));x.classList.add('active');supplierDeal=x;calc()}); modal.querySelectorAll('[data-qty-preset]').forEach(x=>x.onclick=()=>{range.value=String(Math.min(productionCap,Math.max(50,Number(x.dataset.qtyPreset)||50)));calc()}); modal.querySelector('#spQtyMinus')?.addEventListener('click',()=>{range.value=String(Math.max(50,normalize()-50));calc()}); modal.querySelector('#spQtyPlus')?.addEventListener('click',()=>{range.value=String(Math.min(productionCap,normalize()+50));calc()}); range?.addEventListener('input',calc);range?.addEventListener('change',calc);calc(); }
 
     if(action==='brand_sell'){ modal.querySelectorAll('[data-sale-channel]').forEach(x=>x.onclick=()=>{modal.querySelectorAll('[data-sale-channel]').forEach(y=>y.classList.remove('active'));x.classList.add('active');state.channel=x.dataset.saleChannel||'avito';}); modal.querySelectorAll('[data-negotiation]').forEach(x=>x.onclick=()=>{modal.querySelectorAll('[data-negotiation]').forEach(y=>y.classList.remove('active'));x.classList.add('active');state.negotiation=x.dataset.negotiation||'firm';}); }
     modal.querySelectorAll('[data-sp-thesis]').forEach(x=>x.onclick=()=>{modal.querySelectorAll('[data-sp-thesis]').forEach(y=>y.classList.remove('active'));x.classList.add('active');state.thesis=x.dataset.spThesis;const btn=modal.querySelector('#cnSpecialConfirm');if(btn&&action==='invest_project'){btn.textContent=state.thesis==='watch'?'НАБЛЮДАТЬ':state.thesis==='skip'?'ПРОПУСТИТЬ':'ВЛОЖИТЬСЯ →';const amount=modal.querySelector('.inv-amount-label');if(amount)amount.style.display=state.thesis==='value'?'block':'none';}});
@@ -10877,7 +11035,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
       shell('РЕКЛАМА','Найди своего блогера','Не просто потрать бюджет: договорись о цене и получи реальный прирост спроса.',`${bloggers.map((x,i)=>`<button data-bv-blogger="${x.id}" class="brand-v2-blogger ${i===0?'selected':''}"><b>${x.handle}</b><span>${careerMoney(x.audience)} аудитории · ${careerMoney(x.price)} ₽</span><small>Охват ~${careerMoney(x.reach)} · соответствие ${'★'.repeat(x.fit)}</small></button>`).join('')||'<div class="brand-v2-empty">Обнови экран, чтобы получить список блогеров.</div>'}`,'Начать переговоры');
       modal.querySelectorAll('[data-bv-blogger]').forEach(x=>x.onclick=()=>{modal.querySelectorAll('[data-bv-blogger]').forEach(y=>y.classList.remove('selected'));x.classList.add('selected');selected=x.dataset.bvBlogger});return new Promise(resolve=>{modal.querySelector('[data-brand-cancel]').onclick=()=>{close();resolve(null)};modal.querySelector('#brandV2Confirm').onclick=()=>{const b=bloggers.find(x=>x.id===selected)||bloggers[0];close();resolve({blogger_id:selected,amount:Math.max(100000,Math.round(Number(b.price||180000)*.75)),model:'cash'})}});
     }
-    if(action==='brand_warehouse_v2'){shell('СКЛАД','Твои товары','Выбери товар, чтобы посмотреть остаток и результат продаж.',products.map(p=>`<div class="brand-v2-list-row"><b>${text(p.title)}</b><span>${careerMoney(p.stock)} шт. · ${careerMoney(p.sold)} продано · ${money(p.price)}</span></div>`).join('')||'<div class="brand-v2-empty">Склад пуст.</div>','Закрыть');return new Promise(resolve=>{modal.querySelector('[data-brand-cancel]').onclick=()=>{close();resolve(null)};modal.querySelector('#brandV2Confirm').onclick=()=>{close();resolve(null)}})}
+    if(action==='brand_warehouse_v2'){shell('СКЛАД','Твои товары','Выбери товар, чтобы посмотреть остаток и результат продаж.',products.map(p=>`<div class="brand-v2-list-row"><b>${text(p.title)}</b><span>${careerMoney(p.stock)} шт. · ${careerMoney(p.sold)} продано · ${careerMoney(p.price)} ₽</span></div>`).join('')||'<div class="brand-v2-empty">Склад пуст.</div>','Закрыть');return new Promise(resolve=>{modal.querySelector('[data-brand-cancel]').onclick=()=>{close();resolve(null)};modal.querySelector('#brandV2Confirm').onclick=()=>{close();resolve(null)}})}
     return null;
   }
 
@@ -10949,7 +11107,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
       const rawBalance=Number(r.balance??oldBalance); const balance=Number.isFinite(rawBalance)?rawBalance:oldBalance;
       core.setProfileBalance?.(balance); core.setBalance?.(balance); window.__resellAvitoState=window.__resellAvitoState||{}; window.__resellAvitoState.career=r.career||window.__resellAvitoState.career||{}; window.__resellAvitoState.balance=balance;
       window.__avcLastResult={action,message:String(r.message||'Действие выполнено.'),at:Date.now(),balance};
-      if(body) { body.innerHTML=renderAvitoWithCareer(); body.scrollTop=0; }
+      if(body) { body.innerHTML=renderAvitoWithCareer(); body.scrollTop=0; setTimeout(()=>{try{animateBrandRouteTrucks(body)}catch(_){ }},0); }
       core.showToast?.(r.message||'Решение сохранено.');
       return r;
     } finally {
@@ -11007,8 +11165,47 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     if(action.startsWith('brand_v3_') && typeof window.__resellBrandV3Run==='function'){ window.__resellBrandV3Run(act); return; }
     avcRunAction(act);
   }
+  // Unified top-level career-niche opener. It reuses the existing career API
+  // and existing renderers; only the route/entry point is centralized here.
+  window.__resellOpenCareerNiche=async function(direction,routeToken=0){
+    const dir=String(direction||'').trim().toLowerCase();
+    const allowed={infobusiness:1,brand:1,investments:1};
+    if(!allowed[dir])throw new Error('Неизвестное направление');
+    const core=window.__resellCoreV26||{}, body=core.getModalBody?.()||document.getElementById('modalBody');
+    if(!body)throw new Error('Экран ниши недоступен');
+    const current=careerData()||{};
+    window.__avcForceBaseAvito=false; core.setAvitoEditing?.(true); window.__careerTab='overview';
+    if(current.direction && current.direction!==dir)throw new Error('У аккаунта уже открыто другое направление.');
+    if(current.direction===dir){
+      const balance=Number(window.__resellAvitoState?.balance ?? profileData?.balance ?? 0);
+      if(Number(window.__resellNicheState?.token||0)===Number(routeToken||0)){body.innerHTML=renderCareerDashboard({...current,direction:dir},balance);body.scrollTop=0;}
+      return true;
+    }
+    const uid=String(core.getUserId?.()||''); if(!uid)throw new Error('Не найден аккаунт RESSELL');
+    const r=await core.tycoonFetch(`/avito/${encodeURIComponent(uid)}/career/choose`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({direction:dir})});
+    if(!r?.success)throw new Error(r?.message||r?.error||'Не удалось открыть направление');
+    if(Number(window.__resellNicheState?.token||0)!==Number(routeToken||0))return false;
+    const balance=Number(r.balance??window.__resellAvitoState?.balance??0);
+    core.setProfileBalance?.(balance); core.setBalance?.(balance);
+    window.__resellAvitoState=window.__resellAvitoState||{};
+    window.__resellAvitoState.career=r.career||{}; window.__resellAvitoState.balance=balance;
+    body.innerHTML=renderCareerDashboard(window.__resellAvitoState.career,balance); body.scrollTop=0;
+    return true;
+  };
   // Capture phase is intentional: older Avito handlers are registered on modalBody.
   document.addEventListener('click',handleCareerClick,true);
+  // Compatibility bridge for the Brand V3 script. Keep all existing career logic intact;
+  // expose only the already-existing helpers so separate Telegram WebView script scopes
+  // cannot turn them into ReferenceError/"career money" errors.
+  window.__resellCareerMoney=careerMoney;
+  window.__resellCareerRunAction=avcRunAction;
+  window.avcRunAction=avcRunAction;
+  window.__resellCareerEsc=careerEsc;
+  window.__resellCareerData=careerData;
+  window.__resellCareerPost=careerPost;
+  window.__resellAvcEnsureDecision=avcEnsureDecision;
+  window.__resellCareerShell=avcShell;
+  window.__resellRenderAvitoWithCareer=renderAvitoWithCareer;
   window.renderAvitoWithCareer=renderAvitoWithCareer;
   if(!window.__avcLivePulse){
     // Read-only UI ticker. It never posts career actions, never grants money, and never mutates server state.
@@ -11593,6 +11790,24 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 
 /* ==================== RESELL BRAND V3 FRONTEND ==================== */
 (function(){
+  // Cross-script compatibility aliases. These do not replace or modify any existing
+  // Brand V3 feature; they only resolve helpers owned by the Career script.
+  const careerEsc=window.__resellCareerEsc||((v)=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])));
+  const careerMoney=window.__resellCareerMoney||((v)=>Math.round(Number(v)||0).toLocaleString('ru-RU'));
+  const careerData=window.__resellCareerData||(()=>window.__resellAvitoState?.career||{});
+  const careerPost=window.__resellCareerPost||((action,payload)=>Promise.reject(new Error('Career API is not initialized')));
+  const avcEnsureDecision=window.__resellAvcEnsureDecision||(()=>{
+    let modal=document.getElementById('avcDecisionModal');
+    if(modal)return modal;
+    modal=document.createElement('div'); modal.id='avcDecisionModal'; modal.className='avp-decision-modal'; modal.setAttribute('aria-hidden','true');
+    modal.innerHTML='<div class="avp-decision-card"><button type="button" class="avp-decision-close" data-decision-cancel>×</button><div class="avp-decision-kicker">RESSELL</div><h3>Действие</h3><div class="avp-decision-body"></div><button type="button" class="avp-primary avp-confirm" id="cnSpecialConfirm">Продолжить</button></div>';
+    document.body.appendChild(modal); return modal;
+  });
+  const renderAvitoWithCareer=window.__resellRenderAvitoWithCareer||window.renderAvitoWithCareer;
+  const avcShell=window.__resellCareerShell||function(dir,title,kicker,sub,balance,content){
+    const esc=careerEsc||((v)=>String(v??'')); const money=careerMoney||((v)=>Math.round(Number(v)||0).toLocaleString('ru-RU'));
+    return `<div class="career-new ${esc(dir)}"><button type="button" class="avc-return-avito" data-career-back aria-label="Вернуться в Avito" title="Вернуться в Avito"><span class="avc-avito-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span></button><div class="cn-nav avc-subnav"><span>${esc(kicker)}</span><b>${money(balance)} ₽</b></div><div class="cn-title"><small>${esc(kicker)}</small><h1>${esc(title)}</h1><p>${esc(sub)}</p></div>${content}</div>`;
+  };
   const $=(sel,root=document)=>root.querySelector(sel);
   const $$=(sel,root=document)=>Array.from(root.querySelectorAll(sel));
   const escV=v=>{try{return careerEsc(v)}catch(_){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}};
@@ -11607,8 +11822,24 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
   const cuts=[['regular','Regular'],['oversize','Oversize'],['slim','Slim'],['cropped','Cropped'],['long','Long']];
   const materialCosts={cotton:1200,premium_cotton:1800,organic:2300,tech:2800,denim:1900,leatherette:3200};
   const materialNames={cotton:'Хлопок',premium_cotton:'Premium Cotton',organic:'Organic',tech:'Tech Fabric',denim:'Denim',leatherette:'Eco Leather'};
-  const cityCoords={'New York':[40.71,-74.00],'London':[51.51,-.13],'Tokyo':[35.68,139.69],'Paris':[48.86,2.35],'Moscow':[55.76,37.62],'Berlin':[52.52,13.40],'Dubai':[25.20,55.27],'Los Angeles':[34.05,-118.24]};
-  const cityFlags={'New York':'🇺🇸','London':'🇬🇧','Tokyo':'🇯🇵','Paris':'🇫🇷','Moscow':'🇷🇺','Berlin':'🇩🇪','Dubai':'🇦🇪','Los Angeles':'🇺🇸'};
+  const brandCountries={
+    'Россия':{'flag':'🇷🇺','code':'RU','cities':{'Moscow':[55.76,37.62],'Saint Petersburg':[59.93,30.33],'Novosibirsk':[55.03,82.92],'Yekaterinburg':[56.84,60.61],'Kazan':[55.79,49.12],'Nizhny Novgorod':[56.33,44.00],'Krasnoyarsk':[56.01,92.87],'Chelyabinsk':[55.16,61.40],'Samara':[53.20,50.15],'Rostov-on-Don':[47.24,39.71]}},
+    'Германия':{'flag':'🇩🇪','code':'DE','cities':{'Berlin':[52.52,13.40],'Hamburg':[53.55,9.99],'Munich':[48.14,11.58],'Cologne':[50.94,6.96],'Frankfurt':[50.11,8.68],'Stuttgart':[48.78,9.18],'Dusseldorf':[51.23,6.78],'Leipzig':[51.34,12.37],'Dortmund':[51.51,7.47],'Bremen':[53.08,8.80]}},
+    'Великобритания':{'flag':'🇬🇧','code':'UK','cities':{'London':[51.51,-0.13],'Birmingham':[52.48,-1.90],'Manchester':[53.48,-2.24],'Glasgow':[55.86,-4.25],'Liverpool':[53.41,-2.99],'Bristol':[51.45,-2.59],'Leeds':[53.80,-1.55],'Edinburgh':[55.95,-3.19],'Cardiff':[51.48,-3.18],'Belfast':[54.60,-5.93]}},
+    'Франция':{'flag':'🇫🇷','code':'FR','cities':{'Paris':[48.86,2.35],'Marseille':[43.30,5.37],'Lyon':[45.76,4.84],'Toulouse':[43.60,1.44],'Nice':[43.71,7.26],'Nantes':[47.22,-1.55],'Strasbourg':[48.57,7.75],'Montpellier':[43.61,3.88],'Bordeaux':[44.84,-0.58],'Lille':[50.63,3.06]}},
+    'США':{'flag':'🇺🇸','code':'US','cities':{'New York':[40.71,-74.00],'Los Angeles':[34.05,-118.24],'Chicago':[41.88,-87.63],'Houston':[29.76,-95.37],'Phoenix':[33.45,-112.07],'Philadelphia':[39.95,-75.17],'San Antonio':[29.42,-98.49],'San Diego':[32.72,-117.16],'Dallas':[32.78,-96.80],'San Jose':[37.34,-121.89]}},
+    'Япония':{'flag':'🇯🇵','code':'JP','cities':{'Tokyo':[35.68,139.69],'Yokohama':[35.44,139.64],'Osaka':[34.69,135.50],'Nagoya':[35.18,136.91],'Sapporo':[43.06,141.35],'Fukuoka':[33.59,130.40],'Kobe':[34.69,135.20],'Kyoto':[35.01,135.77],'Kawasaki':[35.53,139.70],'Saitama':[35.86,139.65]}},
+    'ОАЭ':{'flag':'🇦🇪','code':'AE','cities':{'Dubai':[25.20,55.27],'Abu Dhabi':[24.45,54.38],'Sharjah':[25.35,55.42],'Ajman':[25.41,55.44],'Al Ain':[24.21,55.74],'Ras Al Khaimah':[25.79,55.94],'Fujairah':[25.13,56.33],'Umm Al Quwain':[25.56,55.56]}},
+    'Китай':{'flag':'🇨🇳','code':'CN','cities':{'Shanghai':[31.23,121.47],'Beijing':[39.90,116.41],'Guangzhou':[23.13,113.26],'Shenzhen':[22.54,114.06],'Chengdu':[30.57,104.07],'Chongqing':[29.56,106.55],'Tianjin':[39.08,117.20],'Wuhan':[30.59,114.31],'Hangzhou':[30.27,120.15],'Nanjing':[32.06,118.80]}},
+    'Италия':{'flag':'🇮🇹','code':'IT','cities':{'Rome':[41.90,12.50],'Milan':[45.46,9.19],'Naples':[40.85,14.27],'Turin':[45.07,7.69],'Palermo':[38.12,13.36],'Genoa':[44.41,8.93],'Bologna':[44.49,11.34],'Florence':[43.77,11.26],'Bari':[41.12,16.87],'Venice':[45.44,12.32]}},
+    'Испания':{'flag':'🇪🇸','code':'ES','cities':{'Madrid':[40.42,-3.70],'Barcelona':[41.39,2.17],'Valencia':[39.47,-0.38],'Seville':[37.39,-5.98],'Zaragoza':[41.65,-0.89],'Malaga':[36.72,-4.42],'Murcia':[37.99,-1.13],'Palma':[39.57,2.65],'Bilbao':[43.26,-2.93],'Alicante':[38.35,-0.48]}},
+    'Турция':{'flag':'🇹🇷','code':'TR','cities':{'Istanbul':[41.01,28.98],'Ankara':[39.93,32.86],'Izmir':[38.42,27.14],'Bursa':[40.19,29.06],'Antalya':[36.90,30.70],'Adana':[37.00,35.32],'Konya':[37.87,32.49],'Gaziantep':[37.07,37.38],'Mersin':[36.80,34.63],'Kayseri':[38.72,35.49]}},
+    'Канада':{'flag':'🇨🇦','code':'CA','cities':{'Toronto':[43.65,-79.38],'Montreal':[45.50,-73.57],'Vancouver':[49.28,-123.12],'Calgary':[51.05,-114.07],'Edmonton':[53.55,-113.49],'Ottawa':[45.42,-75.70],'Winnipeg':[49.90,-97.14],'Quebec City':[46.81,-71.21],'Hamilton':[43.26,-79.87],'Halifax':[44.65,-63.57]}}
+  };
+  const cityCoords=Object.values(brandCountries).reduce((a,c)=>Object.assign(a,c.cities),{});
+  const cityFlags=Object.values(brandCountries).reduce((a,c)=>{Object.keys(c.cities).forEach(x=>a[x]=c.flag);return a},{});
+  const cityCountries=Object.values(brandCountries).reduce((a,c)=>{Object.keys(c.cities).forEach(x=>a[x]=c.code);return a},{});
+  const countryNamesByCode=Object.fromEntries(Object.entries(brandCountries).map(([name,c])=>[c.code,name]));
 
   function categoryName(id){return (cats.find(x=>x[0]===id)||[,id])[1];}
   function brandState(){return careerData()?.brand||{};}
@@ -11620,68 +11851,74 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 
   let _brandBlueprintSeq=0;
   function brandV3BlueprintSvg(category, opts={}){
-    const primary=safeHexV(opts.primary,'#111111'), secondary=safeHexV(opts.secondary,'#FFFFFF'), accent=safeHexV(opts.accent,'#4ADE80');
+    const ink='#252a27', muted='#9aa39d', accent=safeHexV(opts.accent,'#6f8d76');
     const cut=String(opts.cut||'regular'), length=clampV(opts.length_pct,0,100), width=clampV(opts.width_pct,0,100);
     const sleeves=String(opts.sleeves||'standard'), pocket=String(opts.pocket||'none'), collar=String(opts.collar||'standard'), hood=String(opts.hood||'none');
-    const logo=String(opts.logoText||opts.logo_text||'').trim(), print=String(opts.printText||opts.print_text||'').trim(), pattern=String(opts.patternText||opts.pattern_text||'').trim();
-    const bodyW=105+Math.round(width*.55), bodyX=(320-bodyW)/2, top=54, bodyH=112+Math.round(length*.54);
-    const seam=`stroke="${secondary}" stroke-width="2" stroke-dasharray="5 5" fill="none" opacity=".72"`;
-    const line=`stroke="${accent}" stroke-width="2.1" fill="none" opacity=".9"`;
-    const fill=`fill="${primary}" stroke="${secondary}" stroke-width="2.2"`;
-    const gridId='bpgrid_'+(++_brandBlueprintSeq);
-    const tech=`stroke="${secondary}" stroke-width="1" fill="none" opacity=".4"`;
-    const label=`fill="${secondary}" font-family="Montserrat" font-size="6.5" opacity=".82"`;
-    const annotation=(x,y,text,tx,ty)=>`<path d="M${x} ${y} L${tx} ${ty}" ${tech}/><circle cx="${x}" cy="${y}" r="2.5" fill="${accent}"/><text x="${tx+4}" y="${ty+2}" ${label}>${escV(text)}</text>`;
-    let shape='';
-    if(category==='jacket'||category==='coat'){
-      const x=bodyX,y=top,w=bodyW,h=bodyH;
-      const sleeveW=sleeves==='wide'?47:sleeves==='cropped'?29:36;
-      const sleeveH=sleeves==='cropped'?55:78;
-      shape=`<path d="M${x+35} ${y} L${x+8} ${y+18} L${x-sleeveW} ${y+sleeveH} L${x+4} ${y+sleeveH+20} L${x+27} ${y+64} L${x+27} ${y+h} L${x+w-27} ${y+h} L${x+w-27} ${y+64} L${x+w-4} ${y+sleeveH+20} L${x+w+sleeveW} ${y+sleeveH} L${x+w-8} ${y+18} L${x+w-35} ${y} Z" ${fill}/><path d="M${x+42} ${y+4} L${x+w/2} ${y+38} L${x+w-42} ${y+4}" ${seam}/><path d="M${x+w/2} ${y+38} V${y+h}" ${line}/><rect x="${x+w/2-5}" y="${y+48}" width="10" height="${Math.max(12,Math.round(h*.78))}" rx="3" fill="${accent}" opacity=".8"/>`;
-      if(cut==='oversize') shape+=`<path d="M${x-32} ${y+98} H${x+12}" ${seam}/><path d="M${x+w-12} ${y+98} H${x+w+32}" ${seam}/>`;
-      if(pocket==='side') shape+=`<path d="M${x+16} ${y+92} l28 22" ${line}/><path d="M${x+w-16} ${y+92} l-28 22" ${line}/>`;
-      if(pocket==='chest') shape+=`<rect x="${x+17}" y="${y+66}" width="38" height="25" rx="5" ${seam}/><rect x="${x+w-55}" y="${y+66}" width="38" height="25" rx="5" ${seam}/>`;
-      if(pocket==='cargo') shape+=`<rect x="${x+10}" y="${y+98}" width="38" height="32" rx="5" ${line}/><rect x="${x+w-48}" y="${y+98}" width="38" height="32" rx="5" ${line}/>`;
-      if(collar==='high') shape+=`<path d="M${x+48} ${y+3} L${x+57} ${y-14} H${x+w-57} L${x+w-48} ${y+3}" ${line}/>`;
-      if(collar==='stand') shape+=`<path d="M${x+50} ${y+3} H${x+w-50} V${y+15} H${x+50} Z" ${line}/>`;
-      if(hood==='normal'||hood==='large') shape+=`<path d="M${x+w/2-48} ${y+18} Q${x+w/2} ${y-35-(hood==='large'?16:0)} ${x+w/2+48} ${y+18}" ${line}/>`;
-    } else if(category==='hoodie'){
-      const x=bodyX-8,y=top+3,w=bodyW+16,h=bodyH-8, sleeveW=sleeves==='wide'?46:sleeves==='cropped'?30:35;
-      shape=`<path d="M${x+32} ${y+25} L${x+4} ${y+37} L${x-sleeveW} ${y+84} L${x+7} ${y+105} L${x+28} ${y+75} V${y+h} H${x+w-28} V${y+75} L${x+w-7} ${y+105} L${x+w+sleeveW} ${y+84} L${x+w-4} ${y+37} L${x+w-32} ${y+25} Q${x+w/2} ${y-18} ${x+w-32} ${y+25} Z" ${fill}/><path d="M${x+34} ${y+19} Q${x+w/2} ${y-18} ${x+w-34} ${y+19}" ${line}/><path d="M${x+42} ${y+76} Q${x+w/2} ${y+105} ${x+w-42} ${y+76}" ${seam}/>`;
-      if(pocket==='side'||pocket==='cargo') shape+=`<path d="M${x+34} ${y+93} Q${x+w/2} ${y+122} ${x+w-34} ${y+93}" ${line}/>`;
-      if(hood==='none') shape+=`<path d="M${x+w/2-22} ${y+18} Q${x+w/2} ${y+30} ${x+w/2+22} ${y+18}" ${line}/>`;
-      if(hood==='large'||hood==='normal') shape+=`<path d="M${x+w/2-55} ${y+12} Q${x+w/2} ${y-35-(hood==='large'?14:0)} ${x+w/2+55} ${y+12}" ${line}/>`;
-    } else if(category==='tshirt'){
-      const x=bodyX,y=top+18,w=bodyW,h=bodyH-38;
-      shape=`<path d="M${x+35} ${y} L${x+4} ${y+12} L${x-31} ${y+60} L${x+6} ${y+82} L${x+29} ${y+55} V${y+h} H${x+w-29} V${y+55} L${x+w-6} ${y+82} L${x+w+31} ${y+60} L${x+w-4} ${y+12} L${x+w-35} ${y} Q${x+w/2} ${y+36} ${x+35} ${y} Z" ${fill}/><path d="M${x+35} ${y} Q${x+w/2} ${y+36} ${x+w-35} ${y}" ${line}/>`;
-      if(pocket==='chest') shape+=`<rect x="${x+w/2+8}" y="${y+54}" width="35" height="24" rx="4" ${seam}/>`;
-      if(collar==='high'||collar==='stand') shape+=`<path d="M${x+w/2-24} ${y+5} Q${x+w/2} ${y+24} ${x+w/2+24} ${y+5}" ${line}/>`;
-    } else if(category==='pants'||category==='jeans'||category==='shorts'){
-      const x=bodyX+4,y=top+10,w=bodyW-8,h=bodyH-6,leg=Math.max(32,Math.round(w*.38));
-      const legH=category==='shorts'?h*.66:h;
-      shape=`<path d="M${x} ${y} H${x+w} L${x+w-8} ${y+legH*.58} L${x+w-leg} ${y+legH*.58} L${x+w-leg-8} ${y+legH} H${x+w-leg-25} L${x+w/2} ${y+legH*.58} L${x+25} ${y+legH} H${x+8} L${x+leg} ${y+legH*.58} L${x+8} ${y+legH*.58} Z" ${fill}/><path d="M${x+w/2} ${y} V${y+legH*.58}" ${line}/><path d="M${x+8} ${y+15} H${x+w-8}" ${seam}/>`;
-      if(pocket==='side'||pocket==='cargo') shape+=`<path d="M${x+10} ${y+28} l25 16" ${line}/><path d="M${x+w-10} ${y+28} l-25 16" ${line}/>`;
-    } else if(category==='sneakers'){
-      shape=`<path d="M72 170 Q102 160 130 124 Q145 98 162 84 L194 92 Q187 123 205 145 Q233 168 268 181 L282 203 Q263 219 214 218 H84 Q53 218 38 204 Q43 186 72 170 Z" ${fill}/><path d="M54 193 H270" ${line}/><path d="M125 144 L176 152" ${seam}/><path d="M118 133 L154 137 M112 145 L150 150 M106 157 L148 161" ${seam}/><path d="M194 95 L210 115 L229 128" ${line}/>`;
-    } else if(category==='beanie'){
-      shape=`<path d="M95 194 Q95 92 160 67 Q225 92 225 194 Z" ${fill}/><path d="M80 194 H240 Q243 218 225 221 H95 Q77 218 80 194 Z" ${fill}/><path d="M99 157 Q160 138 221 157" ${seam}/><path d="M123 91 Q160 111 197 91" ${line}/>`;
-    } else if(category==='cap'){
-      shape=`<path d="M86 182 Q96 92 160 76 Q222 91 235 170 Q196 153 150 164 Q120 174 86 182 Z" ${fill}/><path d="M150 164 Q200 157 268 180 Q263 205 215 202 Q170 198 150 164 Z" ${fill}/><path d="M104 140 Q160 116 216 139" ${seam}/>`;
+    const logo=String(opts.logoText||opts.logo_text||'').trim(), print=String(opts.printText||opts.print_text||'').trim();
+    const view=String(opts.viewSide||opts.logoSide||'front')==='back'?'back':'front';
+    const cat=String(category||'hoodie');
+    const W=640,H=360,cx=320;
+    const uid='bpv4_'+(++_brandBlueprintSeq);
+    const dashes='stroke-dasharray="6 5"';
+    const seam=`fill="none" stroke="${ink}" stroke-width="2" ${dashes}`;
+    const solid=`fill="none" stroke="${ink}" stroke-width="2.2"`;
+    const faint=`fill="none" stroke="${muted}" stroke-width="1" ${dashes}`;
+    const txt=`font-family="Montserrat,Arial,sans-serif" fill="${ink}"`;
+    const label=`font-size="10" letter-spacing="1.3" font-weight="800"`;
+    const note=(x1,y1,x2,y2,t)=>`<path d="M${x1} ${y1} H${x2-8} V${y2}" ${faint}/><circle cx="${x1}" cy="${y1}" r="3" fill="${accent}"/><text x="${x2}" y="${y2+4}" ${txt} ${label}>${escV(t)}</text>`;
+    const dim=(x1,y1,x2,y2,t)=>`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" ${faint}/><text x="${(x1+x2)/2}" y="${Math.min(y1,y2)-6}" text-anchor="middle" ${txt} ${label}>${escV(t)}</text>`;
+    let art='';
+    if(['jacket','coat','hoodie','tshirt'].includes(cat)){
+      const h=130+Math.round(length*.75), bw=145+Math.round(width*.65), x=cx-bw/2, y=92;
+      const sw=sleeves==='wide'?62:sleeves==='cropped'?40:48;
+      let body, sleevesPath;
+      if(cat==='tshirt'){
+        body=`M${x+38} ${y} L${x+7} ${y+18} L${x-sw} ${y+78} L${x+5} ${y+96} L${x+28} ${y+66} V${y+h} H${x+bw-28} V${y+66} L${x+bw-5} ${y+96} L${x+bw+sw} ${y+78} L${x+bw-7} ${y+18} L${x+bw-38} ${y} Q${cx} ${y+35} ${x+38} ${y} Z`;
+      } else if(cat==='hoodie') {
+        body=`M${x+34} ${y+22} L${x+7} ${y+35} L${x-sw} ${y+84} L${x+5} ${y+103} L${x+28} ${y+72} V${y+h} H${x+bw-28} V${y+72} L${x+bw-5} ${y+103} L${x+bw+sw} ${y+84} L${x+bw-7} ${y+35} L${x+bw-34} ${y+22} Q${cx} ${y-25-(hood==='large'?16:0)} ${x+34} ${y+22} Z`;
+      } else {
+        body=`M${x+38} ${y} L${x+8} ${y+18} L${x-sw} ${y+84} L${x+6} ${y+103} L${x+28} ${y+68} V${y+h} H${x+bw-28} V${y+68} L${x+bw-6} ${y+103} L${x+bw+sw} ${y+84} L${x+bw-8} ${y+18} L${x+bw-38} ${y} Z`;
+      }
+      art+=`<path d="${body}" ${solid}/>`;
+      art+=`<path d="M${x+38} ${y} Q${cx} ${y+32} ${x+bw-38} ${y}" ${seam}/>`;
+      if(cat!=='tshirt') art+=`<path d="M${cx} ${y+30} V${y+h}" ${seam}/>`;
+      if(cat==='hoodie' || hood!=='none') art+=`<path d="M${cx-58} ${y+28} Q${cx} ${y-21-(hood==='large'?16:0)} ${cx+58} ${y+28}" ${seam}/>`;
+      if(collar==='high') art+=`<path d="M${cx-35} ${y+1} L${cx-27} ${y-15} H${cx+27} L${cx+35} ${y+1}" ${seam}/>`;
+      if(collar==='stand') art+=`<path d="M${cx-31} ${y+4} H${cx+31} V${y+18} H${cx-31} Z" ${seam}/>`;
+      if(pocket==='chest') art+=`<rect x="${cx+18}" y="${y+60}" width="42" height="27" ${seam}/>`;
+      if(pocket==='side'||pocket==='cargo') art+=`<path d="M${x+18} ${y+95} l40 24 M${x+bw-18} ${y+95} l-40 24" ${seam}/>`;
+      art+=`<path d="M${x+20} ${y+h-16} H${x+bw-20}" ${seam}/>`;
+      art+=dim(x-60,y,x+bw+60,y,`${cat==='tshirt'?'ШИРИНА':'ОБХВАТ'} · ${Math.round(50+width/2)}%`);
+      art+=dim(x-50,y+h+32,x-50,y-20,`ДЛИНА · ${Math.round(50+length/2)}%`);
+      art+=note(x+25,y+55,45,42,'1 · КОНСТРУКЦИЯ');
+      art+=note(x+bw-20,y+90,500,78,`2 · ${pocket==='none'?'ПАНЕЛЬ':'КАРМАНЫ'}`);
+      if(logo) art+=`<g><rect x="${cx-42}" y="${y+78}" width="84" height="28" ${faint}/><text x="${cx}" y="${y+96}" text-anchor="middle" ${txt} font-size="11" font-weight="900">${escV(logo.slice(0,18))}</text></g>`;
+      if(print) art+=`<text x="${cx}" y="${y+h-30}" text-anchor="middle" ${txt} font-size="9" opacity=".75">${escV(print.slice(0,24))}</text>`;
+    } else if(['pants','jeans','shorts'].includes(cat)){
+      const x=230,y=78,w=180,h=225, leg=78, inner=cx;
+      const hem=cat==='shorts'?225:298;
+      art+=`<path d="M${x} ${y} H${x+w} L${x+w-10} ${hem} H${x+w/2+18} L${inner} ${y+150} L${x+18} ${hem} H${x+10} Z" ${solid}/>`;
+      art+=`<path d="M${inner} ${y} V${y+150}" ${seam}/><path d="M${x+10} ${y+14} H${x+w-10}" ${seam}/><path d="M${x+26} ${y+46} l30 20 M${x+w-26} ${y+46} l-30 20" ${seam}/>`;
+      if(pocket==='cargo') art+=`<rect x="${x+18}" y="${y+55}" width="44" height="34" ${seam}/><rect x="${x+w-62}" y="${y+55}" width="44" height="34" ${seam}/>`;
+      art+=dim(x-35,y,x+w+35,y,`ТАЛИЯ · ${Math.round(50+width/2)}%`);
+      art+=dim(x-55,hem,x-55,y-18,`ДЛИНА · ${Math.round(50+length/2)}%`);
+      art+=note(x+32,y+52,52,40,'1 · ПОЯС');
+      art+=note(x+w-20,y+120,500,98,'2 · ЛИНИЯ ШТАНИНЫ');
+    } else if(cat==='sneakers'){
+      art+=`<path d="M102 224 Q128 212 158 174 L196 112 Q207 92 230 99 L254 132 Q266 153 297 168 L381 192 Q415 203 438 222 L431 244 H122 Q82 244 62 230 Q72 215 102 224 Z" ${solid}/>`;
+      art+=`<path d="M78 220 H430" ${seam}/><path d="M183 171 L255 186 M174 184 L252 198 M166 197 L248 210" ${seam}/>`;
+      art+=note(208,153,430,58,'1 · ВЕРХ'); art+=note(112,219,430,120,'2 · ПОДОШВА');
+    } else if(['beanie','cap'].includes(cat)){
+      if(cat==='beanie') art+=`<path d="M208 224 Q208 133 320 96 Q432 133 432 224 Z" ${solid}/><path d="M196 224 H444 Q447 250 425 252 H215 Q193 250 196 224 Z" ${solid}/><path d="M214 190 Q320 165 426 190" ${seam}/>`;
+      else art+=`<path d="M202 215 Q213 132 320 106 Q419 128 441 197 Q380 176 323 197 Q255 214 202 215 Z" ${solid}/><path d="M322 197 Q390 184 470 214 Q468 239 420 238 Q350 232 322 197 Z" ${solid}/><path d="M222 174 Q320 145 414 173" ${seam}/>`;
+      art+=note(320,170,475,58,'1 · ФОРМА'); art+=note(406,218,475,120,'2 · КОЗЫРЁК / РЕБРО');
     } else {
-      shape=`<rect x="105" y="90" width="110" height="120" rx="26" ${fill}/><path d="M125 112 H195 M125 188 H195" ${seam}/><path d="M160 112 V188" ${line}/>`;
+      art+=`<rect x="246" y="90" width="148" height="150" rx="22" ${solid}/><path d="M270 118 H370 M320 118 V222" ${seam}/>`;
+      art+=note(320,130,470,56,'1 · КОРПУС');
     }
-    let marks='';
-    if(logo) marks+=`<text x="160" y="145" text-anchor="middle" fill="${accent}" font-family="Montserrat" font-size="11" font-weight="900">${escV(logo)}</text>`;
-    if(print) marks+=`<text x="160" y="161" text-anchor="middle" fill="${secondary}" font-family="Montserrat" font-size="6" opacity=".9">${escV(print.slice(0,24))}</text>`;
-    if(pattern) marks+=`<g fill="${accent}" opacity=".55">${[0,1,2,3,4].map(i=>`<circle cx="${142+i*9}" cy="178" r="2"/>`).join('')}</g><text x="210" y="194" ${label}>PATTERN</text>`;
-    const notes=[];
-    if(category==='jacket'||category==='coat'||category==='hoodie'||category==='tshirt') notes.push(annotation(bodyX,top+20,'BODY',26,74));
-    if(pocket!=='none') notes.push(annotation(bodyX+bodyW/2,top+92,'POCKET',232,102));
-    if(collar!=='standard') notes.push(annotation(bodyX+bodyW/2,top+6,'COLLAR',232,58));
-    if(hood!=='none') notes.push(annotation(bodyX+bodyW/2,top+2,'HOOD',228,38));
-    return `<svg class="brand-v3-blueprint-svg" viewBox="0 0 320 300" aria-label="Технический чертёж ${escV(categoryName(category))}"><defs><pattern id="${gridId}" width="16" height="16" patternUnits="userSpaceOnUse"><path d="M16 0H0V16" ${seam} opacity=".16"/></pattern></defs><rect width="320" height="300" fill="url(#${gridId})" opacity=".65"/>${shape}${marks}${notes.join('')}<path d="M24 246H296 M24 260H296" ${seam} opacity=".45"/><g ${label}><text x="18" y="28">RESELL / BLUEPRINT</text><text x="218" y="28">01 · TECH SPEC</text><text x="18" y="282">CUT ${escV(cut.toUpperCase())} · L ${length} · W ${width}</text></g></svg>`;
+    const backTag=view==='back'?'BACK / СПИНКА':'FRONT / ПЕРЕД';
+    return `<div class="brand-blueprint-sheet-v4"><svg id="${uid}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" aria-label="Технический чертёж"><defs><pattern id="${uid}_grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" fill="none" stroke="#edf0ed" stroke-width="1"/></pattern></defs><rect width="${W}" height="${H}" fill="#fff"/><rect x="12" y="12" width="${W-24}" height="${H-24}" rx="14" fill="url(#${uid}_grid)" stroke="#d9dfda"/><text x="28" y="34" ${txt} font-size="10" font-weight="900" letter-spacing="2">RESSELL / TECHNICAL DRAWING</text><text x="612" y="34" text-anchor="end" ${txt} font-size="10" font-weight="800">${backTag}</text>${art}<text x="28" y="338" ${txt} font-size="9" opacity=".65">ПУНКТИР = КОНСТРУКТИВНАЯ ЛИНИЯ · ТОЧКИ = КОНТРОЛЬНЫЕ УЗЛЫ</text><text x="612" y="338" text-anchor="end" ${txt} font-size="9" opacity=".65">${escV(categoryName(cat))} · ${escV(cut)}</text></svg></div>`;
   }
-
   function brandV3EstimateCost(category,material,cut,length,width,hardware){
     const base={jacket:1800,coat:2400,hoodie:1150,tshirt:650,pants:1000,jeans:1250,shorts:800,sneakers:2600,beanie:420,cap:480,accessories:700}[category]||900;
     const mc=materialCosts[material]||1200, cm={regular:1,oversize:1.08,slim:1.04,cropped:1.06,long:1.10}[cut]||1;
@@ -11692,16 +11929,45 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 
   function brandV3TabButton(key,label,active){return `<button type="button" class="brand-v3-tab ${active===key?'active':''}" data-brand-tab="${key}">${label}</button>`;}
   function brandV3Metric(label,value,key,sub=''){return `<button type="button" class="brand-v3-metric" data-brand-info="${key}"><span>${escV(label)}</span><b>${value}</b>${sub?`<small>${escV(sub)}</small>`:''}</button>`;}
-  function brandV3StorePin(store){
+  function brandV3StorePin(store,index=0){
     const city=String(store.city||''); const c=store.coords||cityCoords[city]||[0,0]; const lat=nV(c.lat??c[0],0), lon=nV(c.lon??c[1],0);
-    const left=clampV((lon+180)/360*100,2,98), top=clampV((90-lat)/180*100,8,92);
-    return `<button type="button" class="brand-v3-pin" style="left:${left}%;top:${top}%" data-brand-city="${escV(city)}"><i></i><b>${escV(city)}</b></button>`;
+    const left=clampV((lon+180)/360*100 + ((index%3)-1)*1.7,2,98), top=clampV((90-lat)/180*100 + (Math.floor(index/3)%3-1)*2.2,8,92);
+    return `<button type="button" class="brand-v3-pin brand-v3-store-pin" style="left:${left}%;top:${top}%" data-brand-city="${escV(city)}" data-store-index="${index}" title="${escV(city)} · магазин #${index+1}"><i></i><b>${index+1}</b></button>`;
   }
-  function brandV3Map(stores,factories){
-    stores=Array.isArray(stores)?stores:[]; factories=Array.isArray(factories)?factories:[];
-    const storePins=stores.map(brandV3StorePin).join('');
-    const factoryPins=factories.map(f=>{const city=String(f.city||'');const c=cityCoords[city]||[0,0];const lat=nV(c.lat??c[0],0),lon=nV(c.lon??c[1],0);const left=clampV((lon+180)/360*100,2,98),top=clampV((90-lat)/180*100,8,92);return `<button type="button" class="brand-v3-pin brand-v3-factory-pin" style="left:${left}%;top:${top}%" data-brand-city="${escV(city)}" title="Производство · ${escV(city)}"><i></i><b>🏭 ${escV(city)}</b></button>`}).join('');
-    return `<div class="brand-v3-map"><svg viewBox="0 0 720 340" preserveAspectRatio="none" aria-hidden="true"><rect width="720" height="340" rx="18" fill="#f6f8f5"/><g fill="#dfe7df" stroke="#cbd7cd" stroke-width="2"><path d="M70 83l55-28 60 12 20 45-26 24-54-7-45 24-34-18z"/><path d="M212 146l41 12 30 53-18 93-32-14-16-59-30-49z"/><path d="M310 81l55-12 42 26-9 35-48 15-35-22z"/><path d="M399 119l35-16 54 14 42 31-16 37-50 6-26-19-35 9-21-25z"/><path d="M532 181l48-13 73 31 15 48-54 10-39-32-49-8z"/></g><g stroke="#c8d2ca" stroke-dasharray="4 7" opacity=".75"><path d="M0 85H720M0 170H720M0 255H720M144 0V340M288 0V340M432 0V340M576 0V340"/></g></svg>${factoryPins}${storePins}<div class="brand-v3-map-caption"><span>ИНТЕРАКТИВНАЯ КАРТА</span><b>${factories.length} производств · ${stores.length} магазинов</b></div></div>`;
+  function brandRoutePoint(city){
+    const c=cityCoords[String(city)]||[0,0];
+    return {x:clampV((c[1]+180)/360*720,10,710),y:clampV((90-c[0])/180*225,8,217)};
+  }
+  function brandV3Map(stores,factories,orders=[],brandName='R-Game'){
+    const listStores=Array.isArray(stores)?stores:[], listFactories=Array.isArray(factories)?factories:[], now=nowV(), active=(Array.isArray(orders)?orders:[]).filter(o=>String(o.status)==='in_transit'&&nV(o.arrival_at,0)>now);
+    const pos=brandRoutePoint;
+    const pin=(x,kind)=>{const city=String(x.city||'');const z=pos(city);return `<button type="button" class="brand-v4-map-pin ${kind}" style="left:${(z.x/7.2).toFixed(2)}%;top:${(z.y/2.25).toFixed(2)}%" data-brand-city="${escV(city)}" title="${escV(city)}"><i></i><span>${kind==='store'?'МАГАЗИН':'ПРОИЗВОДСТВО'} · ${escV(city)}</span></button>`};
+    const pins=[...listFactories.map(x=>pin(x,'factory')),...listStores.map(x=>pin(x,'store'))].join('');
+    const routeSvg=active.map((o,i)=>{
+      const a=pos(o.factory_city), z=pos(o.store_city);
+      const d=`M ${a.x.toFixed(1)} ${a.y.toFixed(1)} L ${z.x.toFixed(1)} ${z.y.toFixed(1)}`;
+      const start=nV(o.started_at,nowV()), arrival=nV(o.arrival_at,start+1), routeId=escV(String(o.id||i));
+      return `<path class="brand-v4-live-route" d="${d}"/><g class="brand-v4-live-truck" data-route-truck="${routeId}" data-x1="${a.x}" data-y1="${a.y}" data-cx="${((a.x+z.x)/2).toFixed(2)}" data-cy="${((a.y+z.y)/2).toFixed(2)}" data-x2="${z.x}" data-y2="${z.y}" data-start="${start}" data-arrival="${arrival}"><g><rect x="-11" y="-5" width="21" height="9" rx="2"/><rect x="6" y="-3.5" width="9" height="7" rx="1"/><circle cx="-5" cy="5" r="1.8"/><circle cx="9" cy="5" r="1.8"/></g></g>`;
+    }).join('');
+    const routeLayer=active.length?`<svg class="brand-v4-map-routes" viewBox="0 0 720 225" preserveAspectRatio="none">${routeSvg}</svg>`:'';
+    const map=`<section class="brand-v4-world"><div class="brand-v4-world-head"><div><small>МИРОВАЯ СЕТЬ</small><h3>Магазины и производство</h3></div><button type="button" data-career-action="brand_v3_new_store">+ МАГАЗИН</button></div><div class="brand-v4-map"><img src="https://upload.wikimedia.org/wikipedia/commons/8/8b/Blank_map_of_the_world.svg" alt="Карта мира" loading="lazy">${routeLayer}${pins}<div class="brand-v4-map-legend"><span><i class="store"></i> Магазин</span><span><i class="factory"></i> Производство</span>${active.length?`<span><i class="truck"></i> ${active.length} в пути</span>`:''}</div></div><div class="brand-v4-map-foot"><span>${listStores.length} магазинов</span><span>${listFactories.length} производств</span><span>${active.length?`🚚 ${active.length} маршрут${active.length===1?'':'а'} в пути`:'Выбери логистику, чтобы отправить товар'}</span></div></section>`;
+    return map;
+  }
+  function animateBrandRouteTrucks(root=document){
+    const trucks=Array.from(root.querySelectorAll?.('[data-route-truck]')||[]); if(!trucks.length)return;
+    const frame=()=>{
+      const now=Date.now()/1000;
+      let moving=false;
+      trucks.forEach(t=>{
+        const x1=nV(t.dataset.x1),y1=nV(t.dataset.y1),x2=nV(t.dataset.x2),y2=nV(t.dataset.y2),start=nV(t.dataset.start),arrival=Math.max(start+1,nV(t.dataset.arrival));
+        const p=clampV((now-start)/(arrival-start),0,1), x=x1+(x2-x1)*p, y=y1+(y2-y1)*p;
+        const ang=Math.atan2(y2-y1,x2-x1)*180/Math.PI;
+        t.setAttribute('transform',`translate(${x.toFixed(2)} ${y.toFixed(2)}) rotate(${ang.toFixed(2)})`);
+        if(p<1) moving=true;
+      });
+      if(moving) requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
   }
 
   function brandV3CategoryRows(store){
@@ -11749,31 +12015,74 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
   async function brandV3ModelEditor(existing){
     existing=existing||{};
     return new Promise(resolve=>{
-      const c=String(existing.category||'hoodie');
-      const design=existing.design||{}; const logoObj=existing.logo||{};
-      const modal=brandV3OpenModalRaw(`<div class="brand-v3-modal-card brand-v3-editor"><button class="brand-v3-close" id="brandV3EditorCancel">×</button><div class="brand-v3-kicker">CONSTRUCTOR · TECHNICAL SPEC</div><h3>${existing.id?'Редактирование модели':'Создание новой модели'}</h3><p>Меняй конструкцию — чертёж и расчёт обновляются сразу. Сохранение создаёт реальную модель в базе бренда.</p><div class="brand-v3-editor-grid"><div class="brand-v3-editor-preview"><div class="brand-v3-preview-label">ПРЕДПРОСМОТР</div><div id="brandV3Blueprint"></div><div id="brandV3Summary"></div></div><div class="brand-v3-editor-controls"><label>НАЗВАНИЕ<input id="bv3Title" class="brand-v3-input" maxlength="58" value="${escV(existing.title||'')}" placeholder="URBAN JACKET #001"></label><div class="brand-v3-field-title">КАТЕГОРИЯ</div><div class="brand-v3-choice-grid" id="bv3Cats">${cats.map(x=>`<button type="button" data-v3-cat="${x[0]}" class="${c===x[0]?'active':''}">${x[1]}</button>`).join('')}</div><div class="brand-v3-field-title">КРОЙ</div><div class="brand-v3-choice-grid" id="bv3Cuts">${cuts.map(x=>`<button type="button" data-v3-cut="${x[0]}" class="${String(existing.cut||'regular')===x[0]?'active':''}">${x[1]}</button>`).join('')}</div><div class="brand-v3-two"><label>РУКАВА<select id="bv3Sleeves" class="brand-v3-input"><option value="standard">Стандартные</option><option value="wide">Широкие</option><option value="cropped">Укороченные</option></select></label><label>КАРМАН<select id="bv3Pocket" class="brand-v3-input"><option value="none">Без карманов</option><option value="side">Боковые</option><option value="chest">Нагрудные</option><option value="cargo">Большие cargo</option></select></label></div><div class="brand-v3-two"><label>ВОРОТНИК<select id="bv3Collar" class="brand-v3-input"><option value="standard">Стандарт</option><option value="high">Высокий</option><option value="stand">Стойка</option></select></label><label>КАПЮШОН<select id="bv3Hood" class="brand-v3-input"><option value="none">Нет</option><option value="normal">Обычный</option><option value="large">Большой</option></select></label></div><label>ДЛИНА <input id="bv3Length" type="range" min="0" max="100" value="${nV(existing.length_pct,50)}"><small id="bv3LengthValue">${nV(existing.length_pct,50)}%</small></label><label>ШИРИНА <input id="bv3Width" type="range" min="0" max="100" value="${nV(existing.width_pct,50)}"><small id="bv3WidthValue">${nV(existing.width_pct,50)}%</small></label><div class="brand-v3-color-grid"><label>ОСНОВА<input id="bv3Primary" type="color" value="${safeHexV(existing.colors?.primary,'#111111')}"><input id="bv3PrimaryHex" class="brand-v3-input brand-v3-hex" value="${safeHexV(existing.colors?.primary,'#111111')}"></label><label>ДОП.<input id="bv3Secondary" type="color" value="${safeHexV(existing.colors?.secondary,'#FFFFFF')}"><input id="bv3SecondaryHex" class="brand-v3-input brand-v3-hex" value="${safeHexV(existing.colors?.secondary,'#FFFFFF')}"></label><label>АКЦЕНТ<input id="bv3Accent" type="color" value="${safeHexV(existing.colors?.accent,'#4ADE80')}"><input id="bv3AccentHex" class="brand-v3-input brand-v3-hex" value="${safeHexV(existing.colors?.accent,'#4ADE80')}"></label></div><div class="brand-v3-two"><label>МАТЕРИАЛ<select id="bv3Material" class="brand-v3-input">${Object.entries(materialNames).map(([k,v])=>`<option value="${k}" ${String(existing.material||'cotton')===k?'selected':''}>${v}</option>`).join('')}</select></label><label>ФУРНИТУРА<select id="bv3Hardware" class="brand-v3-input"><option value="standard">Standard</option><option value="premium">Premium</option><option value="metal">Metal</option><option value="technical">Technical</option></select></label></div><div class="brand-v3-two"><label>ЛОГОТИП<input id="bv3LogoText" class="brand-v3-input" maxlength="32" value="${escV(existing.logo_text||logoObj.text||'')}" placeholder="RESELL"></label><label>ПРИНТ<input id="bv3PrintText" class="brand-v3-input" maxlength="40" value="${escV(existing.print_text||design.print||'')}" placeholder="URBAN 01"></label></div><label>ПАТТЕРН<input id="bv3PatternText" class="brand-v3-input" maxlength="60" value="${escV(existing.pattern||design.pattern||'')}" placeholder="Например: тонкая сетка / monogram"></label><label>ЦЕНА ПРОДАЖИ<input id="bv3Price" class="brand-v3-input" type="number" min="100" value="${nV(existing.price,Math.round(nV(existing.cost,1000)/.52))}"></label><div class="brand-v3-editor-options"><span>Чертёж<b>живой</b></span><span>Себестоимость<b>пересчитывается</b></span><span>Backend<b>сохраняет</b></span></div><button class="brand-v3-primary" id="brandV3EditorSave">${existing.id?'СОХРАНИТЬ МОДЕЛЬ':'СОЗДАТЬ МОДЕЛЬ'}</button><small class="brand-v3-editor-note">Новая модель: 15 000 ₽ разработки. Редактирование сохранённой модели — без повторной оплаты.</small></div></div></div>`);
-      const get=sel=>$(sel,modal);
-      const state={cat:c,cut:String(existing.cut||'regular'),length:nV(existing.length_pct,50),width:nV(existing.width_pct,50),sleeves:String(existing.sleeves||'standard'),pocket:String(existing.pocket||'none'),collar:String(existing.collar||'standard'),hood:String(existing.hood||'none'),primary:safeHexV(existing.colors?.primary,'#111111'),secondary:safeHexV(existing.colors?.secondary,'#FFFFFF'),accent:safeHexV(existing.colors?.accent,'#4ADE80'),logoText:String(existing.logo_text||logoObj.text||''),printText:String(existing.print_text||design.print||''),patternText:String(existing.pattern||design.pattern||'')};
-      get('#bv3Sleeves').value=state.sleeves; get('#bv3Pocket').value=state.pocket; get('#bv3Collar').value=state.collar; get('#bv3Hood').value=state.hood;
-      get('#bv3Material').value=String(existing.material||'cotton'); get('#bv3Hardware').value=String(existing.hardware||'standard');
-      const sync=()=>{
-        state.length=nV(get('#bv3Length').value,50);state.width=nV(get('#bv3Width').value,50);state.sleeves=String(get('#bv3Sleeves').value);state.pocket=String(get('#bv3Pocket').value);state.collar=String(get('#bv3Collar').value);state.hood=String(get('#bv3Hood').value);state.primary=safeHexV(get('#bv3PrimaryHex').value,state.primary);state.secondary=safeHexV(get('#bv3SecondaryHex').value,state.secondary);state.accent=safeHexV(get('#bv3AccentHex').value,state.accent);state.logoText=get('#bv3LogoText').value.trim();state.printText=get('#bv3PrintText').value.trim();state.patternText=get('#bv3PatternText').value.trim();
-        get('#bv3LengthValue').textContent=state.length+'%';get('#bv3WidthValue').textContent=state.width+'%';get('#brandV3Blueprint').innerHTML=brandV3BlueprintSvg(state.cat,{...state});
-        const cost=brandV3EstimateCost(state.cat,get('#bv3Material').value,state.cut,state.length,state.width,get('#bv3Hardware').value);const price=Math.max(cost+100,nV(get('#bv3Price').value,Math.round(cost/.52)));get('#brandV3Summary').innerHTML=`<div class="brand-v3-preview-copy"><b>${escV(get('#bv3Title').value.trim()||categoryName(state.cat)+' · новая модель')}</b><span>${escV(materialNames[get('#bv3Material').value]||get('#bv3Material').value)} · ${escV(state.cut)} · ${escV(state.sleeves)}</span><div><span>СЕБЕСТОИМОСТЬ</span><strong>${moneyV(cost)}</strong></div><div><span>РЕКОМЕНДУЕМАЯ ЦЕНА</span><strong>${moneyV(Math.round(cost/.52))}</strong></div><div><span>ПОТЕНЦИАЛЬНАЯ МАРЖА</span><strong>${moneyV(Math.max(0,price-cost))}</strong></div></div>`;
+      const design=existing.design||{}, logoObj=existing.logo||{};
+      const state={
+        cat:String(existing.category||'hoodie'), cut:String(existing.cut||'regular'), length:nV(existing.length_pct,50), width:nV(existing.width_pct,50),
+        sleeves:String(existing.sleeves||'standard'), pocket:String(existing.pocket||'none'), collar:String(existing.collar||'standard'), hood:String(existing.hood||'none'),
+        primary:safeHexV(existing.colors?.primary,'#f3f4f1'), secondary:safeHexV(existing.colors?.secondary,'#252a27'), accent:safeHexV(existing.colors?.accent,'#6f8d76'),
+        logoText:String(existing.logo_text||logoObj.text||''), printText:String(existing.print_text||design.print||''), patternText:String(existing.pattern||design.pattern||''),
+        logoSide:String(existing.logo_side||logoObj.side||'front'), logoPosition:String(existing.logo_position||logoObj.position||'center'), viewSide:'front'
       };
-      $$('[data-v3-cat]',modal).forEach(x=>x.onclick=()=>{$$('[data-v3-cat]',modal).forEach(y=>y.classList.remove('active'));x.classList.add('active');state.cat=x.dataset.v3Cat;sync()});
-      $$('[data-v3-cut]',modal).forEach(x=>x.onclick=()=>{$$('[data-v3-cut]',modal).forEach(y=>y.classList.remove('active'));x.classList.add('active');state.cut=x.dataset.v3Cut;sync()});
-      ['#bv3Length','#bv3Width','#bv3Sleeves','#bv3Pocket','#bv3Collar','#bv3Hood','#bv3Material','#bv3Hardware','#bv3LogoText','#bv3PrintText','#bv3PatternText','#bv3Price','#bv3Title'].forEach(sel=>{get(sel).addEventListener('input',sync);get(sel).addEventListener('change',sync)});
-      [['#bv3Primary','#bv3PrimaryHex'],['#bv3Secondary','#bv3SecondaryHex'],['#bv3Accent','#bv3AccentHex']].forEach(([picker,hex])=>{get(picker).addEventListener('input',()=>{get(hex).value=get(picker).value.toUpperCase();sync()});get(hex).addEventListener('input',()=>{const v=get(hex).value.trim();if(/^#[0-9a-fA-F]{6}$/.test(v))get(picker).value=v;sync()})});
-      get('#brandV3EditorCancel').onclick=()=>{brandV3CloseModal();resolve(null)};
-      get('#brandV3EditorSave').onclick=()=>{const data={model_id:existing.id||'',title:get('#bv3Title').value.trim(),category:state.cat,cut:state.cut,sleeves:state.sleeves,pocket:state.pocket,collar:state.collar,hood:state.hood,length_pct:state.length,width_pct:state.width,primary_color:state.primary,secondary_color:state.secondary,accent_color:state.accent,material:get('#bv3Material').value,hardware:get('#bv3Hardware').value,logo_text:state.logoText,print_text:state.printText,pattern_text:state.patternText,price:Math.max(100,nV(get('#bv3Price').value,0))}; if(!data.title){coreToast('Введите название модели.');return;}brandV3CloseModal();resolve(data)};
+      const catOpts=cats.map(x=>`<option value="${escV(x[0])}" ${state.cat===x[0]?'selected':''}>${escV(x[1])}</option>`).join('');
+      const cutOpts=cuts.map(x=>`<option value="${escV(x[0])}" ${state.cut===x[0]?'selected':''}>${escV(x[1])}</option>`).join('');
+      const materialOpts=Object.entries(materialNames).map(([k,v])=>`<option value="${k}" ${String(existing.material||'cotton')===k?'selected':''}>${v}</option>`).join('');
+      const hardwareOpts=['standard','premium','metal','technical'].map(x=>`<option value="${x}" ${String(existing.hardware||'standard')===x?'selected':''}>${x}</option>`).join('');
+      const modal=brandV3OpenModalRaw(`<div class="brand-v4-editor-card">
+        <button class="brand-v3-close" id="brandV4EditorCancel">×</button>
+        <div class="brand-v4-kicker">RESSELL / КОНСТРУКТОР</div>
+        <h3>${existing.id?'Изменить модель':'Создать модель'}</h3>
+        <p>Простой техчертёж: меняй только основные параметры — результат видно сразу.</p>
+        <div class="brand-v4-blueprint-wrap"><div id="brandV4Blueprint"></div><div class="brand-v4-view-toggle"><button type="button" data-v4-view="front" class="active">ПЕРЕД</button><button type="button" data-v4-view="back">СПИНКА</button></div></div>
+        <div class="brand-v4-form">
+          <label>НАЗВАНИЕ<input id="bv4Title" class="brand-v3-input" maxlength="58" value="${escV(existing.title||'')}" placeholder="RESELL JACKET 01"></label>
+          <div class="brand-v4-row"><label>ВЕЩЬ<select id="bv4Cat" class="brand-v3-input">${catOpts}</select></label><label>КРОЙ<select id="bv4Cut" class="brand-v3-input">${cutOpts}</select></label></div>
+          <div class="brand-v4-row"><label>МАТЕРИАЛ<select id="bv4Material" class="brand-v3-input">${materialOpts}</select></label><label>ФУРНИТУРА<select id="bv4Hardware" class="brand-v3-input">${hardwareOpts}</select></label></div>
+          <div class="brand-v4-row"><label>ДЛИНА<input id="bv4Length" type="range" min="0" max="100" value="${state.length}"><small id="bv4LengthV">${state.length}%</small></label><label>ШИРИНА<input id="bv4Width" type="range" min="0" max="100" value="${state.width}"><small id="bv4WidthV">${state.width}%</small></label></div>
+          <div class="brand-v4-row"><label>ДЕТАЛИ<select id="bv4Pocket" class="brand-v3-input"><option value="none">Без карманов</option><option value="side">Боковые</option><option value="chest">Нагрудные</option><option value="cargo">Cargo</option></select></label><label>РУКАВА<select id="bv4Sleeves" class="brand-v3-input"><option value="standard">Стандарт</option><option value="wide">Широкие</option><option value="cropped">Укороченные</option></select></label></div>
+          <div class="brand-v4-row"><label>ЦВЕТ<input id="bv4Primary" type="color" value="${state.primary}"></label><label>АКЦЕНТ<input id="bv4Accent" type="color" value="${state.accent}"></label></div>
+          <label>ЛОГОТИП<input id="bv4Logo" class="brand-v3-input" maxlength="32" value="${escV(state.logoText)}" placeholder="RESELL"></label>
+          <label>ПОЗИЦИЯ ЛОГОТИПА<select id="bv4LogoPos" class="brand-v3-input"><option value="center">Центр</option><option value="left_chest">Левая грудь</option><option value="right_chest">Правая грудь</option><option value="left_sleeve">Левый рукав</option><option value="right_sleeve">Правый рукав</option><option value="back_center">Центр спинки</option></select></label>
+          <label>ЦЕНА<input id="bv4Price" class="brand-v3-input" type="number" min="100" value="${nV(existing.price,Math.round(nV(existing.cost,1000)/.52))}"></label>
+        </div>
+        <div id="brandV4Summary" class="brand-v4-summary"></div>
+        <button class="brand-v3-primary" id="brandV4Save">${existing.id?'СОХРАНИТЬ':'СОЗДАТЬ МОДЕЛЬ'}</button>
+      </div>`);
+      const get=q=>$(q,modal);
+      get('#bv4Pocket').value=state.pocket; get('#bv4Sleeves').value=state.sleeves; get('#bv4LogoPos').value=state.logoPosition;
+      const sync=()=>{
+        state.cat=get('#bv4Cat').value; state.cut=get('#bv4Cut').value; state.length=nV(get('#bv4Length').value,50); state.width=nV(get('#bv4Width').value,50);
+        state.sleeves=get('#bv4Sleeves').value; state.pocket=get('#bv4Pocket').value; state.logoText=get('#bv4Logo').value.trim(); state.logoPosition=get('#bv4LogoPos').value; state.primary=get('#bv4Primary').value.toUpperCase(); state.accent=get('#bv4Accent').value.toUpperCase();
+        state.secondary='#252A27'; get('#bv4LengthV').textContent=state.length+'%'; get('#bv4WidthV').textContent=state.width+'%';
+        get('#brandV4Blueprint').innerHTML=brandV3BlueprintSvg(state.cat,{...state,logoSide:state.viewSide,viewSide:state.viewSide});
+        const cost=brandV3EstimateCost(state.cat,get('#bv4Material').value,state.cut,state.length,state.width,get('#bv4Hardware').value); const price=Math.max(cost+100,nV(get('#bv4Price').value,Math.round(cost/.52)));
+        get('#brandV4Summary').innerHTML=`<div><span>СЕБЕСТОИМОСТЬ</span><b>${moneyV(cost)}</b></div><div><span>РЕКОМЕНДОВАННАЯ ЦЕНА</span><b>${moneyV(Math.round(cost/.52))}</b></div><div><span>МАРЖА</span><b>${moneyV(Math.max(0,price-cost))}</b></div>`;
+      };
+      ['#bv4Title','#bv4Cat','#bv4Cut','#bv4Material','#bv4Hardware','#bv4Length','#bv4Width','#bv4Pocket','#bv4Sleeves','#bv4Logo','#bv4LogoPos','#bv4Price','#bv4Primary','#bv4Accent'].forEach(q=>{get(q).addEventListener('input',sync);get(q).addEventListener('change',sync)});
+      $$('[data-v4-view]',modal).forEach(btn=>btn.onclick=()=>{$$('[data-v4-view]',modal).forEach(x=>x.classList.remove('active'));btn.classList.add('active');state.viewSide=btn.dataset.v4View||'front';sync()});
+      get('#brandV4EditorCancel').onclick=()=>{brandV3CloseModal();resolve(null)};
+      get('#brandV4Save').onclick=()=>{
+        const title=get('#bv4Title').value.trim(); if(!title){coreToast('Введите название модели.');return;}
+        const data={model_id:existing.id||'',title,category:state.cat,cut:state.cut,sleeves:state.sleeves,pocket:state.pocket,collar:String(state.collar||'standard'),hood:String(state.hood||'none'),length_pct:state.length,width_pct:state.width,primary_color:state.primary,secondary_color:state.secondary,accent_color:state.accent,material:get('#bv4Material').value,hardware:get('#bv4Hardware').value,logo_text:state.logoText,print_text:state.printText,pattern_text:state.patternText,logo_side:state.viewSide,logo_position:state.logoPosition,price:Math.max(100,nV(get('#bv4Price').value,0))};
+        brandV3CloseModal(); resolve(data);
+      };
       sync();
     });
   }
-
   function brandV3FactoryAllowed(category,productionType){
     const map={jacket:['sewing','hardware'],coat:['sewing','hardware'],hoodie:['sewing','print'],tshirt:['sewing','print'],pants:['sewing','hardware'],jeans:['sewing','hardware'],shorts:['sewing'],sneakers:['footwear'],beanie:['accessories'],cap:['accessories'],accessories:['accessories','print']};
     return (map[String(category)]||['sewing']).includes(String(productionType||'sewing'));
+  }
+
+  async function brandV3MarketingPicker(){
+    const active=Array.isArray(brandState().campaigns)?brandState().campaigns:[];
+    const opts=[['social','Соцсети','5 000 ₽','+8% хайпа','6 ч.'],['influencer','Инфлюенсер','25 000 ₽','+18% хайпа','12 ч.'],['big_campaign','Большая кампания','100 000 ₽','+35% хайпа','24 ч.']];
+    return new Promise(resolve=>{
+      const modal=brandV3OpenModalRaw(`<div class="brand-v4-editor-card"><button class="brand-v3-close" id="bm4Cancel">×</button><div class="brand-v4-kicker">RESSELL / РЕКЛАМА</div><h3>Запустить рекламу</h3><p>Выбери один канал. Бюджет списывается только после подтверждения.</p><div class="brand-v4-ad-list">${opts.map((x,i)=>{const isActive=active.some(a=>String(a.campaign_type)===x[0]);return `<button type="button" data-bm4="${x[0]}" class="${i===0?'active':''}" ${isActive?'disabled':''}><span>${isActive?'●':'0'+(i+1)}</span><div><b>${x[1]}</b><small>${x[3]} · ${x[4]}</small></div><strong>${isActive?'АКТИВНА':'ЗАПУСТИТЬ · '+x[2]}</strong></button>`}).join('')}</div><button class="brand-v3-primary" id="bm4Confirm">ЗАПУСТИТЬ РЕКЛАМУ</button></div>`);
+      let selected='social';
+      $$('[data-bm4]',modal).forEach(btn=>btn.onclick=()=>{$$('[data-bm4]',modal).forEach(x=>x.classList.remove('active'));btn.classList.add('active');selected=btn.dataset.bm4});
+      $('#bm4Cancel',modal).onclick=()=>{brandV3CloseModal();resolve(null)};
+      $('#bm4Confirm',modal).onclick=()=>{const btn=$(`[data-bm4="${selected}"]`,modal);if(!btn||btn.disabled)return;brandV3CloseModal();resolve({campaign_type:selected})};
+    });
   }
 
   async function brandV3ProductionPicker(){
@@ -11785,7 +12094,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
       const first=models[0];
       const compatible=activeFactories.filter(f=>brandV3FactoryAllowed(first.category,f.production_type));
       const firstF=compatible[0]||activeFactories[0];
-      const modal=brandV3OpenModalRaw(`<div class="brand-v3-modal-card"><button class="brand-v3-close" id="bpCancel">×</button><small class="brand-v3-kicker">ПРОИЗВОДСТВО</small><h3>Новая партия</h3><p>Сначала выбирается SKU, затем только совместимое с ним производство. Деньги списываются сейчас, готовая партия появляется на складе после завершения job.</p><div class="brand-v3-choice-grid" id="bpModelCards">${models.map(x=>`<button type="button" data-model-id="${escV(x.id)}" class="${String(x.id)===String(first.id)?'active':''}"><b>${escV(x.title)}</b><small>${escV(categoryName(x.category))} · ${moneyV(x.cost)}/шт.</small></button>`).join('')}</div><input type="hidden" id="bpModel" value="${escV(first.id)}"><label>КОЛИЧЕСТВО<div class="brand-v3-qty"><button type="button" data-qty-minus>−</button><input id="bpQty" type="number" min="1" max="10000" value="100"><button type="button" data-qty-plus>+</button></div></label><label>СПЕЦИАЛИЗАЦИЯ ЗАВОДА<select id="bpFactory" class="brand-v3-input"></select></label><div id="bpCompatibility" class="brand-v3-order-summary"></div><div id="bpEstimate" class="brand-v3-order-summary"></div><button class="brand-v3-primary" id="bpConfirm">НАЧАТЬ ПРОИЗВОДСТВО</button></div>`);
+      const modal=brandV3OpenModalRaw(`<div class="brand-v3-modal-card"><button class="brand-v3-close" id="bpCancel">×</button><small class="brand-v3-kicker">ПРОИЗВОДСТВО</small><h3>Новая партия</h3><p>1. Выбери модель → 2. укажи количество → 3. выбери подходящий завод. После завершения партия автоматически попадёт на склад, затем через «Логистика» выберешь магазины, куда её отправить.</p><div class="brand-v3-choice-grid" id="bpModelCards">${models.map(x=>`<button type="button" data-model-id="${escV(x.id)}" class="${String(x.id)===String(first.id)?'active':''}"><b>${escV(x.title)}</b><small>${escV(categoryName(x.category))} · ${moneyV(x.cost)}/шт.</small></button>`).join('')}</div><input type="hidden" id="bpModel" value="${escV(first.id)}"><label>КОЛИЧЕСТВО<div class="brand-v3-qty"><button type="button" data-qty-minus>−</button><input id="bpQty" type="number" min="1" max="10000" value="100"><button type="button" data-qty-plus>+</button></div></label><label>СПЕЦИАЛИЗАЦИЯ ЗАВОДА<select id="bpFactory" class="brand-v3-input"></select></label><div id="bpCompatibility" class="brand-v3-order-summary"></div><div id="bpEstimate" class="brand-v3-order-summary"></div><button class="brand-v3-primary" id="bpConfirm">НАЧАТЬ ПРОИЗВОДСТВО</button></div>`);
       const updateFactories=()=>{
         const m=models.find(x=>String(x.id)===$('#bpModel',modal).value)||first;
         const list=activeFactories.filter(f=>brandV3FactoryAllowed(m.category,f.production_type));
@@ -11799,7 +12108,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
         const wanted=list.find(f=>String(f.id)===String(firstF.id))||list[0]; select.value=wanted.id;
         $('#bpCompatibility',modal).innerHTML=`<div><span>СПЕЦИАЛИЗАЦИЯ</span><b>${escV(wanted.production_type_name||wanted.production_type)}</b></div><div><span>ПОДХОДИТ ДЛЯ</span><b>${(wanted.specialization_categories||[]).slice(0,3).map(escV).join(' · ')||'выбранной категории'}</b></div>`;
       };
-      const update=()=>{const m=models.find(x=>String(x.id)===$('#bpModel',modal).value)||first;const f=activeFactories.find(x=>String(x.id)===$('#bpFactory',modal).value)||activeFactories[0];const qty=Math.max(1,Math.min(10000,Math.round(nV($('#bpQty',modal).value,100))));if(!f||!brandV3FactoryAllowed(m.category,f.production_type)){ $('#bpEstimate',modal).innerHTML=''; return; } const unit=Math.max(1,Math.round(nV(m.cost,1000)*(1-nV(f.cost_modifier_pct)/100)));const total=unit*qty;const secs=Math.max(60,Math.ceil(qty/Math.max(1,nV(f.capacity_day,500))*86400/(1+nV(f.speed_pct)/100)));$('#bpQty',modal).value=qty;$('#bpEstimate',modal).innerHTML=`<div><span>СЕБЕСТОИМОСТЬ</span><b>${moneyV(unit)} / шт.</b></div><div><span>ПАРТИЯ</span><b>${careerMoney(qty)} шт.</b></div><div><span>РАСХОД</span><b>${moneyV(total)}</b></div><div><span>СРОК</span><b>${Math.max(1,Math.ceil(secs/3600))} ч.</b></div>`;};
+      const update=()=>{const m=models.find(x=>String(x.id)===$('#bpModel',modal).value)||first;const f=activeFactories.find(x=>String(x.id)===$('#bpFactory',modal).value)||activeFactories[0];const qty=Math.max(1,Math.min(10000,Math.round(nV($('#bpQty',modal).value,100))));if(!f||!brandV3FactoryAllowed(m.category,f.production_type)){ $('#bpEstimate',modal).innerHTML=''; return; } const unit=Math.max(1,Math.round(nV(m.cost,1000)*(1-nV(f.cost_modifier_pct)/100)));const total=unit*qty;const secs=Math.max(60,Math.ceil(qty/Math.max(1,nV(f.capacity_day,500))*86400/(1+nV(f.speed_pct)/100)));$('#bpQty',modal).value=qty;$('#bpEstimate',modal).innerHTML=`<div><span>СЕБЕСТОИМОСТЬ</span><b>${moneyV(unit)} / шт.</b></div><div><span>ПАРТИЯ</span><b>${careerMoney(qty)} шт.</b></div><div><span>РАСХОД</span><b>${moneyV(total)}</b></div><div><span>СРОК</span><b>${secs>=3600?`${Math.floor(secs/3600)} ч. ${Math.ceil((secs%3600)/60)} мин.`:`${Math.max(1,Math.ceil(secs/60))} мин.`}</b></div>`;};
       const rerender=()=>{updateFactories();update()};
       $$('[data-model-id]',modal).forEach(x=>x.onclick=()=>{$$('[data-model-id]',modal).forEach(y=>y.classList.remove('active'));x.classList.add('active');$('#bpModel',modal).value=x.dataset.modelId;rerender()});
       $$('[data-qty-minus]',modal).forEach(x=>x.onclick=()=>{$('#bpQty',modal).value=Math.max(1,nV($('#bpQty',modal).value,100)-10);update()});
@@ -11812,70 +12121,177 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
   }
 
   async function brandV3LogisticsPicker(){
-    const models=brandModels(), wh=brandWarehouse(), stores=brandStores(), facs=brandFactories();
-    if(!wh.length||!stores.length){coreToast('Нужны готовый товар на складе и открытый магазин.');return null;}
-    const available=wh.filter(x=>nV(x.qty)-nV(x.reserved_qty)>0); if(!available.length){coreToast('На заводском складе нет доступного товара.');return null;}
+    window.__brandPreviewName=String(brandState().name||'Бренд');
+    const models=brandModels(), wh=brandWarehouse(), stores=brandStores(), lg=brandLogistics();
+    if(!wh.length){coreToast('Склад пуст. Сначала дождись готовой партии.');return null;}
+    if(!stores.length){coreToast('Сначала открой хотя бы один магазин.');return null;}
+    const available=wh.filter(x=>nV(x.qty)-nV(x.reserved_qty)>0);
+    if(!available.length){coreToast('На складе нет свободного товара.');return null;}
     return new Promise(resolve=>{
-      const first=available[0], modal=brandV3OpenModalRaw(`<div class="brand-v3-modal-card brand-v3-distribution"><button class="brand-v3-close" id="bdCancel">×</button><small class="brand-v3-kicker">SUPPLY CHAIN · DISTRIBUTION</small><h3>Распределить партию</h3><p>Одну партию можно разделить между несколькими городами за одно подтверждение: New York — 40, London — 25, Paris — 20 и так далее. Товар сначала резервируется на заводе, затем едет и только после прибытия поступает в магазин.</p><label>МОДЕЛЬ / ЗАВОД<select id="bdWh" class="brand-v3-input">${available.map(x=>`<option value="${escV(x.factory_id)}|${escV(x.model_id)}">${escV(x.title)} · ${careerMoney(nV(x.qty)-nV(x.reserved_qty))} шт. · ${escV(x.factory_city||'Завод')}</option>`).join('')}</select></label><div id="bdCities" class="brand-v3-distribution-list"></div><div id="bdTotals" class="brand-v3-order-summary"></div><div id="bdForecast" class="brand-v3-forecast"></div><button class="brand-v3-primary" id="bdConfirm">ОТПРАВИТЬ РАСПРЕДЕЛЕНИЕ</button></div>`);
-      const getSource=()=>{const [fid,mid]=String($('#bdWh',modal).value||'|').split('|');const src=available.find(x=>String(x.factory_id)===fid&&String(x.model_id)===mid)||first;const model=models.find(x=>String(x.id)===mid)||{};const factory=facs.find(x=>String(x.id)===fid)||{};return {fid,mid,src,model,factory}};
-      const route=(factory,store,qty)=>{const a=cityCoords[factory.city]||[0,0],z=cityCoords[store.city]||[0,0],dist=Math.hypot(a[0]-z[0],a[1]-z[1]);const ship=Math.round((2500+dist*85+qty*8)*nV(brandLogistics().shipping_modifier,1));const hours=Math.max(6,Math.min(72,Math.round(8+dist*.24+qty/800)));return {ship,hours};};
-      const renderCities=()=>{const {src,model,factory}=getSource();const max=Math.max(0,nV(src.qty)-nV(src.reserved_qty));$('#bdCities',modal).innerHTML=stores.map((store,i)=>{const existingValue=i===0?Math.min(50,max):0;const m=store.market||{};const demand=nV(store.category_demand?.[model.category],0);return `<div class="brand-v3-distribution-row" data-store-row="${escV(store.id)}"><div><b>${cityFlags[store.city]||''} ${escV(store.city)}</b><span>${nV(m.temperature)>0?'+':''}${Math.round(nV(m.temperature))}°C · ${escV(m.weather||'—')} · спрос ${demand>=0?'+':''}${Math.round(demand)}%</span><small>Сейчас в магазине: ${careerMoney(nV(store.stock_total))} шт. · конкуренция ${escV(store.competition_label||'Средняя')}</small></div><input class="brand-v3-input bd-city-qty" data-store-id="${escV(store.id)}" type="number" min="0" max="${Math.max(0,max)}" value="${existingValue}"></div>`}).join(''); updateTotals();};
-      const updateTotals=()=>{const {src,model,factory}=getSource();const max=Math.max(0,nV(src.qty)-nV(src.reserved_qty));let totalQty=0,totalShip=0,maxHours=0,expected=0; $$('.bd-city-qty',modal).forEach(input=>{const store=stores.find(x=>String(x.id)===String(input.dataset.storeId));const qty=Math.max(0,Math.min(max,Math.round(nV(input.value,0))));input.value=qty;if(!store||qty<=0)return;const r=route(factory,store,qty);totalQty+=qty;totalShip+=r.ship;maxHours=Math.max(maxHours,r.hours);const demand=Math.max(0.35,1+nV(store.category_demand?.[model.category],0)/100);const daily=Math.max(1,(6+nV(store.activity,68)*.34)*({'store':1,'flagship':1.65,'outlet':.78}[store.store_type]||1)*demand);expected+=Math.min(qty,Math.round(daily));});const availableBalance=nV(window.__resellAvitoState?.balance,0);$('#bdTotals',modal).innerHTML=`<div><span>РАСПРЕДЕЛЕНО</span><b>${careerMoney(totalQty)} / ${careerMoney(max)} шт.</b></div><div><span>ДОСТАВКА</span><b>${moneyV(totalShip)}</b></div><div><span>СРОК</span><b>${maxHours?`до ${maxHours} ч.`:'—'}</b></div><div><span>ОСТАНЕТСЯ</span><b>${careerMoney(Math.max(0,max-totalQty))} шт.</b></div>`;const risk=totalQty<=Math.max(1,expected*1.5)?'Низкий':totalQty<=Math.max(1,expected*3)?'Средний':'Высокий';$('#bdForecast',modal).innerHTML=`<div><small>ПРОГНОЗ 24Ч</small><b>~${careerMoney(expected)} шт.</b></div><div><small>ПРОГНОЗ ВЫРУЧКИ</small><b>${moneyV(expected*nV(model.price,0))}</b></div><div><small>РИСК ЗАЛЕЖИВАНИЯ</small><b>${risk}</b></div>`;$('#bdConfirm',modal).disabled=totalQty<=0||totalQty>max||totalShip>availableBalance;};
-      $('#bdWh',modal).onchange=renderCities;
-      $('#bdCities',modal).addEventListener('input',updateTotals);
+      let selectedStore=null, selectedWh=available[0], selectedCountry=Object.keys(brandCountries).find(k=>stores.some(x=>countryNamesByCode[cityCountries[x.city]]===k))||Object.keys(brandCountries)[0];
+      const mapPos=city=>{const c=cityCoords[String(city)]||[0,0];return {left:clampV((c[1]+180)/360*100,2,98),top:clampV((90-c[0])/180*100,4,96)}};
+      const modal=brandV3OpenModalRaw(`
+        <div class="brand-v3-modal-card brand-v3-logistics-simple brand-v3-logistics-world">
+          <button class="brand-v3-close" id="bdCancel">×</button>
+          <small class="brand-v3-kicker">RESSELL · ЛОГИСТИКА</small>
+          <h3>Куда отправить товар?</h3>
+          <p class="brand-v3-logistics-help">Сначала выбери партию на складе, затем нажми прямо на точку магазина на карте. Машина поедет по этому маршруту. Максимальный срок — 2 часа.</p>
+          <div class="brand-v3-logistics-parties" id="bdParties"></div>
+          <label class="brand-v3-logistics-country">СТРАНА<select id="bdCountry" class="brand-v3-input">${brandCountryOptions(selectedCountry)}</select></label>
+          <div class="brand-v3-logistics-worldmap" id="bdMap"></div>
+          <div class="brand-v3-logistics-selected" id="bdSelected">Нажми на магазин на карте</div>
+          <label class="brand-v3-logistics-qty">КОЛИЧЕСТВО <div><button type="button" id="bdQtyMinus">−</button><input id="bdQty" type="number" min="1" max="100" value="${Math.max(1,Math.min(100,nV(selectedWh.qty)-nV(selectedWh.reserved_qty)))}"><button type="button" id="bdQtyPlus">+</button></div></label>
+          <div class="brand-v3-logistics-summary" id="bdTotals"></div>
+          <div class="brand-v3-truck-status"><span>ГРУЗОВИКИ</span><b>${Math.max(1,nV(lg.fleet_level,1))} шт.</b><button type="button" id="bdBuyTruck">КУПИТЬ · 2 000 000 ₽</button></div>
+          <button class="brand-v3-primary" id="bdConfirm" disabled>ОТПРАВИТЬ ПАРТИЮ</button>
+        </div>`);
+      const renderParties=()=>{
+        $('#bdParties',modal).innerHTML=available.map((item,i)=>{
+          const m=models.find(x=>String(x.id)===String(item.model_id))||{};
+          const free=Math.max(0,nV(item.qty)-nV(item.reserved_qty));
+          return `<button type="button" class="brand-v3-log-party ${String(selectedWh.id)===String(item.id)?'active':''}" data-log-wh="${escV(item.id)}"><div class="brand-v3-log-party-thumb">${brandV3BlueprintSvg(m.category||item.category,{...(m.colors||{}),cut:m.cut,length_pct:m.length_pct,width_pct:m.width_pct,sleeves:m.sleeves,pocket:m.pocket,collar:m.collar,hood:m.hood,logoText:m.logo_text,printText:m.print_text})}</div><div><b>${escV(item.title||m.title||'Модель')}</b><small>${escV(categoryName(m.category||item.category))}</small><span>${careerMoney(free)} шт. свободно</span></div></button>`;
+        }).join('');
+        $$('[data-log-wh]',modal).forEach(btn=>btn.onclick=()=>{selectedWh=available.find(x=>String(x.id)===String(btn.dataset.logWh))||selectedWh;selectedStore=null;renderParties();renderMap();renderTotals()});
+      };
+      const renderMap=()=>{
+        const src=selectedWh.factory_city||selectedWh.city||'Moscow';
+        const fp=mapPos(src);
+        const countryStores=stores.filter(store=>countryNamesByCode[cityCountries[String(store.city)]]===selectedCountry);
+        const storesHtml=countryStores.map(store=>{
+          const z=mapPos(store.city), selected=selectedStore&&String(selectedStore.id)===String(store.id);
+          return `<button type="button" class="brand-v3-log-world-pin ${selected?'active':''}" style="left:${z.left}%;top:${z.top}%" data-log-store="${escV(store.id)}" title="${escV(store.city)}"><i></i><span>${cityFlags[store.city]||''} ${escV(store.city)}</span></button>`;
+        }).join('');
+        let route='';
+        if(selectedStore){
+          const z=mapPos(selectedStore.city); const x1=fp.left/100*720,y1=fp.top/100*225,x2=z.left/100*720,y2=z.top/100*225; const d=`M ${x1.toFixed(1)} ${y1.toFixed(1)} L ${x2.toFixed(1)} ${y2.toFixed(1)}`;
+          route=`<svg class="brand-v3-log-world-routes" viewBox="0 0 720 225" preserveAspectRatio="none"><path d="${d}" class="brand-v3-log-route-line"/></svg>`;
+        }
+        $('#bdMap',modal).innerHTML=`<div class="brand-v3-log-world-head"><span>МИРОВАЯ СЕТЬ</span><b>${escV(src)} → ${selectedStore?escV(selectedStore.city):'выбери магазин'}</b></div><div class="brand-v3-log-world-canvas"><img src="https://upload.wikimedia.org/wikipedia/commons/8/8b/Blank_map_of_the_world.svg" alt="Карта мира" loading="lazy"><div class="brand-v3-log-factory-pin" style="left:${fp.left}%;top:${fp.top}%"><i>🏭</i></div>${route}${storesHtml}<div class="brand-v3-log-world-legend"><span><i class="store"></i> магазин</span><span><i class="factory"></i> производство</span></div></div>`;
+        $$('[data-log-store]',modal).forEach(btn=>btn.onclick=()=>{selectedStore=stores.find(x=>String(x.id)===String(btn.dataset.logStore))||null;renderMap();renderTotals()});
+      };
+      const syncQty=()=>{const max=Math.max(1,Math.min(100,nV(selectedWh.qty)-nV(selectedWh.reserved_qty)));const el=$('#bdQty',modal);if(!el)return max;let q=Math.round(nV(el.value,max));q=Math.max(1,Math.min(max,q));el.value=String(q);return q;};
+      const renderTotals=()=>{
+        const max=Math.max(0,nV(selectedWh.qty)-nV(selectedWh.reserved_qty));
+        const fleet=Math.max(1,nV(lg.fleet_level,1));
+        const activeOrders=(Array.isArray(brandState().logistics_orders)?brandState().logistics_orders:[]).filter(x=>String(x.status)==='in_transit').length;
+        if(!selectedStore){$('#bdSelected',modal).textContent='Нажми на точку магазина на карте';$('#bdTotals',modal).innerHTML='';$('#bdConfirm',modal).disabled=true;return;}
+        const fc=cityCoords[selectedWh.factory_city]||[0,0], sc=cityCoords[selectedStore.city]||[0,0];
+        const dist=Math.hypot(fc[0]-sc[0],fc[1]-sc[1]);
+        const qty=syncQty();
+        const ship=Math.max(1000,Math.round((2500+dist*85+qty*8)*nV(lg.shipping_modifier,1)));
+        const hours=Math.max(.10,Math.min(2,0.18+dist/180+qty/18000));
+        $('#bdSelected',modal).innerHTML=`<b>${cityFlags[selectedStore.city]||''} ${escV(selectedStore.city)}</b><span>После прибытия товар автоматически поступит в магазин.</span>`;
+        $('#bdTotals',modal).innerHTML=`<div><small>ПАРТИЯ</small><b>${careerMoney(qty)} шт.</b></div><div><small>ДОСТАВКА</small><b>${moneyV(ship)}</b></div><div><small>В ПУТИ</small><b>${hours<1?Math.max(6,Math.round(hours*60))+' мин.':hours.toFixed(1)+' ч.'}</b></div><div><small>СВОБОДНО</small><b>${careerMoney(max)} шт.</b></div>`;
+        const balanceNow=nV(window.__resellAvitoState?.balance,0);
+        const can=max>0;
+        $('#bdConfirm',modal).disabled=!can;
+        $('#bdConfirm',modal).title='';
+      };
+      $('#bdCountry',modal).onchange=()=>{selectedCountry=String($('#bdCountry',modal).value||selectedCountry);selectedStore=null;renderMap();renderTotals();};
+      renderParties();renderMap();renderTotals();
+      $('#bdQtyMinus',modal).onclick=()=>{const el=$('#bdQty',modal);el.value=String(Math.max(1,Math.round(nV(el.value,1))-10));renderTotals();};
+      $('#bdQtyPlus',modal).onclick=()=>{const el=$('#bdQty',modal);el.value=String(Math.min(100,Math.round(nV(el.value,1))+10));renderTotals();};
+      $('#bdQty',modal).oninput=renderTotals;
+      $('#bdBuyTruck',modal).onclick=async()=>{try{await careerPost('brand_v3_buy_truck',{});coreToast('Грузовик куплен за 2 000 000 ₽.');renderTotals();}catch(e){coreToast(e?.message||'Не удалось купить грузовик.')}};
       $('#bdCancel',modal).onclick=()=>{brandV3CloseModal();resolve(null)};
-      $('#bdConfirm',modal).onclick=()=>{const {fid,mid}=getSource();const allocations=$$('.bd-city-qty',modal).map(x=>({store_id:x.dataset.storeId,quantity:Math.max(0,Math.round(nV(x.value,0)))})).filter(x=>x.quantity>0);if(!allocations.length)return;brandV3CloseModal();resolve({model_id:mid,from_factory_id:fid,allocations})};
-      renderCities();
+      $('#bdConfirm',modal).onclick=()=>{
+        if(!selectedStore||$('#bdConfirm',modal).disabled)return;
+        const max=Math.max(0,nV(selectedWh.qty)-nV(selectedWh.reserved_qty));
+        const qty=syncQty();
+        const data={model_id:String(selectedWh.model_id),from_factory_id:String(selectedWh.factory_id),allocations:[{store_id:String(selectedStore.id),quantity:qty}]};
+        brandV3CloseModal();resolve(data);
+      };
+    });
+  }
+
+  function brandCountryOptions(selected=''){
+    return Object.entries(brandCountries).map(([name,c])=>`<option value="${escV(name)}" ${name===selected?'selected':''}>${c.flag} ${escV(name)}</option>`).join('');
+  }
+  function brandCityOptions(country, selected=''){
+    const c=brandCountries[country]||Object.values(brandCountries)[0];
+    return Object.keys(c.cities).map(city=>`<option value="${escV(city)}" ${city===selected?'selected':''}>${c.flag} ${escV(city)}</option>`).join('');
+  }
+  async function brandV3StorePicker(){
+    const st=brandState()||{}; const markets=Array.isArray(st.market_conditions)?st.market_conditions:[];
+    const existing=new Set(brandStores().map(x=>String(x.city||''))); const countries=Object.entries(brandCountries);
+    return new Promise(resolve=>{
+      let country=countries.find(([name,c])=>Object.keys(c.cities).some(city=>!existing.has(city)))?.[0]||countries[0][0];
+      const firstCity=Object.keys(brandCountries[country].cities).find(city=>!existing.has(city))||Object.keys(brandCountries[country].cities)[0];
+      const modal=brandV3OpenModalRaw(`<div class="brand-v3-modal-card brand-v3-store-builder"><button class="brand-v3-close" id="bsCancel">×</button><small class="brand-v3-kicker">МАГАЗИН · СТРАНА → ГОРОД</small><h3>Открыть магазин</h3><p>Сначала выбери страну, затем один из крупнейших городов этой страны.</p><label>СТРАНА<select id="bsCountry" class="brand-v3-input">${brandCountryOptions(country)}</select></label><label>ГОРОД<select id="bsCity" class="brand-v3-input"></select></label><label>ФОРМАТ<select id="bsType" class="brand-v3-input"><option value="store">Store · 900 000 ₽</option><option value="outlet">Outlet · 520 000 ₽</option><option value="flagship">Flagship · 2 500 000 ₽</option></select></label><div id="bsMarketPreview" class="brand-v3-market-preview"></div><button class="brand-v3-primary" id="bsConfirm">ОТКРЫТЬ МАГАЗИН</button></div>`);
+      const render=()=>{const c=$('#bsCountry',modal).value; const opts=Object.keys(brandCountries[c].cities).filter(x=>!existing.has(x)); $('#bsCity',modal).innerHTML=(opts.length?opts:Object.keys(brandCountries[c].cities)).map(x=>`<option value="${escV(x)}">${brandCountries[c].flag} ${escV(x)}</option>`).join(''); const city=$('#bsCity',modal).value; const m=markets.find(x=>String(x.city)===city)||{}; const type=$('#bsType',modal).value; const costs={store:900000,outlet:520000,flagship:2500000}; $('#bsMarketPreview',modal).innerHTML=`<div><span>СТРАНА</span><b>${brandCountries[c].flag} ${escV(c)}</b></div><div><span>РЫНОК</span><b>${escV(city)}</b></div><div><span>УСЛОВИЯ</span><b>${escV(m.event_title||'Стабильный рынок')}</b></div><div><span>СТОИМОСТЬ</span><b>${moneyV(costs[type]||costs.store)}</b></div>`; $('#bsConfirm',modal).disabled=existing.has(city);};
+      $('#bsCountry',modal).onchange=render; $('#bsType',modal).onchange=render; $('#bsCancel',modal).onclick=()=>{brandV3CloseModal();resolve(null)}; $('#bsConfirm',modal).onclick=()=>{const city=$('#bsCity',modal).value;if(existing.has(city)){coreToast('Магазин в этом городе уже открыт.');return;}const store_type=$('#bsType',modal).value;brandV3CloseModal();resolve({city,store_type,country_code:cityCountries[city]||''})}; render();
     });
   }
 
   async function brandV3FactoryPicker(){
-    return new Promise(resolve=>{const modal=brandV3OpenModalRaw(`<div class="brand-v3-modal-card"><button class="brand-v3-close" id="bfCancel">×</button><small class="brand-v3-kicker">EXPANSION</small><h3>Новое производство</h3><p>Открой специализацию рядом с новым рынком или вынеси часть цепочки из основного завода.</p><label>ТИП<select id="bfType" class="brand-v3-input">${[['sewing','Швейное · 250 000 ₽'],['footwear','Обувное · 420 000 ₽'],['accessories','Аксессуары · 260 000 ₽'],['print','Печать · 190 000 ₽'],['hardware','Фурнитура · 310 000 ₽']].map(x=>`<option value="${x[0]}">${x[1]}</option>`).join('')}</select></label><label>ГОРОД<select id="bfCity" class="brand-v3-input">${Object.keys(cityCoords).map(x=>`<option value="${escV(x)}">${escV(x)}</option>`).join('')}</select></label><button class="brand-v3-primary" id="bfConfirm">ОТКРЫТЬ ПРОИЗВОДСТВО</button></div>`);$('#bfCancel',modal).onclick=()=>{brandV3CloseModal();resolve(null)};$('#bfConfirm',modal).onclick=()=>{const data={production_type:$('#bfType',modal).value,city:$('#bfCity',modal).value};brandV3CloseModal();resolve(data)}});
+    const markets=Array.isArray(brandState().market_conditions)?brandState().market_conditions:[];
+    return new Promise(resolve=>{
+      let country=Object.keys(brandCountries)[0];
+      const modal=brandV3OpenModalRaw(`<div class="brand-v3-modal-card brand-v3-factory-builder"><button class="brand-v3-close" id="bfCancel">×</button><small class="brand-v3-kicker">ПРОИЗВОДСТВО · СТРАНА → ГОРОД</small><h3>Новое производство</h3><p>Сначала выбери страну, затем город, где будет стоять производство.</p><label>ТИП<select id="bfType" class="brand-v3-input">${[['sewing','Швейное · 250 000 ₽'],['footwear','Обувное · 420 000 ₽'],['accessories','Аксессуары · 260 000 ₽'],['print','Печать · 190 000 ₽'],['hardware','Фурнитура · 310 000 ₽']].map(x=>`<option value="${x[0]}">${x[1]}</option>`).join('')}</select></label><label>СТРАНА<select id="bfCountry" class="brand-v3-input">${brandCountryOptions(country)}</select></label><label>ГОРОД ПРОИЗВОДСТВА<select id="bfCity" class="brand-v3-input"></select></label><label>ЦЕЛЕВОЙ РЫНОК<select id="bfMarket" class="brand-v3-input"></select></label><div id="bfMarketPreview" class="brand-v3-market-preview"></div><button class="brand-v3-primary" id="bfConfirm">ОТКРЫТЬ ПРОИЗВОДСТВО</button></div>`);
+      const render=()=>{country=$('#bfCountry',modal).value; const cities=Object.keys(brandCountries[country].cities); $('#bfCity',modal).innerHTML=cities.map(x=>`<option value="${escV(x)}">${brandCountries[country].flag} ${escV(x)}</option>`).join(''); $('#bfMarket',modal).innerHTML=Object.entries(brandCountries).flatMap(([cn,c])=>Object.keys(c.cities).map(x=>{const m=markets.find(z=>String(z.city)===x)||{};return `<option value="${escV(x)}">${c.flag} ${escV(x)}${m.event_title?` · ${escV(m.event_title)}`:''}</option>`})).join(''); const city=$('#bfMarket',modal).value; const m=markets.find(z=>String(z.city)===city)||{}; $('#bfMarketPreview',modal).innerHTML=`<div><span>СТРАНА</span><b>${brandCountries[country].flag} ${escV(country)}</b></div><div><span>ГОРОД</span><b>${escV($('#bfCity',modal).value)}</b></div><div><span>РЫНОК</span><b>${escV(m.event_title||'Стабильный рынок')}</b></div>`;};
+      $('#bfCountry',modal).onchange=render; $('#bfMarket',modal).onchange=()=>{const m=markets.find(z=>String(z.city)===$('#bfMarket',modal).value)||{};$('#bfMarketPreview',modal).querySelectorAll('div')[2]?.querySelector('b')?.replaceChildren(document.createTextNode(m.event_title||'Стабильный рынок'));}; $('#bfCancel',modal).onclick=()=>{brandV3CloseModal();resolve(null)}; $('#bfConfirm',modal).onclick=()=>{const data={production_type:$('#bfType',modal).value,city:$('#bfCity',modal).value,target_market:$('#bfMarket',modal).value,country_code:cityCountries[$('#bfCity',modal).value]||''};brandV3CloseModal();resolve(data)}; render();
+    });
   }
-
-  async function brandV3StorePicker(){
-    const stores=brandStores();
-    return new Promise(resolve=>{const modal=brandV3OpenModalRaw(`<div class="brand-v3-modal-card"><button class="brand-v3-close" id="bsCancel">×</button><small class="brand-v3-kicker">RETAIL NETWORK</small><h3>Новый магазин</h3><p>Выбирай город по погоде, рынку, конкуренции и текущему хайпу.</p><label>ГОРОД<select id="bsCity" class="brand-v3-input">${Object.keys(cityCoords).filter(x=>!stores.some(s=>String(s.city)===x)).map(x=>`<option value="${escV(x)}">${cityFlags[x]||''} ${escV(x)}</option>`).join('')}</select></label><label>ФОРМАТ<select id="bsType" class="brand-v3-input"><option value="store">Store · 900 000 ₽</option><option value="flagship">Flagship · 2 500 000 ₽</option><option value="outlet">Outlet · 520 000 ₽</option></select></label><button class="brand-v3-primary" id="bsConfirm">ОТКРЫТЬ МАГАЗИН</button></div>`);$('#bsCancel',modal).onclick=()=>{brandV3CloseModal();resolve(null)};$('#bsConfirm',modal).onclick=()=>{const data={city:$('#bsCity',modal).value,store_type:$('#bsType',modal).value};brandV3CloseModal();resolve(data)}});
-  }
-
   function brandV3FactoryUpgradePicker(factory){
     const opts=[['capacity','Производительность +30%'],['quality','Качество +5 п.п.'],['speed','Скорость +20%'],['cost','Себестоимость −5%']];
     return new Promise(resolve=>{const modal=brandV3OpenModalRaw(`<div class="brand-v3-modal-card"><button class="brand-v3-close" id="bfuCancel">×</button><small class="brand-v3-kicker">FACTORY · LV.${nV(factory.level,1)}</small><h3>Улучшить ${escV(factory.city)}</h3><div class="brand-v3-choice-grid" id="bfuOptions">${opts.map(x=>`<button type="button" data-key="${x[0]}">${x[1]}</button>`).join('')}</div><div class="brand-v3-order-summary"><div><span>ТЕКУЩАЯ МОЩНОСТЬ</span><b>${careerMoney(factory.capacity_day)} шт./день</b></div><div><span>КАЧЕСТВО</span><b>${Math.round(nV(factory.quality))}%</b></div></div><button class="brand-v3-primary" id="bfuConfirm" disabled>ПРИМЕНИТЬ</button></div>`);let sel=null;$$('[data-key]',modal).forEach(x=>x.onclick=()=>{$$('[data-key]',modal).forEach(y=>y.classList.remove('active'));x.classList.add('active');sel=x.dataset.key;$('#bfuConfirm',modal).disabled=false});$('#bfuCancel',modal).onclick=()=>{brandV3CloseModal();resolve(null)};$('#bfuConfirm',modal).onclick=()=>{if(!sel)return;brandV3CloseModal();resolve({factory_id:factory.id,upgrade_key:sel})}});
   }
 
-  function renderBrandV3(s,b){
-    const st=s&&typeof s==='object'?s:{}; const balance=nV(b), models=Array.isArray(st.models)?st.models:[], factories=Array.isArray(st.factories)?st.factories:[], stores=Array.isArray(st.stores)?st.stores:[], jobs=Array.isArray(st.production_jobs)?st.production_jobs:[], orders=Array.isArray(st.logistics_orders)?st.logistics_orders:[], wh=Array.isArray(st.warehouse)?st.warehouse:[], campaigns=Array.isArray(st.campaigns)?st.campaigns:[], sales=Array.isArray(st.sales_history)?st.sales_history:[], analytics=Array.isArray(st.analytics)?st.analytics:[], tab=String(window.__brandTab||'overview'); const available=nV(st.available_revenue), capital=nV(st.capital), profit=nV(st.total_profit), hype=clampV(st.hype,0,100), delta=nV(st.hype_delta); const activeJobs=jobs.filter(x=>String(x.status)==='running'), activeOrders=orders.filter(x=>String(x.status)==='in_transit');
-    if(!st.name) return avcShell('brand','Создание бренда','BRAND STUDIO','Собери собственную цепочку одежды от модели до магазина',balance,`<div class="brand-v3-create"><div class="brand-v3-mark">R</div><small>СОБСТВЕННЫЙ БРЕНД</small><h2>Создай бренд, который живёт по рынку</h2><p>Проектируй вещи, производи партии, распределяй товар по городам и управляй реальным спросом.</p><button class="brand-v3-primary" data-career-action="brand_v3_create_brand">СОЗДАТЬ БРЕНД · 50 000 ₽</button><div class="brand-v3-flow"><span>1 · МОДЕЛЬ</span><span>2 · ПРОИЗВОДСТВО</span><span>3 · МАГАЗИН</span><span>4 · ПРОДАЖА</span></div></div>`);
-    let content='';
-    if(tab==='overview'){
-      const next=activeJobs[0], event=stores[0]?.market||{};
-      content=`<section class="brand-v3-hero"><div><small>BRAND STUDIO</small><h2>${escV(st.name)}</h2><p>${escV(st.brand_style||'streetwear')} · уровень ${nV(st.level,1)}</p></div><div class="brand-v3-hype"><span>🔥 ХАЙП</span><b>${Math.round(hype)}%</b><small>${delta>=0?'+':''}${delta.toFixed(0)}% с последнего расчёта</small><em>СОСТОЯНИЕ БРЕНДА · ${Math.round(nV(st.reputation,20))}%</em></div></section><section class="brand-v3-metrics">${brandV3Metric('Баланс',moneyV(balance),'balance','реальные доступные деньги')}${brandV3Metric('Доступная выручка',moneyV(available),'revenue','продажи ещё не забраны')}${brandV3Metric('Капитал бренда',moneyV(capital),'capital','стоимость активов бренда')}${brandV3Metric('Прибыль',moneyV(profit),'profit','после производства, логистики и рекламы')}</section><section class="brand-v3-capital-breakdown"><div><span>ЗАВОДЫ</span><b>${moneyV(factories.reduce((a,x)=>a+nV(x.asset_value),0))}</b></div><div><span>МАГАЗИНЫ</span><b>${moneyV(stores.reduce((a,x)=>a+({'store':900000,'flagship':2500000,'outlet':520000}[x.store_type]||0)*nV(x.level,1),0))}</b></div><div><span>ТОВАР</span><b>${moneyV(wh.reduce((a,x)=>a+nV(x.qty)*nV(x.unit_cost),0)+stores.reduce((a,st)=>a+(st.inventory||[]).reduce((v,x)=>v+nV(x.qty)*nV(x.unit_cost),0),0))}</b></div><div><span>ЛОГИСТИКА</span><b>${moneyV(nV(brandLogistics().asset_value,0))}</b></div></section>${available>0?`<button class="brand-v3-revenue-btn" data-career-action="brand_v3_collect_revenue"><span>ДОСТУПНАЯ ВЫРУЧКА</span><b>${moneyV(available)}</b><em>ЗАБРАТЬ ВЫРУЧКУ →</em></button>`:''}<section class="brand-v3-event"><div><span>${escV(event.event_title||'РЫНОК')}</span><b>${escV(event.event_text||'Открой магазин, чтобы начать получать локальные рыночные сигналы.')}</b></div><strong>${event.event_id?`×${nV(event.event_mult,1).toFixed(2)}`:'LIVE'}</strong></section><section class="brand-v3-section"><div class="brand-v3-section-head"><div><small>ПРОИЗВОДСТВО</small><h3>${next?`Производится ${escV(next.title||'модель')}`:'Следующий шаг'}</h3></div><button data-career-action="brand_v3_production">${next?'НОВАЯ ПАРТИЯ':'ЗАПУСТИТЬ'} →</button></div>${next?`<div class="brand-v3-progress"><i style="width:${Math.max(3,Math.min(100,((nowV()-nV(next.started_at))/(Math.max(1,nV(next.ready_at)-nV(next.started_at))))*100))}%"></i></div><div class="brand-v3-inline-meta"><span>${careerMoney(next.quantity)} шт.</span><b>готовность ${new Date(nV(next.ready_at)*1000).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</b></div>`:`<div class="brand-v3-empty">Создай модель и запусти первую партию.</div>`}</section><section class="brand-v3-section"><div class="brand-v3-section-head"><div><small>СЕТЬ МАГАЗИНОВ</small><h3>${stores.length} городов</h3></div><button data-career-action="brand_v3_new_store">ОТКРЫТЬ →</button></div>${brandV3Map(stores,factories)}</section><section class="brand-v3-quickgrid"><button data-brand-tab="models"><b>${models.length}</b><span>МОДЕЛИ</span></button><button data-brand-tab="production"><b>${factories.length}</b><span>ЗАВОДЫ</span></button><button data-brand-tab="logistics"><b>${wh.reduce((a,x)=>a+nV(x.qty)-nV(x.reserved_qty),0)}</b><span>НА СКЛАДЕ</span></button><button data-brand-tab="analytics"><b>${sales.reduce((a,x)=>a+nV(x.qty),0)}</b><span>ПРОДАНО</span></button></section>`;
-    } else if(tab==='models'){
-      content=`<div class="brand-v3-view-head"><div><small>КОНСТРУКТОР</small><h2>Мои модели</h2><p>Каждая вещь живёт в базе бренда и доступна производству.</p></div><button data-career-action="brand_v3_new_model">СОЗДАТЬ ВЕЩЬ</button></div>${models.length?`<div class="brand-v3-model-list">${models.map(m=>`<article class="brand-v3-model-card"><div class="brand-v3-model-art">${brandV3BlueprintSvg(m.category,{...(m.colors||{}),cut:m.cut,length_pct:m.length_pct,width_pct:m.width_pct,sleeves:m.sleeves,pocket:m.pocket,collar:m.collar,hood:m.hood,logoText:m.logo_text,printText:m.print_text,patternText:m.pattern})}</div><div class="brand-v3-model-copy"><small>${escV(categoryName(m.category))} · ${escV(m.material&&materialNames[m.material]||m.material||'—')} · <span class="brand-v3-status">${escV(m.status||'готова к производству')}</span></small><h3>${escV(m.title)}</h3><div class="brand-v3-model-stats"><span><b>${moneyV(m.cost)}</b><small>себестоимость</small></span><span><b>${moneyV(m.price)}</b><small>цена</small></span><span><b>${Math.round(nV(m.hype,35))}%</b><small>хайп ${nV(m.hype_delta)>=0?'+':''}${Math.round(nV(m.hype_delta))}%</small></span></div><div class="brand-v3-stockline"><span>Склад ${careerMoney(nV(m.warehouse_stock))}</span><span>Магазины ${careerMoney(nV(m.store_stock))}</span><span>В пути ${careerMoney(nV(m.in_transit))}</span></div><button data-career-action="brand_v3_edit_model" data-model-id="${escV(m.id)}">РЕДАКТИРОВАТЬ ВЕЩЬ</button></div></article>`).join('')}</div>`:'<div class="brand-v3-empty big">Пока нет моделей. Начни с конструктора.</div>'}`;
-    } else if(tab==='production'){
-      content=`<div class="brand-v3-view-head"><div><small>FACTORY NETWORK</small><h2>Производство</h2><p>Мощность, скорость, качество и себестоимость управляют каждой партией.</p></div><div class="brand-v3-head-actions"><button data-career-action="brand_v3_new_factory">+ ЗАВОД</button><button data-career-action="brand_v3_production">ПАРТИЯ</button></div></div><div class="brand-v3-factory-list">${factories.map(f=>`<article class="brand-v3-factory-card"><div class="brand-v3-factory-top"><div><small>${escV(f.production_type_name||f.production_type)}</small><h3>${escV(f.city)}</h3><small class="brand-v3-specialization">${escV((f.specialization_categories||[]).slice(0,4).join(' · '))}</small></div><b>LV.${nV(f.level,1)}</b></div><div class="brand-v3-factory-grid"><div><span>ПРОИЗВОДИТЕЛЬНОСТЬ</span><b>${careerMoney(f.capacity_day)} / день</b></div><div><span>КАЧЕСТВО</span><b>${Math.round(nV(f.quality))}%</b></div><div><span>СКОРОСТЬ</span><b>+${Math.round(nV(f.speed_pct))}%</b></div><div><span>СЕБЕСТОИМОСТЬ</span><b>−${Math.round(nV(f.cost_modifier_pct))}%</b></div></div><button data-career-action="brand_v3_upgrade_factory" data-factory-id="${escV(f.id)}">УЛУЧШИТЬ →</button></article>`).join('')}</div><section class="brand-v3-section compact"><div class="brand-v3-section-head"><div><small>АКТИВНЫЕ ПАРТИИ</small><h3>${activeJobs.length}</h3></div><button data-career-action="brand_v3_collect_production">СИНХРОНИЗИРОВАТЬ</button></div>${jobs.length?jobs.map(j=>`<div class="brand-v3-job-row"><div><b>${escV(j.title||j.model_id)}</b><span>${escV(j.factory_city||'—')} · ${careerMoney(j.quantity)} шт.</span></div><strong>${String(j.status)==='running'?'В ПРОИЗВОДСТВЕ':'ГОТОВО'}</strong></div>`).join(''):'<div class="brand-v3-empty">Очередь производства пуста.</div>'}</section>`;
-    } else if(tab==='logistics'){
-      const availableStock=wh.reduce((a,x)=>a+nV(x.qty)-nV(x.reserved_qty),0); content=`<div class="brand-v3-view-head"><div><small>SUPPLY CHAIN</small><h2>Логистика</h2><p>Завод → склад → магазин. Ты сам распределяешь каждую партию.</p></div><button data-career-action="brand_v3_logistics">ОТПРАВИТЬ →</button></div><section class="brand-v3-logistics-card"><div><small>УРОВЕНЬ ЛОГИСТИКИ</small><b>LV.${nV(brandLogistics().level,1)}</b></div><div><span>Доступно на складах</span><strong>${careerMoney(availableStock)} шт.</strong></div><div><span>В пути</span><strong>${careerMoney(activeOrders.reduce((a,x)=>a+nV(x.qty),0))} шт.</strong></div><div class="brand-v3-logistics-level"><small>ЭФФЕКТ УРОВНЯ</small><b>${nV(brandLogistics().level,1)<=1?'Lv.1 · базовая дорогая доставка':nV(brandLogistics().level,1)===2?'Lv.2 · ускоренная доставка':nV(brandLogistics().level,1)===3?'Lv.3 · сниженная стоимость':nV(brandLogistics().level,1)===4?'Lv.4 · собственные склады':'Lv.5 · международная сеть'}</b></div><button data-career-action="brand_v3_upgrade_logistics">ПОВЫСИТЬ УРОВЕНЬ</button><div class="brand-v3-logistics-buy"><button data-career-action="brand_v3_upgrade_logistics_component" data-component="warehouse"><b>Склад</b><small>+1 точка хранения</small></button><button data-career-action="brand_v3_upgrade_logistics_component" data-component="fleet"><b>Транспорт</b><small>−8% к доставке</small></button><button data-career-action="brand_v3_upgrade_logistics_component" data-component="center"><b>Центр</b><small>+2 склада</small></button></div></section><div class="brand-v3-warehouse-list">${wh.map(x=>`<div class="brand-v3-warehouse-row"><div><small>ЗАВОД · ${escV(x.factory_city||'—')}</small><b>${escV(x.title||x.model_id)}</b></div><span>${careerMoney(nV(x.qty)-nV(x.reserved_qty))} доступно<br>${careerMoney(nV(x.reserved_qty))} зарезерв.</span></div>`).join('')||'<div class="brand-v3-empty">Склад пока пуст.</div>'}${stores.flatMap(st=>(st.inventory||[]).map(x=>`<div class="brand-v3-warehouse-row"><div><small>МАГАЗИН · ${escV(st.city)}</small><b>${escV(x.title||x.model_id)}</b></div><span>${careerMoney(nV(x.qty))} доступно</span></div>`)).join('')}</div><section class="brand-v3-section compact"><div class="brand-v3-section-head"><div><small>ОТПРАВКИ</small><h3>${activeOrders.length} в пути</h3></div></div>${orders.length?orders.map(o=>`<div class="brand-v3-job-row"><div><b>${escV(o.title||o.model_id)}</b><span>${escV(o.factory_city||'—')} → ${escV(o.store_city||'—')} · ${careerMoney(o.qty)} шт.</span></div><strong>${new Date(nV(o.arrival_at)*1000).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit'})}</strong></div>`).join(''):'<div class="brand-v3-empty">Нет активных отправок.</div>'}</section>`;
-    } else if(tab==='stores'){
-      content=`<div class="brand-v3-view-head"><div><small>RETAIL NETWORK</small><h2>Магазины</h2><p>Нажимай на город на карте или на карточку — каждый рынок живёт отдельно.</p></div><button data-career-action="brand_v3_new_store">+ МАГАЗИН</button></div>${brandV3Map(stores,factories)}<div class="brand-v3-store-list">${stores.map(x=>`<button class="brand-v3-store-card" data-brand-city="${escV(x.city)}"><div><b>${cityFlags[x.city]||''} ${escV(x.city)}</b><span>${escV(x.store_type)} · активность ${Math.round(nV(x.activity))}%</span></div><strong>${moneyV(x.sales_today)}</strong><em>${Math.round(nV(x.market?.temperature))}°C · ${escV(x.market?.weather||'—')}<br>спрос ${Math.round(nV(x.activity))}%</em></button>`).join('')||'<div class="brand-v3-empty">Открой первый магазин.</div>'}</div>`;
-    } else if(tab==='market'){
-      content=`<div class="brand-v3-view-head"><div><small>LIVE MARKET</small><h2>Рынок</h2><p>Погода, сезон и городские тренды напрямую меняют спрос.</p></div><button data-career-action="brand_v3_refresh">ОБНОВИТЬ</button></div><div class="brand-v3-market-grid">${stores.map(x=>{const m=x.market||{};return `<button class="brand-v3-market-card" data-brand-city="${escV(x.city)}"><div><span>${cityFlags[x.city]||''} ${escV(x.city)}</span><b>${nV(m.temperature)>0?'+':''}${Math.round(nV(m.temperature))}°C ${escV(m.weather||'')}</b></div><h3>${escV(m.event_title||'Рынок стабилен')}</h3><p>${escV(m.event_text||'')}</p><div class="brand-v3-market-mini">${cats.slice(0,6).map(([id,label])=>{const pct=Math.round((nV(m.market?.[id],1)-1)*100);return `<span><small>${label}</small><b class="${pct>3?'up':pct<-3?'down':'flat'}">${pct>0?'+':''}${pct}%</b></span>`}).join('')}</div></button>`}).join('')||'<div class="brand-v3-empty">Открой магазины, чтобы получать городские рыночные сигналы.</div>'}</div>`;
-    } else if(tab==='analytics'){
-      const totalUnits=nV(st.sales_units), avg=nV(st.average_check), topModels=[...models].sort((a,b)=>nV(b.total_sold)-nV(a.total_sold)).slice(0,3), bottomModels=[...models].sort((a,b)=>nV(a.total_sold)-nV(b.total_sold)).slice(0,3), topCities=[...stores].sort((a,b)=>nV(b.sales_today)-nV(a.sales_today)).slice(0,3), bottomCities=[...stores].sort((a,b)=>nV(a.sales_today)-nV(b.sales_today)).slice(0,3); const maxRev=Math.max(1,...analytics.map(x=>nV(x.revenue)));
-      content=`<div class="brand-v3-view-head"><div><small>DATA ROOM</small><h2>Аналитика бренда</h2><p>Смотри не только деньги, но и то, где и почему их делает бренд.</p></div></div><section class="brand-v3-analytics-kpis"><div><span>ВЫРУЧКА</span><b>${moneyV(st.total_revenue)}</b></div><div><span>ПРИБЫЛЬ</span><b>${moneyV(profit)}</b></div><div><span>ПРОДАЖИ</span><b>${careerMoney(totalUnits)} шт.</b></div><div><span>СРЕДНИЙ ЧЕК</span><b>${moneyV(avg)}</b></div></section><section class="brand-v3-section compact"><div class="brand-v3-section-head"><div><small>ДИНАМИКА</small><h3>Последние дни</h3></div></div><div class="brand-v3-bars">${analytics.slice(0,10).reverse().map(x=>`<div><i style="height:${Math.max(4,nV(x.revenue)/maxRev*100)}%"></i><small>${escV(String(x.period_key||'').slice(5))}</small></div>`).join('')||'<div class="brand-v3-empty">История появится после первых продаж.</div>'}</div></section><div class="brand-v3-analytics-cols"><section><small>ЛУЧШИЕ МОДЕЛИ</small>${topModels.map(x=>`<div><b>${escV(x.title)}</b><span>${careerMoney(x.total_sold)} шт. · ${moneyV(nV(x.total_sold)*nV(x.price))}</span></div>`).join('')||'<p>Нет данных</p>'}<small style="display:block;margin-top:9px">СЛАБЫЕ МОДЕЛИ</small>${bottomModels.map(x=>`<div><b>${escV(x.title)}</b><span>${careerMoney(x.total_sold)} шт. · хайп ${Math.round(nV(x.hype))}%</span></div>`).join('')||'<p>Нет данных</p>'}</section><section><small>ЛУЧШИЕ ГОРОДА</small>${topCities.map(x=>`<div><b>${escV(x.city)}</b><span>${moneyV(x.sales_today)} · ${careerMoney(x.units_today)} шт.</span></div>`).join('')||'<p>Нет данных</p>'}<small style="display:block;margin-top:9px">СЛАБЫЕ ГОРОДА</small>${bottomCities.map(x=>`<div><b>${escV(x.city)}</b><span>${moneyV(x.sales_today)} · спрос ${Math.round(nV(x.activity))}%</span></div>`).join('')||'<p>Нет данных</p>'}</section></div><section class="brand-v3-expense-grid"><div><span>МАРКЕТИНГ</span><b>${moneyV(st.total_marketing_spend)}</b></div><div><span>ПРОИЗВОДСТВО</span><b>${moneyV(st.total_production_spend)}</b></div><div><span>ЛОГИСТИКА</span><b>${moneyV(st.total_logistics_spend)}</b></div></section><h3 class="brand-v3-history-title">ИСТОРИЯ ПРОДАЖ</h3><div class="brand-v3-history">${sales.map(x=>`<div><div><b>${new Date(nV(x.sold_at)*1000).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit'})}</b><span>${escV(x.city||'—')} · ${escV(x.title||x.model_id)}</span></div><strong>${moneyV(x.sale_price)}</strong><em>+${moneyV(nV(x.profit))}</em></div>`).join('')||'<div class="brand-v3-empty">Пока нет продаж.</div>'}</div>`;
-    } else if(tab==='marketing'){
-      content=`<div class="brand-v3-view-head"><div><small>GROWTH ENGINE</small><h2>Маркетинг</h2><p>Кампания меняет хайп и спрос только на ограниченный срок.</p></div></div><div class="brand-v3-marketing-grid">${[['social','Реклама в соцсетях','5 000 ₽','+8% хайпа','6 ч.'],['influencer','Инфлюенсер','25 000 ₽','+18% хайпа','12 ч.'],['big_campaign','Большая рекламная кампания','100 000 ₽','+35% хайпа','24 ч.']].map(x=>{const active=campaigns.some(c=>String(c.campaign_type)===x[0]);return `<button class="brand-v3-campaign ${active?'active':''}" data-career-action="brand_v3_marketing" data-campaign-type="${x[0]}"><span>${active?'● ACTIVE':'BOOST'}</span><b>${x[1]}</b><small>${x[3]} · ${x[4]}</small><strong>${active?'АКТИВНАЯ':'ЗАПУСТИТЬ · '+x[2]}</strong></button>`}).join('')}</div>${campaigns.length?`<section class="brand-v3-section compact"><div class="brand-v3-section-head"><div><small>АКТИВНЫЕ КАМПАНИИ</small><h3>${campaigns.length}</h3></div></div>${campaigns.map(c=>`<div class="brand-v3-job-row"><div><b>${escV(c.title||c.campaign_type)}</b><span>+${Math.round(nV(c.hype_boost))}% хайпа · +${Math.round(nV(c.sales_boost)*100)}% продаж</span></div><strong>${Math.ceil(nV(c.remaining_seconds)/3600)} ч.</strong></div>`).join('')}</section>`:''}`;
-    } else if(tab==='history'){
-      content=`<div class="brand-v3-view-head"><div><small>LEDGER</small><h2>История продаж</h2><p>Каждая продажа хранит город, модель, цену, себестоимость и вклад в прибыль.</p></div></div><div class="brand-v3-history">${sales.map(x=>`<div><div><b>${new Date(nV(x.sold_at)*1000).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</b><span>${escV(x.city||'—')} · ${escV(x.title||x.model_id)} · ${careerMoney(x.qty)} шт.</span><small>себестоимость ${moneyV(nV(x.unit_cost)*nV(x.qty))}</small></div><strong>${moneyV(nV(x.gross))}</strong><em>+${moneyV(nV(x.profit))}</em></div>`).join('')||'<div class="brand-v3-empty big">История появится после первых продаж.</div>'}</div>`;
-    }
-    const tabs=[['overview','Обзор'],['models','Модели'],['production','Производство'],['logistics','Логистика'],['stores','Магазины'],['market','Рынок'],['marketing','Маркетинг'],['analytics','Аналитика'],['history','Продажи']].map(x=>brandV3TabButton(x[0],x[1],tab)).join('');
-    return avcShell('brand',escV(st.name),'BRAND STUDIO',`${escV(st.brand_style||'streetwear')} · уровень ${nV(st.level,1)}`,balance,`<div class="brand-v3"><div class="brand-v3-top"><div class="brand-v3-title"><small>RESELL BRAND</small><b>${escV(st.name)}</b></div><button class="brand-v3-refresh" data-career-action="brand_v3_refresh">↻</button></div><div class="brand-v3-tabs">${tabs}</div>${content}</div>`);
+  function brandV3RouteMap(orders=[],factories=[],stores=[],brandName='BRAND'){
+    const active=(Array.isArray(orders)?orders:[]).filter(o=>String(o.status)==='in_transit');
+    if(!active.length) return `<div class="brand-v3-route-empty"><span>ЛОГИСТИКА</span><b>Маршрутов в пути пока нет</b><small>Выбери до 5 магазинов — здесь появится живой маршрут с грузовиком бренда.</small></div>`;
+    const pt=(city)=>{const c=cityCoords[String(city)]||[0,0];return {x:clampV((c[1]+180)/360*680+20,24,696),y:clampV((90-c[0])/180*270+35,35,305)}};
+    const routes=active.map((o,i)=>{const a=pt(o.factory_city),z=pt(o.store_city),mx=(a.x+z.x)/2,my=(a.y+z.y)/2-24-Math.min(30,i*4),d=`M ${a.x} ${a.y} Q ${mx} ${my} ${z.x} ${z.y}`;return `<g class="brand-route-line"><path class="route-glow" d="${d}"/><path class="route-dash" d="${d}"/><text x="${a.x}" y="${a.y-11}" text-anchor="middle">🏭</text><text x="${z.x}" y="${z.y+18}" text-anchor="middle">${escV(o.store_city||'')}</text><g class="truck-symbol"><g><rect x="-12" y="-6" width="24" height="11" rx="2"/><rect x="6" y="-4" width="9" height="8" rx="1"/><circle cx="-6" cy="6" r="2"/><circle cx="9" cy="6" r="2"/><text x="0" y="2" text-anchor="middle" class="truck-brand-label">${escV(String(brandName||'BRAND').slice(0,10))}</text><animateMotion dur="5.8s" repeatCount="indefinite" rotate="auto" calcMode="paced" path="${d}"/></g></g><title>${escV(brandName||'BRAND')} · ${escV(o.store_city||'')}</title></g>`}).join('');
+    return `<div class="brand-v3-route-map"><div class="brand-v3-route-head"><div><small>LIVE SUPPLY CHAIN</small><b>${active.length} маршрут${active.length===1?'':'а'} · ${escV(brandName||'BRAND')}</b></div><span>пунктир строится в реальном времени</span></div><svg viewBox="0 0 720 340" preserveAspectRatio="none"><rect width="720" height="340" rx="18" fill="#f6f8f5"/><g fill="none" stroke="#d8e0d9" stroke-width="1"><path d="M20 85H700M20 170H700M20 255H700M164 20V320M308 20V320M452 20V320M596 20V320" stroke-dasharray="3 8"/></g>${routes}</svg></div>`;
+  }
+
+  function saveBrandMapCache(st){
+    try{
+      const payload={stores:Array.isArray(st?.stores)?st.stores:[],factories:Array.isArray(st?.factories)?st.factories:[],savedAt:Date.now()};
+      if(payload.stores.length||payload.factories.length)localStorage.setItem('resell_brand_network_v3',JSON.stringify(payload));
+    }catch(_){}
+  }
+  function readBrandMapCache(){
+    try{const x=JSON.parse(localStorage.getItem('resell_brand_network_v3')||'null');return x&&typeof x==='object'?x:null}catch(_){return null}
+  }
+    function renderBrandV3(s,b){
+    const st=s&&typeof s==='object'?s:{}; const cache=readBrandMapCache(); try{saveBrandMapCache(st)}catch(_){} const balance=nV(b), models=Array.isArray(st.models)?st.models:[], factories0=Array.isArray(st.factories)&&st.factories.length?st.factories:(Array.isArray(st.network_factories)?st.network_factories:[]), stores0=Array.isArray(st.stores)&&st.stores.length?st.stores:(Array.isArray(st.network_stores)?st.network_stores:[]), factories=(factories0.length>=(cache?.factories?.length||0)?factories0:(cache?.factories||factories0)), stores=(stores0.length>=(cache?.stores?.length||0)?stores0:(cache?.stores||stores0)), jobs=Array.isArray(st.production_jobs)?st.production_jobs:[], orders=Array.isArray(st.logistics_orders)?st.logistics_orders:[], wh=Array.isArray(st.warehouse)?st.warehouse:[], campaigns=Array.isArray(st.campaigns)?st.campaigns:[], sales=Array.isArray(st.sales_history)?st.sales_history:[];
+    const revenue=Math.max(0,nV(st.available_revenue)), profit=nV(st.total_profit), hype=clampV(st.hype,0,100); const activeJobs=jobs.filter(x=>String(x.status)==='running'), readyJobs=jobs.filter(x=>String(x.status)==='done'||String(x.status)==='ready');
+    if(!st.name) return avcShell('brand','Создание бренда','BRAND STUDIO','Быстрый старт собственного бренда',balance,`<div class="brand-v4-create"><div class="brand-v4-mark">R</div><small>СОБСТВЕННЫЙ БРЕНД</small><h2>Создай бренд</h2><p>Название, стиль и первый завод. Затем — одна простая цепочка: модель → производство → логистика → магазины.</p><button class="brand-v3-primary" data-career-action="brand_v3_create_brand">СОЗДАТЬ БРЕНД · 50 000 ₽</button></div>`);
+    const progress=activeJobs[0]?Math.max(2,Math.min(100,((nowV()-nV(activeJobs[0].started_at))/(Math.max(1,nV(activeJobs[0].ready_at)-nV(activeJobs[0].started_at))))*100)):0;
+    const readyText=readyJobs.length?`<button class="brand-v4-ready" data-career-action="brand_v3_collect_production"><b>ГОТОВА ПАРТИЯ</b><span>${careerMoney(readyJobs.reduce((a,x)=>a+nV(x.quantity),0))} шт. · забрать на склад →</span></button>`:'';
+    const income=revenue>0?`<button class="brand-v4-income" data-career-action="brand_v3_collect_revenue"><div><small>НАКОПЛЕНА ВЫРУЧКА</small><b>${moneyV(revenue)}</b></div><span>ЗАБРАТЬ ПРИБЫЛЬ →</span></button>`:`<div class="brand-v4-income empty"><div><small>НАКОПЛЕННАЯ ВЫРУЧКА</small><b>0 ₽</b></div><span>Появится после продаж</span></div>`;
+    const model=models[0]; const current=activeJobs[0]||readyJobs[0];
+    const modelFit=model?(()=>{const target=nV(model.recommended_price,nV(model.cost)*1.8);const price=nV(model.price,target);const priceFit=clampV(100-Math.abs(price-target)/Math.max(1,target)*85,0,100);const qualityFit=clampV(nV(model.quality,60),0,100);const hypeFit=clampV(nV(model.hype,35)*.65+35,0,100);const score=Math.round(priceFit*.45+qualityFit*.35+hypeFit*.20);return {score,label:score>=75?'Хороший потенциал':score>=55?'Нужно тестировать':'Рискованный запуск'}})():null;
+    const nextStep=!model?'Создай первую модель':current?(String(current.status)==='ready'||nV(current.ready_at)<=nowV()?'Забери готовую партию на склад':'Производство идёт — дождись готовности'):wh.some(x=>nV(x.qty)-nV(x.reserved_qty)>0)?'Отправь готовую вещь в магазин':stores.length?'Создай партию и отправь её в магазин':'Открой первый магазин';
+    const modelPreview=model?`<button type="button" class="brand-v4-model-mini" data-career-action="brand_v3_edit_model" data-model-id="${escV(model.id)}"><div>${brandV3BlueprintSvg(model.category,{...(model.colors||{}),cut:model.cut,length_pct:model.length_pct,width_pct:model.width_pct,sleeves:model.sleeves,pocket:model.pocket,collar:model.collar,hood:model.hood,logoText:model.logo_text,printText:model.print_text})}</div><div><small>ПОСЛЕДНЯЯ МОДЕЛЬ</small><b>${escV(model.title)}</b><span>${escV(categoryName(model.category))} · ${moneyV(model.price)}</span><span class="brand-v4-edit-hint">Нажми, чтобы изменить</span>${modelFit?`<em class="brand-v4-market-fit"><b>${modelFit.score}%</b><span>${modelFit.label}</span></em>`:''}</div></button>`:`<div class="brand-v4-empty-model"><b>Моделей пока нет</b><span>Начни с конструктора вещи.</span></div>`;
+    const warehouseGrouped=(()=>{const g={}; wh.forEach(x=>{const k=String(x.model_id||x.title||'item'); if(!g[k])g[k]={...x,qty:0,reserved_qty:0};g[k].qty+=nV(x.qty);g[k].reserved_qty+=nV(x.reserved_qty);}); return Object.values(g);})();
+    const warehouseHtml=`<section class="brand-v4-warehouse"><div class="brand-v4-section-head"><div><small>СКЛАД</small><b>Готовые вещи</b><span class="brand-v4-section-note">Произвёл → забрал → отправил в магазин</span></div><strong>${careerMoney(wh.reduce((a,x)=>a+nV(x.qty),0))} шт.</strong></div>${warehouseGrouped.length?`<div class="brand-v4-warehouse-list">${warehouseGrouped.map(x=>{const m=models.find(z=>String(z.id)===String(x.model_id))||{};const free=Math.max(0,nV(x.qty)-nV(x.reserved_qty));return `<div class="brand-v4-warehouse-card"><div class="brand-v4-warehouse-thumb">${brandV3BlueprintSvg(m.category||x.category,{...(m.colors||{}),cut:m.cut,length_pct:m.length_pct,width_pct:m.width_pct,sleeves:m.sleeves,pocket:m.pocket,collar:m.collar,hood:m.hood,logoText:m.logo_text,printText:m.print_text})}</div><div class="brand-v4-warehouse-info"><b>${escV(x.title||m.title||'Модель')}</b><small>${escV(categoryName(m.category||x.category))}</small><div class="brand-v4-warehouse-count"><strong>${careerMoney(free)} шт.</strong><span>готово к отправке</span></div>${nV(x.reserved_qty)>0?`<em>${careerMoney(nV(x.reserved_qty))} шт. уже в пути</em>`:''}</div><button type="button" class="brand-v4-warehouse-send" data-career-action="brand_v3_logistics" aria-label="Отправить ${escV(x.title||m.title||'модель')} в магазин">ОТПРАВИТЬ →</button></div>`}).join('')}</div>`:`<div class="brand-v4-warehouse-empty"><b>Склад пока пуст</b><span>Закончи производство и забери готовую партию — она появится здесь автоматически.</span></div>`}</section>`;
+    return avcShell('brand',escV(st.name),'BRAND STUDIO',`${escV(st.brand_style||'streetwear')} · уровень ${nV(st.level,1)}`,balance,`<div class="brand-v4-page">
+      <section class="brand-v4-head"><div class="brand-v4-logo">${st.logo?`<img src="${careerEsc(st.logo)}" alt="">`:'R'}</div><div><small>БРЕНД</small><h2>${escV(st.name)}</h2><span>Хайп ${Math.round(hype)}% · ${models.length} моделей</span></div><strong>${moneyV(balance)}</strong></section>
+      ${income}${readyText}
+      <section class="brand-v4-kpis"><div><small>ПРИБЫЛЬ</small><b>${moneyV(profit)}</b></div><div><small>МАГАЗИНЫ</small><b>${stores.length}</b></div><div><small>ПРОИЗВОДСТВА</small><b>${factories.length}</b></div><div><small>В ПУТИ</small><b>${careerMoney(orders.filter(x=>String(x.status)==='in_transit').reduce((a,x)=>a+nV(x.qty),0))}</b><span class="brand-v4-kpi-sub">${Math.max(1,nV((st.logistics||{}).fleet_level,1))} груз.</span></div></section>
+      <section class="brand-v5-next"><small>СЛЕДУЮЩИЙ ШАГ</small><b>${escV(nextStep)}</b><span>В бренде всегда есть один понятный следующий шаг — без поиска по меню.</span></section>
+      <section class="brand-v4-actions brand-v5-actions">
+        <button data-career-action="brand_v3_new_model"><span>01</span><div><b>Модель</b><small>Создать или изменить вещь</small></div><em>→</em></button>
+        <button data-career-action="brand_v3_production"><span>02</span><div><b>Производство</b><small>${current?(String(current.status)==='ready'||nV(current.ready_at)<=nowV()?'Партия готова → склад':`В работе · ${careerMoney(current.quantity)} шт.`):'Создать первую партию'}</small></div><em>→</em></button>
+        <button data-career-action="brand_v3_logistics"><span>03</span><div><b>Доставка</b><small>${orders.filter(x=>String(x.status)==='in_transit'&&nV(x.arrival_at)>nowV()).length} машин в пути · склад → магазин</small></div><em>→</em></button>
+      </section>
+      <button type="button" class="brand-v5-marketing" data-career-action="brand_v3_marketing"><b>Продвижение</b><span>${campaigns.length?`${campaigns.length} кампании активны`:'Необязательно · помогает ускорить спрос'}</span><em>→</em></button>
+      ${modelPreview}
+      ${current?`<section class="brand-v4-production-live"><div><small>ПРОИЗВОДСТВО</small><b>${escV(current.title||current.model_id)}</b><span>${careerMoney(current.quantity)} шт. · ${(()=>{const r=Math.max(0,nV(current.ready_at)-nowV());return r<=0?'ГОТОВО — забери на склад':r>=3600?`осталось ${Math.floor(r/3600)} ч. ${Math.ceil((r%3600)/60)} мин.`:`осталось ${Math.ceil(r/60)} мин.`})()}</span></div><i><u style="width:${progress}%"></u></i><strong>${Math.round(progress)}%</strong>${String(current.status)==='ready'||nV(current.ready_at)<=nowV()?`<button type="button" data-career-action="brand_v3_collect_production">ЗАБРАТЬ НА СКЛАД →</button>`:''}</section>`:''}
+      ${warehouseHtml}
+      <section class="brand-v4-sales-guide"><div><small>ПРОДАЖИ</small><b>Магазины продают автоматически</b><p>Отправь вещь в магазин. После доставки магазин сам продаёт товар, а деньги копятся в «Накопленной выручке».</p></div><div class="brand-v4-sales-flow"><span>СКЛАД</span><i>→</i><span>МАГАЗИН</span><i>→</i><span>ПРОДАЖИ</span><i>→</i><span>ВЫРУЧКА</span></div>${stores.some(x=>nV(x.stock_total)>0||nV(x.revenue_pending)>0)?`<div class="brand-v4-sales-state"><b>Продажи идут</b><span>${careerMoney(stores.reduce((a,x)=>a+nV(x.stock_total),0))} шт. сейчас в магазинах · ${moneyV(revenue)} накоплено</span></div>`:`<div class="brand-v4-sales-state muted"><b>Пока продаж нет</b><span>Сначала отправь готовую партию со склада в один из магазинов.</span></div>`}</section>
+      ${brandV3Map(stores,factories,orders,st.name)}
+      <div class="brand-v4-footer"><span>${careerMoney(nV(st.sales_units))} шт. продано</span><span>${moneyV(nV(st.total_revenue))} выручка</span><span>${wh.length} складских позиций</span></div>
+    </div>`);
   }
 
   // Replace only the Brand renderer; all other career modules keep their existing renderer.
-  try{ renderBrand=renderBrandV3; }catch(_){ window.renderBrand=renderBrandV3; }
+  window.__resellRenderBrandV3=renderBrandV3;
+  window.renderBrand=renderBrandV3;
 
-  const __legacyAvcRunAction=window.avcRunAction||avcRunAction;
+  const __legacyAvcRunAction=window.avcRunAction||window.__resellCareerRunAction||((act)=>{ try{window.__resellCoreV26?.showToast?.('Действие карьеры недоступно');}catch(_){} });
   const __brandV3Run=async function(act){
     const action=String(act?.dataset?.careerAction||'');
     if(!action.startsWith('brand_v3_')) return __legacyAvcRunAction(act);
@@ -11889,17 +12305,18 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
       if(action==='brand_v3_upgrade_factory'){const f=brandFactories().find(x=>String(x.id)===String(act.dataset.factoryId||''));if(!f){coreToast('Завод не найден.');return;}const p=await brandV3FactoryUpgradePicker(f);if(!p){act.disabled=false;act.dataset.busy='0';return;}await careerPost(action,p);return;}
       if(action==='brand_v3_new_store'){const p=await brandV3StorePicker();if(!p){act.disabled=false;act.dataset.busy='0';return;}await careerPost('brand_v3_open_store',p);return;}
       if(action==='brand_v3_logistics'){const p=await brandV3LogisticsPicker();if(!p){act.disabled=false;act.dataset.busy='0';return;}await careerPost('brand_v3_create_distribution',p);return;}
-      if(action==='brand_v3_marketing'){payload={campaign_type:String(act.dataset.campaignType||'social')};await careerPost(action,payload);return;}
+      if(action==='brand_v3_marketing'){const p=await brandV3MarketingPicker();if(!p){act.disabled=false;act.dataset.busy='0';return;}await careerPost(action,p);return;}
       if(action==='brand_v3_collect_revenue'||action==='brand_v3_collect_production'||action==='brand_v3_upgrade_logistics'||action==='brand_v3_refresh'){await careerPost(action,{});return;}
       if(action==='brand_v3_upgrade_logistics_component'){await careerPost(action,{component:String(act.dataset.component||'warehouse')});return;}
       await careerPost(action,{});
     }catch(err){coreToast(err?.message||'Действие бренда не выполнено.');act.disabled=false;act.dataset.busy='0';}
   };
-  try{ avcRunAction=__brandV3Run; }catch(_){}
+  window.avcRunAction=__brandV3Run;
+  window.__resellCareerRunAction=__brandV3Run;
   window.__resellBrandV3Run=__brandV3Run;
 
   document.addEventListener('click',function(e){
-    const tab=e.target?.closest?.('[data-brand-tab]'); if(tab){e.preventDefault();e.stopPropagation();window.__brandTab=String(tab.dataset.brandTab||'overview');const body=(window.__resellCoreV26||{}).getModalBody?.()||document.getElementById('modalBody');if(body){body.innerHTML=renderAvitoWithCareer();body.scrollTop=0;}return;}
+    const tab=e.target?.closest?.('[data-brand-tab]'); if(tab){e.preventDefault();e.stopPropagation();window.__brandTab=String(tab.dataset.brandTab||'overview');const body=(window.__resellCoreV26||{}).getModalBody?.()||document.getElementById('modalBody');if(body){body.innerHTML=(typeof renderAvitoWithCareer==='function'?renderAvitoWithCareer():'');body.scrollTop=0;}return;}
     const city=e.target?.closest?.('[data-brand-city]'); if(city){e.preventDefault();e.stopPropagation();brandV3CityDetail(city.dataset.brandCity||'');return;}
     const info=e.target?.closest?.('[data-brand-info]');if(info){e.preventDefault();e.stopPropagation();brandV3Explain(info.dataset.brandInfo||'hype');return;}
     const back=e.target?.closest?.('.brand-v3-back');if(back){e.preventDefault();e.stopPropagation();return;}
@@ -11909,6 +12326,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     const b=e.target?.closest?.('[data-career-back]');if(b){window.__brandTab='overview';}
   },false);
   window.__resellBrandV3Ready=true;
+  setTimeout(()=>{try{animateBrandRouteTrucks(document)}catch(_){ }},0);
 })();
 
 </script>
@@ -11924,6 +12342,9 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 .avx-career-access-copy small{font:900 5.5px/1 Montserrat,sans-serif;letter-spacing:.7px;color:#7f897f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .avx-career-access-copy b{font:950 7px/1.05 Montserrat,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .avx-career-access>strong{font:950 13px/1 Montserrat,sans-serif;color:#707970}
+.avx-career-gate{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:9px 0 10px;padding:12px 13px;border:1px solid rgba(183,255,106,.16);border-radius:16px;background:linear-gradient(145deg,rgba(183,255,106,.075),rgba(255,255,255,.025));box-shadow:0 10px 26px rgba(0,0,0,.16)}
+.avx-career-gate-copy{min-width:0;display:grid;gap:4px;flex:1}.avx-career-gate-copy small{font:900 5.5px/1 Montserrat,sans-serif;letter-spacing:1px;color:#8a9789}.avx-career-gate-copy b{font:950 10px/1.1 Montserrat,sans-serif;color:#eef4ed}.avx-career-gate-copy span{font:800 7px/1.35 Nunito,sans-serif;color:#758076}.avx-career-gate-btn{flex:none;min-height:38px;padding:0 12px;border-radius:11px;background:#b7ff6a;color:#071007;border:1px solid #d4ffac;font:950 7px/1 Montserrat,sans-serif;letter-spacing:.45px;white-space:nowrap}.avx-career-gate-btn strong{font:950 11px/1 Montserrat,sans-serif;margin-left:4px}
+@media(max-width:430px){.avx-career-gate{align-items:stretch}.avx-career-gate-btn{min-width:104px;padding:0 9px;font-size:6.5px}}
 .avx-logo{position:relative;font-size:0!important;background:transparent!important;box-shadow:none!important;width:42px!important;height:42px!important}
 .avx-logo:before,.avx-logo:after{content:"";position:absolute;width:17px;height:17px;border-radius:50%;box-shadow:none}
 .avx-logo:before{left:2px;top:2px;background:#9b5de5;box-shadow:21px 0 0 #12a7e8,0 21px 0 #10d86a,21px 21px 0 #ff4355}
@@ -11937,9 +12358,19 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 @media(max-width:430px){.avx-hero-right{gap:5px}.avx-career-access{max-width:135px;height:38px;padding:4px 6px}.avx-career-access-mark{width:25px;height:25px;flex-basis:25px}.avx-career-access-copy small{font-size:4.8px}.avx-career-access-copy b{font-size:6.2px}.avx-balance{font-size:8px;padding:8px 7px}.avx-logo{width:38px!important;height:38px!important}.avx-logo:before{width:15px;height:15px;box-shadow:19px 0 0 #12a7e8,0 19px 0 #10d86a,19px 19px 0 #ff4355}.avc-avito-mark{transform:scale(.82);transform-origin:center}}
 </style>
 
-<style id="club7-fullscale-update-v1">
-.club7-actions button:disabled{opacity:.42!important;filter:saturate(.35);cursor:not-allowed!important}.club7-actions button:disabled strong{opacity:.35}.club7-income-live{display:inline-flex;align-items:center;padding:7px 9px;border-radius:9px;background:rgba(142,255,190,.055);border:1px solid rgba(142,255,190,.12);color:#8effbe!important;font:950 6px/1 "Montserrat"!important;white-space:nowrap}.club7-economy-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-top:10px}.club7-economy-grid>div{padding:9px 7px;border-radius:10px;background:rgba(255,255,255,.022);border:1px solid rgba(255,255,255,.045)}.club7-economy-grid span{display:block;color:#6f656c;font:900 5px/1 "Montserrat";letter-spacing:.7px}.club7-economy-grid b{display:block;margin-top:6px;color:#f1edf0;font:950 10px/1 "Montserrat"}.club7-styles{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:10px}.club7-style{min-height:48px;padding:8px 10px;border-radius:11px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.022);text-align:left}.club7-style span{display:block;font:950 7px/1 "Montserrat";letter-spacing:.5px}.club7-style small{display:block;margin-top:6px;color:#716a70;font:900 5.5px/1 "Montserrat"}.club7-style.active{border-color:rgba(142,255,190,.22);background:rgba(142,255,190,.055)}.club7-style.active small{color:#8effbe}.club7-style:active:not(:disabled){transform:translateY(1px)}
-@media(max-width:390px){.club7-economy-grid{grid-template-columns:repeat(2,1fr)}.club7-styles{grid-template-columns:1fr 1fr}.club7-income-live{font-size:5.5px!important;padding:6px 7px}}
+<style id="brand-v8-editor-logistics">
+.brand-v3-editor{max-width:980px!important}.brand-v3-editor-grid{display:grid;grid-template-columns:minmax(280px,.95fr) minmax(320px,1.05fr);gap:14px}.brand-v3-editor-preview{position:sticky;top:0;align-self:start;padding:12px;border:1px solid #e2e7ef;border-radius:20px;background:linear-gradient(145deg,#f9fbf8,#eef3ed)}.brand-v3-preview-label{font:950 7px/1 Montserrat;color:#7d8990;letter-spacing:1px;margin:2px 3px 8px}.brand-v3-editor-preview #brandV3Blueprint{border-radius:16px;overflow:hidden;background:#f4f7f3}.brand-v3-view-switch{display:grid;grid-template-columns:1fr 1fr;gap:6px}.brand-v3-view-switch button{min-height:36px;border:1px solid #dfe5ed;border-radius:10px;background:#f6f8fb;color:#67758a;font:950 7px/1 Montserrat}.brand-v3-view-switch button.active{background:#18263d;color:#fff;border-color:#18263d}.brand-v3-target-market{display:block!important;margin-top:5px;color:#586b62!important;font:900 7px/1.25 Montserrat!important;background:#eef5ef;padding:5px 7px;border-radius:8px}.brand-v3-market-preview{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:8px 0;padding:8px;border:1px solid #e2e7ef;border-radius:12px;background:#f7f9fc}.brand-v3-market-preview span{display:block;color:#8995a6;font:900 5.5px/1 Montserrat}.brand-v3-market-preview b{display:block;margin-top:4px;color:#25334d;font:950 7px/1.15 Montserrat}.brand-v3-route-empty{padding:14px;border:1px dashed #d8e1d9;border-radius:16px;background:#f7faf7}.brand-v3-route-empty span{display:block;color:#819083;font:950 6px/1 Montserrat;letter-spacing:1px}.brand-v3-route-empty b{display:block;margin-top:5px;color:#1d2b22;font:950 11px/1 Montserrat}.brand-v3-route-empty small{display:block;margin-top:5px;color:#7b877e;font:750 7px/1.35 Nunito}.brand-v3-route-map{margin:8px 0;padding:10px;border:1px solid #e0e7e1;border-radius:18px;background:#f8faf8}.brand-v3-route-head{display:flex;justify-content:space-between;gap:8px;align-items:end;margin-bottom:7px}.brand-v3-route-head small{display:block;color:#7f8e84;font:900 5.5px/1 Montserrat;letter-spacing:1px}.brand-v3-route-head b{display:block;margin-top:3px;color:#1c2b22;font:950 9px/1 Montserrat}.brand-v3-route-head>span{color:#829087;font:800 6px/1.2 Nunito;text-align:right}.brand-v3-route-map svg,.brand-v3-live-route-preview svg{width:100%;height:185px;display:block;border-radius:12px}.brand-route-line .route-dash{fill:none;stroke:#5d6df8;stroke-width:2.5;stroke-dasharray:7 8;animation:brandRouteDash 1.2s linear infinite}.brand-route-line .route-glow{fill:none;stroke:#5d6df8;stroke-width:7;opacity:.10;filter:blur(2px)}.brand-route-line .truck-symbol{fill:#18263d}.truck-brand-label{fill:#fff;font:950 3.5px/1 Montserrat;letter-spacing:.15px}.live-truck{fill:#18263d}.live-truck .truck-brand-label{fill:#fff;font:950 3.5px/1 Montserrat}.brand-v3-live-route-preview{margin:9px 0;border:1px solid #dfe7e0;border-radius:16px;overflow:hidden;background:#f7faf7}.brand-v3-live-route-head{display:flex;justify-content:space-between;gap:8px;padding:8px 10px;background:#fff;border-bottom:1px solid #e8ede9}.brand-v3-live-route-head b{color:#1e2d24;font:950 8px/1 Montserrat}.brand-v3-live-route-head span{color:#7f8c84;font:800 6px/1 Nunito}.brand-v3-route-limit{margin:8px 0;padding:8px 10px;border-radius:11px;background:#eef5ef;color:#68766d;font:800 6.5px/1.35 Nunito}.live-route path{fill:none;stroke:#5d6df8;stroke-width:2.4;stroke-dasharray:7 8;animation:brandRouteDash .9s linear infinite;animation-delay:var(--delay)}.live-route .live-truck-label{font:950 6px/1 Montserrat;fill:#435348}.brand-v3-map .brand-v3-store-pin b{display:grid;place-items:center;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;background:#58a96c;color:#fff;font:950 6px/1 Montserrat;box-shadow:0 0 0 3px rgba(255,255,255,.86),0 2px 7px rgba(0,0,0,.15)}.brand-v3-map .brand-v3-store-pin i{display:none}.brand-v3-map .brand-v3-factory-pin b{display:grid;place-items:center;min-width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:7px;background:#806bc4;color:#fff;font-size:8px;box-shadow:0 0 0 3px rgba(255,255,255,.86),0 2px 7px rgba(0,0,0,.15)}.brand-v3-map .brand-v3-factory-pin i{display:none}@keyframes brandRouteDash{to{stroke-dashoffset:-30}}@keyframes brandTruckPulse{50%{transform:translateY(-2px)}}
+@media(max-width:760px){.brand-v3-editor-grid{grid-template-columns:1fr}.brand-v3-editor-preview{position:relative}.brand-v3-editor-preview #brandV3Blueprint{max-width:440px;margin:0 auto}.brand-v3-market-preview{grid-template-columns:1fr}.brand-v3-route-head{align-items:start;flex-direction:column}.brand-v3-route-head>span{text-align:left}}
+</style>
+
+
+<style id="brand-v4-simple-overrides">
+.brand-v4-page{display:grid;gap:11px;padding:0 2px 24px;background:#f7f8f5;color:#202622}.brand-v4-head{display:grid;grid-template-columns:44px 1fr auto;gap:11px;align-items:center;padding:12px;border:1px solid #e1e6e0;border-radius:18px;background:#fff}.brand-v4-logo{width:44px;height:44px;border-radius:13px;display:grid;place-items:center;background:#202722;color:#fff;font:950 16px/1 Montserrat,sans-serif;overflow:hidden}.brand-v4-logo img{width:100%;height:100%;object-fit:cover}.brand-v4-head small,.brand-v4-income small,.brand-v4-actions small,.brand-v4-production-live small,.brand-v4-model-mini small,.brand-v4-ready span{font:800 8px/1.2 Montserrat,sans-serif;color:#858e88;letter-spacing:.07em}.brand-v4-head h2{margin:4px 0 2px;font:950 18px/1 Montserrat,sans-serif}.brand-v4-head span{font:800 9px/1.3 Nunito,sans-serif;color:#7b847e}.brand-v4-head>strong{font:950 11px/1 Montserrat,sans-serif;white-space:nowrap}.brand-v4-income,.brand-v4-ready{width:100%;border:1px solid #dbe3da;border-radius:16px;background:#fff;padding:13px;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:12px;color:#202622}.brand-v4-income b{display:block;margin-top:4px;font:950 18px/1 Montserrat,sans-serif}.brand-v4-income span{font:900 8px/1.2 Montserrat,sans-serif;color:#5d6d61}.brand-v4-income.empty{opacity:.75}.brand-v4-ready{background:#f0f7ef;border-color:#cfe0ce}.brand-v4-ready b{display:block;font:950 12px/1 Montserrat,sans-serif}.brand-v4-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.brand-v4-kpis>div{padding:10px 8px;border:1px solid #e1e6e0;border-radius:13px;background:#fff}.brand-v4-kpis small{font:800 7px/1 Montserrat,sans-serif;color:#8a928c}.brand-v4-kpis b{display:block;margin-top:5px;font:950 11px/1 Montserrat,sans-serif}.brand-v4-actions{display:grid;gap:7px}.brand-v4-actions button{width:100%;display:grid;grid-template-columns:36px 1fr auto;align-items:center;gap:9px;min-height:62px;padding:10px 11px;border:1px solid #e0e5df;border-radius:16px;background:#fff;text-align:left;color:#202622}.brand-v4-actions button>span{width:32px;height:32px;border-radius:10px;background:#f0f3ef;display:grid;place-items:center;font:900 9px/1 Montserrat,sans-serif;color:#67736b}.brand-v4-actions b{display:block;font:950 13px/1 Montserrat,sans-serif}.brand-v4-actions em{font:950 18px/1 Montserrat,sans-serif;font-style:normal;color:#8b958e}.brand-v4-model-mini{display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center;padding:10px;border:1px solid #e0e5df;border-radius:16px;background:#fff}.brand-v4-model-mini>div:first-child{height:95px;overflow:hidden;border:1px solid #edf0ed;border-radius:11px;background:#fff}.brand-v4-model-mini svg{width:100%;height:100%}.brand-v4-model-mini b{display:block;margin:4px 0;font:950 13px/1.15 Montserrat,sans-serif}.brand-v4-model-mini span{display:block;font:800 8px/1.3 Nunito,sans-serif;color:#808984}.brand-v4-empty-model{padding:16px;border:1px dashed #ccd4cd;border-radius:16px;background:#fff;display:grid;gap:3px}.brand-v4-empty-model b{font:950 13px/1 Montserrat,sans-serif}.brand-v4-empty-model span{font:800 9px/1.4 Nunito,sans-serif;color:#858e88}.brand-v4-production-live{padding:12px;border:1px solid #dce4dd;border-radius:15px;background:#fff}.brand-v4-production-live b{display:block;margin:4px 0;font:950 13px/1 Montserrat,sans-serif}.brand-v4-production-live span{font:800 8px/1.3 Nunito,sans-serif;color:#7e8782}.brand-v4-production-live>i{display:block;height:6px;margin-top:9px;background:#ebefeb;border-radius:99px;overflow:hidden}.brand-v4-production-live>i u{display:block;height:100%;background:#6e8d76;border-radius:99px;text-decoration:none}.brand-v4-world{display:grid;gap:7px}.brand-v4-world-head{display:flex;justify-content:space-between;align-items:end}.brand-v4-world-head small{font:800 8px/1 Montserrat,sans-serif;color:#858e88;letter-spacing:.08em}.brand-v4-world-head h3{margin:4px 0 0;font:950 15px/1 Montserrat,sans-serif}.brand-v4-world-head button{height:34px;padding:0 11px;border:1px solid #d6ded6;border-radius:11px;background:#fff;font:900 8px/1 Montserrat,sans-serif}.brand-v4-map{position:relative;min-height:225px;border:1px solid #dfe5df;border-radius:17px;overflow:hidden;background:#f6f8f5}.brand-v4-map img{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;opacity:.62;filter:grayscale(1) contrast(.86)}.brand-v4-map-pin{position:absolute;z-index:3;transform:translate(-50%,-50%);border:0;background:transparent;padding:0}.brand-v4-map-pin i{display:block;width:11px;height:11px;border-radius:50%;border:2px solid #fff;box-shadow:0 2px 8px rgba(20,25,21,.23)}.brand-v4-map-pin.store i{background:#6d9b75}.brand-v4-map-pin.factory i{background:#7b6ba0}.brand-v4-map-pin span{display:none;position:absolute;left:13px;top:-2px;white-space:nowrap;padding:5px 7px;border-radius:8px;background:rgba(255,255,255,.96);font:800 7px/1 Montserrat,sans-serif;color:#4d574f;box-shadow:0 4px 12px rgba(0,0,0,.09)}.brand-v4-map-pin:focus span,.brand-v4-map-pin:active span{display:block}.brand-v4-map-legend{position:absolute;left:8px;bottom:7px;display:flex;gap:8px;padding:6px 8px;border-radius:9px;background:rgba(255,255,255,.92);font:800 7px/1 Montserrat,sans-serif;color:#737d76}.brand-v4-map-legend i{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:3px}.brand-v4-map-legend .store{background:#6d9b75}.brand-v4-map-legend .factory{background:#7b6ba0}.brand-v4-map-foot{display:flex;justify-content:space-between;gap:6px;padding:0 2px;color:#89918b;font:800 7px/1 Montserrat,sans-serif}.brand-v4-footer{display:flex;justify-content:space-between;gap:7px;color:#89918b;font:800 7px/1 Montserrat,sans-serif;padding:0 2px}.brand-v4-create{padding:18px 2px 24px;background:#f7f8f5}.brand-v4-mark{width:54px;height:54px;border-radius:16px;background:#202722;color:#fff;display:grid;place-items:center;font:950 18px/1 Montserrat,sans-serif;margin-bottom:18px}.brand-v4-create>small{font:900 8px/1 Montserrat,sans-serif;color:#858e88;letter-spacing:.1em}.brand-v4-create h2{margin:7px 0 6px;font:950 25px/1 Montserrat,sans-serif}.brand-v4-create p{margin:0 0 16px;max-width:330px;color:#7e8782;font:800 9px/1.5 Nunito,sans-serif}
+.brand-v4-editor-card{max-height:90vh;overflow:auto;padding:16px;background:#fff;border-radius:20px;color:#202622}.brand-v4-kicker{font:900 8px/1 Montserrat,sans-serif;letter-spacing:.09em;color:#77827a}.brand-v4-editor-card h3{margin:6px 0;font:950 21px/1 Montserrat,sans-serif}.brand-v4-editor-card>p{margin:0 0 10px;color:#7d8680;font:800 9px/1.4 Nunito,sans-serif}.brand-v4-blueprint-wrap{position:relative;border:1px solid #dde3dc;border-radius:15px;background:#fff;overflow:hidden}.brand-v4-blueprint-wrap>div:first-child{height:240px}.brand-v4-blueprint-wrap svg{width:100%;height:100%}.brand-v4-view-toggle{position:absolute;top:8px;right:8px;display:flex;gap:4px}.brand-v4-view-toggle button{height:28px;padding:0 9px;border:1px solid #d7ded7;background:rgba(255,255,255,.95);border-radius:8px;font:900 7px/1 Montserrat,sans-serif}.brand-v4-view-toggle button.active{background:#252a27;color:#fff;border-color:#252a27}.brand-v4-form{display:grid;gap:8px;margin-top:10px}.brand-v4-form label{display:grid;gap:4px;font:900 8px/1 Montserrat,sans-serif;color:#626d65}.brand-v4-row{display:grid;grid-template-columns:1fr 1fr;gap:7px}.brand-v4-form input[type=color]{width:100%;height:40px;border:1px solid #dce2dc;border-radius:10px;background:#fff}.brand-v4-form input[type=range]{width:100%}.brand-v4-form label small{font:800 8px/1 Montserrat,sans-serif;color:#8a938d}.brand-v4-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:10px 0}.brand-v4-summary>div{padding:9px;border:1px solid #e1e6e0;border-radius:11px;background:#f8faf7}.brand-v4-summary span{display:block;font:800 7px/1 Montserrat,sans-serif;color:#89918b}.brand-v4-summary b{display:block;margin-top:4px;font:950 10px/1 Montserrat,sans-serif}.brand-v4-editor-card .brand-v3-primary{width:100%}@media(max-width:420px){.brand-v4-kpis b{font-size:10px}.brand-v4-model-mini{grid-template-columns:112px 1fr}.brand-v4-blueprint-wrap>div:first-child{height:215px}}
+</style>
+
+<style id="brand-v4-ad-overrides">
+.brand-v4-ad-list{display:grid;gap:7px;margin:12px 0}.brand-v4-ad-list button{display:grid;grid-template-columns:34px 1fr auto;align-items:center;gap:9px;text-align:left;padding:10px;border:1px solid #e0e5df;border-radius:13px;background:#fff;color:#202622}.brand-v4-ad-list button.active{border-color:#202722;background:#f5f7f4}.brand-v4-ad-list button:disabled{opacity:.55}.brand-v4-ad-list>button>span{width:30px;height:30px;display:grid;place-items:center;border-radius:9px;background:#f0f3ef;font:900 8px/1 Montserrat,sans-serif}.brand-v4-ad-list b{display:block;font:950 11px/1.1 Montserrat,sans-serif}.brand-v4-ad-list small{display:block;margin-top:3px;color:#87908a;font:800 8px/1.2 Nunito,sans-serif}.brand-v4-ad-list strong{font:900 7px/1 Montserrat,sans-serif;white-space:nowrap}.brand-v4-model-mini{cursor:pointer;width:100%;text-align:left}.brand-v4-edit-hint{display:block!important;margin-top:5px;color:#6d8270!important;font-weight:900!important}
 </style>
 </body>
 
@@ -12049,6 +12480,98 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
   setTimeout(run,100); setTimeout(run,500); setTimeout(run,1200);
 })();
 </script>
+<style id="resell-unified-niche-router-v2-style">
+.resell-niche-loading,.resell-niche-error{display:grid;place-items:center;min-height:240px;padding:26px;text-align:center;color:#858c86}
+.resell-niche-loading-card,.resell-niche-error-card{width:min(420px,100%);padding:22px;border-radius:22px;background:linear-gradient(145deg,#151715,#0a0b0a);border:1px solid rgba(255,255,255,.08);box-shadow:0 18px 50px rgba(0,0,0,.28)}
+.resell-niche-loading-mark{width:42px;height:42px;margin:0 auto 14px;border-radius:13px;display:grid;place-items:center;background:#fff;color:#080908;font:950 15px/1 Montserrat,sans-serif}
+.resell-niche-loading-title,.resell-niche-error-title{font:950 13px/1 Montserrat,sans-serif;color:#f4f5f3}
+.resell-niche-loading-sub,.resell-niche-error-sub{margin-top:7px;color:#686f69;font:800 9px/1.4 Nunito,sans-serif}
+.resell-niche-spinner{width:22px;height:22px;margin:15px auto 0;border-radius:50%;border:2px solid rgba(255,255,255,.10);border-top-color:#b7ff6a;animation:resellNicheSpin .72s linear infinite}
+@keyframes resellNicheSpin{to{transform:rotate(360deg)}}
+.resell-niche-retry,.resell-niche-close{width:100%;min-height:44px;margin-top:15px;border-radius:13px;font:950 8px/1 Montserrat,sans-serif;letter-spacing:.5px}
+.resell-niche-retry{background:#fff;color:#080908}.resell-niche-close{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#c5cac6}
+</style>
+<script id="resell-unified-niche-router-v2">
+(function(){
+  'use strict';
+  const registry=Object.freeze({
+    avito:{id:'avito',title:'Avito',open:ctx=>window.__resellLegacyOpenAvito({routeManaged:true,routeToken:ctx.token})},
+    infobusiness:{id:'infobusiness',title:'Инфобизнес',open:ctx=>window.__resellOpenCareerNiche?.('infobusiness',ctx.token)},
+    brand:{id:'brand',title:'Создание бренда',open:ctx=>window.__resellOpenCareerNiche?.('brand',ctx.token)},
+    brands:{id:'brand',title:'Создание бренда',aliasOf:'brand',open:ctx=>window.__resellOpenCareerNiche?.('brand',ctx.token)},
+    investments:{id:'investments',title:'Инвестиции',open:ctx=>window.__resellOpenCareerNiche?.('investments',ctx.token)}
+  });
+  const state=window.__resellNicheState={id:null,token:0,openedAt:0};
+  const normalize=id=>{const k=String(id??'').trim().toLowerCase();return k==='brands'?'brand':k};
+  const body=()=>document.getElementById('modalBody');
+  const setEditing=v=>{try{window.__resellCoreV26?.setAvitoEditing?.(!!v)}catch(_){}};
+  const isCurrent=(id,t)=>state.id===id&&Number(state.token)===Number(t);
+  window.__resellSetNicheContext=id=>{const n=normalize(id);state.token++;state.id=registry[n]?.id||n||null;state.openedAt=Date.now();return state.id};
+  const safe=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  const loading=title=>`<div class="resell-niche-loading"><div class="resell-niche-loading-card"><div class="resell-niche-loading-mark">R</div><div class="resell-niche-loading-title">${safe(title)}</div><div class="resell-niche-loading-sub">Открываем основной интерфейс ниши.</div><div class="resell-niche-spinner"></div></div></div>`;
+  const errorView=(title,msg,id)=>`<div class="resell-niche-error"><div class="resell-niche-error-card"><div class="resell-niche-loading-mark">R</div><div class="resell-niche-error-title">${safe(title)}</div><div class="resell-niche-error-sub">${safe(msg||'Не удалось открыть интерфейс.')}</div><button type="button" class="resell-niche-retry" data-resell-niche-retry="${safe(id)}">ПОВТОРИТЬ</button><button type="button" class="resell-niche-close" data-resell-niche-close>ЗАКРЫТЬ</button></div></div>`;
+  const ensureModal=(title,html)=>{const m=document.getElementById('modal'),t=document.getElementById('modalTitle'),b=body();if(!m||!t||!b)throw new Error('Модальное окно недоступно.');t.textContent=title;b.innerHTML=html;m.classList.add('open');document.body.style.overflow='hidden'};
+  async function openNiche(id,meta={}){
+    const n=normalize(id),d=registry[n];if(!d)throw new Error(`Ниша "${n}" не зарегистрирована.`);
+    state.token++;const token=state.token,routeId=d.id;state.id=routeId;state.openedAt=Date.now();
+    window.__avcForceBaseAvito=routeId==='avito';setEditing(routeId!=='avito');
+    try{
+      ensureModal(d.title,loading(d.title));
+      const timeoutMs=20000;let timer=0;
+      const timeout=new Promise((_,rej)=>{timer=setTimeout(()=>rej(new Error('Интерфейс не ответил вовремя.')),timeoutMs)});
+      const op=typeof d.open==='function'?d.open({token,meta}):null;
+      await Promise.race([Promise.resolve(op),timeout]).finally(()=>clearTimeout(timer));
+      if(!isCurrent(routeId,token))return false;return true;
+    }catch(err){
+      if(isCurrent(routeId,token)){state.token++;const b=body();if(b)b.innerHTML=errorView(d.title,err?.message,routeId);setEditing(false)}
+      return false;
+    }
+  }
+  window.__resellNicheRegistry=registry;window.__resellOpenNiche=openNiche;window.openNiche=openNiche;
+  document.addEventListener('click',e=>{
+    const avitoRetry=e.target?.closest?.('[data-avito-safe-retry]');
+    if(avitoRetry){e.preventDefault();e.stopImmediatePropagation();void openNiche('avito',{fromRetry:true});return}
+    const retry=e.target?.closest?.('[data-resell-niche-retry]');if(retry){e.preventDefault();e.stopImmediatePropagation();void openNiche(retry.dataset.resellNicheRetry,{fromRetry:true});return}
+    const close=e.target?.closest?.('[data-resell-niche-close]');if(close){e.preventDefault();e.stopImmediatePropagation();document.getElementById('modal')?.classList.remove('open');document.body.style.overflow='';setEditing(false)}
+  },true);
+  // The Avito entry is protected from the legacy career-store interceptor.
+  const protect=()=>{const b=document.getElementById('avitoBtn');if(b){b.dataset.nicheProtected='1';b.dataset.nicheId='avito'}};
+  protect();setTimeout(protect,250);setTimeout(protect,1000);
+})();
+</script>
+
+<style id="brand-v20-logistics-map">
+.brand-v4-map{min-height:225px}
+.brand-v4-map-routes,.brand-v3-log-world-routes{position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:none}
+.brand-v4-live-route,.brand-v3-log-route-line{fill:none;stroke:#6d9b75;stroke-width:2.2;stroke-dasharray:7 7;animation:brandV20Dash 1.1s linear infinite}
+.brand-v4-live-truck,.brand-v3-log-moving-truck{fill:#202722;stroke:#fff;stroke-width:1.2}
+.brand-v4-live-truck text,.brand-v3-log-moving-truck text{font-size:3px;fill:#fff;stroke:none}
+.brand-v4-map-pin{z-index:4}
+.brand-v4-map-legend .truck{background:#202722}
+.brand-v3-logistics-world{max-height:92vh;overflow:auto}
+.brand-v3-logistics-parties{display:grid;gap:7px;margin:10px 0}
+.brand-v3-log-party{display:grid;grid-template-columns:64px 1fr;gap:9px;align-items:center;width:100%;padding:7px;border:1px solid #e0e5df;border-radius:13px;background:#fff;text-align:left;color:#202622}
+.brand-v3-log-party.active{border-color:#7e9d82;background:#f3f7f2}
+.brand-v3-log-party-thumb{height:54px;border-radius:9px;overflow:hidden;background:#f6f8f5}
+.brand-v3-log-party-thumb svg{width:100%;height:100%}
+.brand-v3-log-party b{display:block;font:950 9px/1.15 Montserrat,sans-serif}
+.brand-v3-log-party small,.brand-v3-log-party span{display:block;margin-top:3px;color:#87908a;font:800 7px/1.2 Nunito,sans-serif}
+.brand-v3-log-worldmap{border:1px solid #dfe5df;border-radius:17px;background:#f6f8f5;overflow:hidden}
+.brand-v3-log-world-head{display:flex;justify-content:space-between;gap:8px;padding:9px 10px;background:rgba(255,255,255,.9);font:800 7px/1 Montserrat,sans-serif;color:#77827a}
+.brand-v3-log-world-head b{color:#303a32}
+.brand-v3-log-world-canvas{position:relative;min-height:225px;overflow:hidden}
+.brand-v3-log-world-canvas>img{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;opacity:.62;filter:grayscale(1) contrast(.86)}
+.brand-v3-log-world-pin{position:absolute;z-index:5;transform:translate(-50%,-50%);border:0;background:transparent;padding:0}
+.brand-v3-log-world-pin i{display:block;width:14px;height:14px;border-radius:50%;background:#6d9b75;border:3px solid #fff;box-shadow:0 2px 9px rgba(20,25,21,.25)}
+.brand-v3-log-world-pin.active i{width:18px;height:18px;background:#202722;box-shadow:0 0 0 5px rgba(109,155,117,.18),0 3px 12px rgba(20,25,21,.28)}
+.brand-v3-log-world-pin span{position:absolute;left:17px;top:-5px;white-space:nowrap;padding:5px 7px;border-radius:8px;background:rgba(255,255,255,.96);font:900 7px/1 Montserrat,sans-serif;color:#4d574f;box-shadow:0 4px 12px rgba(0,0,0,.09)}
+.brand-v3-log-factory-pin{position:absolute;z-index:4;transform:translate(-50%,-50%);width:20px;height:20px;display:grid;place-items:center}
+.brand-v3-log-factory-pin i{font-style:normal;font-size:15px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.18))}
+.brand-v3-log-world-legend{position:absolute;left:8px;bottom:7px;z-index:6;display:flex;gap:8px;padding:6px 8px;border-radius:9px;background:rgba(255,255,255,.92);font:800 7px/1 Montserrat,sans-serif;color:#737d76}
+.brand-v3-log-world-legend i{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:3px}
+.brand-v3-log-world-legend .store{background:#6d9b75}.brand-v3-log-world-legend .factory{background:#7b6ba0}
+@keyframes brandV20Dash{to{stroke-dashoffset:-28px}}
+</style>
 </html>
 <style id="resell-home-nav-v3">
 /* RESSELL HOME NAV V3 — beginner-first information architecture. */
@@ -12404,6 +12927,7 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
       root.querySelectorAll('[data-v35-club-security] b').forEach(b=>{b.textContent='УСИЛИТЬ ОХРАНУ';});
     }
   });
+  window.__resellPolishClub=polishClub;
 })();
 </script>
 
@@ -13784,7 +14308,7 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
   // initData / RESSELL session correctly. Do not replace it with a separate
   // core-only transport here.
   const core=()=>window.__resellCoreV26||{};
-  const legacyUid=()=>String((typeof userId!=='undefined'&&userId)||window.telegramUserId||window.userId||'').trim();
+  const legacyUid=()=>String(window.userId||window.telegramUserId||core().getUserId?.()||'').trim();
   const uid=()=>legacyUid() || String(core().getUserId?.()||'').trim();
   const api=(path,options={},attempts=2)=>{
     const url=`${API}${path}`;
@@ -13895,6 +14419,9 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
       await openFriendsV80();
     }catch(e){btn.disabled=false;toast(e.message||'Ошибка');}
   }
+
+  const syncFriendRequests=()=>window.__resellSyncFriendRequests?.()||Promise.resolve(null);
+  const legacyOpenFriends=()=>window.__resellLegacyFriendsOpen?.()||window.__resellOpenFriends?.();
 
   async function sendRequest(friendTg,btn){
     btn.disabled=true; const old=btn.textContent; btn.textContent='ОТПРАВКА…';
@@ -15610,4 +16137,22 @@ main.app{
 .career-new.brand .avc-return-avito{display:inline-flex!important;visibility:visible!important;opacity:1!important;position:relative!important;z-index:99999!important;width:44px!important;min-width:44px!important;height:38px!important;min-height:38px!important;margin:2px 0 7px 2px!important;padding:5px!important;align-items:center!important;justify-content:center!important;border-radius:11px!important;background:#fff!important;border:1px solid #e3e8f0!important;box-shadow:0 4px 12px rgba(30,45,70,.08)!important;pointer-events:auto!important;touch-action:manipulation!important;}
 .career-new.brand .avc-return-avito .avc-avito-mark{display:block!important;width:30px!important;height:29px!important;position:relative!important;transform:scale(.78)!important;}
 .career-new.brand .avc-return-avito .avc-return-copy,.career-new.brand .avc-return-avito em{display:none!important;}
+</style>
+
+<style id="brand-v3-logistics-v5-polish">
+.brand-v3-logistics-simple{max-width:680px!important}.brand-v3-logistics-help{margin:0 0 10px;color:#7d8781;font:750 7px/1.4 Nunito}
+.brand-v3-logistics-party{display:grid;grid-template-columns:92px 1fr;gap:10px;align-items:center;padding:8px;border:1px solid #e0e6e0;border-radius:13px;background:#f7f9f7}.brand-v3-party-art{width:92px;height:62px;overflow:hidden;border-radius:9px;background:#fff;border:1px solid #e0e6e0}.brand-v3-party-art .brand-blueprint-sheet-v4{height:62px!important}.brand-v3-party-art svg{width:100%;height:100%!important}.brand-v3-logistics-party small,.brand-v3-truck-status>span{display:block;color:#8b958f;font:900 5px/1 Montserrat;letter-spacing:.6px}.brand-v3-logistics-party b{display:block;margin-top:4px;color:#27332c;font:950 8px/1 Montserrat}.brand-v3-logistics-party span{display:block;margin-top:4px;color:#7f8982;font:750 6px/1.2 Nunito}
+.brand-v3-mini-map{margin-top:9px;border:1px solid #dfe6df;border-radius:15px;background:#f4f7f4;padding:8px}.brand-v3-log-map-head{display:flex;justify-content:space-between;gap:8px;align-items:center;margin:0 2px 6px}.brand-v3-log-map-head span{color:#8b958f;font:900 5px/1 Montserrat;letter-spacing:.7px}.brand-v3-log-map-head b{color:#3a4d40;font:900 6px/1 Montserrat}.brand-v3-log-map-canvas{position:relative;aspect-ratio:720/320;overflow:hidden;border-radius:11px;background:#e9ede9}.brand-v3-log-map-canvas>img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center;opacity:.72}.brand-v3-log-pin,.brand-v3-log-factory-pin{position:absolute;transform:translate(-50%,-50%);z-index:4}.brand-v3-log-pin{width:28px;height:28px;border:2px solid #fff;border-radius:50%;background:#6f9d76;box-shadow:0 4px 13px rgba(40,65,48,.25);color:#fff;display:grid;place-items:center;cursor:pointer}.brand-v3-log-pin b{font-size:9px}.brand-v3-log-pin span{position:absolute;top:29px;left:50%;transform:translateX(-50%);padding:3px 5px;border-radius:5px;background:#fff;color:#526157;font:900 5px/1 Montserrat;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.08)}.brand-v3-log-pin.active{background:#1e3025;transform:translate(-50%,-50%) scale(1.12)}.brand-v3-log-factory-pin{font-size:18px;z-index:3}.brand-v3-log-route{position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:none}.brand-v3-log-route .route-dash{fill:none;stroke:#557960;stroke-width:3;stroke-dasharray:7 7;filter:drop-shadow(0 1px 2px rgba(0,0,0,.12))}.brand-v3-log-route .live-truck{fill:#26362c;color:#fff}.brand-v3-log-route text{font:900 5px Montserrat;fill:#fff}.brand-v3-logistics-selected{margin-top:8px;padding:9px 10px;border-radius:11px;background:#f5f8f4;border:1px solid #e1e7e1;color:#6e7b73;font:750 6px/1.3 Nunito}.brand-v3-logistics-selected b{display:block;color:#2e4135;font:950 8px/1 Montserrat}.brand-v3-logistics-selected span{display:block;margin-top:4px}.brand-v3-logistics-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-top:7px}.brand-v3-logistics-summary>div{padding:7px;border-radius:9px;background:#f6f8f5;border:1px solid #e2e8e2}.brand-v3-logistics-summary small{display:block;color:#8b958f;font:900 4.5px/1 Montserrat}.brand-v3-logistics-summary b{display:block;margin-top:4px;color:#33443a;font:950 6.5px/1 Montserrat}.brand-v3-truck-status{display:flex;align-items:center;gap:8px;margin-top:8px;padding:8px;border-radius:11px;background:#111812;color:#fff}.brand-v3-truck-status>b{font:950 8px/1 Montserrat}.brand-v3-truck-status button{margin-left:auto;border:0;border-radius:8px;padding:7px 9px;background:#b7ff6a;color:#071007;font:950 5.5px/1 Montserrat}
+.brand-v4-warehouse{display:grid;gap:8px;padding:12px;border:1px solid #e0e6df;border-radius:18px;background:#f8faf7}.brand-v4-section-head{display:flex!important;justify-content:space-between;align-items:center;gap:8px}.brand-v4-section-head>div{min-width:0}.brand-v4-section-head small{display:block!important;font:900 7px/1 Montserrat!important;color:#879189!important;letter-spacing:.08em}.brand-v4-section-head b{display:block!important;margin-top:4px!important;font:950 14px/1 Montserrat!important;color:#243028!important}.brand-v4-section-head>strong{font:950 10px/1 Montserrat!important;color:#53635a!important;white-space:nowrap}.brand-v4-section-note{display:block!important;margin-top:3px!important;font:750 7px/1.25 Nunito!important;color:#8a938d!important}.brand-v4-warehouse-list{display:grid;gap:7px}.brand-v4-warehouse-card{display:grid!important;grid-template-columns:72px minmax(0,1fr) auto!important;gap:9px!important;align-items:center!important;padding:9px!important;border:1px solid #e0e6df!important;border-radius:14px!important;background:#fff!important;min-width:0!important}.brand-v4-warehouse-thumb{width:72px!important;height:58px!important;overflow:hidden!important;border-radius:9px!important;background:#f5f8f5!important;border:1px solid #edf1ed!important}.brand-v4-warehouse-thumb .brand-blueprint-sheet-v4{height:58px!important}.brand-v4-warehouse-thumb svg{width:100%!important;height:100%!important}.brand-v4-warehouse-info{min-width:0!important}.brand-v4-warehouse-info b{display:block!important;color:#27332c!important;font:950 10px/1.15 Montserrat!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}.brand-v4-warehouse-info small{display:block!important;margin-top:4px!important;color:#818b85!important;font:750 7px/1.2 Nunito!important}.brand-v4-warehouse-count{display:flex!important;align-items:baseline!important;gap:5px!important;margin-top:6px!important}.brand-v4-warehouse-count strong{font:950 10px/1 Montserrat!important;color:#33473a!important}.brand-v4-warehouse-count span{font:750 6px/1 Nunito!important;color:#7c8780!important}.brand-v4-warehouse-info em{display:block!important;margin-top:4px!important;font:800 6px/1 Montserrat!important;color:#8b5f5f!important;font-style:normal!important}.brand-v4-warehouse-send{border:0!important;border-radius:9px!important;padding:9px 8px!important;background:#17211d!important;color:#fff!important;font:950 6px/1 Montserrat!important;white-space:nowrap!important}.brand-v4-warehouse-empty{padding:14px!important;border:1px dashed #cfd8d0!important;border-radius:13px!important;background:#fff!important}.brand-v4-warehouse-empty b{display:block!important;font:950 10px/1 Montserrat!important;color:#27332c!important}.brand-v4-warehouse-empty span{display:block!important;margin-top:5px!important;font:750 7px/1.35 Nunito!important;color:#7f8982!important}.brand-v4-sales-guide{display:grid;gap:8px;padding:12px;border:1px solid #dfe6df;border-radius:18px;background:#fff}.brand-v4-sales-guide small{font:900 7px/1 Montserrat;color:#879189;letter-spacing:.08em}.brand-v4-sales-guide b{display:block;margin-top:4px;font:950 12px/1.1 Montserrat;color:#243028}.brand-v4-sales-guide p{margin:5px 0 0;font:750 7.5px/1.35 Nunito;color:#7c8780}.brand-v4-sales-flow{display:flex;align-items:center;gap:5px;flex-wrap:wrap;padding:8px;border-radius:10px;background:#f4f7f3}.brand-v4-sales-flow span{font:900 5.5px/1 Montserrat;color:#506157}.brand-v4-sales-flow i{font:900 9px/1 Montserrat;color:#8a978e;font-style:normal}.brand-v4-sales-state{padding:8px 9px;border-radius:10px;background:#eef7ee}.brand-v4-sales-state b{margin:0;font:900 7px/1 Montserrat;color:#3f704a}.brand-v4-sales-state span{display:block;margin-top:3px;font:750 6.5px/1.25 Nunito;color:#6f7c73}.brand-v4-sales-state.muted{background:#f5f6f4}.brand-v4-sales-state.muted b{color:#667169}.brand-v4-production-live{position:relative!important;display:grid!important;grid-template-columns:1fr auto!important;gap:7px 10px!important;align-items:end!important}.brand-v4-production-live>i{grid-column:1/-1!important}.brand-v4-production-live>strong{font:950 9px/1 Montserrat!important;color:#52635a!important}.brand-v4-production-live>button{grid-column:1/-1!important;width:100%!important;border:0!important;border-radius:10px!important;background:#17211d!important;color:#fff!important;min-height:36px!important;font:950 6px/1 Montserrat!important}.brand-v3-logistics-qty{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;padding:8px 10px;border:1px solid #e0e6df;border-radius:11px;background:#fff;font:900 6px/1 Montserrat;color:#7b867f}.brand-v3-logistics-qty>div{display:flex;align-items:center;gap:4px}.brand-v3-logistics-qty button{width:27px;height:27px;border:0;border-radius:8px;background:#eef2ee;color:#27342b;font:950 12px/1 Montserrat}.brand-v3-logistics-qty input{width:58px;height:27px;border:1px solid #dce4dc;border-radius:8px;text-align:center;font:900 8px/1 Montserrat;color:#27342b;background:#fff}.brand-v4-warehouse-action{width:100%;margin-top:7px;border:0;border-radius:11px;background:#17211d;color:#fff;min-height:38px;font:950 6px/1 Montserrat}
+.brand-v4-kpi-sub{display:block!important;margin-top:3px;color:#87918a;font:750 5px/1 Nunito}
+@media(max-width:430px){.brand-v3-logistics-summary{grid-template-columns:repeat(2,1fr)}.brand-v3-truck-status{flex-wrap:wrap}.brand-v3-truck-status button{margin-left:0;width:100%}}
+</style>
+
+<style id="brand-v5-geo-logistics">.brand-v3-logistics-country{display:block;margin:7px 0}.brand-v3-logistics-country>select{margin-top:5px}.brand-v4-map-routes,.brand-v3-log-world-routes{overflow:visible}.brand-v4-live-truck,.brand-v3-log-moving-truck{transform-box:fill-box;transform-origin:center;will-change:transform}.brand-v4-map{aspect-ratio:720/225!important}.brand-v3-log-world-canvas{aspect-ratio:720/225!important}.brand-v3-log-world-canvas>img{object-fit:fill!important;object-position:center!important}.brand-v3-log-world-pin{cursor:pointer}.brand-v3-log-world-pin.active{z-index:8}</style>
+
+<style id="brand-v24-stability">
+.brand-v4-map,.brand-v3-log-world-canvas{aspect-ratio:720/225!important;height:auto!important;min-height:225px!important}
+.brand-v4-map img,.brand-v3-log-world-canvas>img{object-fit:fill!important;object-position:center!important}
+.brand-v5-next{padding:13px 14px;border:1px solid #d8e4d8;border-radius:16px;background:linear-gradient(145deg,#f2f8f1,#fff);display:grid;gap:4px}.brand-v5-next small{font:900 6px/1 Montserrat;color:#7e8b81;letter-spacing:.12em}.brand-v5-next b{font:950 13px/1.1 Montserrat;color:#243128}.brand-v5-next span{font:750 7px/1.35 Nunito;color:#77837a}.brand-v5-actions{grid-template-columns:1fr!important;gap:6px!important}.brand-v5-actions>button{min-height:58px!important}.brand-v5-actions>button span{width:30px!important;height:30px!important;display:grid;place-items:center}.brand-v5-marketing{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border:1px solid #e0e6df;border-radius:13px;background:#fff;color:#334139;text-align:left}.brand-v5-marketing b{font:950 8px/1 Montserrat}.brand-v5-marketing span{font:750 6.5px/1.2 Nunito;color:#8a938d;flex:1}.brand-v5-marketing em{font:950 10px/1 Montserrat;color:#87938a;font-style:normal}.brand-v4-market-fit{display:flex!important;align-items:center;gap:6px;margin-top:6px!important;padding:5px 7px;border-radius:8px;background:#eef6ee;width:max-content}.brand-v4-market-fit b{font:950 7px/1 Montserrat!important;color:#41694b!important}.brand-v4-market-fit span{font:750 6px/1 Nunito!important;color:#6f7c73!important}.brand-v4-warehouse-card{grid-template-columns:84px minmax(0,1fr) 92px!important}.brand-v4-warehouse-thumb{width:84px!important;height:70px!important}.brand-v4-warehouse-thumb .brand-blueprint-sheet-v4{height:70px!important}.brand-v4-warehouse-send{min-height:36px!important;font-size:6.5px!important;padding:0 9px!important}
+@media(max-width:430px){.brand-v4-warehouse-card{grid-template-columns:72px minmax(0,1fr)!important}.brand-v4-warehouse-thumb{width:72px!important;height:62px!important}.brand-v4-warehouse-thumb .brand-blueprint-sheet-v4{height:62px!important}.brand-v4-warehouse-send{grid-column:1/-1;width:100%!important}.brand-v5-next b{font-size:12px}}
 </style>
