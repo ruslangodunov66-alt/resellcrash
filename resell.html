@@ -5569,7 +5569,11 @@ async function initFarm(){
   const BANK_IMG='AgACAgIAAxkBAAIb4GoYdcW3grQ8bIlyZ5foSK885TJ_AAIZHGsbVcfBSPPaBe8AATcM_gEAAwIAA3kAAzsE';
   const MINING_IMG='AgACAgIAAxkBAAIb02oYdOPrg50NLjYRHS8cINlbD3b2AAIXHGsbVcfBSMqZednvkdzBAQADAgADdwADOwQ';
   async function tycoonFetch(path,opts={}){
-    const resp=await apiFetch(`${API_BASE}${path}`,opts,3);
+    // Avito is a read-heavy screen. Never retry a slow marketplace request
+    // three times: that turns one stalled load into a 20s+ wait and multiplies
+    // server load. Other game actions keep the existing retry policy.
+    const attempts=/\/avito\//i.test(String(path||''))?1:3;
+    const resp=await apiFetch(`${API_BASE}${path}`,opts,attempts);
     const payload=await resp.json().catch(()=>({}));
     if(!resp.ok) throw new Error(payload?.error||payload?.message||`HTTP ${resp.status}`);
     if(payload?.success===false) throw new Error(payload?.error||payload?.message||'Операция не выполнена');
@@ -6061,7 +6065,16 @@ async function initFarm(){
   function setAvitoNewPurchases(list){try{localStorage.setItem(AVITO_NEW_PURCHASES_KEY,JSON.stringify([...new Set(list.map(String))].slice(-100)))}catch(_){}}
   function markAvitoNewPurchase(uid){if(!uid)return;setAvitoNewPurchases([...getAvitoNewPurchases(),String(uid)])}
   function clearAvitoNewPurchase(uid){if(!uid)return;setAvitoNewPurchases(getAvitoNewPurchases().filter(x=>String(x)!==String(uid)))}
-  async function fetchAvito(){ avitoState=await tycoonFetch(`/avito/${encodeURIComponent(userId)}`); window.__resellAvitoState=avitoState; const u=Number(avitoState?.unread_count||0); const b=document.getElementById("avitoEntryUnread"); if(b){b.textContent=u;b.style.display=u>0?"inline-grid":"none";} return avitoState; }
+  async function fetchAvito(){
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),9000);
+    try{
+      avitoState=await tycoonFetch(`/avito/${encodeURIComponent(userId)}`,{signal:controller.signal});
+      window.__resellAvitoState=avitoState;
+      const u=Number(avitoState?.unread_count||0); const b=document.getElementById("avitoEntryUnread"); if(b){b.textContent=u;b.style.display=u>0?"inline-grid":"none";}
+      return avitoState;
+    }finally{clearTimeout(timer);}
+  }
   const AVITO_UNLOCK_SEEN_KEY='resell_avito_unlock_seen_v61';
   function getAvitoUnlockSeen(){try{return Number(localStorage.getItem(AVITO_UNLOCK_SEEN_KEY)||0)}catch(_){return 0}}
   function setAvitoUnlockSeen(v){try{localStorage.setItem(AVITO_UNLOCK_SEEN_KEY,String(v))}catch(_){}}
@@ -6084,7 +6097,7 @@ async function initFarm(){
   // polling it every 10s for a tiny unread badge creates needless load.
   async function refreshAvitoUnreadBadge(){
     try{
-      if(!userId || document.hidden || !modal.classList.contains('open') || !document.querySelector('.avito-shell')) return;
+      if(!userId || document.hidden || !modal.classList.contains('open') || document.querySelector('.avito-shell')) return;
       const d=await tycoonFetch(`/avito/${encodeURIComponent(userId)}`);
       const u=Number(d?.unread_count||0);
       const b=document.getElementById("avitoEntryUnread");
@@ -6270,7 +6283,7 @@ async function initFarm(){
           modalBody.innerHTML=renderAvitoSafeFallback();
         }
       } catch(_) {}
-    },7000);
+    },12000);
   }
   $('#avitoBtn')?.addEventListener('click',openAvito);
   modalBody.addEventListener('click',async(e)=>{
