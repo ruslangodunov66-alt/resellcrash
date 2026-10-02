@@ -2699,38 +2699,46 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
 <div class="sheet-handle"></div>
 <div class="sheet-head"><div class="sheet-title">Календарь наград</div><button class="sheet-close" id="dailySeriesClose" type="button">×</button></div>
 <div class="sheet-body">
-<div class="daily-calendar-panel">
-  <div class="daily-calendar-hero">
-    <div class="daily-calendar-hero-copy">
-      <div class="daily-calendar-kicker">30 DAYS · RESSELL REWARDS</div>
-      <div class="daily-calendar-title">ЗАХОДИ. ИГРАЙ. ЗАБИРАЙ.</div>
-      <div class="daily-calendar-sub">1 час активной игры сегодня открывает награду текущего дня.</div>
+<div class="daily-calendar-panel daily-calendar-v2">
+  <div class="daily-calendar-v2-head">
+    <div class="daily-calendar-v2-brand">
+      <div class="daily-calendar-v2-kicker">RESSELL · DAILY REWARDS</div>
+      <div class="daily-calendar-v2-title">КАЛЕНДАРЬ НАГРАД</div>
+      <div class="daily-calendar-v2-sub">Проведи 60 минут в игре — открой награду текущего дня.</div>
     </div>
-    <div class="daily-calendar-stage-badge"><b id="dailyCalendarStage">0/30</b><span>ДНЕЙ</span></div>
+    <div class="daily-calendar-v2-counter"><strong id="dailyCalendarStage">0/30</strong><span>ПОЛУЧЕНО</span></div>
   </div>
 
-  <div class="daily-calendar-live">
-    <div class="daily-calendar-live-top">
-      <div><small>АКТИВНОЕ ВРЕМЯ СЕГОДНЯ</small><strong id="dailyCalendarTime">0:00 / 1:00</strong></div>
-      <div class="daily-calendar-live-state" id="dailyCalendarState">СОБИРАЙ 60 МИНУТ</div>
+  <div class="daily-calendar-v2-progress">
+    <div class="daily-calendar-v2-progress-top">
+      <span>АКТИВНОЕ ВРЕМЯ · СЕГОДНЯ</span>
+      <b id="dailyCalendarTime">0:00 / 1:00</b>
     </div>
-    <div class="daily-calendar-timebar"><i id="dailyCalendarTimeFill"></i></div>
-    <div class="daily-calendar-live-foot"><span id="dailyCalendarTimeHint">Прогресс считается на сервере, только пока игра открыта.</span><b id="dailyCalendarRemaining">ЕЩЁ 60 МИН</b></div>
+    <div class="daily-calendar-v2-track"><i id="dailyCalendarTimeFill"></i></div>
+    <div class="daily-calendar-v2-progress-bottom">
+      <span id="dailyCalendarTimeHint">Считается только активная игра.</span>
+      <b id="dailyCalendarRemaining">ЕЩЁ 60 МИН</b>
+    </div>
   </div>
 
-  <div class="daily-calendar-current">
-    <div class="daily-calendar-current-copy">
-      <small id="dailyCalendarCurrentKicker">СЕГОДНЯ · ДЕНЬ 1</small>
-      <b id="dailyCalendarCurrentTitle">СТАРТ</b>
-      <span id="dailyCalendarCurrentReward">+10 000 ₽</span>
+  <div class="daily-calendar-v2-now">
+    <div class="daily-calendar-v2-now-left">
+      <span id="dailyCalendarCurrentKicker">СЕГОДНЯ · ДЕНЬ 1</span>
+      <strong id="dailyCalendarCurrentTitle">СТАРТ</strong>
+      <b id="dailyCalendarCurrentReward">+10 000 ₽</b>
       <em id="dailyCalendarCurrentCar"></em>
     </div>
-    <button class="daily-calendar-claim" id="dailyCheckinBtn" type="button"><span id="dailyCalendarClaimLabel">ОТКРЫВАЕТСЯ ЗА 60 МИН</span><strong id="dailyCalendarClaimAction">ЗАБРАТЬ</strong></button>
+    <button class="daily-calendar-v2-claim" id="dailyCheckinBtn" type="button">
+      <span id="dailyCalendarClaimLabel">ЕЩЁ 60 МИНУТ</span>
+      <strong id="dailyCalendarClaimAction">ЗАБРАТЬ</strong>
+    </button>
   </div>
 
-  <div class="daily-calendar-section-head"><span>КАЛЕНДАРЬ</span><b>ДЕНЬ 1 → 30</b></div>
-  <div class="daily-calendar-days" id="dailyLoginDays"></div>
-  <div class="daily-calendar-foot"><span id="checkinHint">Не пропускай день — серия продолжится завтра.</span><span id="checkinTomorrow">30 наград</span></div>
+  <div class="daily-calendar-v2-section">
+    <div class="daily-calendar-v2-section-title"><span>ЕЖЕДНЕВНЫЕ НАГРАДЫ</span><b>1 — 30</b></div>
+    <div class="daily-calendar-days daily-calendar-grid-v2" id="dailyLoginDays"></div>
+  </div>
+  <div class="daily-calendar-v2-foot"><span id="checkinHint">Не пропускай день — серия продолжится завтра.</span><b id="checkinTomorrow">СЛЕДУЮЩИЙ ДЕНЬ</b></div>
 </div>
 </div>
 </div>
@@ -4031,6 +4039,20 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     }
   }
 
+  function calendarShortCash(item){
+    const cash=Number(item?.cash||0);
+    if(!cash)return '—';
+    if(cash>=1000000)return `${(cash/1000000).toFixed(cash%1000000?1:0)}M`;
+    if(cash>=1000)return `${Math.round(cash/1000)}K`;
+    return String(cash);
+  }
+  function calendarMilestoneLabel(item){
+    const id=String(item?.car_id||'');
+    if(id==='bmwm5')return 'M5 F90';
+    if(id==='sclass')return 'S-CLASS';
+    if(id==='aventador')return 'AVENTADOR';
+    return '';
+  }
   function renderDailyCalendar(d){
     if(!d)return;
     const days=Array.isArray(d.days)?d.days:[];
@@ -4051,29 +4073,31 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
         const isCurrent=!complete&&day===current;
         const milestone=[14,21,30].includes(day);
         const isReady=isCurrent&&ready;
-        const car=calendarCarLabel(item.car_id);
-        const reward=calendarRewardText(item);
-        return `<div class="daily-calendar-day ${isDone?'is-done':''} ${isCurrent?'is-current':''} ${isReady?'is-ready':''} ${milestone?'is-milestone':''} ${car?'has-car':''}" data-calendar-day="${day}">
-          <div class="daily-calendar-day-top"><small>ДЕНЬ</small><b>${day}</b></div>
-          <strong>${reward}</strong>
-          ${car?`<span class="daily-calendar-car">${esc(car)}</span>`:`<span class="daily-calendar-mini-title">${esc(String(item.title||'НАГРАДА'))}</span>`}
-          <i>${isDone?'✓':isCurrent?(isReady?'ГОТОВО':'СЕЙЧАС'):'🔒'}</i>
-        </div>`;
+        const carLabel=calendarMilestoneLabel(item);
+        const carIcon=item.car_id==='bmwm5'?'🏎️':item.car_id==='sclass'?'🚘':item.car_id==='aventador'?'🏎️':'';
+        const cash=calendarShortCash(item);
+        const state=isDone?'✓':isCurrent?(isReady?'ЗАБРАТЬ':'СЕЙЧАС'):'🔒';
+        return `<button type="button" class="daily-calendar-day daily-calendar-v2-card ${isDone?'is-done':''} ${isCurrent?'is-current':''} ${isReady?'is-ready':''} ${milestone?'is-milestone':''} ${item.car_id?'has-car':''}" data-calendar-day="${day}" ${isCurrent&&ready?'':'disabled'}>
+          ${milestone?`<span class="daily-calendar-v2-ribbon">${day}</span>`:''}
+          <span class="daily-calendar-v2-day">ДЕНЬ <b>${day}</b></span>
+          <span class="daily-calendar-v2-reward">+${esc(cash)}</span>
+          ${item.car_id?`<span class="daily-calendar-v2-car"><i>${carIcon}</i>${esc(carLabel)}</span>`:`<span class="daily-calendar-v2-caption">${esc(String(item.title||'НАГРАДА'))}</span>`}
+          <span class="daily-calendar-v2-state">${state}</span>
+        </button>`;
       }).join('');
     }
 
     $('#dailyCalendarStage')&&($('#dailyCalendarStage').textContent=`${claimed}/${total}`);
-    $('#dailyCalendarTime')&&($('#dailyCalendarTime').textContent=complete?'30 дней закрыты':`${formatCalendarTime(active)} / 1:00:00`);
+    $('#dailyCalendarTime')&&($('#dailyCalendarTime').textContent=complete?'ЗАВЕРШЕНО':`${formatCalendarTime(active)} / 1:00:00`);
     $('#dailyCalendarTimeFill')&&($('#dailyCalendarTimeFill').style.width=`${Math.round(active/required*100)}%`);
-    $('#dailyCalendarState')&&($('#dailyCalendarState').textContent=complete?'СЕРИЯ ЗАВЕРШЕНА':ready?'НАГРАДА ГОТОВА':'СОБИРАЙ 60 МИНУТ');
-    $('#dailyCalendarRemaining')&&($('#dailyCalendarRemaining').textContent=complete?'30/30':ready?'МОЖНО ЗАБРАТЬ':`ЕЩЁ ${Math.ceil(rem/60)} МИН`);
-    $('#dailyCalendarTimeHint')&&($('#dailyCalendarTimeHint').textContent=complete?'Календарь полностью пройден.':(ready?'Сегодняшняя награда разблокирована.': 'Прогресс считается на сервере, пока RESSELL открыт на экране.'));
+    $('#dailyCalendarRemaining')&&($('#dailyCalendarRemaining').textContent=complete?'30/30':ready?'НАГРАДА ГОТОВА':`ЕЩЁ ${Math.ceil(rem/60)} МИН`);
+    $('#dailyCalendarTimeHint')&&($('#dailyCalendarTimeHint').textContent=complete?'Все 30 дней пройдены.':(ready?'Сегодняшняя награда разблокирована.':'Считается только активная игра.'));
 
     const item=days.find(x=>Number(x.day)===current)||days[days.length-1]||{};
     $('#dailyCalendarCurrentKicker')&&($('#dailyCalendarCurrentKicker').textContent=complete?'30 ДНЕЙ · ЗАВЕРШЕНО':`СЕГОДНЯ · ДЕНЬ ${current}`);
     $('#dailyCalendarCurrentTitle')&&($('#dailyCalendarCurrentTitle').textContent=String(item.title||'НАГРАДА').toUpperCase());
     $('#dailyCalendarCurrentReward')&&($('#dailyCalendarCurrentReward').textContent=calendarRewardText(item));
-    const carLabel=calendarCarLabel(item.car_id);
+    const carLabel=calendarMilestoneLabel(item);
     const carEl=$('#dailyCalendarCurrentCar');
     if(carEl){carEl.textContent=carLabel?`🚘 ${carLabel}`:'';carEl.style.display=carLabel?'inline-flex':'none';}
 
@@ -4081,11 +4105,11 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     if(btn){
       btn.disabled=!ready;
       btn.classList.toggle('ready',ready);
-      $('#dailyCalendarClaimLabel')&&( $('#dailyCalendarClaimLabel').textContent=complete?'30 ДНЕЙ ПРОЙДЕНО':ready?'НАГРАДА РАЗБЛОКИРОВАНА':`ЕЩЁ ${Math.ceil(rem/60)} МИНУТ` );
-      $('#dailyCalendarClaimAction')&&( $('#dailyCalendarClaimAction').textContent=complete?'ГОТОВО':ready?'ЗАБРАТЬ':'ЗАКРЫТО' );
+      $('#dailyCalendarClaimLabel')&&($('#dailyCalendarClaimLabel').textContent=complete?'30 ДНЕЙ ПРОЙДЕНО':ready?'НАГРАДА РАЗБЛОКИРОВАНА':`ЕЩЁ ${Math.ceil(rem/60)} МИНУТ`);
+      $('#dailyCalendarClaimAction')&&($('#dailyCalendarClaimAction').textContent=complete?'ГОТОВО':ready?'ЗАБРАТЬ':'ЗАКРЫТО');
     }
-    $('#checkinHint')&&($('#checkinHint').textContent=complete?'Все 30 наград получены.':(ready?'Награда дня готова — забирай и продолжай завтра.':'Пропуск дня сбросит текущую серию на день 1.'));
-    $('#checkinTomorrow')&&($('#checkinTomorrow').textContent=complete?'СЕРИЯ 30/30':`ДЕНЬ ${Math.min(total,current+1)} СЛЕДУЮЩИЙ`);
+    $('#checkinHint')&&($('#checkinHint').textContent=complete?'Все 30 наград получены.':(ready?'Награда дня готова — забирай и продолжай серию.':'Не пропускай день — завтра серия продолжается только при получении сегодняшней награды.'));
+    $('#checkinTomorrow')&&($('#checkinTomorrow').textContent=complete?'30/30 · ЗАВЕРШЕНО':`СЛЕДУЮЩИЙ · ДЕНЬ ${Math.min(total,current+1)}`);
     const ab=$('#dailyActivityBadge'),ar=$('#dailyActivityReward'),as=$('#dailyActivityState'),ad=$('#dailyActivityDesc');
     if(ab)ab.textContent=`${claimed}/${total}`;
     if(ar)ar.textContent=complete?'30/30':calendarRewardText(item);
@@ -6889,7 +6913,7 @@ async function initFarm(){
   }
   async function loadResellEvent(force=false){
     if(!userId)return;
-    try{const d=await apiFetch(`${API_BASE}/events/active?userId=${encodeURIComponent(userId)}&t=${Date.now()}`,{cache:'no-store'},2);let j={};try{j=await d.json()}catch(_){j={}};if(!d.ok||j.success===false)throw new Error(j.error||'event');updateEventCard(j);clearInterval(resellEventPoll);resellEventPoll=setInterval(()=>loadResellEvent(false),2000);}catch(_){if(force) updateEventCard({event:null});}
+    try{const d=await apiFetch(`${API_BASE}/events/active?userId=${encodeURIComponent(userId)}&t=${Date.now()}`,{cache:'no-store'},2);let j={};try{j=await d.json()}catch(_){j={}};if(!d.ok||j.success===false)throw new Error(j.error||'event');updateEventCard(j);clearInterval(resellEventPoll);resellEventPoll=setInterval(()=>loadResellEvent(false),10000);}catch(_){if(force) updateEventCard({event:null});}
   }
   async function claimResellEvent(){
     if(!currentResellEvent)return;
@@ -7864,7 +7888,7 @@ async function initFarm(){
         }
       }
     }catch(_){ }
-  },5000);
+  },20000);
 
   // V26 bridge: expose only stable read/call primitives for isolated UI modules.
   window.__resellCoreV26 = {
@@ -8867,7 +8891,7 @@ async function initFarm(){
   window.__resellFlushUnlocks=flushUnlockQueue;
   function queueUnlocks(prev,next){const out=[];const p=prev||{},n=next||{};const pe=new Set(p.epoch_completed||[]),ne=new Set(n.epoch_completed||[]);[...ne].filter(x=>!pe.has(x)).forEach(e=>out.push({icon:'E'+e,kicker:'ERA PROGRESSION',title:`НОВАЯ ERA · ${String(e).padStart(2,'0')}`,sub:'Новая эпоха открыта. Следующие стили и контент теперь доступны.',toast:`Открыта ERA ${e}`}));const pt=new Set(p.sales_reached||[]),nt=new Set(n.sales_reached||[]);[...nt].filter(x=>!pt.has(x)).forEach(s=>out.push({icon:'★',kicker:'AVITO MILESTONE',title:`${money(s)} ПРОДАЖ`,sub:'Достижение открыто. Новый уровень статуса и контента RESSELL.',toast:`Открыто достижение · ${s} продаж`}));return out;}
   async function pollUnlocks(){const c=core(),u=uid();if(!c.apiFetch||!u)return;try{const r=await c.apiFetch(`${API}/unlocks/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'GET'},1);const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)return;const key=`resell_v33_unlock_baseline_${u}`;let base=null;try{base=JSON.parse(localStorage.getItem(key)||'null')}catch(_){}if(!base){localStorage.setItem(key,JSON.stringify(d));lastSnapshot=d;return;}const events=queueUnlocks(base,d);localStorage.setItem(key,JSON.stringify(d));lastSnapshot=d;if(events.length){unlockQueue.push(...events);flushUnlockQueue();}}catch(_){}}
-  setTimeout(pollUnlocks,2500);setInterval(()=>{if(document.visibilityState==='visible')pollUnlocks();},10000);
+  setTimeout(pollUnlocks,2500);setInterval(()=>{if(document.visibilityState==='visible')pollUnlocks();},20000);
   document.getElementById('modalClose')?.addEventListener('click',()=>setTimeout(()=>window.__resellFlushUnlocks?.(),80));
   document.getElementById('avitoBtn')?.addEventListener('click',()=>setTimeout(()=>window.__resellFlushUnlocks?.(),250));
 })();
@@ -12610,6 +12634,21 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 
 <style id="brand-v4-ad-overrides">
 .brand-v4-ad-list{display:grid;gap:7px;margin:12px 0}.brand-v4-ad-list button{display:grid;grid-template-columns:34px 1fr auto;align-items:center;gap:9px;text-align:left;padding:10px;border:1px solid #e0e5df;border-radius:13px;background:#fff;color:#202622}.brand-v4-ad-list button.active{border-color:#202722;background:#f5f7f4}.brand-v4-ad-list button:disabled{opacity:.55}.brand-v4-ad-list>button>span{width:30px;height:30px;display:grid;place-items:center;border-radius:9px;background:#f0f3ef;font:900 8px/1 Montserrat,sans-serif}.brand-v4-ad-list b{display:block;font:950 11px/1.1 Montserrat,sans-serif}.brand-v4-ad-list small{display:block;margin-top:3px;color:#87908a;font:800 8px/1.2 Nunito,sans-serif}.brand-v4-ad-list strong{font:900 7px/1 Montserrat,sans-serif;white-space:nowrap}.brand-v4-model-mini{cursor:pointer;width:100%;text-align:left}.brand-v4-edit-hint{display:block!important;margin-top:5px;color:#6d8270!important;font-weight:900!important}
+</style>
+
+<style id="resell-30-day-calendar-v2-ui">
+/* Game-like 6-column calendar inspired by the supplied reference, rebuilt for RESSELL. */
+.daily-calendar-v2{padding:12px!important;border-radius:20px!important;background:linear-gradient(145deg,#171a19 0%,#0a0c0b 72%)!important;border-color:rgba(255,255,255,.11)!important;box-shadow:0 20px 60px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.05)!important}
+.daily-calendar-v2:before{display:none!important}
+.daily-calendar-v2-head{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:2px 1px 11px;border-bottom:1px solid rgba(255,255,255,.07)}
+.daily-calendar-v2-brand{min-width:0}.daily-calendar-v2-kicker{font:900 6px/1 Montserrat,sans-serif;letter-spacing:.16em;color:#7d8881}.daily-calendar-v2-title{margin-top:6px;color:#f2f4f1;font:950 18px/1 Montserrat,sans-serif;letter-spacing:-.04em}.daily-calendar-v2-sub{margin-top:5px;color:#737d77;font:750 7px/1.3 Nunito,sans-serif}
+.daily-calendar-v2-counter{flex:none;min-width:54px;padding:8px 7px;border-radius:10px;text-align:center;background:#101311;border:1px solid rgba(255,255,255,.08);box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}.daily-calendar-v2-counter strong{display:block;color:#b7ff6a;font:950 15px/1 Montserrat}.daily-calendar-v2-counter span{display:block;margin-top:4px;color:#69746d;font:900 4.5px/1 Montserrat;letter-spacing:.08em}
+.daily-calendar-v2-progress{position:relative;z-index:2;margin-top:10px;padding:9px 10px;border-radius:12px;background:#0e110f;border:1px solid rgba(255,255,255,.06)}.daily-calendar-v2-progress-top,.daily-calendar-v2-progress-bottom{display:flex;justify-content:space-between;gap:8px;align-items:center}.daily-calendar-v2-progress-top span{color:#69746d;font:900 5px/1 Montserrat;letter-spacing:.08em}.daily-calendar-v2-progress-top b{color:#eef1ed;font:950 8px/1 Montserrat}.daily-calendar-v2-track{height:5px;margin-top:7px;overflow:hidden;border-radius:99px;background:#050706}.daily-calendar-v2-track i{display:block;width:0;height:100%;border-radius:inherit;background:linear-gradient(90deg,#818c84,#b7ff6a);box-shadow:0 0 13px rgba(183,255,106,.22);transition:width .3s ease}.daily-calendar-v2-progress-bottom{margin-top:5px}.daily-calendar-v2-progress-bottom span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#505b54;font:700 5.5px/1.2 Nunito}.daily-calendar-v2-progress-bottom b{flex:none;color:#9eaaa2;font:900 5px/1 Montserrat;letter-spacing:.05em}
+.daily-calendar-v2-now{position:relative;z-index:2;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;margin-top:9px;padding:10px;border-radius:13px;background:linear-gradient(145deg,rgba(183,255,106,.075),rgba(255,255,255,.025));border:1px solid rgba(183,255,106,.12)}.daily-calendar-v2-now-left{min-width:0;display:grid;gap:3px}.daily-calendar-v2-now-left>span{color:#68736c;font:900 5px/1 Montserrat;letter-spacing:.08em}.daily-calendar-v2-now-left>strong{color:#eef1ed;font:950 10px/1.1 Montserrat;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.daily-calendar-v2-now-left>b{color:#b7ff6a;font:950 15px/1 Montserrat}.daily-calendar-v2-now-left>em{display:none;width:max-content;padding:3px 5px;border-radius:6px;background:rgba(183,255,106,.08);border:1px solid rgba(183,255,106,.12);color:#b7ff6a;font:900 4.5px/1 Montserrat;font-style:normal}.daily-calendar-v2-claim{width:105px;min-height:48px;padding:7px;border:1px solid rgba(255,255,255,.13);border-radius:10px;background:#202522;color:#68736c;display:flex;flex-direction:column;align-items:stretch;justify-content:center;gap:5px;box-shadow:none}.daily-calendar-v2-claim span{text-align:center;font:900 4.5px/1 Montserrat;letter-spacing:.04em}.daily-calendar-v2-claim strong{display:block;padding:7px 5px;border-radius:7px;background:#111411;color:#6f7a73;font:950 6px/1 Montserrat;letter-spacing:.06em}.daily-calendar-v2-claim.ready{border-color:rgba(183,255,106,.3);background:linear-gradient(145deg,#e9f5e5,#cfffbd);box-shadow:0 8px 25px rgba(183,255,106,.09)}.daily-calendar-v2-claim.ready span{color:#5d6a60}.daily-calendar-v2-claim.ready strong{background:#0d110d;color:#b7ff6a}.daily-calendar-v2-claim:disabled{opacity:.7}
+.daily-calendar-v2-section{position:relative;z-index:2;margin-top:11px}.daily-calendar-v2-section-title{display:flex;justify-content:space-between;align-items:center;margin:0 2px 7px}.daily-calendar-v2-section-title span{color:#737e77;font:950 5.5px/1 Montserrat;letter-spacing:.1em}.daily-calendar-v2-section-title b{color:#505b54;font:900 5px/1 Montserrat;letter-spacing:.06em}
+.daily-calendar-grid-v2{display:grid!important;grid-template-columns:repeat(6,minmax(0,1fr))!important;gap:5px!important;max-height:none!important;overflow:visible!important;padding:0!important}.daily-calendar-v2-card{position:relative;min-width:0!important;height:72px!important;min-height:72px!important;padding:6px 5px 5px!important;border-radius:8px!important;background:linear-gradient(145deg,#242826,#171a18)!important;border:1px solid rgba(255,255,255,.075)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.035)!important;overflow:hidden!important;text-align:left!important;color:inherit!important}.daily-calendar-v2-card:disabled{opacity:1!important}.daily-calendar-v2-card.is-current{border-color:rgba(255,255,255,.28)!important;box-shadow:0 0 0 1px rgba(255,255,255,.035),0 6px 15px rgba(0,0,0,.22)!important}.daily-calendar-v2-card.is-ready{border-color:rgba(183,255,106,.45)!important;box-shadow:0 0 18px rgba(183,255,106,.09)!important}.daily-calendar-v2-card.is-done{background:linear-gradient(145deg,#202d23,#151b17)!important;border-color:rgba(183,255,106,.18)!important}.daily-calendar-v2-card.is-done .daily-calendar-v2-reward{color:#b7ff6a!important}.daily-calendar-v2-card.has-car{background:linear-gradient(145deg,#2a2a25,#181917)!important;border-color:rgba(255,218,113,.25)!important}.daily-calendar-v2-day{display:block;color:#6e7972;font:900 4.5px/1 Montserrat;letter-spacing:.04em}.daily-calendar-v2-day b{float:right;color:#d5d9d5;font:950 7px/1 Montserrat}.daily-calendar-v2-reward{display:block;margin-top:7px;color:#eef1ed;font:950 10px/1 Montserrat;letter-spacing:-.03em;white-space:nowrap}.daily-calendar-v2-caption{display:block;margin-top:4px;color:#626d66;font:750 4.5px/1.1 Nunito;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.daily-calendar-v2-state{position:absolute;left:5px;bottom:5px;color:#4f5a53;font:950 4.2px/1 Montserrat;letter-spacing:.03em}.daily-calendar-v2-card.is-current .daily-calendar-v2-state{color:#9ba69f}.daily-calendar-v2-card.is-ready .daily-calendar-v2-state{color:#b7ff6a}.daily-calendar-v2-card.is-done .daily-calendar-v2-state{color:#829b86}.daily-calendar-v2-ribbon{position:absolute;right:-18px;top:7px;width:55px;padding:3px 0;transform:rotate(45deg);background:#7d5b2c;color:#fff2d4;text-align:center;font:950 4.5px/1 Montserrat;letter-spacing:.05em;box-shadow:0 2px 8px rgba(0,0,0,.22)}.daily-calendar-v2-card.is-done .daily-calendar-v2-ribbon{background:#526c56}.daily-calendar-v2-car{display:flex;align-items:center;gap:3px;margin-top:4px;color:#f0eee7;font:900 4.2px/1.1 Montserrat;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:uppercase}.daily-calendar-v2-car i{font-style:normal;font-size:9px;line-height:1}.daily-calendar-v2-card.is-milestone{height:80px!important;min-height:80px!important}.daily-calendar-v2-card.is-milestone .daily-calendar-v2-reward{font-size:9px}.daily-calendar-v2-foot{position:relative;z-index:2;display:flex;justify-content:space-between;gap:8px;margin-top:8px;padding:7px 2px 1px;border-top:1px solid rgba(255,255,255,.055);color:#59645d;font:700 5.5px/1.25 Nunito}.daily-calendar-v2-foot b{flex:none;color:#707c74;font:900 4.5px/1 Montserrat;letter-spacing:.04em}
+@media(max-width:430px){.daily-calendar-v2{padding:10px!important}.daily-calendar-v2-title{font-size:16px}.daily-calendar-v2-sub{font-size:6.5px}.daily-calendar-v2-counter{min-width:50px}.daily-calendar-v2-now{grid-template-columns:minmax(0,1fr) 98px}.daily-calendar-v2-claim{width:98px}.daily-calendar-grid-v2{gap:4px!important}.daily-calendar-v2-card{height:69px!important;min-height:69px!important;padding:5px 4px!important}.daily-calendar-v2-card.is-milestone{height:77px!important;min-height:77px!important}.daily-calendar-v2-reward{font-size:9px}.daily-calendar-v2-car{font-size:3.8px}.daily-calendar-v2-car i{font-size:8px}}
+@media(max-width:360px){.daily-calendar-v2-title{font-size:15px}.daily-calendar-v2-now{grid-template-columns:minmax(0,1fr) 88px}.daily-calendar-v2-claim{width:88px}.daily-calendar-v2-card{height:66px!important;min-height:66px!important}.daily-calendar-v2-card.is-milestone{height:73px!important;min-height:73px!important}.daily-calendar-v2-reward{font-size:8.5px}}
 </style>
 </body>
 
