@@ -3993,6 +3993,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
   let dailyCalendarClock=null;
   let dailyCalendarLastTick=0;
   let dailyCalendarSyncInFlight=false;
+  let dailyCalendarHeartbeatClock=null;
 
   function dailyCalendarFormat(sec){
     const n=Math.max(0,Math.floor(Number(sec)||0));
@@ -4051,13 +4052,14 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
 
   function startDailyCalendarClock(){
     if(dailyCalendarClock)clearInterval(dailyCalendarClock);
+    if(dailyCalendarHeartbeatClock)clearInterval(dailyCalendarHeartbeatClock);
     dailyCalendarLastTick=Math.floor(Date.now()/1000);
     dailyCalendarClock=setInterval(()=>{
-      if(document.hidden)return;
+      if(document.hidden || !dailyCalendarData || dailyCalendarData.ready || dailyCalendarData.complete)return;
       const now=Math.floor(Date.now()/1000);
       const delta=Math.max(0,Math.min(2,now-dailyCalendarLastTick));
       dailyCalendarLastTick=now;
-      if(delta>0 && dailyCalendarData && !dailyCalendarData.ready && !dailyCalendarData.complete){
+      if(delta>0){
         dailyCalendarData.active_seconds=Math.min(3600,Number(dailyCalendarData.active_seconds||0)+delta);
         dailyCalendarData.active_minutes=Number(dailyCalendarData.active_seconds)/60;
         dailyCalendarData.active_progress=Number(dailyCalendarData.active_seconds)/3600;
@@ -4065,9 +4067,20 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
         renderDailyCalendarActivity();
       }
     },1000);
+    // Persist the accumulated active time to the server every 15 seconds.
+    // The server measures the interval from last_heartbeat_at, so this makes
+    // the timer survive closing/reopening the Mini App and page reloads.
+    dailyCalendarHeartbeatClock=setInterval(()=>{
+      if(!document.hidden && userId && dailyCalendarData && !dailyCalendarData.complete){
+        dailyCalendarHeartbeat('normal');
+      }
+    },15000);
   }
 
-  function stopDailyCalendarClock(){if(dailyCalendarClock){clearInterval(dailyCalendarClock);dailyCalendarClock=null;}}
+  function stopDailyCalendarClock(){
+    if(dailyCalendarClock){clearInterval(dailyCalendarClock);dailyCalendarClock=null;}
+    if(dailyCalendarHeartbeatClock){clearInterval(dailyCalendarHeartbeatClock);dailyCalendarHeartbeatClock=null;}
+  }
 
   document.addEventListener('visibilitychange',()=>{
     if(document.hidden){
@@ -4085,15 +4098,17 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     const pct=Math.max(0,Math.min(100,Math.round(xp/Math.max(1,req)*100))),c=d.checkin||{};
     const streak=Math.max(1,Number(dailyCalendarData?.progress_day||d.streak||1));
     const rewards=(dailyCalendarData?.days||[]).length ? dailyCalendarData.days.map(x=>Number(x.cash||0)) : [10000,25000,50000,75000,100000,150000,200000,300000,400000,500000,650000,800000,1000000,2000000,2500000,3000000,3500000,4000000,4500000,5000000,5000000,5000000,5500000,6000000,6500000,7000000,7500000,8000000,9000000,10000000];
+    // Машины: используем те же Telegram media IDs, которые уже есть в containers.html.
+    // Деньги: используем те же локальные case/*.jpg, что и контейнеры — без внешнего raw.githubusercontent URL.
     const carAssets={
       14:`${API_BASE}/tycoon/media/${encodeURIComponent('AgACAgIAAxkBAAIKL2n7e3dRS58kxBJIwMbQyfhgSbXHAAIqGGsbH9_QS4JTxjSqqMS3AQADAgADeQADOwQ')}`,
       21:`${API_BASE}/tycoon/media/${encodeURIComponent('AgACAgIAAxkBAAIKMWn7e46bcc2IvFRWXnL99PAMfahNAAIrGGsbH9_QS8WFReLP1qWmAQADAgADeQADOwQ')}`,
       30:`${API_BASE}/tycoon/media/${encodeURIComponent('AgACAgIAAxkBAAIKPGn7f2Rs5K3TIz7TUtspqjTQ5WweAAJaE2sbhKXhSz4-e1I_GY--AQADAgADeQADOwQ')}`
     };
     const moneyAssets={
-      common:'https://raw.githubusercontent.com/ruslangodunov66-alt/resellcrash/main/case/photo_2026-07-20_19-22-17.jpg',
-      rare:'https://raw.githubusercontent.com/ruslangodunov66-alt/resellcrash/main/case/photo_2026-07-20_19-22-14.jpg',
-      legend:'https://raw.githubusercontent.com/ruslangodunov66-alt/resellcrash/main/case/photo_2026-07-20_19-22-10.jpg'
+      common:'case/photo_2026-07-20_19-22-17.jpg',
+      rare:'case/photo_2026-07-20_19-22-14.jpg',
+      legend:'case/photo_2026-07-20_19-22-10.jpg'
     };
     const days=$('#dailyLoginDays');
     if(days){days.innerHTML=rewards.map((reward,i)=>{
@@ -4168,7 +4183,9 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
   function openDailySeries(){
     const m=$('#dailySeriesModal'); if(!m) return; m.classList.add('open'); m.setAttribute('aria-hidden','false'); document.body.style.overflow='hidden';
     const claim=m.querySelector('#dailyCheckinBtn'); if(claim) claim.onclick=claimDailyCheckin;
-    renderEngagement(); loadEngagement(); dailyCalendarSync('normal'); startDailyCalendarClock(); haptic('light');
+    renderEngagement(); loadEngagement();
+    dailyCalendarSync('normal').finally(()=>{ if(m.classList.contains('open')) startDailyCalendarClock(); });
+    haptic('light');
   }
   function closeDailySeries(){const m=$('#dailySeriesModal'); if(!m) return; m.classList.remove('open'); stopDailyCalendarClock(); m.setAttribute('aria-hidden','true'); document.body.style.overflow='';}
   function bindEngagement(){ $('#dailySeriesBtn')?.addEventListener('click',openDailySeries); $('#dailySeriesClose')?.addEventListener('click',closeDailySeries); $('#dailySeriesModal')?.addEventListener('click',e=>{if(e.target?.id==='dailySeriesModal')closeDailySeries();}); $('#dailyCheckinBtn')?.addEventListener('click',claimDailyCheckin); }
