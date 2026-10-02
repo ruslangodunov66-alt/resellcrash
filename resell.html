@@ -2701,16 +2701,21 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
 <div class="sheet-body">
 <div class="daily-series-panel">
 <div class="daily-series-top"><div>
-<div class="daily-login-kicker">ЕЖЕДНЕВНЫЙ БОНУС</div>
-<div class="daily-login-title">Забирай каждый день</div>
-<div class="daily-login-sub">7 дней · награда растёт</div>
-</div><div class="daily-login-streak"><b id="engStreak">0</b><span>ДНЕЙ</span></div></div>
-<div class="daily-login-days" id="dailyLoginDays"></div>
-<button class="daily-login-claim" id="dailyCheckinBtn" type="button">
-<span><small id="checkinLabel">СЕГОДНЯ</small><b id="checkinReward">+5 000 ₽</b></span>
+<div class="daily-login-kicker">ЕЖЕДНЕВНЫЕ НАГРАДЫ</div>
+<div class="daily-login-title">30 дней до Aventador</div>
+<div class="daily-login-sub">Забирай один бонус каждые 24 часа · пропуск не сбрасывает прогресс</div>
+</div><div class="daily-login-streak"><b id="engStreak">1/30</b><span>ДЕНЬ</span></div></div>
+<div class="daily30-wrap">
+<div class="daily30-head"><small>КАЛЕНДАРЬ НАГРАД</small><strong id="daily30Status">ДЕНЬ 1</strong></div>
+<div class="daily30-scroll"><div class="daily30-grid" id="dailyLoginDays"></div></div>
+</div>
+<button class="daily-login-claim daily30-claim" id="dailyCheckinBtn" type="button">
+<span><small id="checkinLabel">СЕГОДНЯ</small><b id="checkinReward">+10 000 ₽</b></span>
 <strong id="checkinAction">ЗАБРАТЬ</strong>
 </button>
-<div class="daily-login-foot"><span id="checkinHint">Не пропускай день</span><span id="checkinTomorrow">Завтра ↑</span></div>
+<div class="daily-login-foot"><span id="checkinHint">Сегодня готово</span><span id="checkinTomorrow">Следом: день 2</span></div>
+<div class="daily30-subline" id="daily30Subline">День 30 — Lamborghini Aventador</div>
+<div class="daily30-final"><div><small>ДЕНЬ 15</small><b>BMW M5 F90</b></div><div><small>ДЕНЬ 30</small><b>Lamborghini Aventador</b></div></div>
 <div class="daily-login-progress"><div><span id="engLevel">LVL 1</span><strong id="engLevelTitle">STARTER</strong></div><div class="daily-login-xp"><span id="engXpText">0 / 120 XP</span><b>до LVL</b></div></div>
 <div class="engagement-xp-bar"><i id="engXpFill"></i></div>
 </div>
@@ -3931,38 +3936,61 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
   let engagementData=null;
   function engagementLevelName(level){const names=['STARTER','TRADER','DEALER','OPERATOR','TYCOON','MAGNATE','CAPITALIST','EMPIRE','TITAN','LEGEND'];return names[Math.min(names.length-1,Math.max(0,Number(level||1)-1))];}
   async function loadEngagement(){if(!userId)return null;try{const r=await apiFetch(`${API_BASE}/engagement/${encodeURIComponent(userId)}?t=${Date.now()}`,{method:'GET'},2),d=await r.json();if(d?.success){engagementData=d;renderEngagement();return d;}}catch(err){console.warn('Engagement sync failed:',err)}return null;}
+  const DAILY_REWARD_SCHEDULE = [
+    {day:1,type:'cash',amount:10000},{day:2,type:'cash',amount:15000},{day:3,type:'cash',amount:20000},{day:4,type:'cash',amount:30000},{day:5,type:'cash',amount:40000},{day:6,type:'cash',amount:50000},{day:7,type:'cash',amount:65000},{day:8,type:'cash',amount:80000},{day:9,type:'cash',amount:100000},{day:10,type:'cash',amount:130000},{day:11,type:'cash',amount:170000},{day:12,type:'cash',amount:220000},{day:13,type:'cash',amount:300000},{day:14,type:'cash',amount:500000},{day:15,type:'car',name:'BMW M5 F90',car_id:'bmwm5'},{day:16,type:'cash',amount:700000},{day:17,type:'cash',amount:950000},{day:18,type:'cash',amount:1200000},{day:19,type:'cash',amount:1500000},{day:20,type:'cash',amount:1900000},{day:21,type:'cash',amount:2300000},{day:22,type:'cash',amount:2800000},{day:23,type:'cash',amount:3400000},{day:24,type:'cash',amount:4100000},{day:25,type:'cash',amount:4900000},{day:26,type:'cash',amount:5800000},{day:27,type:'cash',amount:6800000},{day:28,type:'cash',amount:7900000},{day:29,type:'cash',amount:9000000},{day:30,type:'car',name:'Lamborghini Aventador',car_id:'aventador'}
+  ];
+  const dailyRewardMap=Object.fromEntries(DAILY_REWARD_SCHEDULE.map(x=>[x.day,x]));
+  const dailyRewardLabel=item=>item?.type==='car' ? `🚗 ${esc(item.name||'Подарочная машина')}` : `+${number(item?.amount||0)} ₽`;
+  const dailyRewardMeta=item=>item?.type==='car' ? 'ПОДАРОК · ГАРАЖ' : 'ДЕНЕЖНЫЙ БОНУС';
   function renderEngagement(){
     const d=engagementData;if(!d)return;
     const level=Number(d.level||1),xp=Number(d.xp||0),req=Number(d.xp_required||120);
-    const pct=Math.max(0,Math.min(100,Math.round(xp/Math.max(1,req)*100))),c=d.checkin||{};
-    const streak=Math.max(1,Number(d.streak||1));
-    const rewards=Array.isArray(d.week_rewards)?d.week_rewards:[5000,10000,15000,25000,35000,50000,100000];
+    const pct=Math.max(0,Math.min(100,Math.round(xp/Math.max(1,req)*100)));
+    const c=d.checkin||{};
+    const daily=d.daily_reward||{};
+    const currentDay=Math.max(1,Math.min(30,Number(daily.day||c.day||d.streak||1)));
+    const lastDay=Math.max(0,Math.min(30,Number(daily.last_day||0)));
+    const available=Boolean(daily.available??c.available);
+    const claimedToday=!available;
+    const schedule=DAILY_REWARD_SCHEDULE;
+    const todayItem=dailyRewardMap[currentDay] || schedule[0];
+    const nextDay=currentDay>=30?1:currentDay+1;
+    const nextItem=dailyRewardMap[nextDay]||schedule[1];
     const days=$('#dailyLoginDays');
-    if(days){days.innerHTML=rewards.map((reward,i)=>{
-      const day=i+1, done=day<streak || (day===streak && !c.available), today=day===Math.min(streak,7);
-      return `<div class="daily-login-day ${done?'done':''} ${today?'today':''} ${today&&c.available?'ready':''}"><small>ДЕНЬ ${day}</small><b>+${number(reward)} ₽</b></div>`;
-    }).join('');}
-    $('#engStreak')&&($('#engStreak').textContent=String(streak));
+    if(days){
+      days.innerHTML=schedule.map(item=>{
+        const day=item.day;
+        const done=day<=lastDay || (claimedToday && day===currentDay);
+        const ready=available && day===currentDay;
+        const locked=day>lastDay+1 && !(day===currentDay);
+        return `<div class="daily30-day ${done?'done':''} ${ready?'ready':''} ${locked?'locked':''} ${item.type==='car'?'car':''}">
+          <div class="d30-num"><span>ДЕНЬ ${day}</span><span class="d30-check">${done?'✓':''}</span></div>
+          <div class="d30-reward">${dailyRewardLabel(item)}</div>
+          <div class="d30-meta">${dailyRewardMeta(item)}</div>
+        </div>`;
+      }).join('');
+    }
+    $('#engStreak')&&($('#engStreak').textContent=`${currentDay}/30`);
+    $('#daily30Status')&&($('#daily30Status').textContent=available?`ГОТОВ · ДЕНЬ ${currentDay}`:`ПОЛУЧЕНО · ДЕНЬ ${currentDay}`);
     $('#engLevel')&&($('#engLevel').textContent=`LVL ${level}`);
     $('#engLevelTitle')&&($('#engLevelTitle').textContent=engagementLevelName(level));
     $('#engXpText')&&($('#engXpText').textContent=`${number(xp)} / ${number(req)} XP`);
     $('#engXpFill')&&($('#engXpFill').style.width=`${pct}%`);
-    $('#engDailyBonus')&&($('#engDailyBonus').textContent=c.available?'ГОТОВ':'ПОЛУЧЕН');
+    $('#engDailyBonus')&&($('#engDailyBonus').textContent=available?'ГОТОВ':'ПОЛУЧЕН');
     $('#engNextLevel')&&($('#engNextLevel').textContent=`+${number(Math.max(0,req-xp))} XP`);
     const b=$('#dailyCheckinBtn'),r=$('#checkinReward'),l=$('#checkinLabel'),a=$('#checkinAction');
-    if(r)r.textContent=c.available?`+${number(c.reward||0)} ₽`:'ПОЛУЧЕНО';
-    if(l)l.textContent=c.available?'СЕГОДНЯ':'БОНУС ЗАБРАН';
-    if(a)a.textContent=c.available?'ЗАБРАТЬ':'ПОЛУЧЕНО';
-    if(b)b.disabled=!c.available;
-    const tomorrow=streak>=7?5000:Number((d.week_rewards||rewards)[Math.min(6,streak)]||10000);
-    $('#checkinHint')&&($('#checkinHint').textContent=c.available?'Не пропускай день':'Сегодня уже получено');
-    $('#checkinTomorrow')&&($('#checkinTomorrow').textContent=streak>=7?'Цикл → день 1':`Завтра +${number(tomorrow)} ₽`);
-    $('#engEventProgress')&&($('#engEventProgress').textContent=`${streak}/7`);
+    if(r)r.textContent=available?dailyRewardLabel(todayItem):'ПОЛУЧЕНО';
+    if(l)l.textContent=available?`ДЕНЬ ${currentDay}`:'СЕГОДНЯ ПОЛУЧЕНО';
+    if(a)a.textContent=available?(todayItem.type==='car'?'ПОЛУЧИТЬ ПОДАРОК':'ЗАБРАТЬ'):'ПОЛУЧЕНО';
+    if(b)b.disabled=!available;
+    $('#checkinHint')&&($('#checkinHint').textContent=available?`Сегодня · ${dailyRewardMeta(todayItem)}`:'Сегодня уже забрано · завтра следующий день');
+    $('#checkinTomorrow')&&($('#checkinTomorrow').textContent=available?`Следом: день ${nextDay}`:`Завтра: день ${nextDay}`);
+    $('#daily30Subline')&&($('#daily30Subline').textContent=currentDay===30?`ФИНАЛЬНЫЙ ДЕНЬ · ${dailyRewardLabel(todayItem)}`:`До Aventador: ещё ${Math.max(0,30-currentDay)} календарных дней`);
     const ab=$('#dailyActivityBadge'), ar=$('#dailyActivityReward'), as=$('#dailyActivityState'), ad=$('#dailyActivityDesc');
-    if(ab) ab.textContent=`${Math.min(7,streak)}/7`;
-    if(ar) ar.textContent=c.available?`+${number(c.reward||0)} ₽`:'ГОТОВО';
-    if(as) as.textContent=c.available?'ЗАБРАТЬ':'ПОЛУЧЕНО';
-    if(ad) ad.textContent=c.available?`Сегодня +${number(c.reward||0)} ₽ · не пропускай серию`:`Серия ${Math.min(7,streak)}/7 · следующий бонус завтра`;
+    if(ab) ab.textContent=`${Math.min(30,currentDay)}/30`;
+    if(ar) ar.textContent=available?dailyRewardLabel(todayItem):'ПОЛУЧЕНО';
+    if(as) as.textContent=available?'ЗАБРАТЬ':'ПОЛУЧЕНО';
+    if(ad) ad.textContent=available?`День ${currentDay}/30 · ${dailyRewardLabel(todayItem)}`:`День ${currentDay}/30 · завтра следующий бонус`;
   }
   function showLevelUp(level){const old=document.querySelector('.level-up-flash');if(old)old.remove();const el=document.createElement('div');el.className='level-up-flash';el.innerHTML=`<div class="level-up-card"><div class="level-up-kicker">PROGRESSION UNLOCKED</div><div class="level-up-title">УРОВЕНЬ <b>${number(level)}</b></div><div class="level-up-sub">${esc(engagementLevelName(level))} · новый этап развития открыт</div><button class="level-up-btn">ПРОДОЛЖИТЬ</button></div>`;document.body.appendChild(el);el.addEventListener('click',e=>{if(e.target===el||e.target.closest('.level-up-btn'))el.remove()});haptic('heavy');}
   async function claimDailyCheckin(){
@@ -3992,13 +4020,15 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
   function dailySeriesMarkup(){return `
     <div class="daily-series-panel">
       <div class="daily-series-top"><div>
-        <div class="daily-login-kicker">ЕЖЕДНЕВНЫЙ БОНУС</div>
-        <div class="daily-login-title">Забирай каждый день</div>
-        <div class="daily-login-sub">7 дней · награда растёт</div>
-      </div><div class="daily-login-streak"><b id="engStreak">0</b><span>ДНЕЙ</span></div></div>
-      <div class="daily-login-days" id="dailyLoginDays"></div>
-      <button class="daily-login-claim" id="dailyCheckinBtnTemplate" type="button"><span><small>СЕГОДНЯ</small><b>+5 000 ₽</b></span><strong>ЗАБРАТЬ</strong></button>
-      <div class="daily-login-foot"><span id="checkinHint">Не пропускай день</span><span id="checkinTomorrow">Завтра ↑</span></div>
+        <div class="daily-login-kicker">ЕЖЕДНЕВНЫЕ НАГРАДЫ</div>
+        <div class="daily-login-title">30 дней до Aventador</div>
+        <div class="daily-login-sub">Каждый день — новый бонус</div>
+      </div><div class="daily-login-streak"><b id="engStreak">1/30</b><span>ДЕНЬ</span></div></div>
+      <div class="daily30-wrap"><div class="daily30-head"><small>КАЛЕНДАРЬ НАГРАД</small><strong id="daily30Status">ДЕНЬ 1</strong></div><div class="daily30-scroll"><div class="daily30-grid" id="dailyLoginDays"></div></div></div>
+      <button class="daily-login-claim daily30-claim" id="dailyCheckinBtnTemplate" type="button"><span><small>ДЕНЬ 1</small><b>+10 000 ₽</b></span><strong>ЗАБРАТЬ</strong></button>
+      <div class="daily-login-foot"><span id="checkinHint">Сегодня готово</span><span id="checkinTomorrow">Следом: день 2</span></div>
+      <div class="daily30-subline" id="daily30Subline">До Aventador — 29 дней</div>
+      <div class="daily30-final"><div><small>ДЕНЬ 15</small><b>BMW M5 F90</b></div><div><small>ДЕНЬ 30</small><b>Lamborghini Aventador</b></div></div>
       <div class="daily-login-progress"><div><span id="engLevel">LVL 1</span><strong id="engLevelTitle">STARTER</strong></div><div class="daily-login-xp"><span id="engXpText">0 / 120 XP</span><b>до LVL</b></div></div>
       <div class="engagement-xp-bar"><i id="engXpFill"></i></div>
     </div>`;}
@@ -8672,13 +8702,19 @@ async function initFarm(){
   function marketItem(x, owned){return `<div class="v29-collection-item"><div class="v29-collection-copy"><b>${esc(x.name)}</b><span>${esc(x.description||'')}</span></div><div class="v29-collection-side"><span class="v29-rarity" style="color:${esc(x.accent||'#b7ff6a')}">${esc(x.rarity||'ASSET')}</span><span class="v29-price">${money(x.price)}</span><button class="v29-card-action ${owned?'owned':''}" data-v33-buy="${esc(x.id)}" ${owned?'disabled':''}>${owned?'В КОЛЛЕКЦИИ':'ЗАБРАТЬ'}</button></div></div>`;}
   function marketView(){
     const s=marketState||{},c=s.nightclub||{},level=Number(c.level||0),cap=Math.max(1,Number(c.capacity||0)),guest=Math.max(0,Math.min(cap,Number(c.guest_count||0))),rep=Math.min(100,Math.max(0,Number(c.reputation||0))),res=Math.max(0,Number(c.reservation_count||0)),artists=Math.max(0,Number(c.artist_count||0)),security=Math.max(0,Number(c.security_level||0)),baseRate=Math.max(0,Number(c.base_income_per_hour||c.income_per_hour||0)),rate=Math.max(0,Number(c.income_per_hour_effective||c.income_per_hour||0)),styleId=String(c.venue_style||'afterdark'),styles=Array.isArray(c.styles)?c.styles:[],ownedStyles=new Set((s.owned||[]).filter(x=>String(x).startsWith('club_style_'))),m=v=>Math.round(Number(v)||0).toLocaleString('ru-RU');
+    const daily=Math.max(0,Number(c.income_per_day_estimate||rate*24)),weekly=Math.max(0,Number(c.income_per_week_estimate||rate*168)),investment=Math.max(0,Number(c.total_investment||0)),paybackHours=Number(c.payback_hours||0),benchmark=c.benchmark_business||{name:'Flagship Center',price:60_000_000,income_per_hour:140_000};
     const p='fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"',sv=k=>{const q={club:`<path ${p} d="M3 20h18M6 20V8l6-4 6 4v12M9 20v-5h6v5M8 10h8"/>`,people:`<circle ${p} cx="8" cy="9" r="2.6"/><circle ${p} cx="16" cy="9" r="2.6"/><path ${p} d="M3.5 19a4.7 4.7 0 0 1 9.2 0M11.3 19a4.7 4.7 0 0 1 9.2 0"/>`,hall:`<rect ${p} x="4" y="5" width="16" height="14" rx="2"/><path ${p} d="M8 5v4M16 5v4M7 13h10M7 16h6"/>`,star:`<path ${p} d="m12 3 2.2 5 5.3.5-4 3.5 1.2 5.2-4.7-2.8-4.7 2.8 1.2-5.2-4-3.5L9.8 8 12 3Z"/>`,shield:`<path ${p} d="m12 3 7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3Z"/><path ${p} d="m9 12 2 2 4-4"/>`,cash:`<rect ${p} x="3.5" y="6" width="17" height="12" rx="2.4"/><circle ${p} cx="12" cy="12" r="2.6"/>`,plus:`<path ${p} d="M12 5v14M5 12h14"/>`};return `<svg class="market7-icon" viewBox="0 0 24 24">${q[k]||q.club}</svg>`};
-    const statusFor=i=>{const wave=Math.sin(i*2.2+guest*0.17)+Math.cos(i*1.31+res*0.4); const occupied=(guest>0&&((Math.abs(Math.round(wave*10))+i*3)%11)<Math.min(9,Math.ceil(guest/Math.max(1,cap)*10)))|| (i<Math.min(2,res)); return occupied?'occupied':'free';};
+    const statusFor=i=>{const wave=Math.sin(i*2.2+guest*0.17)+Math.cos(i*1.31+res*0.4);const occupied=(guest>0&&((Math.abs(Math.round(wave*10))+i*3)%11)<Math.min(9,Math.ceil(guest/Math.max(1,cap)*10)))||(i<Math.min(2,res));return occupied?'occupied':'free';};
     const tableGrid=Array.from({length:12},(_,i)=>{const st=statusFor(i);const no=i+1;const seat=st==='occupied'?[2,3,4,2,4,3,2,4,1,3,4,2][i]:0;return `<div class="club7-table ${st}" title="Столик №${no} · ${st==='occupied'?'занят':'свободен'}"><div class="club7-seat top"></div><div class="club7-seat right"></div><div class="club7-seat bottom"></div><div class="club7-seat left"></div><div class="club7-table-core"><span>${no}</span><b>${st==='occupied'?seat+' Г':''}</b></div></div>`}).join('');
     const candidates=[['Мария','23','VIP · спокойный стиль','8 000 000'],['Элеонора','21','Lounge · энергия зала','16 000 000'],['София','26','Bar · высокая активность','24 000 000'],['Кристина','24','Main Floor · сцена','32 000 000'],['Алиса','22','VIP · премиум гости','40 000 000'],['Виктория','28','Lounge · высокий чек','48 000 000'],['Диана','25','VIP · высокий чек','56 000 000'],['Ева','27','Main Floor · статусный зал','64 000 000']];
     const roster=candidates.slice(0,artists);
-    return `<div class="club7-shell">${level?`<section class="club7-hero"><div class="club7-brand"><div class="club7-logo">${sv('club')}</div><div><small>NIGHT CLUB · ОПЕРАЦИОННЫЙ ЦЕНТР</small><b>${esc(c.venue_name||'RESSELL NIGHT CLUB')}</b><span><i></i> ОТКРЫТ · В РЕАЛЬНОМ ВРЕМЕНИ</span></div><em>LVL ${level}</em></div><div class="club7-income"><div><small>ТЕКУЩАЯ ВЫРУЧКА</small><strong>+${m(rate)} ₽ <span>/ час</span></strong><p>Накоплено ${m(c.total_income||0)} ₽ · гости увеличивают оборот автоматически</p></div><div class="club7-score"><b>${m(rep)}</b><span>РЕПУТАЦИЯ</span></div></div></section><section class="club7-card"><div class="club7-section-head"><div><small>ВЫРУЧКА</small><b>Забрать доход</b><span>Накопленный доход готов к выводу на общий баланс.</span></div></div><button class="club7-collect" data-v35-club-collect ${Number(c.pending_income||0)<=0?'disabled':''}>${sv('cash')}<div><b>${Number(c.pending_income||0)>0?`ЗАБРАТЬ +${m(c.pending_income)} ₽`:'НАКОПЛЕНИЙ НЕТ'}</b><small>Общая касса клуба</small></div><strong>→</strong></button></section><section class="club7-room"><div class="club7-section-head"><div><small>ЗАЛ · ПЛАН ЭТАЖА</small><b>Столики и загрузка</b><span>Зелёный — свободен · красный — занят. Наблюдай за залом как владелец.</span></div><div class="club7-legend"><span><i class="free"></i>Свободен</span><span><i class="busy"></i>Занят</span></div></div><div class="club7-floor"><div class="club7-stage">СЦЕНА</div><div class="club7-dance">DANCE FLOOR</div><div class="club7-bar"><b>BAR</b><span>● ● ● ●</span></div><div class="club7-vip">VIP</div><div class="club7-tables">${tableGrid}</div></div><div class="club7-room-stats"><div><b>${m(guest)}</b><span>гостей сейчас</span></div><div><b>${m(res)}</b><span>броней</span></div><div><b>${m(cap)}</b><span>вместимость</span></div></div></section><section class="club7-grid"><div class="club7-stat"><span>${sv('hall')}</span><small>ЗАЛ</small><b>LVL ${level}</b><em>вместимость ${m(cap)}</em></div><div class="club7-stat"><span>${sv('star')}</span><small>РЕЗИДЕНТЫ</small><b>${m(artists)}</b><em>из 8 мест</em></div><div class="club7-stat"><span>${sv('shield')}</span><small>ОХРАНА</small><b>LVL ${security}</b><em>контроль входа</em></div><div class="club7-stat"><span>${sv('people')}</span><small>БРОНИ</small><b>${m(res)}</b><em>VIP и столы</em></div></section><section class="club7-card"><div class="club7-section-head"><div><small>УПРАВЛЕНИЕ</small><b>Развивай площадку</b><span>Каждое решение меняет масштаб клуба и поток денег.</span></div></div><div class="club7-actions"><button data-v35-club-hall ${level>=4?'disabled':''}>${sv('hall')}<div><b>УЛУЧШИТЬ КЛУБ</b><small>${level<4&&c.next_level?`LVL ${level} → ${level+1} · ${m(c.next_level.price||0)} ₽`:'MAX LEVEL'}</small></div><strong>→</strong></button><button data-v35-club-artists ${artists>=8?'disabled':''}>${sv('plus')}<div><b>НАНЯТЬ РЕЗИДЕНТА</b><small>${artists<8?`${artists}/8 · открой анкеты кандидатов`:'ЛИМИТ 8 / 8'}</small></div><strong>→</strong></button><button data-v35-club-security ${security>=4?'disabled':''}>${sv('shield')}<div><b>УСИЛИТЬ ОХРАНУ</b><small>${security<4?`LVL ${security} → ${security+1} · ${m(20000000+security*15000000)} ₽`:'MAX LEVEL'}</small></div><strong>→</strong></button></div></section><section class="club7-card club7-economy-card"><div class="club7-economy-head"><div class="club7-economy-title"><small>ЭКОНОМИКА КЛУБА</small><b>Почему растёт доход</b><span>Итоговая выручка складывается из базы клуба и четырёх факторов. Каждый показатель здесь показывает именно его вклад.</span></div><div class="club7-income-live"><small>ИТОГО</small><strong>+${m(rate)} ₽</strong><span>В ЧАС</span></div></div><div class="club7-economy-grid"><div class="club7-economy-item club7-economy-base"><div class="club7-econ-icon">₽</div><div><span>БАЗА КЛУБА</span><b>${m(baseRate)} ₽</b><small>Доход от уровня площадки</small></div></div><div class="club7-economy-item"><div class="club7-econ-icon">★</div><div><span>РЕЗИДЕНТЫ</span><b>+${Math.round((Number(c.artist_multiplier||1)-1)*100)}%</b><small>${artists}/8 в команде</small></div></div><div class="club7-economy-item"><div class="club7-econ-icon">◈</div><div><span>ОХРАНА</span><b>+${Math.round((Number(c.security_multiplier||1)-1)*100)}%</b><small>LVL ${security} · защита потока</small></div></div><div class="club7-economy-item"><div class="club7-econ-icon">✦</div><div><span>СТИЛЬ</span><b>+${Math.round((Number(c.style_multiplier||1)-1)*100)}%</b><small>${esc((styles.find(st=>String(st.id)===styleId)||{}).name||styleId||'AFTERDARK')}</small></div></div></div><div class="club7-economy-formula"><span>ФОРМУЛА</span><b>БАЗА × РЕЗИДЕНТЫ × ОХРАНА × СТИЛЬ</b><strong>≈ +${m(rate)} ₽ / час</strong></div></section><section class="club7-card club7-style-card"><div class="club7-section-head"><div><small>АТМОСФЕРА</small><b>Стиль клуба</b><span>Стиль сохраняется после перезапуска и влияет на итоговую выручку.</span></div></div><div class="club7-styles">${styles.map(st=>{const id=String(st.id),active=id===styleId,owned=id==='afterdark'||ownedStyles.has('club_style_'+id);return `<button type="button" data-v35-style="${esc(id)}" class="club7-style ${active?'active':''}" ${active?'disabled':''}><span style="color:${esc(st.accent||'#b7ff6a')}">${esc(st.name||id)}</span><small>${active?'АКТИВЕН':owned?'ВКЛЮЧИТЬ':`КУПИТЬ · ${m(st.price||0)} ₽`}</small></button>`}).join('')}</div></section><section class="club7-card"><div class="club7-section-head"><div><small>КОМАНДА</small><b>Резиденты клуба</b><span>${artists?`В штате ${artists} человек. Сотрудники усиливают поток гостей и доход.`:'Пока никого нет. Найми первого человека через анкеты.'}</span></div></div><div class="club7-roster">${roster.length?roster.map((r,i)=>`<div class="club7-person"><div class="club7-avatar">${r[0][0]}</div><div><b>${r[0]}</b><span>${r[1]} года · ${r[2]}</span></div><strong>${i<2?'VIP':'RESIDENT'}</strong></div>`).join(''):'<div class="club7-empty">Команда ещё не набрана.</div>'}</div></section>`:`<section class="club7-lock"><div class="club7-lock-icon">${sv('club')}</div><small>NIGHT CLUB · СТАРТ</small><b>Открой собственный ночной клуб</b><span>Это отдельный бизнес с гостями, столами, бронями, командой, залом и охраной.</span><button data-v33-club-upgrade>ОТКРЫТЬ КЛУБ · ${m(50000000)} ₽</button></section>`}</div>`;
+    const styleCfg=styles.find(st=>String(st.id)===styleId)||{};
+    const pct=v=>Math.round((Number(v||1)-1)*100);
+    const maxed=level>=4;
+    const roomLoad=Math.round((guest/Math.max(1,cap))*100);
+    return `<div class="club7-shell club44-shell">${level?`<section class="club7-hero club44-hero"><div class="club7-brand"><div class="club7-logo">${sv('club')}</div><div><small>NIGHT CLUB · ОПЕРАЦИОННЫЙ ЦЕНТР</small><b>${esc(c.venue_name||'RESSELL NIGHT CLUB')}</b><span><i></i> ОТКРЫТ · В РЕАЛЬНОМ ВРЕМЕНИ</span></div><em>LVL ${level} ${maxed?'· MAX':''}</em></div><div class="club44-income-row"><div class="club7-income"><div><small>ДОХОД КЛУБА</small><strong>+${m(rate)} ₽ <span>/ час</span></strong><p>≈ ${m(daily)} ₽ в сутки · ${m(weekly)} ₽ в неделю</p></div></div><div class="club44-invest"><small>ВЛОЖЕНО</small><b>${m(investment)} ₽</b><span>${paybackHours>0?`окупаемость ≈ ${paybackHours.toFixed(1).replace('.',',')} ч`:'—'}</span></div></div></section><section class="club7-card club44-collect-card"><div class="club7-section-head"><div><small>КАССА КЛУБА</small><b>Забрать накопленное</b><span>Доход поступает в кассу и выводится одной кнопкой на общий баланс.</span></div><div class="club44-cash-badge">+${m(c.pending_income||0)} ₽</div></div><button class="club7-collect" data-v35-club-collect ${Number(c.pending_income||0)<=0?'disabled':''}>${sv('cash')}<div><b>${Number(c.pending_income||0)>0?`ЗАБРАТЬ +${m(c.pending_income)} ₽`:'КАССА ПУСТА'}</b><small>${Number(c.pending_income||0)>0?'Зачислить на общий баланс':'Клуб продолжает зарабатывать'}</small></div><strong>→</strong></button></section><section class="club44-metrics"><div><small>ГОСТИ</small><b>${m(guest)}</b><span>${roomLoad}% загрузки</span></div><div><small>БРОНИ</small><b>${m(res)}</b><span>VIP и столы</span></div><div><small>ВМЕСТИМОСТЬ</small><b>${m(cap)}</b><span>лимит зала</span></div><div><small>РЕПУТАЦИЯ</small><b>${m(rep)}</b><span>из 100</span></div></section><section class="club7-card club44-economy"><div class="club44-head"><div><small>ПОНЯТНАЯ ЭКОНОМИКА</small><b>Откуда берётся доход</b><span>Чем сильнее клуб, тем выше итоговая ставка. Здесь видно вклад каждого элемента.</span></div><strong>+${m(rate)} ₽/ч</strong></div><div class="club44-driver-grid"><div><i>₽</i><span>БАЗА</span><b>${m(baseRate)} ₽/ч</b><em>уровень клуба</em></div><div><i>★</i><span>РЕЗИДЕНТЫ</span><b>+${pct(c.artist_multiplier)}%</b><em>${artists}/8 мест</em></div><div><i>◈</i><span>ОХРАНА</span><b>+${pct(c.security_multiplier)}%</b><em>LVL ${security}/4</em></div><div><i>✦</i><span>СТИЛЬ</span><b>+${pct(c.style_multiplier)}%</b><em>${esc(styleCfg.name||styleId)}</em></div></div><div class="club44-compare"><span>ОРИЕНТИР В BUSINESS</span><b>${esc(benchmark.name||'Flagship Center')}</b><small>${m(benchmark.price||60_000_000)} ₽ → ${m(benchmark.income_per_hour||140_000)} ₽/ч</small></div></section><section class="club7-card club44-floor-card"><div class="club7-section-head"><div><small>ЗАЛ · ПЛАН ЭТАЖА</small><b>Загрузка площадки</b><span>${roomLoad}% мест занято сейчас. Столики обновляются вместе с потоком гостей.</span></div><div class="club7-legend"><span><i class="free"></i>Свободен</span><span><i class="busy"></i>Занят</span></div></div><div class="club7-floor"><div class="club7-stage">СЦЕНА</div><div class="club7-dance">DANCE FLOOR</div><div class="club7-bar"><b>BAR</b><span>● ● ● ●</span></div><div class="club7-vip">VIP</div><div class="club7-tables">${tableGrid}</div></div></section><section class="club7-card club44-manage"><div class="club44-head"><div><small>РАЗВИТИЕ</small><b>Три вещи, которые двигают клуб</b><span>Без лишних экранов: открываешь нужный блок и сразу видишь цену и эффект.</span></div></div><div class="club7-actions"><button data-v35-club-hall ${maxed?'disabled':''}>${sv('hall')}<div><b>УЛУЧШИТЬ КЛУБ</b><small>${level<4&&c.next_level?`LVL ${level} → ${level+1} · ${m(c.next_level.price||0)} ₽`:'MAX LEVEL'}</small></div><strong>→</strong></button><button data-v35-club-artists ${artists>=8?'disabled':''}>${sv('plus')}<div><b>НАНЯТЬ РЕЗИДЕНТА</b><small>${artists<8?`${artists}/8 · следующий резидент усиливает доход`:'КОМАНДА ПОЛНА'}</small></div><strong>→</strong></button><button data-v35-club-security ${security>=4?'disabled':''}>${sv('shield')}<div><b>УСИЛИТЬ ОХРАНУ</b><small>${security<4?`LVL ${security} → ${security+1} · ${m(20_000_000+security*15_000_000)} ₽`:'MAX LEVEL'}</small></div><strong>→</strong></button></div></section><section class="club7-card club44-style-card"><div class="club44-head"><div><small>АТМОСФЕРА</small><b>Стиль клуба</b><span>Стиль даёт постоянный процент к ставке дохода.</span></div><strong>+${pct(c.style_multiplier)}%</strong></div><div class="club7-styles">${styles.map(st=>{const id=String(st.id),active=id===styleId,owned=id==='afterdark'||ownedStyles.has('club_style_'+id);return `<button type="button" data-v35-style="${esc(id)}" class="club7-style ${active?'active':''}" ${active?'disabled':''}><span style="color:${esc(st.accent||'#b7ff6a')}">${esc(st.name||id)}</span><small>${active?'АКТИВЕН':owned?'ВКЛЮЧИТЬ':`КУПИТЬ · ${m(st.price||0)} ₽`}</small></button>`}).join('')}</div></section><section class="club7-card club44-team"><div class="club44-head"><div><small>КОМАНДА</small><b>Резиденты клуба · ${artists}/8</b><span>${artists?'Каждый резидент увеличивает поток и общий множитель.':'Найми первого резидента, чтобы начать усиливать доход.'}</span></div><strong>+${pct(c.artist_multiplier)}%</strong></div><div class="club7-roster">${roster.length?roster.map((r,i)=>`<div class="club7-person"><div class="club7-avatar">${r[0][0]}</div><div><b>${r[0]}</b><span>${r[1]} года · ${r[2]}</span></div><strong>${i<2?'VIP':'RESIDENT'}</strong></div>`).join(''):'<div class="club7-empty">Команда ещё не набрана.</div>'}</div></section>`:`<section class="club7-lock"><div class="club7-lock-icon">${sv('club')}</div><small>NIGHT CLUB · СТАРТ</small><b>Открой собственный ночной клуб</b><span>Это отдельный бизнес с гостями, столами, бронями, командой, залом и охраной.</span><button data-v33-club-upgrade>ОТКРЫТЬ КЛУБ · ${m(50000000)} ₽</button></section>`}</div>`;
   }
+
 
 
   function closeClubHireSheet(){document.getElementById('club7HireSheet')?.remove();}
@@ -8863,6 +8899,11 @@ async function initFarm(){
 
 <script id="resell-launch-brief-safe">(function(){function init(){const b=document.getElementById('launchBriefOpenRcoin');if(!b)return;b.addEventListener('click',function(){try{const x=window.__resellOpenRcoin||window.openRcoinDesk||window.openRcoin;if(typeof x==='function'){x();return}const y=document.getElementById('rcoinDeskInline');if(y)y.click()}catch(_){}})}if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init()})();</script>
 
+<style id="daily-30-calendar-v1">
+.daily30-wrap{margin-top:10px;padding:12px;border-radius:18px;background:rgba(0,0,0,.16);border:1px solid rgba(255,255,255,.055)}
+.daily30-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px}.daily30-head small{color:#626a65;font:900 6px/1 "Montserrat",sans-serif;letter-spacing:1.1px;text-transform:uppercase}.daily30-head strong{color:#b7ff6a;font:950 9px/1 "Montserrat",sans-serif}.daily30-scroll{max-height:405px;overflow:auto;padding-right:3px;scrollbar-width:thin}.daily30-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.daily30-day{min-width:0;position:relative;padding:10px 8px 9px;border-radius:13px;background:linear-gradient(145deg,rgba(255,255,255,.045),rgba(255,255,255,.015));border:1px solid rgba(255,255,255,.055);overflow:hidden}.daily30-day:after{content:"";position:absolute;inset:0;background:linear-gradient(135deg,rgba(183,255,106,.045),transparent 50%);opacity:0}.daily30-day .d30-num{display:flex;align-items:center;justify-content:space-between;gap:5px;color:#4f5752;font:950 6px/1 "Montserrat",sans-serif;letter-spacing:.8px}.daily30-day .d30-reward{margin-top:7px;color:#c4ccc6;font:950 9px/1.12 "Montserrat",sans-serif;white-space:normal;word-break:break-word}.daily30-day .d30-meta{margin-top:5px;color:#626a65;font:800 6.1px/1.2 "Nunito",sans-serif}.daily30-day.done{border-color:rgba(183,255,106,.16);background:linear-gradient(145deg,rgba(183,255,106,.08),rgba(255,255,255,.018))}.daily30-day.done .d30-num{color:#8fb56d}.daily30-day.done .d30-reward{color:#b7ff6a}.daily30-day.done:after{opacity:1}.daily30-day.ready{border-color:rgba(183,255,106,.42);box-shadow:0 0 0 1px rgba(183,255,106,.06),0 12px 28px rgba(0,0,0,.22)}.daily30-day.ready .d30-reward{color:#fff}.daily30-day.ready .d30-num:after{content:"СЕГОДНЯ";color:#b7ff6a}.daily30-day.locked{opacity:.56}.daily30-day.car{min-height:84px}.daily30-day.car .d30-reward{font-size:8.5px}.daily30-day .d30-check{color:#b7ff6a;font-size:9px}.daily30-next{margin-top:9px;padding-top:9px;border-top:1px solid rgba(255,255,255,.055);display:flex;justify-content:space-between;gap:10px;color:#667069;font:800 6.3px/1.3 "Nunito",sans-serif}.daily30-next b{color:#dfe7e1;font-weight:900}.daily30-claim{margin-top:10px!important}.daily30-subline{margin-top:8px;color:#636b66;font:800 7px/1.35 "Nunito",sans-serif}.daily30-final{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px}.daily30-final>div{padding:8px;border-radius:11px;background:rgba(183,255,106,.045);border:1px solid rgba(183,255,106,.10)}.daily30-final small{display:block;color:#627067;font:900 5px/1 "Montserrat",sans-serif;letter-spacing:.9px}.daily30-final b{display:block;margin-top:5px;color:#e9efe9;font:950 7.3px/1.1 "Nunito",sans-serif}.daily-series-sheet .sheet-body{padding-bottom:max(12px,env(safe-area-inset-bottom))}
+@media(max-width:380px){.daily30-grid{gap:6px}.daily30-day{padding:9px 7px}.daily30-day .d30-reward{font-size:8px}}
+</style>
 <style id="resell-final-ui-fixes-v2">
 /* R-HOLD: the earnings amount and customization control must occupy separate rows. */
 #farmSection .farm-header{
@@ -12475,6 +12516,26 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 
 <style id="brand-v4-ad-overrides">
 .brand-v4-ad-list{display:grid;gap:7px;margin:12px 0}.brand-v4-ad-list button{display:grid;grid-template-columns:34px 1fr auto;align-items:center;gap:9px;text-align:left;padding:10px;border:1px solid #e0e5df;border-radius:13px;background:#fff;color:#202622}.brand-v4-ad-list button.active{border-color:#202722;background:#f5f7f4}.brand-v4-ad-list button:disabled{opacity:.55}.brand-v4-ad-list>button>span{width:30px;height:30px;display:grid;place-items:center;border-radius:9px;background:#f0f3ef;font:900 8px/1 Montserrat,sans-serif}.brand-v4-ad-list b{display:block;font:950 11px/1.1 Montserrat,sans-serif}.brand-v4-ad-list small{display:block;margin-top:3px;color:#87908a;font:800 8px/1.2 Nunito,sans-serif}.brand-v4-ad-list strong{font:900 7px/1 Montserrat,sans-serif;white-space:nowrap}.brand-v4-model-mini{cursor:pointer;width:100%;text-align:left}.brand-v4-edit-hint{display:block!important;margin-top:5px;color:#6d8270!important;font-weight:900!important}
+</style>
+
+<script id="daily30-compat-v1">
+(function(){
+  const rebind=()=>{
+    const b=document.getElementById('dailyCheckinBtn');
+    if(!b || b.dataset.daily30Bound) return;
+    b.dataset.daily30Bound='1';
+    b.addEventListener('click',function(){
+      try{ if(typeof window.claimDailyCheckin==='function') window.claimDailyCheckin(); }catch(_){}
+    });
+  };
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',rebind,{once:true});else rebind();
+  setTimeout(rebind,400); setTimeout(rebind,1200);
+})();
+</script>
+
+<style id="resell-club-v44-ui">
+.club44-shell{gap:10px!important;padding:2px 0 16px!important}.club44-hero{padding:16px!important;border-radius:24px!important;background:radial-gradient(circle at 92% 0,rgba(183,255,106,.14),transparent 28%),linear-gradient(145deg,#151a15,#080a09 75%)!important}.club44-income-row{display:grid;grid-template-columns:minmax(0,1fr) 116px;gap:10px;align-items:stretch;margin-top:14px}.club44-hero .club7-income{margin-top:0!important}.club44-hero .club7-income strong{font-size:30px!important}.club44-invest{padding:12px;border-radius:15px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07);display:flex;flex-direction:column;justify-content:center}.club44-invest small,.club44-cash-badge,.club44-head small{font:950 6px/1 Montserrat!important;letter-spacing:1.1px;color:#727b75}.club44-invest b{margin-top:5px;font:950 12px/1.05 Montserrat!important;color:#fff;word-break:break-word}.club44-invest span{margin-top:5px;font:800 6.5px/1.2 Nunito!important;color:#79817c}.club44-collect-card{padding:14px!important}.club44-cash-badge{padding:8px 9px;border-radius:11px;background:rgba(183,255,106,.08);color:#b7ff6a;border:1px solid rgba(183,255,106,.18);white-space:nowrap}.club44-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}.club44-metrics>div{min-width:0;padding:11px;border-radius:15px;background:linear-gradient(145deg,#151719,#0d0e10);border:1px solid rgba(255,255,255,.065)}.club44-metrics small{display:block;font:950 5.8px/1 Montserrat!important;color:#707a73;letter-spacing:.7px}.club44-metrics b{display:block;margin-top:6px;font:950 13px/1 Montserrat!important;color:#fff}.club44-metrics span{display:block;margin-top:4px;font:800 6.1px/1.15 Nunito!important;color:#78817b}.club44-economy{padding:14px!important;background:linear-gradient(145deg,#141914,#0a0c0a)!important}.club44-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.club44-head>div{min-width:0}.club44-head b{display:block;margin-top:5px;font:950 15px/1.1 Montserrat!important;color:#fff}.club44-head span{display:block;margin-top:5px;font:800 7.5px/1.4 Nunito!important;color:#818a83}.club44-head>strong{font:950 14px/1 Montserrat!important;color:#b7ff6a;white-space:nowrap}.club44-driver-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:11px}.club44-driver-grid>div{padding:11px;border-radius:14px;background:rgba(255,255,255,.028);border:1px solid rgba(255,255,255,.055);min-width:0}.club44-driver-grid i{display:inline-grid;place-items:center;width:23px;height:23px;border-radius:8px;background:rgba(183,255,106,.08);border:1px solid rgba(183,255,106,.16);color:#b7ff6a;font:950 11px/1 Montserrat!important;font-style:normal}.club44-driver-grid span{display:block;margin-top:8px;font:950 6px/1 Montserrat!important;color:#6f7972;letter-spacing:.8px}.club44-driver-grid b{display:block;margin-top:4px;font:950 12px/1.1 Montserrat!important;color:#fff}.club44-driver-grid em{display:block;margin-top:4px;font:800 6.4px/1.2 Nunito!important;color:#7c847e;font-style:normal}.club44-compare{margin-top:8px;padding:10px 11px;border-radius:13px;background:rgba(255,255,255,.025);border:1px dashed rgba(255,255,255,.075);display:grid;grid-template-columns:auto 1fr;gap:4px 8px;align-items:center}.club44-compare span{font:950 5.5px/1 Montserrat!important;color:#6e7871;letter-spacing:.9px}.club44-compare b{font:950 7px/1 Montserrat!important;color:#dce4de;justify-self:end}.club44-compare small{grid-column:1/-1;font:800 6.5px/1.2 Nunito!important;color:#8c958f}.club44-floor-card{padding:13px!important}.club44-manage,.club44-style-card,.club44-team{padding:14px!important}.club44-style-card .club7-styles{margin-top:10px!important}.club44-team .club7-roster{margin-top:9px!important}.club44-team .club7-person{padding:9px 10px!important}.club44-team .club7-person b{font-size:8.5px!important}.club44-team .club7-person span{font-size:6.2px!important}.club44-team .club7-person strong{font-size:5.8px!important}
+@media(max-width:430px){.club44-income-row{grid-template-columns:minmax(0,1fr) 104px}.club44-hero .club7-income strong{font-size:26px!important}.club44-metrics{grid-template-columns:1fr 1fr}.club44-driver-grid{grid-template-columns:1fr 1fr}.club44-head b{font-size:14px!important}}
 </style>
 </body>
 
