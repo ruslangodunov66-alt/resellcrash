@@ -6750,7 +6750,10 @@ async function initFarm(){
     if(window.__resellTutorialActive) return;
     const list=Array.isArray(avitoState?.discovery?.unlocks)?avitoState.discovery.unlocks:[]; if(!list.length)return;
     const seen=getAvitoUnlockSeen(); const fresh=list.filter(x=>Number(x.sales||0)>seen); if(!fresh.length)return;
-    const u=fresh[fresh.length-1]; setAvitoUnlockSeen(Number(u.sales||seen));
+    const u=fresh[fresh.length-1];
+    // Do not mark the milestone as seen until the player actually presses
+    // «СМОТРЕТЬ ПОСТАВКУ». Otherwise the popup could disappear/remember the
+    // unlock even when the claim action failed or was never completed.
     const names=Array.isArray(u.items)?u.items:[];
     const html=`<div class="avx-unlock-overlay" data-avito-unlock-overlay><div class="avx-unlock-card"><div class="avx-unlock-mark"><span>R</span><i></i></div><small>RESSELL · НОВЫЙ ДОСТУП</small><h3>${Number(u.sales||0)} ПРОДАЖ</h3><p>Тебе открылась новая часть поставки. Теперь среди обычных товаров могут появляться редкие лоты.</p><div class="avx-unlock-items">${names.map((n,i)=>`<div class="avx-unlock-item"><span>${i===0?'01':'02'}</span><b>${esc(n)}</b><em>доступно в закупке</em></div>`).join('')}</div><button class="avx-btn buy" data-avito-unlock-close>СМОТРЕТЬ ПОСТАВКУ</button></div></div>`;
     // Popup must live outside .avx-shell: the live Avito poller periodically re-renders
@@ -6993,7 +6996,30 @@ async function initFarm(){
   else bindAvitoEntry();
   setTimeout(bindAvitoEntry,150);
   modalBody.addEventListener('click',async(e)=>{
-    const unlockClose=e.target.closest('[data-avito-unlock-close]'); if(unlockClose){e.target.closest('[data-avito-unlock-overlay]')?.remove();return;}
+    const unlockClose=e.target.closest('[data-avito-unlock-close]'); if(unlockClose){
+      const overlay=e.target.closest('[data-avito-unlock-overlay]');
+      const list=Array.isArray(avitoState?.discovery?.unlocks)?avitoState.discovery.unlocks:[];
+      const seen=getAvitoUnlockSeen();
+      const fresh=list.filter(x=>Number(x.sales||0)>seen);
+      const unlock=fresh[fresh.length-1];
+      if(!unlock){overlay?.remove();return;}
+      const btn=unlockClose; if(btn.disabled) return; btn.disabled=true;
+      try{
+        // A newly opened supply must be generated immediately. The normal
+        // /avito endpoint may keep the previous stock for its cooldown, so
+        // explicitly request a fresh supplier roll here.
+        const next=await tycoonFetch(`/avito/${encodeURIComponent(userId)}?force_refresh=1`);
+        avitoState=next; window.__resellAvitoState=next;
+        setAvitoUnlockSeen(Number(unlock.sales||seen));
+        overlay?.remove();
+        modalBody.innerHTML=renderAvito();
+        showToast('Новая поставка получена');
+      }catch(err){
+        btn.disabled=false;
+        showToast(err?.message||'Не удалось получить новую поставку');
+      }
+      return;
+    }
     const reviewOpen=e.target.closest('[data-avito-reviews]'); if(reviewOpen){avitoEditing=true;openModal('Avito',renderAvitoReviews());return;}
     const reviewClose=e.target.closest('[data-avito-review-close]'); if(reviewClose){avitoEditing=false;modalBody.innerHTML=renderAvito();return;}
     const refresh=e.target.closest('[data-avito-refresh]'); if(refresh){
