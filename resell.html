@@ -2766,7 +2766,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
 <strong id="checkinAction">ЗАБРАТЬ</strong>
 </button>
 <div class="daily-login-foot"><span id="checkinHint">Не пропускай день</span><span id="checkinTomorrow">Завтра ↑</span></div>
-<div class="daily-login-progress"><div><span id="engLevel">LVL 1</span><strong id="engLevelTitle">STARTER</strong></div><div class="daily-login-xp"><span id="engXpText">60 минут активной игры</span><b>до награды</b></div></div>
+<div class="daily-login-progress"><div><span id="engLevel">LVL 1</span><strong id="engLevelTitle">STARTER</strong></div><div class="daily-login-xp"><span id="engXpText">00:00 / 60:00</span><b>активной игры</b></div></div>
 <div class="engagement-xp-bar"><i id="engXpFill"></i></div>
 </div>
 </div>
@@ -3968,7 +3968,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
         const resp=await apiFetch(`${API_BASE}/profile/${encodeURIComponent(userId)}?t=${Date.now()}`,{method:'GET'},1);
         const data=await resp.json(); profileData=data; window.__resellProfileData=data; __lastServerStateTs=Number(data.server_state_ts||0); try{window.renderRewardAd?.();}catch(_){} try{window.__resellUpdateNavIndicators?.();}catch(_){} try{window.updateQuestNotice?.();}catch(_){}
         if(data.registration_complete===false||data.registration_complete===0||data.registration_required===true){setBalance(primaryBalance(data));setProgress(0);statusText.textContent='Требуется регистрация';if(!registrationRequired && !launchSequenceActive)openRegistration();return data;}
-        setBalance(primaryBalance(data)); epochData=data.epoch||null; setProgress(Number(data.epoch_progress??epochData?.progress??0)); rcoinData=data.rcoin||null; renderRcoin(); statusText.textContent='Баланс синхронизирован'; $('.status-dot').style.background='var(--success)'; try{if(data.engagement){engagementData=data.engagement;renderEngagement();}await loadEngagement();await loadRcoinStatus();}catch(_){ } return data;
+        setBalance(primaryBalance(data)); epochData=data.epoch||null; setProgress(Number(data.epoch_progress??epochData?.progress??0)); rcoinData=data.rcoin||null; renderRcoin(); statusText.textContent='Баланс синхронизирован'; $('.status-dot').style.background='var(--success)'; try{if(data.engagement){engagementData=data.engagement;renderEngagement();}await loadEngagement();await loadRcoinStatus();}catch(_){ } try{await dailyCalendarSync('resume');}catch(_){} try{startDailyCalendarClock();}catch(_){} return data;
       }catch(e){lastError=e;if(attempt<2)await new Promise(r=>setTimeout(r,250));}
     }
     console.warn('Profile load failed:',lastError);
@@ -3987,26 +3987,58 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
   function engagementLevelName(level){const names=['STARTER','TRADER','DEALER','OPERATOR','TYCOON','MAGNATE','CAPITALIST','EMPIRE','TITAN','LEGEND'];return names[Math.min(names.length-1,Math.max(0,Number(level||1)-1))];}
   async function loadEngagement(){if(!userId)return null;try{const r=await apiFetch(`${API_BASE}/engagement/${encodeURIComponent(userId)}?t=${Date.now()}`,{method:'GET'},2),d=await r.json();if(d?.success){engagementData=d;renderEngagement();return d;}}catch(err){console.warn('Engagement sync failed:',err)}return null;}
   // =========================
-  // DAILY CALENDAR V2 — cumulative active time (keeps the original calendar UI)
+  // DAILY CALENDAR V3 — cumulative active time, server + local recovery
+  // Keeps the original calendar UI. Only the timer/sync layer is rebuilt.
   // =========================
   let dailyCalendarData=null;
   let dailyCalendarClock=null;
   let dailyCalendarLastTick=0;
-  let dailyCalendarSyncInFlight=false;
+  let dailyCalendarSyncInFlight=null;
   let dailyCalendarHeartbeatClock=null;
+  let dailyCalendarCycleLocalKey='';
 
   function dailyCalendarFormat(sec){
     const n=Math.max(0,Math.floor(Number(sec)||0));
     const m=Math.floor(n/60), s=n%60;
     return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
   }
+  function dailyCalendarCycleFallback(ts=Math.floor(Date.now()/1000)){
+    const d=new Date((Number(ts)||0)*1000);
+    // Calendar rolls over at 12:00 UTC+3.
+    const utcHour=d.getUTCHours();
+    let y=d.getUTCFullYear(), m=d.getUTCMonth(), day=d.getUTCDate();
+    const h3=utcHour+3;
+    if(h3<12){const prev=new Date(Date.UTC(y,m,day)-86400000);y=prev.getUTCFullYear();m=prev.getUTCMonth();day=prev.getUTCDate();}
+    return `${y}-${String(m+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+  }
+  function dailyCalendarLocalKey(cycle){return `resell_daily_active_seconds_v3_${String(cycle||dailyCalendarCycleFallback())}`;}
+  function dailyCalendarReadLocal(cycle){
+    try{return Math.max(0,Math.min(3600,Math.floor(Number(localStorage.getItem(dailyCalendarLocalKey(cycle))||0))));}catch(_){return 0;}
+  }
+  function dailyCalendarWriteLocal(cycle,seconds){
+    try{localStorage.setItem(dailyCalendarLocalKey(cycle),String(Math.max(0,Math.min(3600,Math.floor(Number(seconds)||0)))))}catch(_){ }
+  }
+  function dailyCalendarMergeServerAndLocal(d){
+    const data={...(d||{})};
+    const cycle=String(data.cycle_key||dailyCalendarCycleFallback());
+    const local=dailyCalendarReadLocal(cycle);
+    const server=Math.max(0,Math.min(3600,Number(data.active_seconds)||0));
+    const merged=Math.max(server,local);
+    data.active_seconds=merged;
+    data.active_minutes=merged/60;
+    data.active_progress=merged/3600;
+    data.ready=Boolean(data.ready)||merged>=3600;
+    dailyCalendarWriteLocal(cycle,merged);
+    dailyCalendarCycleLocalKey=cycle;
+    return data;
+  }
 
   function renderDailyCalendarActivity(){
     const d=dailyCalendarData||{};
     const active=Math.max(0,Math.min(3600,Number(d.active_seconds)||0));
-    const pct=Math.max(0,Math.min(100,Math.round(active/36)));
+    const pct=Math.max(0,Math.min(100,Math.floor(active/36)));
     const remain=Math.max(0,3600-active);
-    const ready=Boolean(d.ready);
+    const ready=active>=3600 || Boolean(d.ready);
     const complete=Boolean(d.complete);
     const timeEl=document.getElementById('dailyActiveTime');
     const pctEl=document.getElementById('dailyActivePercent');
@@ -4022,7 +4054,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
       const lock=complete || !ready;
       btn.disabled=lock;
       const label=btn.querySelector('#checkinLabel'), reward=btn.querySelector('#checkinReward'), action=btn.querySelector('#checkinAction');
-      const cash=Number(d.reward?.cash||d.reward?.reward||0);
+      const cash=Number(d.reward?.cash||d.reward?.reward||d.days?.[Math.max(0,(Number(d.progress_day)||1)-1)]?.cash||0);
       if(label)label.textContent=complete?'КАЛЕНДАРЬ ЗАВЕРШЁН':'СЕГОДНЯ';
       if(reward)reward.textContent=complete?'ВСЕ ПОЛУЧЕНО':`+${number(cash)} ₽`;
       if(action)action.textContent=complete?'ГОТОВО':ready?'ЗАБРАТЬ':'ЗАКРЫТО';
@@ -4030,50 +4062,80 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
   }
 
   async function dailyCalendarSync(mode='normal'){
-    if(!userId || dailyCalendarSyncInFlight)return;
-    dailyCalendarSyncInFlight=true;
-    try{
-      const url=`${API_BASE}/daily-calendar/${encodeURIComponent(userId)}${mode==='resume'?`?t=${Date.now()}`:`?t=${Date.now()}`}`;
-      const r=await apiFetch(url,{method:'GET'},2);
-      const d=await r.json().catch(()=>({}));
-      if(d?.success){dailyCalendarData=d;renderDailyCalendarActivity();renderEngagement();}
-    }catch(err){console.warn('Daily calendar sync failed:',err)}
-    finally{dailyCalendarSyncInFlight=false;}
+    if(!userId)return null;
+    if(dailyCalendarSyncInFlight)return dailyCalendarSyncInFlight;
+    dailyCalendarSyncInFlight=(async()=>{
+      try{
+        const url=`${API_BASE}/daily-calendar/${encodeURIComponent(userId)}?t=${Date.now()}`;
+        const r=await apiFetch(url,{method:'GET',cache:'no-store'},2);
+        const d=await r.json().catch(()=>({}));
+        if(d?.success){
+          dailyCalendarData=dailyCalendarMergeServerAndLocal(d);
+          renderDailyCalendarActivity();
+          renderEngagement();
+          return dailyCalendarData;
+        }
+      }catch(err){console.warn('Daily calendar sync failed:',err)}
+      // The visible timer must still work even while the network is temporarily unavailable.
+      if(!dailyCalendarData){
+        const cycle=dailyCalendarCycleFallback();
+        const local=dailyCalendarReadLocal(cycle);
+        dailyCalendarData={success:true,cycle_key:cycle,active_seconds:local,active_minutes:local/60,active_progress:local/3600,required_seconds:3600,progress_day:1,claimed_days:[],days:[],ready:local>=3600,complete:false,reward:{cash:0}};
+        renderDailyCalendarActivity();
+      }
+      return dailyCalendarData;
+    })().finally(()=>{dailyCalendarSyncInFlight=null;});
+    return dailyCalendarSyncInFlight;
   }
 
   async function dailyCalendarHeartbeat(mode='normal'){
-    if(!userId)return;
+    if(!userId)return null;
     try{
-      const r=await apiFetch(`${API_BASE}/daily-calendar/${encodeURIComponent(userId)}/heartbeat?mode=${encodeURIComponent(mode)}&t=${Date.now()}`,{method:'POST'},2);
+      const cycle=String(dailyCalendarData?.cycle_key||dailyCalendarCycleFallback());
+      const local=dailyCalendarReadLocal(cycle);
+      const r=await apiFetch(`${API_BASE}/daily-calendar/${encodeURIComponent(userId)}/heartbeat?mode=${encodeURIComponent(mode)}&t=${Date.now()}`,{
+        method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({client_active_seconds:local,cycle_key:cycle})
+      },2);
       const d=await r.json().catch(()=>({}));
-      if(d?.success){dailyCalendarData=d;renderDailyCalendarActivity();renderEngagement();}
+      if(d?.success){
+        dailyCalendarData=dailyCalendarMergeServerAndLocal(d);
+        renderDailyCalendarActivity();
+        renderEngagement();
+        return dailyCalendarData;
+      }
     }catch(err){console.warn('Daily calendar heartbeat failed:',err)}
+    return dailyCalendarData;
   }
 
   function startDailyCalendarClock(){
     if(dailyCalendarClock)clearInterval(dailyCalendarClock);
     if(dailyCalendarHeartbeatClock)clearInterval(dailyCalendarHeartbeatClock);
     dailyCalendarLastTick=Math.floor(Date.now()/1000);
+    // Restore immediately from the current cycle even if the GET request has not completed yet.
+    if(!dailyCalendarData){
+      const cycle=dailyCalendarCycleFallback();
+      const local=dailyCalendarReadLocal(cycle);
+      dailyCalendarData={success:true,cycle_key:cycle,active_seconds:local,active_minutes:local/60,active_progress:local/3600,required_seconds:3600,progress_day:1,claimed_days:[],days:[],ready:local>=3600,complete:false,reward:{cash:0}};
+    }
+    renderDailyCalendarActivity();
     dailyCalendarClock=setInterval(()=>{
-      if(document.hidden || !dailyCalendarData || dailyCalendarData.ready || dailyCalendarData.complete)return;
+      if(document.hidden || !dailyCalendarData || dailyCalendarData.complete)return;
       const now=Math.floor(Date.now()/1000);
       const delta=Math.max(0,Math.min(2,now-dailyCalendarLastTick));
       dailyCalendarLastTick=now;
       if(delta>0){
-        dailyCalendarData.active_seconds=Math.min(3600,Number(dailyCalendarData.active_seconds||0)+delta);
-        dailyCalendarData.active_minutes=Number(dailyCalendarData.active_seconds)/60;
-        dailyCalendarData.active_progress=Number(dailyCalendarData.active_seconds)/3600;
-        dailyCalendarData.ready=dailyCalendarData.active_seconds>=3600;
+        const cycle=String(dailyCalendarData.cycle_key||dailyCalendarCycleFallback(now));
+        const next=Math.min(3600,Math.max(0,Number(dailyCalendarData.active_seconds)||0)+delta);
+        dailyCalendarData.active_seconds=next;
+        dailyCalendarData.active_minutes=next/60;
+        dailyCalendarData.active_progress=next/3600;
+        dailyCalendarData.ready=next>=3600;
+        dailyCalendarWriteLocal(cycle,next);
         renderDailyCalendarActivity();
       }
     },1000);
-    // Persist the accumulated active time to the server every 15 seconds.
-    // The server measures the interval from last_heartbeat_at, so this makes
-    // the timer survive closing/reopening the Mini App and page reloads.
     dailyCalendarHeartbeatClock=setInterval(()=>{
-      if(!document.hidden && userId && dailyCalendarData && !dailyCalendarData.complete){
-        dailyCalendarHeartbeat('normal');
-      }
+      if(!document.hidden && userId && dailyCalendarData && !dailyCalendarData.complete){dailyCalendarHeartbeat('normal');}
     },15000);
   }
 
@@ -4088,61 +4150,68 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
       dailyCalendarHeartbeat('normal');
     }else{
       dailyCalendarLastTick=Math.floor(Date.now()/1000);
-      dailyCalendarHeartbeat('resume');
+      if(userId){dailyCalendarHeartbeat('resume');}
     }
   });
 
   function renderEngagement(){
-    const d=engagementData;if(!d)return;
+    const d=engagementData||{};
     const level=Number(d.level||1),xp=Number(d.xp||0),req=Number(d.xp_required||120);
-    const pct=Math.max(0,Math.min(100,Math.round(xp/Math.max(1,req)*100))),c=d.checkin||{};
-    const streak=Math.max(1,Number(dailyCalendarData?.progress_day||d.streak||1));
-    const rewards=(dailyCalendarData?.days||[]).length ? dailyCalendarData.days.map(x=>Number(x.cash||0)) : [10000,25000,50000,75000,100000,150000,200000,300000,400000,500000,650000,800000,1000000,2000000,2500000,3000000,3500000,4000000,4500000,5000000,5000000,5000000,5500000,6000000,6500000,7000000,7500000,8000000,9000000,10000000];
-    // Машины: используем те же Telegram media IDs, которые уже есть в containers.html.
-    // Деньги: используем те же локальные case/*.jpg, что и контейнеры — без внешнего raw.githubusercontent URL.
+    const pct=Math.max(0,Math.min(100,Math.round(xp/Math.max(1,req)*100)));
+    const dc=dailyCalendarData||{};
+    const days=Array.isArray(dc.days)&&dc.days.length ? dc.days : [
+      {day:1,cash:10000},{day:2,cash:20000},{day:3,cash:30000},{day:4,cash:50000},{day:5,cash:75000},{day:6,cash:100000},{day:7,cash:150000},{day:8,cash:200000},{day:9,cash:300000},{day:10,cash:400000},{day:11,cash:500000},{day:12,cash:650000},{day:13,cash:800000},{day:14,cash:2000000,car_id:'bmwm5',title:'BMW M5 F90'},{day:15,cash:1200000},{day:16,cash:1500000},{day:17,cash:1800000},{day:18,cash:2200000},{day:19,cash:2500000},{day:20,cash:2800000},{day:21,cash:3000000,car_id:'sclass',title:'Mercedes S-Class'},{day:22,cash:4500000},{day:23,cash:5000000},{day:24,cash:5500000},{day:25,cash:6000000},{day:26,cash:7000000},{day:27,cash:8000000},{day:28,cash:8500000},{day:29,cash:9000000},{day:30,cash:10000000,car_id:'aventador',title:'LAMBORGHINI AVENTADOR'}
+    ];
     const carAssets={
       14:`${API_BASE}/tycoon/media/${encodeURIComponent('AgACAgIAAxkBAAIKL2n7e3dRS58kxBJIwMbQyfhgSbXHAAIqGGsbH9_QS4JTxjSqqMS3AQADAgADeQADOwQ')}`,
       21:`${API_BASE}/tycoon/media/${encodeURIComponent('AgACAgIAAxkBAAIKMWn7e46bcc2IvFRWXnL99PAMfahNAAIrGGsbH9_QS8WFReLP1qWmAQADAgADeQADOwQ')}`,
       30:`${API_BASE}/tycoon/media/${encodeURIComponent('AgACAgIAAxkBAAIKPGn7f2Rs5K3TIz7TUtspqjTQ5WweAAJaE2sbhKXhSz4-e1I_GY--AQADAgADeQADOwQ')}`
     };
     const moneyAssets={
-      common:'case/photo_2026-07-20_19-22-17.jpg',
-      rare:'case/photo_2026-07-20_19-22-14.jpg',
-      legend:'case/photo_2026-07-20_19-22-10.jpg'
+      common:'https://raw.githubusercontent.com/ruslangodunov66-alt/resellcrash/main/case/photo_2026-07-20_19-22-17.jpg',
+      rare:'https://raw.githubusercontent.com/ruslangodunov66-alt/resellcrash/main/case/photo_2026-07-20_19-22-14.jpg',
+      legend:'https://raw.githubusercontent.com/ruslangodunov66-alt/resellcrash/main/case/photo_2026-07-20_19-22-10.jpg'
     };
-    const days=$('#dailyLoginDays');
-    if(days){days.innerHTML=rewards.map((reward,i)=>{
-      const serverDay=(dailyCalendarData?.days?.[i])||{};
-      const day=i+1, claimedDays=Array.isArray(dailyCalendarData?.claimed_days)?dailyCalendarData.claimed_days.map(Number):[],
-        done=claimedDays.includes(day) || day<streak, today=day===Math.min(streak,30), special=!!carAssets[day] || !!serverDay.car_id;
-      const moneyImg=day%5===0?moneyAssets.legend:(day>=10?moneyAssets.rare:moneyAssets.common);
-      const img=special?(carAssets[day]||''):moneyImg;
-      const label=special?(serverDay.title || (day===14?'BMW M5 F90':day===21?'Mercedes S-Class':'Lamborghini Aventador')):`+${number(reward)} ₽`;
-      return `<div class="daily-login-day ${done?'done':''} ${today?'today':''} ${today&&c.available?'ready':''} ${special?'special':''}
-        ><small>ДЕНЬ ${day}</small><img class="calendar-reward-img ${special?'':'money'}" src="${img}" loading="eager" decoding="async" alt="${esc(label)}"><b>${special?label:'ДЕНЬГИ'}</b><span class="calendar-reward-value">+${number(reward)} ₽</span>${special?'<span class="calendar-ribbon">БОЛЬШАЯ НАГРАДА</span>':''}</div>`;
-    }).join('');}
-    $('#engStreak')&&($('#engStreak').textContent=String(Math.min(30,streak)));
+    const claimedDays=Array.isArray(dc.claimed_days)?dc.claimed_days.map(Number):[];
+    const currentDay=Math.min(30,Math.max(1,Number(dc.progress_day||1)));
+    const daysEl=$('#dailyLoginDays');
+    if(daysEl){
+      daysEl.innerHTML=days.map((serverDay,i)=>{
+        const day=i+1;
+        const reward=Number(serverDay.cash||0);
+        const special=!!serverDay.car_id || !!carAssets[day];
+        const moneyImg=day%5===0?moneyAssets.legend:(day>=10?moneyAssets.rare:moneyAssets.common);
+        const img=special?(carAssets[day]||''):moneyImg;
+        const title=serverDay.title || (day===14?'BMW M5 F90':day===21?'Mercedes S-Class':day===30?'LAMBORGHINI AVENTADOR':'ДЕНЬГИ');
+        const done=claimedDays.includes(day)||day<currentDay;
+        const today=day===currentDay && !dc.complete;
+        const ready=today && Number(dc.active_seconds||0)>=3600;
+        const ribbon=special?'<span class="calendar-ribbon">БОЛЬШАЯ НАГРАДА</span>':'';
+        const fallbackMoney=day%5===0?'case/photo_2026-07-20_19-22-10.jpg':(day>=10?'case/photo_2026-07-20_19-22-14.jpg':'case/photo_2026-07-20_19-22-17.jpg');
+        const fallbackAttr=!special?`data-fallback="${fallbackMoney}"`:'';
+        const errorHandler=!special ? 'onerror="this.onerror=null;this.src=this.dataset.fallback;"' : '';
+        return `<div class="daily-login-day ${done?'done':''} ${today?'today':''} ${ready?'ready':''} ${special?'special':''}
+          ><small>ДЕНЬ ${day}</small><img class="calendar-reward-img ${special?'':'money'}" src="${img}" ${fallbackAttr} loading="eager" decoding="async" referrerpolicy="no-referrer" alt="${esc(title)}" ${errorHandler}><b>${special?esc(title):'ДЕНЬГИ'}</b><span class="calendar-reward-value">+${number(reward)} ₽</span>${ribbon}</div>`;
+      }).join('');
+    }
+    $('#engStreak')&&($('#engStreak').textContent=String(currentDay));
     $('#engLevel')&&($('#engLevel').textContent=`LVL ${level}`);
     $('#engLevelTitle')&&($('#engLevelTitle').textContent=engagementLevelName(level));
     $('#engXpText')&&($('#engXpText').textContent=`${number(xp)} / ${number(req)} XP`);
     $('#engXpFill')&&($('#engXpFill').style.width=`${pct}%`);
-    $('#engDailyBonus')&&($('#engDailyBonus').textContent=c.available?'ГОТОВ':'ПОЛУЧЕН');
-    $('#engNextLevel')&&($('#engNextLevel').textContent=`+${number(Math.max(0,req-xp))} XP`);
-    const b=$('#dailyCheckinBtn'),r=$('#checkinReward'),l=$('#checkinLabel'),a=$('#checkinAction');
-    if(r)r.textContent=c.available?`+${number(c.reward||rewards[Math.min(29,streak-1)]||0)} ₽`:'ПОЛУЧЕНО';
-    if(l)l.textContent=c.available?'СЕГОДНЯ':'БОНУС ЗАБРАН';
-    if(a)a.textContent=c.available?'ЗАБРАТЬ':'ПОЛУЧЕНО';
-    if(b)b.disabled=!c.available;
-    const tomorrow=rewards[Math.min(29,Math.max(0,streak))]||rewards[29];
-    $('#checkinHint')&&($('#checkinHint').textContent=c.available?'60 минут активной игры — и награда доступна':'Сегодня уже получено');
-    $('#checkinTomorrow')&&($('#checkinTomorrow').textContent=`Завтра +${number(tomorrow)} ₽`);
-    $('#engEventProgress')&&($('#engEventProgress').textContent=`${Math.min(30,streak)}/30`);
-    const ab=$('#dailyActivityBadge'), ar=$('#dailyActivityReward'), as=$('#dailyActivityState'), ad=$('#dailyActivityDesc');
-    if(ab) ab.textContent=`${Math.min(30,streak)}/30`;
-    if(ar) ar.textContent=c.available?`+${number(c.reward||rewards[Math.min(29,streak-1)]||0)} ₽`:'ГОТОВО';
-    if(as) as.textContent=c.available?'ЗАБРАТЬ':'ПОЛУЧЕНО';
-    if(ad) ad.textContent=c.available?`Сегодня +${number(c.reward||rewards[Math.min(29,streak-1)]||0)} ₽ · 60 минут в игре`:`Серия ${Math.min(30,streak)}/30 · следующий бонус завтра`;
+    // Do not let the legacy 7-day engagement object overwrite the actual 30-day calendar lock.
+    renderDailyCalendarActivity();
+    const tomorrow=days[Math.min(29,currentDay)]||days[29]||{};
+    $('#checkinHint')&&($('#checkinHint').textContent=(dc.complete?'Календарь завершён':dc.ready?'60 минут активной игры выполнено':`Осталось ${dailyCalendarFormat(Math.max(0,3600-Number(dc.active_seconds||0)))} активной игры`));
+    $('#checkinTomorrow')&&($('#checkinTomorrow').textContent=`Завтра +${number(Number(tomorrow.cash||0))} ₽`);
+    $('#engEventProgress')&&($('#engEventProgress').textContent=`${currentDay}/30`);
+    const ab=$('#dailyActivityBadge'),ar=$('#dailyActivityReward'),as=$('#dailyActivityState'),ad=$('#dailyActivityDesc');
+    if(ab)ab.textContent=`${currentDay}/30`;
+    if(ar)ar.textContent=dc.ready?`+${number(Number(dc.reward?.cash||dc.reward?.reward||0))} ₽`:`+${number(Number((days[currentDay-1]||{}).cash||0))} ₽`;
+    if(as)as.textContent=dc.complete?'ГОТОВО':dc.ready?'ЗАБРАТЬ':'В ИГРЕ';
+    if(ad)ad.textContent=dc.complete?'30 дней завершены':`Сегодня +${number(Number((days[currentDay-1]||{}).cash||0))} ₽ · ${dailyCalendarFormat(Math.max(0,Number(dc.active_seconds||0)))} / 60:00`;
   }
+
   function showLevelUp(level){const old=document.querySelector('.level-up-flash');if(old)old.remove();const el=document.createElement('div');el.className='level-up-flash';el.innerHTML=`<div class="level-up-card"><div class="level-up-kicker">PROGRESSION UNLOCKED</div><div class="level-up-title">УРОВЕНЬ <b>${number(level)}</b></div><div class="level-up-sub">${esc(engagementLevelName(level))} · новый этап развития открыт</div><button class="level-up-btn">ПРОДОЛЖИТЬ</button></div>`;document.body.appendChild(el);el.addEventListener('click',e=>{if(e.target===el||e.target.closest('.level-up-btn'))el.remove()});haptic('heavy');}
   async function claimDailyCheckin(){
     const btn=$('#dailyCheckinBtn');
@@ -4151,6 +4220,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     btn.disabled=true;
     if(btn.querySelector('#checkinAction'))btn.querySelector('#checkinAction').textContent='ЗАЧИСЛЕНИЕ…';
     try{
+      await dailyCalendarHeartbeat('normal');
       const r=await apiFetch(`${API_BASE}/daily-calendar/${encodeURIComponent(userId)}/claim?t=${Date.now()}`,{method:'POST'},3);
       const d=await r.json().catch(()=>({}));
       if(!r.ok||!d?.success)throw new Error(d?.error||'Не удалось получить награду');
@@ -4177,17 +4247,21 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
       <div class="daily-login-days" id="dailyLoginDays"></div>
       <button class="daily-login-claim" id="dailyCheckinBtnTemplate" type="button"><span><small>СЕГОДНЯ</small><b>+5 000 ₽</b></span><strong>ЗАБРАТЬ</strong></button>
       <div class="daily-login-foot"><span id="checkinHint">Не пропускай день</span><span id="checkinTomorrow">Завтра ↑</span></div>
-      <div class="daily-login-progress"><div><span id="engLevel">LVL 1</span><strong id="engLevelTitle">STARTER</strong></div><div class="daily-login-xp"><span id="engXpText">60 минут активной игры</span><b>до награды</b></div></div>
+      <div class="daily-login-progress"><div><span id="engLevel">LVL 1</span><strong id="engLevelTitle">STARTER</strong></div><div class="daily-login-xp"><span id="engXpText">00:00 / 60:00</span><b>активной игры</b></div></div>
       <div class="engagement-xp-bar"><i id="engXpFill"></i></div>
     </div>`;}
-  function openDailySeries(){
+  async function openDailySeries(){
     const m=$('#dailySeriesModal'); if(!m) return; m.classList.add('open'); m.setAttribute('aria-hidden','false'); document.body.style.overflow='hidden';
     const claim=m.querySelector('#dailyCheckinBtn'); if(claim) claim.onclick=claimDailyCheckin;
-    renderEngagement(); loadEngagement();
-    dailyCalendarSync('normal').finally(()=>{ if(m.classList.contains('open')) startDailyCalendarClock(); });
+    // The timer runs for the active RESSELL session, not only while this sheet is open.
+    if(!dailyCalendarClock)startDailyCalendarClock();
+    renderEngagement();
+    try{await dailyCalendarSync('normal');}catch(_){}
+    try{await loadEngagement();}catch(_){}
+    if(m.classList.contains('open'))renderDailyCalendarActivity();
     haptic('light');
   }
-  function closeDailySeries(){const m=$('#dailySeriesModal'); if(!m) return; m.classList.remove('open'); stopDailyCalendarClock(); m.setAttribute('aria-hidden','true'); document.body.style.overflow='';}
+  function closeDailySeries(){const m=$('#dailySeriesModal'); if(!m) return; m.classList.remove('open'); if(userId&&!dailyCalendarClock)startDailyCalendarClock(); m.setAttribute('aria-hidden','true'); document.body.style.overflow='';}
   function bindEngagement(){ $('#dailySeriesBtn')?.addEventListener('click',openDailySeries); $('#dailySeriesClose')?.addEventListener('click',closeDailySeries); $('#dailySeriesModal')?.addEventListener('click',e=>{if(e.target?.id==='dailySeriesModal')closeDailySeries();}); $('#dailyCheckinBtn')?.addEventListener('click',claimDailyCheckin); }
   function navigate(url){
     if (!userId){
