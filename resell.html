@@ -8016,6 +8016,11 @@ async function initFarm(){
 
   let particleSleepTimer=0;
   function drawParticles(){
+    const boot=document.getElementById('bootSplash');
+    if(boot && !boot.classList.contains('is-done')){
+      particleSleepTimer=setTimeout(()=>requestAnimationFrame(drawParticles),700);
+      return;
+    }
     if(document.visibilityState !== 'visible'){
       particleSleepTimer=setTimeout(()=>requestAnimationFrame(drawParticles),500);
       return;
@@ -8069,158 +8074,141 @@ async function initFarm(){
   resizeCanvas();
   drawParticles();
 
-  // PLATINUM DUST V1 — a cinematic, low-contrast titanium/metal-shavings field behind the launch sphere.
-  // Visual-only: no game state, layout, sphere asset, or loading timing is changed.
+  // PLATINUM DUST V2 — visible titanium shavings, deliberately capped for mobile performance.
+  // One canvas, DPR=1, ~30 FPS, ~150-230 shards, no per-particle gradients.
   (function initPlatinumDust(){
     const canvas=document.getElementById('bootTitaniumCanvas');
     const splash=document.getElementById('bootSplash');
     if(!canvas||!splash) return;
     const reduce=window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
     if(reduce) return;
-    const ctx=canvas.getContext('2d',{alpha:true});
+    const ctx=canvas.getContext('2d',{alpha:true,desynchronized:true});
     if(!ctx) return;
 
-    let W=0,H=0,dpr=1,particles=[],raf=0,last=0,active=true;
+    let W=0,H=0,particles=[],raf=0,last=0,active=true,lastDraw=0;
     const TAU=Math.PI*2;
+    const FPS_MS=33; // ~30 FPS: much cooler than a full-speed 60 FPS loop.
 
-    function seedParticle(i){
-      const edgeBias=Math.random();
-      const x=edgeBias<.52?Math.random()*W*.72:W*.28+Math.random()*W*.72;
+    function seedParticle(){
+      const side=Math.random();
+      const x=side<.5?Math.random()*W*.92:W*.08+Math.random()*W*.84;
       const y=Math.random()*H;
-      const depth=.25+Math.random()*.95;
-      const long=10+Math.random()*34*depth;
+      const depth=.35+Math.random()*.65;
       return {
-        x:x, y:y, px:x, py:y,
-        z:depth,
-        len:long,
-        w:.35+Math.random()*.85*depth,
-        a:.035+Math.random()*.18*depth,
+        x,y,px:x,py:y,z:depth,
+        len:14+Math.random()*38*depth,
+        w:.65+Math.random()*1.15*depth,
+        a:.12+Math.random()*.24*depth,
         phase:Math.random()*TAU,
-        drift:.22+Math.random()*.78,
-        hue:Math.random(),
-        speed:.46+Math.random()*.82*depth,
-        life:Math.random()
+        drift:.35+Math.random()*.65,
+        speed:.42+Math.random()*.58*depth,
+        warm:Math.random()<.22
       };
     }
 
     function resize(){
       W=Math.max(1,innerWidth); H=Math.max(1,innerHeight);
-      dpr=Math.min(window.devicePixelRatio||1,1.5);
-      canvas.width=Math.floor(W*dpr); canvas.height=Math.floor(H*dpr);
+      // DPR=1 is intentional: the launch animation is decorative, not UI content.
+      canvas.width=Math.floor(W); canvas.height=Math.floor(H);
       canvas.style.width=W+'px'; canvas.style.height=H+'px';
-      ctx.setTransform(dpr,0,0,dpr,0,0);
-      const target=Math.max(260,Math.min(620,Math.floor(W*1.15)));
-      if(particles.length!==target){particles=Array.from({length:target},(_,i)=>seedParticle(i));}
+      ctx.setTransform(1,0,0,1,0,0);
+      const target=Math.max(150,Math.min(230,Math.floor(W*.42)));
+      if(particles.length!==target) particles=Array.from({length:target},seedParticle);
     }
 
-    function reset(p,fromTop=false){
-      const side=Math.random();
-      p.x=side<.62?-40:W+40;
-      p.y=(fromTop? -20:Math.random()*H);
-      p.px=p.x; p.py=p.y;
-      p.z=.25+Math.random()*.95;
-      p.len=10+Math.random()*34*p.z;
-      p.w=.35+Math.random()*.85*p.z;
-      p.a=.035+Math.random()*.18*p.z;
+    function reset(p){
+      const fromLeft=Math.random()<.52;
+      p.x=fromLeft?-45:W+45;
+      p.y=Math.random()*H;
+      p.px=p.x;p.py=p.y;
+      p.z=.35+Math.random()*.65;
+      p.len=14+Math.random()*38*p.z;
+      p.w=.65+Math.random()*1.15*p.z;
+      p.a=.12+Math.random()*.24*p.z;
       p.phase=Math.random()*TAU;
-      p.drift=.22+Math.random()*.78;
-      p.hue=Math.random();
-      p.speed=.46+Math.random()*.82*p.z;
+      p.drift=.35+Math.random()*.65;
+      p.speed=.42+Math.random()*.58*p.z;
+      p.warm=Math.random()<.22;
     }
 
     function flow(x,y,t,p){
       const nx=x/Math.max(1,W), ny=y/Math.max(1,H);
-      const band1=Math.sin(ny*8.0 + t*.22);
-      const band2=Math.sin(ny*18.0 - t*.31 + nx*2.4);
-      const curl=Math.sin(nx*5.3 - ny*4.8 + t*.18);
-      let vx=(1.15 + band1*.34 + curl*.20)*p.speed;
-      let vy=(band2*.22 + Math.sin(nx*7.2+t*.16)*.10)*p.speed;
-      // A very broad, slow shear gives the impression of air pushing metallic shavings.
-      vy += ((ny-.5)*.11 + Math.sin((nx+ny)*4.0+t*.11)*.07)*p.drift;
+      // Broad air currents: slow, elegant, not a noisy particle simulation.
+      const wave=Math.sin(ny*7.0+t*.28);
+      const curl=Math.sin(nx*4.8-ny*3.5+t*.20);
+      const vx=(1.05+wave*.28+curl*.16)*p.speed;
+      const vy=(Math.sin(ny*15.0-t*.22+nx*2.0)*.16 + Math.sin(nx*6.0+t*.13)*.08)*p.drift;
       return [vx,vy];
     }
 
     function drawShard(p,t){
-      const dx=p.x-p.px, dy=p.y-p.py;
+      const dx=p.x-p.px,dy=p.y-p.py;
       const dist=Math.hypot(dx,dy)||1;
-      const ux=dx/dist, uy=dy/dist;
-      const len=p.len*(.72+.30*Math.sin(t*.7+p.phase));
-      const x2=p.x-ux*len, y2=p.y-uy*len;
-      // Screen-space vignette: sides carry the visible metal, center stays quiet behind the orb.
-      const cx=p.x-W*.5, cy=p.y-H*.46;
+      const ux=dx/dist,uy=dy/dist;
+      const len=p.len*(.82+.20*Math.sin(t*.75+p.phase));
+      const x2=p.x-ux*len,y2=p.y-uy*len;
+      const cx=p.x-W*.5,cy=p.y-H*.45;
       const centerDist=Math.hypot(cx/(W*.58),cy/(H*.55));
-      const centerMask=.10+.90*Math.min(1,Math.max(0,(centerDist-.18)/.58));
-      const fadeTop=0.55+0.45*Math.min(1,Math.max(0,p.y/H));
-      const alpha=p.a*centerMask*fadeTop;
-      if(alpha<.01) return;
+      // Keep the orb readable: particles are strongest around its perimeter.
+      const centerMask=.20+.80*Math.min(1,Math.max(0,(centerDist-.12)/.48));
+      const alpha=p.a*centerMask;
+      if(alpha<.025)return;
 
-      const grad=ctx.createLinearGradient(x2,y2,p.x,p.y);
-      if(p.hue<.45){
-        grad.addColorStop(0,`rgba(112,120,118,0)`);
-        grad.addColorStop(.45,`rgba(190,196,194,${alpha*.28})`);
-        grad.addColorStop(.82,`rgba(238,240,239,${alpha*.74})`);
-        grad.addColorStop(1,`rgba(255,255,255,${alpha})`);
-      }else{
-        grad.addColorStop(0,`rgba(92,98,97,0)`);
-        grad.addColorStop(.50,`rgba(160,168,166,${alpha*.20})`);
-        grad.addColorStop(.86,`rgba(211,216,214,${alpha*.58})`);
-        grad.addColorStop(1,`rgba(245,247,246,${alpha*.85})`);
-      }
-      ctx.strokeStyle=grad;
+      // Solid strokes are dramatically cheaper than creating a CanvasGradient per shard.
+      ctx.strokeStyle=p.warm
+        ? `rgba(205,211,209,${alpha})`
+        : `rgba(235,239,238,${alpha})`;
       ctx.lineWidth=p.w;
       ctx.lineCap='round';
       ctx.beginPath();ctx.moveTo(x2,y2);ctx.lineTo(p.x,p.y);ctx.stroke();
 
-      // Rare sharp metallic glint.
-      const glint=Math.max(0,Math.sin(t*(1.55+p.drift*.7)+p.phase));
-      if(glint>.965 && centerMask>.35){
-        ctx.fillStyle=`rgba(255,255,255,${Math.min(.28,alpha*1.4)})`;
-        ctx.beginPath();ctx.arc(p.x,p.y,Math.max(.65,p.w*1.7),0,TAU);ctx.fill();
+      // Only rare shards get a second bright highlight.
+      const glint=Math.sin(t*(1.25+p.drift*.45)+p.phase);
+      if(glint>.985 && centerMask>.42){
+        ctx.strokeStyle=`rgba(255,255,255,${Math.min(.55,alpha*1.8)})`;
+        ctx.lineWidth=Math.min(1.8,p.w+.45);
+        ctx.beginPath();ctx.moveTo(x2+(p.x-x2)*.56,y2+(p.y-y2)*.56);ctx.lineTo(p.x,p.y);ctx.stroke();
       }
     }
 
     function frame(now){
       raf=0;
       if(!active||splash.classList.contains('is-done')||document.visibilityState!=='visible'){
-        setTimeout(()=>requestAnimationFrame(frame),300);
+        setTimeout(()=>{if(!raf)raf=requestAnimationFrame(frame);},400);
         return;
       }
+      if(now-lastDraw<FPS_MS){raf=requestAnimationFrame(frame);return;}
+      lastDraw=now;
       const t=now/1000;
-      const dt=Math.min(.034,Math.max(.008,(now-last)/1000||.016));
+      const dt=Math.min(.05,Math.max(.012,(now-last)/1000||.033));
       last=now;
       ctx.clearRect(0,0,W,H);
 
-      // Deep metallic haze — intentionally very restrained.
-      const haze=ctx.createRadialGradient(W*.50,H*.43,Math.min(W,H)*.04,W*.50,H*.43,Math.max(W,H)*.72);
-      haze.addColorStop(0,'rgba(245,247,246,.020)');
-      haze.addColorStop(.48,'rgba(154,160,158,.016)');
+      // Very cheap broad metallic haze.
+      const haze=ctx.createRadialGradient(W*.50,H*.43,Math.min(W,H)*.05,W*.50,H*.43,Math.max(W,H)*.68);
+      haze.addColorStop(0,'rgba(240,244,242,.035)');
+      haze.addColorStop(.5,'rgba(150,158,155,.018)');
       haze.addColorStop(1,'rgba(0,0,0,0)');
       ctx.fillStyle=haze;ctx.fillRect(0,0,W,H);
 
-      // Two passes: soft dust first, then a handful of crisp shavings.
       ctx.globalCompositeOperation='screen';
-      for(let i=0;i<particles.length;i++) {
+      for(let i=0;i<particles.length;i++){
         const p=particles[i];
-        p.px=p.x; p.py=p.y;
+        p.px=p.x;p.py=p.y;
         const [vx,vy]=flow(p.x,p.y,t,p);
-        p.x+=vx*dt*26; p.y+=vy*dt*26;
-        if(p.x>W+55||p.y>H+55||p.y<-55){reset(p);}
-        if(i%3===0){
-          ctx.globalAlpha=.58; drawShard(p,t);
-        } else {
-          ctx.globalAlpha=1; drawShard(p,t);
-        }
+        p.x+=vx*dt*24;p.y+=vy*dt*24;
+        if(p.x>W+55||p.y>H+55||p.y<-55)reset(p);
+        drawShard(p,t);
       }
-      ctx.globalAlpha=1;
       ctx.globalCompositeOperation='source-over';
       raf=requestAnimationFrame(frame);
     }
 
-    const onVis=()=>{active=document.visibilityState==='visible';last=performance.now();if(!raf)raf=requestAnimationFrame(frame);};
+    const onVis=()=>{active=document.visibilityState==='visible';last=performance.now();lastDraw=0;if(!raf)raf=requestAnimationFrame(frame);};
     window.addEventListener('resize',resize,{passive:true});
     document.addEventListener('visibilitychange',onVis,{passive:true});
-    splash.addEventListener('transitionend',e=>{if(e.propertyName==='opacity'&&splash.classList.contains('is-done'))active=false},{passive:true});
-    resize(); last=performance.now(); raf=requestAnimationFrame(frame);
+    splash.addEventListener('transitionend',e=>{if(e.propertyName==='opacity'&&splash.classList.contains('is-done')){active=false;if(raf){cancelAnimationFrame(raf);raf=0;}}},{passive:true});
+    resize();last=performance.now();lastDraw=0;raf=requestAnimationFrame(frame);
   })();
 
   // Initial load: identify the account first, then run the cinematic loading sequence.
