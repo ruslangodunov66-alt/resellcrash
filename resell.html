@@ -10449,6 +10449,9 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
         <span class="ig-project-stats"><small>${careerMoney(users)} пользователей</small><strong>${money(pv)}</strong></span><em>›</em>
       </button>`;
     }).join('');
+    const typeCounts={ai:0,crypto:0,education:0,saas:0};
+    projects.forEach(p=>{if(typeCounts[p?.type]!=null) typeCounts[p.type]++;});
+    const infoMiniMap='';
 
     if(!projects.length){
       return avcShell('infobusiness','Инфобизнес','СТУДИЯ','Твои проекты и капитал.',b,`<div class="ig-home-v3">
@@ -10466,7 +10469,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
           <div class="ig-home-count"><b>УРОВЕНЬ ${level}</b><small>${esc(rank)}</small></div>
         </div>
         <div class="ig-level-card"><div class="ig-level-head"><div><small>ПРОГРЕСС НАПРАВЛЕНИЯ</small><b>Уровень ${level}</b></div><strong>${careerMoney(xp)} XP${nextXp==null?'':` · ${careerMoney(nextXp-xp)} до следующего`}</strong></div><div class="ig-level-bar"><i style="width:${levelProgress}%"></i></div><div class="ig-level-foot"><span>${projects.length}/${levelProjects} проектов открыто</span><span>${teamSlots} мест в команде</span></div></div>
-        <div class="ig-home-section"><div class="ig-home-section-head"><div><small>ТВОИ ПРОЕКТЫ</small><b>Выбери проект</b></div><button class="ig-create-mini" data-career-action="info_build_app" ${projects.length>=levelProjects?'disabled title="Сначала подними уровень"':''}>＋ Создать проект</button></div><div class="ig-projects ig-projects-v3">${projectRows}</div></div>
+        <div class="ig-home-section"><div class="ig-home-section-head"><div><small>МОИ ПРОЕКТЫ</small><b>Выбери, чем управлять</b></div><button class="ig-create-mini" data-career-action="info_build_app" ${projects.length>=levelProjects?'disabled title="Сначала подними уровень"':''}>＋ Создать проект</button></div><div class="ig-projects ig-projects-v3">${projectRows}</div></div>
         <div class="ig-company-overview">
           <div class="ig-company-total"><small>КАПИТАЛИЗАЦИЯ КОМПАНИИ</small><b>${money(totalCap)}</b><span>суммарная стоимость всех твоих проектов</span></div>
           <div class="ig-overview-metrics"><div><small>ПОЛЬЗОВАТЕЛИ</small><b>${careerMoney(totalUsers)}</b></div><div><small>ВЫРУЧКА</small><b>${money(totalRevenue)}</b></div><div><small>КАЧЕСТВО</small><b>${avgQuality}%</b></div><div><small>ПРОГНОЗ</small><b>${money(forecast)}</b></div></div>
@@ -12117,9 +12120,14 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
       let moving=false;
       trucks.forEach(t=>{
         const x1=nV(t.dataset.x1),y1=nV(t.dataset.y1),x2=nV(t.dataset.x2),y2=nV(t.dataset.y2),start=nV(t.dataset.start),arrival=Math.max(start+1,nV(t.dataset.arrival));
-        const p=clampV((now-start)/(arrival-start),0,1), x=x1+(x2-x1)*p, y=y1+(y2-y1)*p;
+        // The truck position is derived from the real server timestamps, not from
+        // a decorative CSS animation. Reloading the screen therefore keeps the
+        // truck at the correct point of its journey.
+        const elapsed=Math.max(0,now-start), duration=Math.max(1,arrival-start);
+        const p=clampV(elapsed/duration,0,1), x=x1+(x2-x1)*p, y=y1+(y2-y1)*p;
         const ang=Math.atan2(y2-y1,x2-x1)*180/Math.PI;
         t.setAttribute('transform',`translate(${x.toFixed(2)} ${y.toFixed(2)}) rotate(${ang.toFixed(2)})`);
+        t.dataset.progress=(p*100).toFixed(2);
         if(p<1) moving=true;
       });
       if(moving) requestAnimationFrame(frame);
@@ -12292,7 +12300,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
           <button class="brand-v3-close" id="bdCancel">×</button>
           <small class="brand-v3-kicker">RESSELL · ЛОГИСТИКА</small>
           <h3>Куда отправить товар?</h3>
-          <p class="brand-v3-logistics-help">Сначала выбери партию на складе, затем нажми прямо на точку магазина на карте. Машина поедет по этому маршруту. Максимальный срок — 2 часа.</p>
+          <p class="brand-v3-logistics-help">Сначала выбери партию на складе, затем нажми прямо на точку магазина на карте. Машина поедет по этому маршруту. Максимальный срок — 7 часов.</p>
           <div class="brand-v3-logistics-parties" id="bdParties"></div>
           <label class="brand-v3-logistics-country">СТРАНА<select id="bdCountry" class="brand-v3-input">${brandCountryOptions(selectedCountry)}</select></label>
           <div class="brand-v3-logistics-worldmap" id="bdMap"></div>
@@ -12321,7 +12329,11 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
         let route='';
         if(selectedStore){
           const z=mapPos(selectedStore.city); const x1=fp.left/100*720,y1=fp.top/100*225,x2=z.left/100*720,y2=z.top/100*225; const d=`M ${x1.toFixed(1)} ${y1.toFixed(1)} L ${x2.toFixed(1)} ${y2.toFixed(1)}`;
-          route=`<svg class="brand-v3-log-world-routes" viewBox="0 0 720 225" preserveAspectRatio="none"><path d="${d}" class="brand-v3-log-route-line"/></svg>`;
+          const liveOrders=(Array.isArray(brandState()?.logistics_orders)?brandState().logistics_orders:[]).filter(o=>String(o.status)==='in_transit'&&String(o.store_city||'')===String(selectedStore.city||'')&&String(o.factory_city||'')===String(src));
+          const live=liveOrders[0];
+          const progress=live?clampV((Date.now()/1000-nV(live.started_at))/(Math.max(1,nV(live.arrival_at)-nV(live.started_at))),0,1):0;
+          const tx=x1+(x2-x1)*progress, ty=y1+(y2-y1)*progress, angle=Math.atan2(y2-y1,x2-x1)*180/Math.PI;
+          route=`<svg class="brand-v3-log-world-routes" viewBox="0 0 720 225" preserveAspectRatio="none"><path d="${d}" class="brand-v3-log-route-line"/>${live?`<g class="brand-v3-log-moving-truck" transform="translate(${tx.toFixed(2)} ${ty.toFixed(2)}) rotate(${angle.toFixed(2)})"><rect x="-11" y="-5" width="21" height="9" rx="2"/><rect x="6" y="-3.5" width="9" height="7" rx="1"/><circle cx="-5" cy="5" r="1.8"/><circle cx="9" cy="5" r="1.8"/></g>`:''}</svg>`;
         }
         $('#bdMap',modal).innerHTML=`<div class="brand-v3-log-world-head"><span>МИРОВАЯ СЕТЬ</span><b>${escV(src)} → ${selectedStore?escV(selectedStore.city):'выбери магазин'}</b></div><div class="brand-v3-log-world-canvas"><img src="https://upload.wikimedia.org/wikipedia/commons/8/8b/Blank_map_of_the_world.svg" alt="Карта мира" loading="lazy"><div class="brand-v3-log-factory-pin" style="left:${fp.left}%;top:${fp.top}%"><i>🏭</i></div>${route}${storesHtml}<div class="brand-v3-log-world-legend"><span><i class="store"></i> магазин</span><span><i class="factory"></i> производство</span></div></div>`;
         $$('[data-log-store]',modal).forEach(btn=>btn.onclick=()=>{selectedStore=stores.find(x=>String(x.id)===String(btn.dataset.logStore))||null;renderMap();renderTotals()});
@@ -12333,10 +12345,12 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
         const activeOrders=(Array.isArray(brandState().logistics_orders)?brandState().logistics_orders:[]).filter(x=>String(x.status)==='in_transit').length;
         if(!selectedStore){$('#bdSelected',modal).textContent='Нажми на точку магазина на карте';$('#bdTotals',modal).innerHTML='';$('#bdConfirm',modal).disabled=true;return;}
         const fc=cityCoords[selectedWh.factory_city]||[0,0], sc=cityCoords[selectedStore.city]||[0,0];
-        const dist=Math.hypot(fc[0]-sc[0],fc[1]-sc[1]);
+        const geoKm=(a,b)=>{const r=Math.PI/180,lat1=Number(a[0]||0)*r,lat2=Number(b[0]||0)*r,dLat=(Number(b[0]||0)-Number(a[0]||0))*r,dLon=(Number(b[1]||0)-Number(a[1]||0))*r;const h=Math.sin(dLat/2)**2+Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;return 6371*2*Math.asin(Math.sqrt(Math.max(0,Math.min(1,h))))};
+        const dist=geoKm(fc,sc);
         const qty=syncQty();
-        const ship=Math.max(1000,Math.round((2500+dist*85+qty*8)*nV(lg.shipping_modifier,1)));
-        const hours=Math.max(.10,Math.min(2,0.18+dist/180+qty/18000));
+        const ship=Math.max(1000,Math.round((2500+Math.hypot(Number(fc[0]||0)-Number(sc[0]||0),Number(fc[1]||0)-Number(sc[1]||0))*85+qty*8)*nV(lg.shipping_modifier,1)));
+        const routeMinutes=Math.max(2,Math.min(420,Math.round(2+(dist/40)+Math.min(10,qty/1200))));
+        const hours=Math.min(7,routeMinutes/60);
         $('#bdSelected',modal).innerHTML=`<b>${cityFlags[selectedStore.city]||''} ${escV(selectedStore.city)}</b><span>После прибытия товар автоматически поступит в магазин.</span>`;
         $('#bdTotals',modal).innerHTML=`<div><small>ПАРТИЯ</small><b>${careerMoney(qty)} шт.</b></div><div><small>ДОСТАВКА</small><b>${moneyV(ship)}</b></div><div><small>В ПУТИ</small><b>${hours<1?Math.max(6,Math.round(hours*60))+' мин.':hours.toFixed(1)+' ч.'}</b></div><div><small>СВОБОДНО</small><b>${careerMoney(max)} шт.</b></div>`;
         const balanceNow=nV(window.__resellAvitoState?.balance,0);
@@ -12399,7 +12413,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     if(!active.length) return `<div class="brand-v3-route-empty"><span>ЛОГИСТИКА</span><b>Маршрутов в пути пока нет</b><small>Выбери до 5 магазинов — здесь появится живой маршрут с грузовиком бренда.</small></div>`;
     const pt=(city)=>{const c=cityCoords[String(city)]||[0,0];return {x:clampV((c[1]+180)/360*680+20,24,696),y:clampV((90-c[0])/180*270+35,35,305)}};
     const routes=active.map((o,i)=>{const a=pt(o.factory_city),z=pt(o.store_city),mx=(a.x+z.x)/2,my=(a.y+z.y)/2-24-Math.min(30,i*4),d=`M ${a.x} ${a.y} Q ${mx} ${my} ${z.x} ${z.y}`;return `<g class="brand-route-line"><path class="route-glow" d="${d}"/><path class="route-dash" d="${d}"/><text x="${a.x}" y="${a.y-11}" text-anchor="middle">🏭</text><text x="${z.x}" y="${z.y+18}" text-anchor="middle">${escV(o.store_city||'')}</text><g class="truck-symbol"><g><rect x="-12" y="-6" width="24" height="11" rx="2"/><rect x="6" y="-4" width="9" height="8" rx="1"/><circle cx="-6" cy="6" r="2"/><circle cx="9" cy="6" r="2"/><text x="0" y="2" text-anchor="middle" class="truck-brand-label">${escV(String(brandName||'BRAND').slice(0,10))}</text><animateMotion dur="5.8s" repeatCount="indefinite" rotate="auto" calcMode="paced" path="${d}"/></g></g><title>${escV(brandName||'BRAND')} · ${escV(o.store_city||'')}</title></g>`}).join('');
-    return `<div class="brand-v3-route-map"><div class="brand-v3-route-head"><div><small>LIVE SUPPLY CHAIN</small><b>${active.length} маршрут${active.length===1?'':'а'} · ${escV(brandName||'BRAND')}</b></div><span>машины движутся по маршруту · максимум 3 часа</span></div><svg viewBox="0 0 720 340" preserveAspectRatio="none"><rect width="720" height="340" rx="18" fill="#f6f8f5"/><g fill="none" stroke="#d8e0d9" stroke-width="1"><path d="M20 85H700M20 170H700M20 255H700M164 20V320M308 20V320M452 20V320M596 20V320" stroke-dasharray="3 8"/></g>${routes}</svg></div>`;
+    return `<div class="brand-v3-route-map"><div class="brand-v3-route-head"><div><small>LIVE SUPPLY CHAIN</small><b>${active.length} маршрут${active.length===1?'':'а'} · ${escV(brandName||'BRAND')}</b></div><span>машины движутся по маршруту · максимум 7 часов</span></div><svg viewBox="0 0 720 340" preserveAspectRatio="none"><rect width="720" height="340" rx="18" fill="#f6f8f5"/><g fill="none" stroke="#d8e0d9" stroke-width="1"><path d="M20 85H700M20 170H700M20 255H700M164 20V320M308 20V320M452 20V320M596 20V320" stroke-dasharray="3 8"/></g>${routes}</svg></div>`;
   }
 
   function saveBrandMapCache(st){
@@ -12528,6 +12542,70 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 
 <style id="brand-v4-ad-overrides">
 .brand-v4-ad-list{display:grid;gap:7px;margin:12px 0}.brand-v4-ad-list button{display:grid;grid-template-columns:34px 1fr auto;align-items:center;gap:9px;text-align:left;padding:10px;border:1px solid #e0e5df;border-radius:13px;background:#fff;color:#202622}.brand-v4-ad-list button.active{border-color:#202722;background:#f5f7f4}.brand-v4-ad-list button:disabled{opacity:.55}.brand-v4-ad-list>button>span{width:30px;height:30px;display:grid;place-items:center;border-radius:9px;background:#f0f3ef;font:900 8px/1 Montserrat,sans-serif}.brand-v4-ad-list b{display:block;font:950 11px/1.1 Montserrat,sans-serif}.brand-v4-ad-list small{display:block;margin-top:3px;color:#87908a;font:800 8px/1.2 Nunito,sans-serif}.brand-v4-ad-list strong{font:900 7px/1 Montserrat,sans-serif;white-space:nowrap}.brand-v4-model-mini{cursor:pointer;width:100%;text-align:left}.brand-v4-edit-hint{display:block!important;margin-top:5px;color:#6d8270!important;font-weight:900!important}
+</style>
+
+<style id="resell-ui-final-20261004-v2">
+/* FINAL PASS: no Info Business map; projects stay in viewport; Brand logistics map/trucks stay centered. */
+.career-new.infobusiness{width:100%!important;max-width:100%!important;min-width:0!important;overflow-x:hidden!important;padding-left:8px!important;padding-right:8px!important;box-sizing:border-box!important}
+.career-new.infobusiness .ig-home-v3,
+.career-new.infobusiness .ig-home-section,
+.career-new.infobusiness .ig-projects-v3{width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important;margin-left:0!important;margin-right:0!important}
+.career-new.infobusiness .ig-home-section{overflow:hidden!important;padding:12px!important}
+.career-new.infobusiness .ig-home-section-head{min-width:0!important;flex-wrap:wrap!important}
+.career-new.infobusiness .ig-home-section-head>div{min-width:0!important;flex:1 1 150px!important}
+.career-new.infobusiness .ig-create-mini{flex:0 1 auto!important;max-width:100%!important;white-space:nowrap!important}
+.career-new.infobusiness .ig-projects-v3{display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:7px!important;overflow:hidden!important}
+.career-new.infobusiness .ig-project-v2{
+  display:grid!important;grid-template-columns:14px 34px minmax(0,1fr) minmax(68px,auto) 16px!important;
+  width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important;
+  margin:0!important;padding:9px 8px!important;gap:7px!important;overflow:hidden!important;
+}
+.career-new.infobusiness .ig-project-v2>*{min-width:0!important;box-sizing:border-box!important}
+.career-new.infobusiness .ig-project-v2 .ig-project-main{width:auto!important;min-width:0!important;overflow:hidden!important}
+.career-new.infobusiness .ig-project-v2 .ig-project-main b,
+.career-new.infobusiness .ig-project-v2 .ig-project-main small,
+.career-new.infobusiness .ig-project-v2 .ig-project-stats small,
+.career-new.infobusiness .ig-project-v2 .ig-project-stats strong{display:block!important;max-width:100%!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
+.career-new.infobusiness .ig-project-v2 .ig-project-stats{width:auto!important;min-width:0!important;max-width:92px!important;overflow:hidden!important;text-align:right!important}
+.career-new.infobusiness .ig-project-v2>em{width:16px!important;min-width:16px!important;justify-self:end!important;text-align:center!important}
+/* The Info Business home never needs the removed map, including legacy markup. */
+.career-new.infobusiness .ig-mini-map-v2{display:none!important}
+@media(max-width:430px){
+  .career-new.infobusiness .ig-project-v2{grid-template-columns:14px 32px minmax(0,1fr) 16px!important;padding:8px 7px!important;gap:6px!important}
+  .career-new.infobusiness .ig-project-v2 .ig-project-stats{display:none!important}
+}
+
+/* BRAND: the world map is one fixed-width canvas; image, routes, pins and moving trucks share it. */
+.career-new.brand .brand-v4-page,
+.career-new.brand .brand-v4-world,
+.career-new.brand .brand-v4-world-head,
+.career-new.brand .brand-v4-map{width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important;margin-left:0!important;margin-right:0!important}
+.career-new.brand .brand-v4-world{overflow:hidden!important}
+.career-new.brand .brand-v4-map{
+  position:relative!important;left:auto!important;right:auto!important;transform:none!important;
+  display:block!important;width:100%!important;height:225px!important;min-height:225px!important;
+  max-height:225px!important;aspect-ratio:auto!important;overflow:hidden!important;
+}
+.career-new.brand .brand-v4-map>img{
+  position:absolute!important;inset:0!important;display:block!important;
+  width:100%!important;height:100%!important;max-width:none!important;margin:0!important;
+  object-fit:fill!important;object-position:center!important;transform:none!important;
+}
+.career-new.brand .brand-v4-map-routes{
+  position:absolute!important;inset:0!important;width:100%!important;height:100%!important;
+  max-width:none!important;margin:0!important;transform:none!important;overflow:hidden!important;
+}
+.career-new.brand .brand-v4-live-route{vector-effect:non-scaling-stroke!important}
+.career-new.brand .brand-v4-live-truck{vector-effect:non-scaling-stroke!important;transform-box:fill-box!important;transform-origin:center!important}
+.career-new.brand .brand-v4-map-pin{box-sizing:border-box!important}
+.career-new.brand .brand-v4-map-legend{max-width:calc(100% - 16px)!important;overflow:hidden!important}
+.career-new.brand .brand-v4-map-foot{width:100%!important;min-width:0!important;box-sizing:border-box!important;flex-wrap:wrap!important}
+.career-new.brand .brand-v4-map-foot span{min-width:0!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
+@media(max-width:430px){
+  .career-new.brand .brand-v4-map{height:205px!important;min-height:205px!important;max-height:205px!important}
+  .career-new.brand .brand-v4-map-foot{display:grid!important;grid-template-columns:1fr 1fr!important;gap:5px!important}
+  .career-new.brand .brand-v4-map-foot span:last-child{grid-column:1/-1!important}
+}
 </style>
 </body>
 
@@ -16332,11 +16410,112 @@ main.app{
 @media(max-width:430px){.brand-v3-logistics-summary{grid-template-columns:repeat(2,1fr)}.brand-v3-truck-status{flex-wrap:wrap}.brand-v3-truck-status button{margin-left:0;width:100%}}
 </style>
 
-<style id="brand-v5-geo-logistics">.brand-v3-logistics-country{display:block;margin:7px 0}.brand-v3-logistics-country>select{margin-top:5px}.brand-v4-map-routes,.brand-v3-log-world-routes{overflow:visible}.brand-v4-live-truck,.brand-v3-log-moving-truck{transform-box:fill-box;transform-origin:center;will-change:transform}.brand-v4-map{aspect-ratio:720/225!important}.brand-v3-log-world-canvas{aspect-ratio:720/225!important}.brand-v3-log-world-canvas>img{object-fit:fill!important;object-position:center!important}.brand-v3-log-world-pin{cursor:pointer}.brand-v3-log-world-pin.active{z-index:8}</style>
+<style id="brand-v5-geo-logistics">.brand-v3-logistics-country{display:block;margin:7px 0}.brand-v3-logistics-country>select{margin-top:5px}.brand-v4-map-routes,.brand-v3-log-world-routes{overflow:visible}.brand-v4-live-truck,.brand-v3-log-moving-truck{transform-box:fill-box;transform-origin:center;will-change:transform}
+.brand-v3-log-moving-truck{fill:#202722;stroke:#fff;stroke-width:1.2;filter:drop-shadow(0 2px 3px rgba(0,0,0,.18))}.brand-v4-map{aspect-ratio:720/225!important}.brand-v3-log-world-canvas{aspect-ratio:720/225!important}.brand-v3-log-world-canvas>img{object-fit:fill!important;object-position:center!important}.brand-v3-log-world-pin{cursor:pointer}.brand-v3-log-world-pin.active{z-index:8}</style>
 
 <style id="brand-v24-stability">
 .brand-v4-map,.brand-v3-log-world-canvas{aspect-ratio:720/225!important;height:auto!important;min-height:225px!important}
 .brand-v4-map img,.brand-v3-log-world-canvas>img{object-fit:fill!important;object-position:center!important}
 .brand-v5-next{padding:13px 14px;border:1px solid #d8e4d8;border-radius:16px;background:linear-gradient(145deg,#f2f8f1,#fff);display:grid;gap:4px}.brand-v5-next small{font:900 6px/1 Montserrat;color:#7e8b81;letter-spacing:.12em}.brand-v5-next b{font:950 13px/1.1 Montserrat;color:#243128}.brand-v5-next span{font:750 7px/1.35 Nunito;color:#77837a}.brand-v5-actions{grid-template-columns:1fr!important;gap:6px!important}.brand-v5-actions>button{min-height:58px!important}.brand-v5-actions>button span{width:30px!important;height:30px!important;display:grid;place-items:center}.brand-v5-marketing{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border:1px solid #e0e6df;border-radius:13px;background:#fff;color:#334139;text-align:left}.brand-v5-marketing b{font:950 8px/1 Montserrat}.brand-v5-marketing span{font:750 6.5px/1.2 Nunito;color:#8a938d;flex:1}.brand-v5-marketing em{font:950 10px/1 Montserrat;color:#87938a;font-style:normal}.brand-v4-market-fit{display:flex!important;align-items:center;gap:6px;margin-top:6px!important;padding:5px 7px;border-radius:8px;background:#eef6ee;width:max-content}.brand-v4-market-fit b{font:950 7px/1 Montserrat!important;color:#41694b!important}.brand-v4-market-fit span{font:750 6px/1 Nunito!important;color:#6f7c73!important}.brand-v4-warehouse-card{grid-template-columns:84px minmax(0,1fr) 92px!important}.brand-v4-warehouse-thumb{width:84px!important;height:70px!important}.brand-v4-warehouse-thumb .brand-blueprint-sheet-v4{height:70px!important}.brand-v4-warehouse-send{min-height:36px!important;font-size:6.5px!important;padding:0 9px!important}
 @media(max-width:430px){.brand-v4-warehouse-card{grid-template-columns:72px minmax(0,1fr)!important}.brand-v4-warehouse-thumb{width:72px!important;height:62px!important}.brand-v4-warehouse-thumb .brand-blueprint-sheet-v4{height:62px!important}.brand-v4-warehouse-send{grid-column:1/-1;width:100%!important}.brand-v5-next b{font-size:12px}}
+</style>
+
+<style id="resell-ui-final-20261004">
+/* ==================== FINAL CAREER UI / LAYOUT FIX ==================== */
+.career-new.infobusiness,
+.career-new.brand,
+.career-new.investments{
+  width:100%!important;max-width:100%!important;min-width:0!important;
+  overflow-x:hidden!important;margin-left:0!important;margin-right:0!important;
+  box-sizing:border-box!important;
+}
+.career-new.infobusiness > *,
+.career-new.brand > *,
+.career-new.investments > *{min-width:0!important;max-width:100%!important;}
+
+/* INFOBUSINESS — project rows are kept inside the viewport. */
+.career-new.infobusiness .ig-projects-v3{display:grid!important;gap:7px!important;width:100%!important;min-width:0!important;}
+.career-new.infobusiness .ig-project-v2{
+  display:grid!important;width:100%!important;min-width:0!important;max-width:100%!important;
+  grid-template-columns:14px 34px minmax(0,1fr) minmax(72px,auto) 18px!important;
+  align-items:center!important;gap:8px!important;margin:0!important;padding:9px 10px!important;overflow:hidden!important;
+}
+.career-new.infobusiness .ig-project-v2 .ig-project-main{min-width:0!important;width:auto!important;flex:none!important;overflow:hidden!important;}
+.career-new.infobusiness .ig-project-v2 .ig-project-main b,
+.career-new.infobusiness .ig-project-v2 .ig-project-main small,
+.career-new.infobusiness .ig-project-v2 .ig-project-stats small,
+.career-new.infobusiness .ig-project-v2 .ig-project-stats strong{max-width:100%!important;overflow:hidden!important;text-overflow:ellipsis!important;}
+.career-new.infobusiness .ig-project-v2 .ig-project-stats{min-width:0!important;max-width:105px!important;overflow:hidden!important;text-align:right!important;}
+.career-new.infobusiness .ig-project-v2>em{width:18px!important;min-width:18px!important;justify-self:end!important;text-align:center!important;}
+.career-new.infobusiness .ig-home-section,
+.career-new.infobusiness .ig-level-card,
+.career-new.infobusiness .ig-home-top,
+.career-new.infobusiness .ig-company-overview{width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important;}
+.career-new.infobusiness .ig-company-overview{display:none!important;}
+.career-new.infobusiness .ig-empty-company{display:none!important;}
+.career-new.infobusiness .ig-mini-map-v2{width:100%!important;min-width:0!important;max-width:100%!important;min-height:118px!important;height:118px!important;margin-top:0!important;padding:7px!important;border-radius:14px!important;overflow:hidden!important;}
+.career-new.infobusiness .ig-mini-map-v2 .cn-map-grid{gap:5px!important;}
+.career-new.infobusiness .ig-mini-map-v2 .cn-region{padding:7px!important;border-radius:9px!important;}
+.career-new.infobusiness .ig-mini-map-v2 .cn-region b{font-size:6px!important;}
+.career-new.infobusiness .ig-mini-map-v2 .cn-region span{font-size:5.7px!important;margin-top:3px!important;}
+@media(max-width:430px){
+  .career-new.infobusiness .ig-project-v2{grid-template-columns:14px 32px minmax(0,1fr) 18px!important;padding:8px!important;gap:7px!important;}
+  .career-new.infobusiness .ig-project-v2 .ig-project-stats{display:none!important;}
+}
+
+/* BRAND — map, routes and moving trucks stay inside the same width. */
+.career-new.brand .brand-v4-page,
+.career-new.brand .brand-light-v2,
+.career-new.brand .brand-v4-world,
+.career-new.brand .brand-v4-world-head,
+.career-new.brand .brand-v4-map,
+.career-new.brand .brand-v3-mini-map,
+.career-new.brand .brand-v3-logistics-world,
+.career-new.brand .brand-v3-log-world-canvas{width:100%!important;max-width:100%!important;min-width:0!important;margin-left:0!important;margin-right:0!important;box-sizing:border-box!important;}
+.career-new.brand .brand-v4-map,
+.career-new.brand .brand-v3-log-world-canvas{position:relative!important;left:0!important;right:0!important;transform:none!important;overflow:hidden!important;aspect-ratio:720/225!important;height:auto!important;min-height:0!important;}
+.career-new.brand .brand-v4-map>img,
+.career-new.brand .brand-v3-log-world-canvas>img{position:absolute!important;inset:0!important;left:0!important;right:0!important;top:0!important;bottom:0!important;display:block!important;width:100%!important;max-width:none!important;height:100%!important;margin:0!important;transform:none!important;object-fit:fill!important;object-position:center!important;}
+.career-new.brand .brand-v4-map-routes,
+.career-new.brand .brand-v4-map-routes svg,
+.career-new.brand .brand-v3-log-world-routes{position:absolute!important;inset:0!important;width:100%!important;max-width:none!important;height:100%!important;margin:0!important;transform:none!important;}
+.career-new.brand .brand-v4-map-pin,
+.career-new.brand .brand-v3-log-world-pin,
+.career-new.brand .brand-v3-log-factory-pin{box-sizing:border-box!important;}
+
+/* BRAND HOME — remove duplicated/informational blocks, keep every action. */
+.career-new.brand .brand-v5-next,
+.career-new.brand .brand-v4-model-mini,
+.career-new.brand .brand-v4-sales-guide,
+.career-new.brand .brand-v4-footer{display:none!important;}
+.career-new.brand .brand-v4-head span{display:none!important;}
+.career-new.brand .brand-v4-head,
+.career-new.brand .brand-v4-income,
+.career-new.brand .brand-v4-kpis,
+.career-new.brand .brand-v4-actions,
+.career-new.brand .brand-v5-marketing,
+.career-new.brand .brand-v4-warehouse{width:100%!important;max-width:100%!important;min-width:0!important;}
+.career-new.brand .brand-v4-actions{gap:6px!important;}
+.career-new.brand .brand-v4-actions button{min-width:0!important;width:100%!important;}
+.career-new.brand .brand-v4-kpis{gap:5px!important;}
+.career-new.brand .brand-v4-kpis>div{min-width:0!important;overflow:hidden!important;}
+
+/* INVESTMENTS — reduce copy/summary chrome; actions and data remain intact. */
+.career-new.investments .career-unified-page{width:100%!important;max-width:100%!important;min-width:0!important;padding-left:0!important;padding-right:0!important;}
+.career-new.investments .cn-title p,
+.career-new.investments .career-feedback{display:none!important;}
+.career-new.investments .career-unified-head>div{min-width:0!important;}
+.career-new.investments .career-unified-section,
+.career-new.investments .career-unified-capital,
+.career-new.investments .career-unified-progress,
+.career-new.investments .career-unified-stats,
+.career-new.investments .career-action-grid,
+.career-new.investments .career-unified-company,
+.career-new.investments .career-unified-row{max-width:100%!important;min-width:0!important;}
+.career-new.investments .career-unified-company-head>div,
+.career-new.investments .career-unified-row>div{min-width:0!important;}
+.career-new.investments .career-unified-company-head small,
+.career-new.investments .career-unified-money small{font-size:6px!important;}
+.career-new.investments .career-unified-deal{min-width:0!important;overflow:hidden!important;}
+@media(max-width:430px){.career-new.investments{padding-left:8px!important;padding-right:8px!important;}.career-new.investments .career-unified-stats{grid-template-columns:repeat(2,1fr)!important;}}
 </style>
