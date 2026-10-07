@@ -3187,6 +3187,8 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
   let adminState = {players:[], selected:null};
   // Shared launch state for finishLaunch() and the bootstrap sequence.
   let bootData = null;
+  // Auth failures are never a first-run/registration state.
+  let launchAuthFailed = false;
 
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => [...document.querySelectorAll(s)];
@@ -3359,8 +3361,44 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     });
   }
 
+  function showLaunchAuthError(){
+    const splash=$('#bootSplash');
+    if(splash){
+      splash.classList.remove('is-done');
+      splash.setAttribute('aria-hidden','false');
+    }
+    document.body.classList.add('resell-booting');
+    setBootState('ОШИБКА АВТОРИЗАЦИИ',100);
+    const state=$('#bootStateText');
+    if(state) state.innerHTML='ОШИБКА АВТОРИЗАЦИИ';
+    const meta=$('#bootMeta');
+    if(meta) meta.textContent='TELEGRAM SESSION / RETRY';
+    let btn=document.getElementById('launchAuthRetryBtn');
+    if(!btn && splash){
+      btn=document.createElement('button');
+      btn.id='launchAuthRetryBtn';
+      btn.type='button';
+      btn.textContent='ПОВТОРИТЬ АВТОРИЗАЦИЮ';
+      btn.style.cssText='display:block;margin:22px auto 0;padding:13px 20px;border:1px solid rgba(255,255,255,.18);border-radius:14px;background:#fff;color:#111;font:700 13px system-ui;cursor:pointer;';
+      const host=splash.querySelector('.boot-content,.boot-inner,.boot-shell')||splash;
+      host.appendChild(btn);
+    }
+    if(btn){
+      btn.onclick=()=>{
+        try{tg?.ready?.();tg?.expand?.();}catch(_){}
+        try{sessionStorage.removeItem('resell_auth_session');sessionStorage.removeItem('resell_launch_auth');}catch(_){}
+        window.location.reload();
+      };
+    }
+  }
+
   async function finishLaunch({firstRun=false}={}){
     if(launchFinished) return;
+    if(launchAuthFailed){
+      launchSequenceActive=false;
+      showLaunchAuthError();
+      return;
+    }
     setBootState('ГОТОВО',100);
     await new Promise(r=>setTimeout(r,360));
     const splash=$('#bootSplash');
@@ -3368,10 +3406,13 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     document.body.classList.remove('resell-booting');
     launchSequenceActive=false; launchFinished=true;
     await new Promise(r=>setTimeout(r,260));
-    if(firstRun || (!bootData && userId)){
+    // Registration is allowed ONLY after a successful authenticated profile
+    // response explicitly says that registration is required. Never infer it
+    // from missing bootData.
+    if(firstRun && bootData){
       if(!registrationRequired) openRegistration();
     } else if(userId){
-      // Новичковое обучение отключено: при повторном входе обучение автоматически не запускается.
+      // Новичковое обучение отключено.
     }
   }
 
@@ -3812,7 +3853,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     if(!raw)throw Object.assign(new Error('Telegram-сессия ещё не готова'),{status:401,authBootstrap:true});
     resellAuthBootstrapPromise=(async()=>{
       try{
-        const r=await fetch(`${API_BASE}/auth/resell/session`,{method:'POST',cache:'no-store',credentials:'omit',headers:{'Content-Type':'application/json','Accept':'application/json','X-Telegram-Init-Data':raw,'Authorization':'tma '+raw},body:'{}'});
+        const r=await fetch(`${API_BASE}/auth/resell/session`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'application/json','X-Telegram-Init-Data':raw,'Authorization':'tma '+raw},body:'{}'});
         const d=await r.json().catch(()=>({}));
         if(!r.ok||!d?.success||!d?.session){const e=new Error(d?.error||'Telegram-сессия не подтверждена');e.status=r.status||401;e.authBootstrap=true;throw e;}
         const token=String(d.session),uid=resellSessionUserId(token);
@@ -4026,8 +4067,9 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     }
     console.warn('Profile load failed:',lastError);
     if(profileData){setBalance(primaryBalance(profileData));statusText.textContent='Офлайн · показаны последние данные';return profileData;}
-    const authFailed=Number(lastError?.status||0)===401;
-    statusText.textContent=authFailed?'Нужно подтвердить Telegram':'Сервер временно недоступен';
+    const authFailed=Number(lastError?.status||0)===401 || /telegram_auth|auth_mismatch|unauthorized|недействительн/i.test(String(lastError?.message||''));
+    if(authFailed) launchAuthFailed=true;
+    statusText.textContent=authFailed?'ОШИБКА АВТОРИЗАЦИИ':'Сервер временно недоступен';
     $('.status-dot').style.background='#777';
     if(!authFailed) showToast('Сервер RESSELL временно не отвечает. Попробуй обновить через несколько секунд.');
     return null;
@@ -7883,7 +7925,7 @@ async function initFarm(){
     // By this point Telegram identity/profile bootstrap is complete. Re-read the
     // equipped R-HOLD skin now, even if initFarm ran earlier before userId existed.
     try{ restoreRholdSkinLocalV19(); await loadRholdSkinV19(); }catch(_){ }
-    if(!bootData){
+    if(!bootData && !launchAuthFailed){
       setBootWelcome({identified:false});
       setBootState('НЕ УДАЛОСЬ ОПРЕДЕЛИТЬ СЕССИЮ',10);
       await new Promise(r=>setTimeout(r,280));
@@ -7904,7 +7946,7 @@ async function initFarm(){
     const sequence=runLaunchSequence();
     await sequence;
     // Make sure slow endpoints do not keep a player behind the splash forever.
-    if(!bootData){ setBootState('ВОССТАНАВЛИВАЕМ СЕССИЮ',96); await new Promise(r=>setTimeout(r,260)); }
+    if(!bootData && !launchAuthFailed){ setBootState('ВОССТАНАВЛИВАЕМ СЕССИЮ',96); await new Promise(r=>setTimeout(r,260)); }
     const firstRun=Boolean(bootData && (bootData.registration_complete===false || bootData.registration_required===true));
     if(firstRun) registrationRequired=false;
     await finishLaunch({firstRun});
