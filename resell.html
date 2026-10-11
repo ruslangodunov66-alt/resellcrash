@@ -3879,12 +3879,78 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     finally{ telegramIdentityPromise=null; }
   }
 
-  // RELEASE AUTH: seamless bootstrap. The browser sends Telegram's exact signed
-  // initData once; the server validates it and returns a RESSELL HMAC session.
-  // No /start, no profile confirmation, no deep-link handoff.
+  // RESSELL auth first validates Telegram initData directly. If Telegram signs
+  // this Mini App for another bot owner/context, fall back to the server-issued
+  // one-time challenge. The bot confirms the challenge using message.from_user.id;
+  // the browser never gets to choose or assert the authenticated Telegram ID.
   let resellAuthBootstrapPromise=null;
+  const RESELL_AUTH_PENDING_KEY='resell_auth_challenge_v1';
   function signedUserIdFromInit(raw){
     try{const q=new URLSearchParams(String(raw||''));const u=JSON.parse(q.get('user')||'{}');const id=String(u?.id||'').trim();return /^\d+$/.test(id)?id:'';}catch(_){return '';}
+  }
+  function readPendingResellAuth(){
+    try{
+      const raw=localStorage.getItem(RESELL_AUTH_PENDING_KEY)||'';
+      const item=raw?JSON.parse(raw):null;
+      if(item&&item.nonce&&item.browser_key&&Number(item.expires_at)>Date.now())return item;
+      localStorage.removeItem(RESELL_AUTH_PENDING_KEY);
+    }catch(_){}
+    return null;
+  }
+  function savePendingResellAuth(item){
+    try{localStorage.setItem(RESELL_AUTH_PENDING_KEY,JSON.stringify(item));}catch(_){}
+  }
+  async function bootstrapViaTelegramChallenge(wanted){
+    let pending=readPendingResellAuth();
+    if(!pending){
+      const cr=await fetch(`${API_BASE}/auth/resell/challenge`,{method:'GET',cache:'no-store',headers:{'Accept':'application/json'}});
+      const cd=await cr.json().catch(()=>({}));
+      if(!cr.ok||!cd?.success||!cd?.nonce||!cd?.browser_key||!cd?.bot_url){
+        throw Object.assign(new Error('Не удалось создать безопасный запрос входа в Telegram'),{status:cr.status||401,authBootstrap:true});
+      }
+      pending={nonce:String(cd.nonce),browser_key:String(cd.browser_key),bot_url:String(cd.bot_url),expires_at:Date.now()+Math.max(1000,Number(cd.expires_in||300))*1000,opened:false};
+      savePendingResellAuth(pending);
+    }
+    // Open the bot only once for this challenge. If Telegram closes/reloads
+    // the Mini App, the pending nonce remains and polling resumes on return.
+    if(!pending.opened){
+      pending.opened=true;
+      savePendingResellAuth(pending);
+      let opened=false;
+      try{
+        if(typeof tg?.openTelegramLink==='function'){tg.openTelegramLink(pending.bot_url);opened=true;}
+      }catch(_){}
+      if(!opened){
+        try{opened=!!window.open(pending.bot_url,'_blank');}catch(_){}
+      }
+      if(!opened){
+        pending.opened=false;
+        savePendingResellAuth(pending);
+        throw Object.assign(new Error('Не удалось открыть Telegram для подтверждения входа. Открой RESSELL ещё раз и повтори попытку.'),{status:401,authBootstrap:true});
+      }
+    }
+    while(Date.now()<Number(pending.expires_at)){
+      const pollUrl=`${API_BASE}/auth/resell/poll/${encodeURIComponent(pending.nonce)}?browser_key=${encodeURIComponent(pending.browser_key)}`;
+      const pr=await fetch(pollUrl,{method:'GET',cache:'no-store',headers:{'Accept':'application/json'}});
+      const pd=await pr.json().catch(()=>({}));
+      if(pr.ok&&pd?.success&&pd.status==='ready'&&pd.session){
+        const token=String(pd.session),uid=resellSessionUserId(token),returnedUid=String(pd.tg_id||'');
+        if(!uid||!returnedUid||uid!==returnedUid||(wanted&&uid!==wanted)){
+          try{localStorage.removeItem(RESELL_AUTH_PENDING_KEY);}catch(_){}
+          throw Object.assign(new Error('Telegram ID не совпадает с аккаунтом RESSELL'),{status:401,authBootstrap:true});
+        }
+        try{localStorage.removeItem(RESELL_AUTH_PENDING_KEY);}catch(_){}
+        setStoredResellSession(token);userId=uid;telegramUserId=uid;isOwner=String(userId)===ADMIN_OWNER_ID;
+        return token;
+      }
+      if(!pr.ok&&pd?.status&&pd.status!=='pending'){
+        try{localStorage.removeItem(RESELL_AUTH_PENDING_KEY);}catch(_){}
+        throw Object.assign(new Error('Запрос безопасного входа истёк. Открой RESSELL заново.'),{status:401,authBootstrap:true});
+      }
+      await new Promise(r=>setTimeout(r,1200));
+    }
+    try{localStorage.removeItem(RESELL_AUTH_PENDING_KEY);}catch(_){}
+    throw Object.assign(new Error('Время подтверждения входа истекло. Открой RESSELL заново.'),{status:401,authBootstrap:true});
   }
   async function ensureResellServerSession(initData='',tgUid=''){
     const existing=getStoredResellSession();
@@ -3893,15 +3959,21 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     if(existing&&existingUid&&wanted&&existingUid===wanted)return existing;
     if(resellAuthBootstrapPromise)return resellAuthBootstrapPromise;
     const raw=String(initData||'').trim();
-    if(!raw)throw Object.assign(new Error('Telegram-сессия ещё не готова'),{status:401,authBootstrap:true});
+    if(!raw){
+      resellAuthBootstrapPromise=(async()=>{try{return await bootstrapViaTelegramChallenge(wanted);}finally{resellAuthBootstrapPromise=null;}})();
+      return resellAuthBootstrapPromise;
+    }
     resellAuthBootstrapPromise=(async()=>{
       try{
         const r=await fetch(`${API_BASE}/auth/resell/session`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'application/json','X-Telegram-Init-Data':raw,'Authorization':'tma '+raw},body:'{}'});
         const d=await r.json().catch(()=>({}));
-        if(!r.ok||!d?.success||!d?.session){const e=new Error(d?.error||'Telegram-сессия не подтверждена');e.status=r.status||401;e.authBootstrap=true;throw e;}
-        const token=String(d.session),uid=resellSessionUserId(token);
-        if(!uid||(wanted&&uid!==wanted))throw Object.assign(new Error('Несовпадение Telegram ID с серверной сессией'),{status:401,authBootstrap:true});
-        setStoredResellSession(token);userId=uid;telegramUserId=uid;isOwner=String(userId)===ADMIN_OWNER_ID;return token;
+        if(r.ok&&d?.success&&d?.session){
+          const token=String(d.session),uid=resellSessionUserId(token);
+          if(!uid||(wanted&&uid!==wanted))throw Object.assign(new Error('Несовпадение Telegram ID с серверной сессией'),{status:401,authBootstrap:true});
+          setStoredResellSession(token);userId=uid;telegramUserId=uid;isOwner=String(userId)===ADMIN_OWNER_ID;return token;
+        }
+        if((r.status||0)===401)return await bootstrapViaTelegramChallenge(wanted);
+        const e=new Error(d?.error||'Telegram-сессия не подтверждена');e.status=r.status||401;e.authBootstrap=true;throw e;
       }finally{resellAuthBootstrapPromise=null;}
     })();
     return resellAuthBootstrapPromise;
