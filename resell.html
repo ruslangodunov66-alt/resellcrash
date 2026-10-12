@@ -11771,9 +11771,19 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
       if(body){ body.innerHTML=typeof core.renderAvito==='function'?core.renderAvito():''; body.scrollTop=0; }
       return;
     }
-    const act=e.target?.closest?.('[data-career-action]');if(!act)return;e.preventDefault();e.stopPropagation();
+    const act=e.target?.closest?.('[data-career-action]');if(!act)return;
     const action=String(act.dataset.careerAction||'');
-    if(action.startsWith('brand_v3_') && typeof window.__resellBrandV3Run==='function'){ window.__resellBrandV3Run(act); return; }
+    e.preventDefault();e.stopPropagation();
+    if(action.startsWith('brand_v3_') && typeof window.__resellBrandV3Run==='function'){
+      // Do not let a legacy click listener also process the same mobile tap.
+      e.stopImmediatePropagation();
+      Promise.resolve(window.__resellBrandV3Run(act)).catch(err=>{
+        const msg=String(err?.message||'Не удалось открыть действие бренда.');
+        try{window.__resellCoreV26?.showToast?.(msg)}catch(_){}
+        if(act.isConnected){act.disabled=false;act.dataset.busy='0';}
+      });
+      return;
+    }
     avcRunAction(act);
   }
   // Unified top-level career-niche opener. It reuses the existing career API
@@ -12625,11 +12635,32 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 
   function brandV3OpenModalRaw(html){
     const modal=avcEnsureDecision();
-    modal.innerHTML=html; modal.classList.add('brand-v3-overlay'); modal.classList.add('open'); modal.setAttribute('aria-hidden','false');
-    $$('.brand-v3-overlay [data-brand-modal-close]').forEach(x=>x.onclick=()=>brandV3CloseModal());
+    // The shared Avito dialog may have been created inside a clipped sheet by an older screen.
+    // Portal it to <body> so the Brand editor is never hidden behind the parent modal.
+    if(modal.parentElement!==document.body) document.body.appendChild(modal);
+    modal.innerHTML=html;
+    modal.classList.add('brand-v3-overlay','open');
+    modal.setAttribute('aria-hidden','false');
+    modal.setAttribute('role','dialog');
+    modal.setAttribute('aria-modal','true');
+    // Explicit inline visibility overrides stale styles left by older modal variants.
+    modal.style.setProperty('display','flex','important');
+    modal.style.setProperty('visibility','visible','important');
+    modal.style.setProperty('opacity','1','important');
+    modal.style.setProperty('pointer-events','auto','important');
+    modal.style.setProperty('position','fixed','important');
+    modal.style.setProperty('inset','0','important');
+    modal.style.setProperty('z-index','1000000','important');
+    $$('.brand-v3-overlay [data-brand-modal-close]',modal).forEach(x=>x.onclick=()=>brandV3CloseModal());
     return modal;
   }
-  function brandV3CloseModal(){const modal=avcEnsureDecision(); modal.classList.remove('open','brand-v3-overlay'); modal.setAttribute('aria-hidden','true');}
+  function brandV3CloseModal(){
+    const modal=avcEnsureDecision();
+    modal.classList.remove('open','brand-v3-overlay');
+    modal.setAttribute('aria-hidden','true');
+    modal.removeAttribute('aria-modal');
+    ['display','visibility','opacity','pointer-events','position','inset','z-index'].forEach(k=>modal.style.removeProperty(k));
+  }
 
   function brandV3Explain(key){
     const defs={
@@ -12680,6 +12711,8 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
           <label>ОСНОВНОЙ ЦВЕТ<div class="brand-flow-color-row"><input id="bv4Primary" type="color" value="${state.primary}" aria-label="Цвет модели"><span id="bv4ColorCode">${state.primary}</span><button type="button" data-flow-color="#111111" style="--swatch:#111111" aria-label="Чёрный"></button><button type="button" data-flow-color="#F1F2ED" style="--swatch:#F1F2ED" aria-label="Светлый"></button><button type="button" data-flow-color="#B7FF6A" style="--swatch:#B7FF6A" aria-label="Салатовый"></button><button type="button" data-flow-color="#668CFF" style="--swatch:#668CFF" aria-label="Синий"></button></div></label>
           <div class="brand-flow-field-row"><label>ДЛИНА <strong id="bv4LengthV">${state.length}%</strong><input id="bv4Length" type="range" min="0" max="100" value="${state.length}"></label><label>ШИРИНА <strong id="bv4WidthV">${state.width}%</strong><input id="bv4Width" type="range" min="0" max="100" value="${state.width}"></label></div>
           <label>ЦЕНА ПРОДАЖИ, ₽<input id="bv4Price" class="brand-v3-input" type="number" min="100" step="100" value="${Math.max(100,nV(existing.price,0)||Math.round(nV(existing.cost,25000)/.52))}"></label>
+          <label>ТЕКСТ ЛОГОТИПА НА ВЕЩИ<input id="bv4LogoText" class="brand-v3-input" maxlength="24" value="${escV(state.logoText)}" placeholder="R-GAME"></label>
+          <label>ПРИНТ / НАДПИСЬ<input id="bv4PrintText" class="brand-v3-input" maxlength="48" value="${escV(state.printText)}" placeholder="Название коллекции"></label>
         </div>
         <div id="brandV4Summary" class="brand-flow-cost-summary"></div>
         <button class="brand-v3-primary" id="brandV4Save">${existing.id?'СОХРАНИТЬ МОДЕЛЬ':'СОЗДАТЬ МОДЕЛЬ'}</button>
@@ -12687,6 +12720,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
       const get=q=>$(q,modal);
       const sync=()=>{
         state.cat=get('#bv4Cat').value; state.cut=get('#bv4Cut').value; state.length=nV(get('#bv4Length').value,50); state.width=nV(get('#bv4Width').value,50); state.material=get('#bv4Material').value; state.primary=get('#bv4Primary').value.toUpperCase(); state.secondary=safeHexV(colors.secondary,'#202820'); state.accent=state.primary;
+        state.logoText=get('#bv4LogoText').value.trim().slice(0,24); state.printText=get('#bv4PrintText').value.trim().slice(0,48);
         get('#bv4LengthV').textContent=state.length+'%'; get('#bv4WidthV').textContent=state.width+'%'; get('#bv4ColorCode').textContent=state.primary;
         get('#brandV4Blueprint').innerHTML=brandV3BlueprintSvg(state.cat,{...state,logoSide:state.viewSide,viewSide:state.viewSide});
         const cost=brandV3EstimateCost(state.cat,state.material,state.cut,state.length,state.width,state.hardware); const recommended=Math.max(cost+100,Math.round(cost/.52));
@@ -12694,7 +12728,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
         const price=Math.max(cost+100,nV(get('#bv4Price').value,recommended));
         get('#brandV4Summary').innerHTML=`<div><span>СЕБЕСТОИМОСТЬ ЗА ШТ.</span><b>${moneyV(cost)}</b></div><div><span>РЕКОМЕНДУЕМАЯ ЦЕНА</span><b>${moneyV(recommended)}</b></div><div><span>МАРЖА С ЕДИНИЦЫ</span><b>${moneyV(Math.max(0,price-cost))}</b></div>`;
       };
-      ['#bv4Title','#bv4Cat','#bv4Cut','#bv4Material','#bv4Length','#bv4Width','#bv4Price','#bv4Primary'].forEach(q=>{get(q).addEventListener('input',()=>{if(q==='#bv4Price')get('#bv4Price').dataset.edited='1';sync()});get(q).addEventListener('change',sync)});
+      ['#bv4Title','#bv4Cat','#bv4Cut','#bv4Material','#bv4Length','#bv4Width','#bv4Price','#bv4Primary','#bv4LogoText','#bv4PrintText'].forEach(q=>{get(q).addEventListener('input',()=>{if(q==='#bv4Price')get('#bv4Price').dataset.edited='1';sync()});get(q).addEventListener('change',sync)});
       $$('[data-flow-color]',modal).forEach(btn=>btn.onclick=()=>{get('#bv4Primary').value=btn.dataset.flowColor;get('#bv4Primary').dispatchEvent(new Event('input',{bubbles:true}))});
       $$('[data-v4-view]',modal).forEach(btn=>btn.onclick=()=>{$$('[data-v4-view]',modal).forEach(x=>x.classList.remove('active'));btn.classList.add('active');state.viewSide=btn.dataset.v4View||'front';sync()});
       get('#brandV4EditorCancel').onclick=()=>{brandV3CloseModal();resolve(null)};
@@ -12876,11 +12910,13 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     });
   }
 
-  async function brandV3FactoryPicker(){
+  async function brandV3FactoryPicker(preferredType='sewing'){
     const markets=Array.isArray(brandState().market_conditions)?brandState().market_conditions:[];
+    const allowedTypes=['sewing','footwear','accessories','print','hardware'];
+    preferredType=allowedTypes.includes(String(preferredType))?String(preferredType):'sewing';
     return new Promise(resolve=>{
       let country=Object.keys(brandCountries)[0];
-      const modal=brandV3OpenModalRaw(`<div class="brand-v3-modal-card brand-v3-factory-builder"><button class="brand-v3-close" id="bfCancel">×</button><small class="brand-v3-kicker">ПРОИЗВОДСТВО · СТРАНА → ГОРОД</small><h3>Новое производство</h3><p>Сначала выбери страну, затем город, где будет стоять производство.</p><label>ТИП<select id="bfType" class="brand-v3-input">${[['sewing','Швейное · 250 000 ₽'],['footwear','Обувное · 420 000 ₽'],['accessories','Аксессуары · 260 000 ₽'],['print','Печать · 190 000 ₽'],['hardware','Фурнитура · 310 000 ₽']].map(x=>`<option value="${x[0]}">${x[1]}</option>`).join('')}</select></label><label>СТРАНА<select id="bfCountry" class="brand-v3-input">${brandCountryOptions(country)}</select></label><label>ГОРОД ПРОИЗВОДСТВА<select id="bfCity" class="brand-v3-input"></select></label><label>ЦЕЛЕВОЙ РЫНОК<select id="bfMarket" class="brand-v3-input"></select></label><div id="bfMarketPreview" class="brand-v3-market-preview"></div><button class="brand-v3-primary" id="bfConfirm">ОТКРЫТЬ ПРОИЗВОДСТВО</button></div>`);
+      const modal=brandV3OpenModalRaw(`<div class="brand-v3-modal-card brand-v3-factory-builder"><button class="brand-v3-close" id="bfCancel">×</button><small class="brand-v3-kicker">ПРОИЗВОДСТВО · СТРАНА → ГОРОД</small><h3>Новое производство</h3><p>Сначала выбери страну, затем город, где будет стоять производство.</p><label>ТИП<select id="bfType" class="brand-v3-input">${[['sewing','Швейное · 250 000 ₽'],['footwear','Обувное · 420 000 ₽'],['accessories','Аксессуары · 260 000 ₽'],['print','Печать · 190 000 ₽'],['hardware','Фурнитура · 310 000 ₽']].map(x=>`<option value="${x[0]}" ${x[0]===preferredType?'selected':''}>${x[1]}</option>`).join('')}</select></label><label>СТРАНА<select id="bfCountry" class="brand-v3-input">${brandCountryOptions(country)}</select></label><label>ГОРОД ПРОИЗВОДСТВА<select id="bfCity" class="brand-v3-input"></select></label><label>ЦЕЛЕВОЙ РЫНОК<select id="bfMarket" class="brand-v3-input"></select></label><div id="bfMarketPreview" class="brand-v3-market-preview"></div><button class="brand-v3-primary" id="bfConfirm">ОТКРЫТЬ ПРОИЗВОДСТВО</button></div>`);
       const render=()=>{country=$('#bfCountry',modal).value; const cities=Object.keys(brandCountries[country].cities); $('#bfCity',modal).innerHTML=cities.map(x=>`<option value="${escV(x)}">${brandCountries[country].flag} ${escV(x)}</option>`).join(''); $('#bfMarket',modal).innerHTML=Object.entries(brandCountries).flatMap(([cn,c])=>Object.keys(c.cities).map(x=>{const m=markets.find(z=>String(z.city)===x)||{};return `<option value="${escV(x)}">${c.flag} ${escV(x)}${m.event_title?` · ${escV(m.event_title)}`:''}</option>`})).join(''); const city=$('#bfMarket',modal).value; const m=markets.find(z=>String(z.city)===city)||{}; $('#bfMarketPreview',modal).innerHTML=`<div><span>СТРАНА</span><b>${brandCountries[country].flag} ${escV(country)}</b></div><div><span>ГОРОД</span><b>${escV($('#bfCity',modal).value)}</b></div><div><span>РЫНОК</span><b>${escV(m.event_title||'Стабильный рынок')}</b></div>`;};
       $('#bfCountry',modal).onchange=render; $('#bfMarket',modal).onchange=()=>{const m=markets.find(z=>String(z.city)===$('#bfMarket',modal).value)||{};$('#bfMarketPreview',modal).querySelectorAll('div')[2]?.querySelector('b')?.replaceChildren(document.createTextNode(m.event_title||'Стабильный рынок'));}; $('#bfCancel',modal).onclick=()=>{brandV3CloseModal();resolve(null)}; $('#bfConfirm',modal).onclick=()=>{const data={production_type:$('#bfType',modal).value,city:$('#bfCity',modal).value,target_market:$('#bfMarket',modal).value,country_code:cityCountries[$('#bfCity',modal).value]||''};brandV3CloseModal();resolve(data)}; render();
     });
@@ -12954,10 +12990,11 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     const modelCard=model?`<div class="brand-flow-model-summary"><div class="brand-flow-model-art">${modelArt}</div><div class="brand-flow-model-copy"><small>ТЕКУЩАЯ МОДЕЛЬ</small><b>${escV(model.title||'Новая модель')}</b><span>${escV(categoryName(model.category))} · ${moneyV(model.price)}</span><span class="brand-flow-mini-muted">${careerMoney(nV(model.total_produced))} произведено · ${careerMoney(nV(model.total_sold))} продано</span><button type="button" class="brand-flow-secondary" data-career-action="brand_v3_edit_model" data-model-id="${escV(model.id)}">Изменить модель</button></div></div>`:`<div class="brand-flow-empty"><div class="brand-flow-empty-icon">＋</div><b>Начни с одной вещи</b><span>Создай чертёж, выбери крой и цвет. Остальное появится по ходу дела.</span><button type="button" class="brand-flow-primary" data-career-action="brand_v3_new_model">Создать модель</button></div>`;
     const productionStatus=activeJobs.length?`<div class="brand-flow-status"><span class="brand-flow-status-dot"></span><div><b>Производство идёт</b><small>${activeJobs.map(x=>`${escV(x.title||'Модель')} · ${careerMoney(x.quantity)} шт.`).join(' · ')}</small><div class="brand-flow-progress"><i style="width:${Math.round(progress)}%"></i></div></div><button type="button" data-career-action="brand_v3_refresh">Обновить</button></div>`:'';
     const readyStatus=readyJobs.length?`<button type="button" class="brand-flow-ready" data-career-action="brand_v3_collect_production"><span>✓</span><div><b>Партия готова · ${careerMoney(readyJobs.reduce((a,x)=>a+nV(x.quantity),0))} шт.</b><small>Подтверди готовность — дальше выберешь магазины для доставки.</small></div><strong>ДАЛЬШЕ ↗</strong></button>`:'';
-    const sellAction=revenue>0?'brand_v3_collect_revenue':storeStock>0?'brand_v3_marketing':freeUnits>0?'brand_v3_logistics':readyJobs.length?'brand_v3_collect_production':activeJobs.length?'brand_v3_refresh':models.length?'brand_v3_production':'brand_v3_new_model';
-    const sellLabel=revenue>0?'Забрать выручку':storeStock>0?'Увеличить спрос и продажи':freeUnits>0?'Отправить товар в магазин':readyJobs.length?'Партия готова — выбрать магазины':activeJobs.length?'Проверить производство':models.length?'Произвести товар':'Создать первую модель';
-    const sellExplain=revenue>0?`Уже заработано ${moneyV(revenue)}. Нажми, чтобы зачислить сумму на основной баланс.`:storeStock>0?`В магазинах ${careerMoney(storeStock)} шт. Товар продаётся автоматически; продвижение помогает повысить спрос.`:stores.length?`Магазины открыты, но товара на полках пока нет. Отправь партию через блок «Логистика».`:`Продажи начнутся после открытия магазина и прибытия первой партии.`;
-    const logisticsAction=freeUnits>0?'brand_v3_logistics':(readyJobs.length?'brand_v3_collect_production':(activeJobs.length?'brand_v3_refresh':(models.length?'brand_v3_production':'brand_v3_new_model')));
+    const hasActiveFactory=factories.some(x=>Number(x.active)!==0);
+    const sellAction=revenue>0?'brand_v3_collect_revenue':readyJobs.length?'brand_v3_collect_production':activeJobs.length?'brand_v3_refresh':freeUnits>0?(stores.length?'brand_v3_logistics':'brand_v3_new_store'):!models.length?'brand_v3_new_model':!hasActiveFactory?'brand_v3_new_factory':!stores.length?'brand_v3_production':storeStock>0?'brand_v3_marketing':'brand_v3_production';
+    const sellLabel=revenue>0?'Забрать выручку':readyJobs.length?'Забрать готовую партию':activeJobs.length?'Проверить производство':freeUnits>0?(stores.length?'Отправить товар в магазин':'Открыть первый магазин'):!models.length?'Создать первую модель':!hasActiveFactory?'Открыть производство':!stores.length?'Произвести первую партию':storeStock>0?'Продвинуть коллекцию':'Произвести следующую партию';
+    const sellExplain=revenue>0?`Заработано ${moneyV(revenue)}. Подтверди получение, чтобы зачислить сумму на основной баланс.`:readyJobs.length?'Партия уже готова. Забери её на склад и затем отправь в магазин.':activeJobs.length?'Производство идёт. Здесь можно обновить статус и посмотреть прогресс.':freeUnits>0?(stores.length?`${careerMoney(freeUnits)} шт. свободно на складе. Выбери магазин и подтверди доставку после проверки стоимости.`:'Товар уже готов. Сначала открой магазин — без него доставить товар некуда.'):!models.length?'Первый шаг — создать модель одежды. Чертёж и цена сохранятся в коллекции.':!hasActiveFactory?'Для выпуска партии нужен активный завод. Открой производство, подходящее к категории модели.':!stores.length?'Создай тестовую партию. После её готовности выберешь город и откроешь магазин.':storeStock>0?`В магазинах ${careerMoney(storeStock)} шт. Продажи идут автоматически; маркетинг увеличивает спрос, но требует отдельного бюджета.`:'Модель готова к выпуску. Выбери количество и завод — себестоимость и срок покажем заранее.';
+    const logisticsAction=freeUnits>0?(stores.length?'brand_v3_logistics':'brand_v3_new_store'):(readyJobs.length?'brand_v3_collect_production':(activeJobs.length?'brand_v3_refresh':(!models.length?'brand_v3_new_model':(!hasActiveFactory?'brand_v3_new_factory':'brand_v3_production'))));
     const logisticsLabel=freeUnits>0?(stores.length?'Выбрать магазины и отправить':'Выбрать город для первой поставки'):readyJobs.length?'Перейти к готовой партии':activeJobs.length?'Проверить производство':models.length?'Произвести первую партию':'Сначала создать модель';
     const logisticsExplain=freeUnits>0?`${careerMoney(freeUnits)} шт. свободно на складе. Чем дальше город от завода, тем дороже доставка; стоимость покажем до подтверждения.`:readyJobs.length?'Партия готова. Подтверди её — затем выберешь город и количество.':activeJobs.length?'Партия ещё производится. Обнови состояние, когда закончится таймер.':'После производства выберешь магазины и распределишь партию по городам.';
     const storesSummary=stores.length?stores.slice(0,5).map(x=>`<div class="brand-flow-store-row"><span class="brand-flow-store-pin">⌖</span><div><b>${escV(x.city)}</b><small>${careerMoney(nV(x.stock_total))} шт. на полках · спрос ${Math.round(nV(x.activity))}%</small></div><button type="button" data-brand-city-study="${escV(x.city)}">Рынок ↗</button></div>`).join(''):`<div class="brand-flow-no-stores"><span>⌖</span><div><b>Магазины ещё не открыты</b><small>Выбери город и формат. Цена магазина будет показана до покупки.</small></div></div>`;
@@ -13005,8 +13042,8 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
           <div class="brand-flow-logistics-copy">
             <small>03 · СКЛАД И ДОСТАВКА</small>
             <b>Логистика</b>
-            <span>${freeUnits>0?'Отправляй партии в свои магазины и проверяй стоимость маршрута до подтверждения.':readyJobs.length?'Партия готова. Забери её на склад, затем выбери город и магазин.':activeJobs.length?'Партия ещё производится. Проверь статус и вернись к доставке после готовности.':models.length?'На складе пока нет товара. Запусти производство, чтобы подготовить первую поставку.':'Сначала создай модель одежды, затем выпусти первую партию.'}</span>
-            <strong>${freeUnits>0?'ОТКРЫТЬ ЛОГИСТИКУ':readyJobs.length?'ЗАБРАТЬ ПАРТИЮ':activeJobs.length?'ПРОВЕРИТЬ ПРОИЗВОДСТВО':models.length?'ЗАПУСТИТЬ ПРОИЗВОДСТВО':'СОЗДАТЬ ПЕРВУЮ МОДЕЛЬ'} <i>↗</i></strong>
+            <span>${freeUnits>0?(stores.length?'Выбери партию и магазин. До отправки покажем стоимость и время доставки.':'Товар готов, но магазина ещё нет. Сначала выбери город и открой магазин, затем вернись к отправке.') :readyJobs.length?'Партия готова. Забери её на склад, затем выбери город и магазин.':activeJobs.length?'Партия ещё производится. Посмотри статус и вернись к доставке после готовности.':!models.length?'Сначала создай модель одежды, затем выбери завод и выпусти первую партию.':!hasActiveFactory?'Открой завод, подходящий для своей модели. После этого можно будет запустить партию.':'На складе пока нет товара. Запусти производство, чтобы подготовить первую поставку.'}</span>
+            <strong>${freeUnits>0?(stores.length?'НАСТРОИТЬ ДОСТАВКУ':'ВЫБРАТЬ ГОРОД И МАГАЗИН'):readyJobs.length?'ЗАБРАТЬ ПАРТИЮ':activeJobs.length?'ПРОВЕРИТЬ ПРОИЗВОДСТВО':!models.length?'СОЗДАТЬ ПЕРВУЮ МОДЕЛЬ':!hasActiveFactory?'ОТКРЫТЬ ЗАВОД':'ЗАПУСТИТЬ ПРОИЗВОДСТВО'} <i>↗</i></strong>
           </div>
           <div class="brand-flow-logistics-meta"><span>НА СКЛАДЕ <b>${careerMoney(freeUnits)} шт.</b></span><span>В ПУТИ <b>${careerMoney(transitUnits)} шт.</b></span></div>
         </button>
@@ -13017,7 +13054,8 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
         ${modelCard}
         ${productionStatus}${readyStatus}
         <div class="brand-flow-sell-stats"><div><small>ТОВАР В МАГАЗИНАХ</small><b>${careerMoney(storeStock)} шт.</b></div><div><small>ВЫРУЧКА К ПОЛУЧЕНИЮ</small><b>${moneyV(revenue)}</b></div></div>
-        <button type="button" class="brand-flow-primary" data-career-action="${sellAction}"><span>${revenue>0?'₽':stores.length?'↗':'⌖'}</span><span><b>${sellLabel}</b><small>${revenue>0?'Зачислить заработанное':stores.length?'Проверить продажи и спрос':'Открыть первый магазин'}</small></span><strong>↗</strong></button>
+        <div class="brand-flow-next-step-note">${escV(sellExplain)}</div>
+        <button type="button" class="brand-flow-primary" data-career-action="${sellAction}"><span>${revenue>0?'₽':readyJobs.length?'✓':activeJobs.length?'◷':freeUnits>0?'↗':!models.length?'＋':'⌖'}</span><span><b>${sellLabel}</b><small>${revenue>0?'Зачислить заработанное на баланс':readyJobs.length?'Переместить готовую партию на склад':activeJobs.length?'Посмотреть состояние партии':freeUnits>0?(stores.length?'Выбрать магазин и подтвердить доставку':'Открыть магазин для отправки товара'):!models.length?'Открыть конструктор одежды':!hasActiveFactory?'Выбрать тип и город завода':!stores.length?'Создать первую партию':'Открыть следующий производственный заказ'}</small></span><strong>↗</strong></button>
         ${stores.length&&storeStock>0?`<button type="button" class="brand-flow-secondary-wide" data-career-action="brand_v3_marketing">Продвижение коллекции <span>↗</span></button>`:''}
         <div class="brand-flow-logistics-stats"><div><small>СВОБОДНО НА СКЛАДЕ</small><b>${careerMoney(freeUnits)} шт.</b></div><div><small>В ПУТИ</small><b>${careerMoney(transitUnits)} шт.</b></div><div><small>МАГАЗИНЫ</small><b>${stores.length}</b></div></div>
         ${inTransitOrders.length?`<div class="brand-flow-routes">${routeSummary}</div>`:''}
@@ -13037,14 +13075,36 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 
   const __legacyAvcRunAction=window.avcRunAction||window.__resellCareerRunAction||((act)=>{ try{window.__resellCoreV26?.showToast?.('Действие карьеры недоступно');}catch(_){} });
   const __brandV3Run=async function(act){
-    const action=String(act?.dataset?.careerAction||'');
+    if(!act||!act.dataset) return;
+    const action=String(act.dataset.careerAction||'');
     if(!action.startsWith('brand_v3_')) return __legacyAvcRunAction(act);
-    const core=window.__resellCoreV26||{}; if(act.dataset.busy==='1')return; act.dataset.busy='1'; act.disabled=true; core.setAvitoEditing?.(true);
+    const core=window.__resellCoreV26||{};
+    if(act.dataset.busy==='1')return;
+    act.dataset.busy='1'; act.disabled=true;
     try{
+      try{core.setAvitoEditing?.(true)}catch(lockErr){console.warn('[Brand Studio] Не удалось установить флаг редактирования:',lockErr)}
       let payload={};
       if(action==='brand_v3_create_brand'){const p=await brandV3CreateBrandModal();if(!p){act.disabled=false;act.dataset.busy='0';return;}payload=p;await careerPost(action,payload);return;}
       if(action==='brand_v3_new_model'||action==='brand_v3_edit_model'){const id=String(act.dataset.modelId||'');const m=brandModels().find(x=>String(x.id)===id)||null;const p=await brandV3ModelEditor(m);if(!p){act.disabled=false;act.dataset.busy='0';return;}await careerPost('brand_v3_save_model',p);return;}
-      if(action==='brand_v3_production'){const p=await brandV3ProductionPicker();if(!p){act.disabled=false;act.dataset.busy='0';return;}await careerPost('brand_v3_start_production',p);return;}
+      if(action==='brand_v3_production'){
+        if(!brandModels().length){
+          const modelDraft=await brandV3ModelEditor(null);
+          if(!modelDraft){act.disabled=false;act.dataset.busy='0';return;}
+          await careerPost('brand_v3_save_model',modelDraft);
+        }
+        const activeFactories=brandFactories().filter(f=>Number(f.active)!==0);
+        const firstModel=brandModels()[0];
+        if(!activeFactories.length || (firstModel&&!activeFactories.some(f=>brandV3FactoryAllowed(firstModel.category,f.production_type)))){
+          const cat=String(firstModel?.category||'hoodie');
+          const preferredType=cat==='sneakers'?'footwear':(['beanie','cap','accessories'].includes(cat)?'accessories':(['hoodie','tshirt'].includes(cat)?'sewing': 'sewing'));
+          const factoryDraft=await brandV3FactoryPicker(preferredType);
+          if(!factoryDraft){act.disabled=false;act.dataset.busy='0';return;}
+          await careerPost('brand_v3_open_factory',factoryDraft);
+        }
+        const p=await brandV3ProductionPicker();
+        if(!p){act.disabled=false;act.dataset.busy='0';return;}
+        await careerPost('brand_v3_start_production',p);return;
+      }
       if(action==='brand_v3_new_factory'){const p=await brandV3FactoryPicker();if(!p){act.disabled=false;act.dataset.busy='0';return;}await careerPost('brand_v3_open_factory',p);return;}
       if(action==='brand_v3_upgrade_factory'){const f=brandFactories().find(x=>String(x.id)===String(act.dataset.factoryId||''));if(!f){coreToast('Завод не найден.');return;}const p=await brandV3FactoryUpgradePicker(f);if(!p){act.disabled=false;act.dataset.busy='0';return;}await careerPost(action,p);return;}
       if(action==='brand_v3_market_research'){brandV3OpenMarketExplorer();act.disabled=false;act.dataset.busy='0';return;}
@@ -13069,7 +13129,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     }catch(err){coreToast(err?.message||'Действие бренда не выполнено.');act.disabled=false;act.dataset.busy='0';}
     finally{
       // Never leave the Avito shell locked after a cancelled modal or a completed workflow.
-      core.setAvitoEditing?.(false);
+      try{core.setAvitoEditing?.(false)}catch(lockErr){console.warn('[Brand Studio] Не удалось снять флаг редактирования:',lockErr)}
       if(act?.isConnected){act.disabled=false;act.dataset.busy='0';}
     }
   };
@@ -17910,7 +17970,7 @@ body:has(.career-new) .avc-content > .career-new > .cn-nav {
 /* Modern Brand dialogs: editor, manufacturing, logistics, shops, factories and market research. */
 #avcDecisionModal.brand-v3-overlay{position:fixed!important;inset:0!important;z-index:100000!important;display:flex!important;align-items:flex-end!important;justify-content:center!important;width:100vw!important;height:100dvh!important;max-width:100vw!important;margin:0!important;padding:0 0 env(safe-area-inset-bottom)!important;overflow:hidden!important;background:rgba(0,0,0,.84)!important;backdrop-filter:blur(13px)!important;color:var(--brand4-text)!important}
 .brand-v3-overlay *{box-sizing:border-box!important;min-width:0}
-.brand-v3-overlay .brand-v3-modal-card,.brand-v3-overlay .brand-v4-editor-card,.brand-v3-overlay .brand-v3-market-explorer,.brand-v3-overlay .brand-v3-market-city-modal,.brand-v3-overlay .brand-v3-logistics-world{width:min(700px,100%)!important;max-width:700px!important;max-height:calc(94dvh - env(safe-area-inset-bottom))!important;margin:0 auto!important;padding:17px!important;overflow-x:hidden!important;overflow-y:auto!important;overscroll-behavior:contain!important;scrollbar-width:thin!important;scrollbar-color:#344033 #080b08!important;border:1px solid var(--brand4-line)!important;border-bottom:0!important;border-radius:22px 22px 0 0!important;background:radial-gradient(ellipse at 100% 0,rgba(183,255,106,.045),transparent 38%),linear-gradient(180deg,#121812,#080b08)!important;color:var(--brand4-text)!important;box-shadow:0 -18px 70px rgba(0,0,0,.58)!important;font-family:Montserrat,system-ui,sans-serif!important}
+.brand-v3-overlay .brand-v3-modal-card,.brand-v3-overlay .brand-flow-modal,.brand-v3-overlay .brand-v4-editor-card,.brand-v3-overlay .brand-v3-market-explorer,.brand-v3-overlay .brand-v3-market-city-modal,.brand-v3-overlay .brand-v3-logistics-world{width:min(700px,100%)!important;max-width:700px!important;max-height:calc(94dvh - env(safe-area-inset-bottom))!important;margin:0 auto!important;padding:17px!important;overflow-x:hidden!important;overflow-y:auto!important;overscroll-behavior:contain!important;scrollbar-width:thin!important;scrollbar-color:#344033 #080b08!important;border:1px solid var(--brand4-line)!important;border-bottom:0!important;border-radius:22px 22px 0 0!important;background:radial-gradient(ellipse at 100% 0,rgba(183,255,106,.045),transparent 38%),linear-gradient(180deg,#121812,#080b08)!important;color:var(--brand4-text)!important;box-shadow:0 -18px 70px rgba(0,0,0,.58)!important;font-family:Montserrat,system-ui,sans-serif!important}
 .brand-v3-overlay .brand-v3-modal-card h3,.brand-v3-overlay .brand-v4-editor-card h3,.brand-v3-overlay .brand-v3-market-explorer h3,.brand-v3-overlay .brand-v3-market-city-modal h3{color:var(--brand4-text)!important;font:950 clamp(21px,5.4vw,27px)/1.08 Montserrat,sans-serif!important;letter-spacing:-.55px!important;overflow-wrap:anywhere!important}
 .brand-v3-overlay .brand-v3-modal-card>p,.brand-v3-overlay .brand-v4-editor-card>p,.brand-v3-overlay .brand-v3-market-explorer>p,.brand-v3-overlay .brand-v3-market-city-modal>p{color:var(--brand4-sub)!important;font:650 12px/1.5 Nunito,sans-serif!important}
 .brand-v3-overlay .brand-v3-kicker,.brand-v3-overlay .brand-v4-kicker,.brand-v3-overlay .brand-v3-editor .brand-v3-kicker{color:var(--brand4-accent)!important;font:900 8px/1.35 Montserrat,sans-serif!important;letter-spacing:1.3px!important}
@@ -18434,6 +18494,18 @@ body.resell-avito-single-screen #modalBody .avx-review-sheet {
 .modal.open:has(.brand-flow-home-card) .sheet.is-dragging {
   transform: none !important;
 }
+</style>
+
+<style id="brand-studio-workflow-reliability-v1">
+#avcDecisionModal.brand-v3-overlay{display:flex!important;visibility:visible!important;opacity:1!important;pointer-events:auto!important;position:fixed!important;inset:0!important;z-index:1000000!important;align-items:flex-end!important;justify-content:center!important;overflow:hidden!important;background:rgba(0,0,0,.86)!important;-webkit-overflow-scrolling:touch!important}
+#avcDecisionModal.brand-v3-overlay>.brand-flow-modal,#avcDecisionModal.brand-v3-overlay>.brand-v3-modal-card,#avcDecisionModal.brand-v3-overlay>.brand-v4-editor-card,#avcDecisionModal.brand-v3-overlay>.brand-v3-logistics-world{width:min(700px,100%)!important;max-height:calc(94dvh - env(safe-area-inset-bottom))!important;overflow-x:hidden!important;overflow-y:auto!important;overscroll-behavior:contain!important;padding:18px!important;border-radius:22px 22px 0 0!important;box-sizing:border-box!important}
+.career-new.brand .brand-flow-next-step-note{padding:10px 12px;border:1px solid rgba(183,255,106,.13);border-radius:12px;background:rgba(183,255,106,.035);color:#bdc8b7;font:650 11px/1.45 Nunito,system-ui,sans-serif!important}
+.career-new.brand .brand-flow-home-operations .brand-flow-primary{margin-top:0!important}
+.brand-v3-overlay .brand-flow-form label{font-size:10px!important;line-height:1.4!important;color:#aab8a5!important}
+.brand-v3-overlay .brand-flow-form input,.brand-v3-overlay .brand-flow-form select{font-size:14px!important}
+.brand-v3-overlay .brand-flow-form .brand-flow-field-row{gap:10px!important}
+.brand-v3-overlay [data-brand-modal-close],.brand-v3-overlay .brand-v3-close{touch-action:manipulation!important}
+@media(max-width:420px){#avcDecisionModal.brand-v3-overlay>.brand-flow-modal,#avcDecisionModal.brand-v3-overlay>.brand-v3-modal-card,#avcDecisionModal.brand-v3-overlay>.brand-v4-editor-card,#avcDecisionModal.brand-v3-overlay>.brand-v3-logistics-world{padding:15px!important;border-radius:18px 18px 0 0!important}.career-new.brand .brand-flow-next-step-note{font-size:10px!important}}
 </style>
 </body>
 </html>
