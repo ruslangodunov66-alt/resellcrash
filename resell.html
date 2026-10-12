@@ -12636,33 +12636,47 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     brandV3OpenModalRaw(content);
   }
 
-  function brandV3OpenModalRaw(html){
-    const modal=avcEnsureDecision();
-    // The shared Avito dialog may have been created inside a clipped sheet by an older screen.
-    // Portal it to <body> so the Brand editor is never hidden behind the parent modal.
+  function brandV3EnsureOwnModal(){
+    // Brand Studio must not reuse #avcDecisionModal: that shared Avito modal has
+    // legacy backdrop/visibility rules which can leave a dark veil over the page.
+    let modal=document.getElementById('brandV3DedicatedModal');
+    if(!modal){
+      modal=document.createElement('div');
+      modal.id='brandV3DedicatedModal';
+      modal.className='brand-v3-overlay';
+      modal.setAttribute('aria-hidden','true');
+      modal.style.cssText='display:none;';
+      document.body.appendChild(modal);
+    }
     if(modal.parentElement!==document.body) document.body.appendChild(modal);
+    return modal;
+  }
+  function brandV3OpenModalRaw(html){
+    const modal=brandV3EnsureOwnModal();
     modal.innerHTML=html;
-    modal.classList.add('brand-v3-overlay','open');
+    modal.classList.add('open');
     modal.setAttribute('aria-hidden','false');
     modal.setAttribute('role','dialog');
     modal.setAttribute('aria-modal','true');
-    // Explicit inline visibility overrides stale styles left by older modal variants.
     modal.style.setProperty('display','flex','important');
     modal.style.setProperty('visibility','visible','important');
     modal.style.setProperty('opacity','1','important');
     modal.style.setProperty('pointer-events','auto','important');
     modal.style.setProperty('position','fixed','important');
     modal.style.setProperty('inset','0','important');
-    modal.style.setProperty('z-index','1000000','important');
+    modal.style.setProperty('z-index','2147483000','important');
     $$('.brand-v3-overlay [data-brand-modal-close]',modal).forEach(x=>x.onclick=()=>brandV3CloseModal());
     return modal;
   }
   function brandV3CloseModal(){
-    const modal=avcEnsureDecision();
+    const modal=document.getElementById('brandV3DedicatedModal');
+    if(!modal)return;
     modal.classList.remove('open','brand-v3-overlay');
     modal.setAttribute('aria-hidden','true');
     modal.removeAttribute('aria-modal');
+    modal.innerHTML='';
     ['display','visibility','opacity','pointer-events','position','inset','z-index'].forEach(k=>modal.style.removeProperty(k));
+    modal.style.display='none';
   }
 
   function brandV3Explain(key){
@@ -18631,6 +18645,15 @@ body.resell-avito-single-screen #modalBody .avx-review-sheet {
  document.addEventListener('keydown',function(e){if(e.key==='Escape'){const m=document.getElementById('avcDecisionModal');if(m&&m.classList.contains('brand-v3-overlay')){const c=m.querySelector('[data-brand-modal-close],.brand-v3-close');if(c)c.click();}}},true);
 })();
 </script>
+
+
+<style id="brand-v3-dedicated-modal-root-fix">
+#brandV3DedicatedModal{box-sizing:border-box;align-items:center!important;justify-content:center!important;width:100vw!important;height:100vh!important;height:100dvh!important;max-width:none!important;max-height:none!important;margin:0!important;padding:calc(14px + env(safe-area-inset-top)) 12px calc(14px + env(safe-area-inset-bottom))!important;overflow-y:auto!important;overflow-x:hidden!important;background:rgba(0,0,0,.82)!important;-webkit-backdrop-filter:blur(8px)!important;backdrop-filter:blur(8px)!important;overscroll-behavior:contain!important;touch-action:pan-y!important}
+#brandV3DedicatedModal[aria-hidden="true"]{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important}
+#brandV3DedicatedModal[aria-hidden="false"]{display:flex!important;visibility:visible!important;opacity:1!important;pointer-events:auto!important}
+#brandV3DedicatedModal .brand-v3-modal-card{position:relative!important;flex:0 1 auto!important;width:min(560px,100%)!important;max-height:calc(100dvh - 34px - env(safe-area-inset-top) - env(safe-area-inset-bottom))!important;overflow:auto!important;overscroll-behavior:contain!important;touch-action:pan-y!important;margin:auto!important}
+#brandV3DedicatedModal .brand-v3-close{z-index:2!important;position:sticky!important;float:right!important;top:0!important;margin-bottom:-28px!important;touch-action:manipulation!important}
+</style>
 
 </body>
 </html>
