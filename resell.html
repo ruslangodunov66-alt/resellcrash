@@ -12649,12 +12649,14 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
       document.body.appendChild(modal);
     }
     if(modal.parentElement!==document.body) document.body.appendChild(modal);
+    // Keep the theme class permanently; aria-hidden controls visibility.
+    modal.classList.add('brand-v3-overlay');
     return modal;
   }
   function brandV3OpenModalRaw(html){
     const modal=brandV3EnsureOwnModal();
     modal.innerHTML=html;
-    modal.classList.add('open');
+    modal.classList.add('brand-v3-overlay','open');
     modal.setAttribute('aria-hidden','false');
     modal.setAttribute('role','dialog');
     modal.setAttribute('aria-modal','true');
@@ -12671,7 +12673,8 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
   function brandV3CloseModal(){
     const modal=document.getElementById('brandV3DedicatedModal');
     if(!modal)return;
-    modal.classList.remove('open','brand-v3-overlay');
+    // Do not remove brand-v3-overlay: it provides the readable dark-theme styles.
+    modal.classList.remove('open');
     modal.setAttribute('aria-hidden','true');
     modal.removeAttribute('aria-modal');
     modal.innerHTML='';
@@ -12837,7 +12840,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
           <label class="brand-v3-logistics-country">СТРАНА<select id="bdCountry" class="brand-v3-input">${brandCountryOptions(selectedCountry)}</select></label>
           <div class="brand-v3-logistics-worldmap" id="bdMap"></div>
           <div class="brand-v3-logistics-selected" id="bdSelected">Нажми на магазин на карте</div>
-          <label class="brand-v3-logistics-qty">КОЛИЧЕСТВО <div><button type="button" id="bdQtyMinus">−</button><input id="bdQty" type="number" min="1" max="${Math.max(1,Math.min(10000,nV(selectedWh.qty)-nV(selectedWh.reserved_qty)))}" value="${Math.max(1,Math.min(10000,nV(selectedWh.qty)-nV(selectedWh.reserved_qty)))}"><button type="button" id="bdQtyPlus">+</button></div></label>
+          <label class="brand-v3-logistics-qty">КОЛИЧЕСТВО <div><button type="button" id="bdQtyMinus">−</button><input id="bdQty" type="number" inputmode="numeric" pattern="[0-9]*" step="1" min="1" max="${Math.max(1,Math.min(10000,nV(selectedWh.qty)-nV(selectedWh.reserved_qty)))}" value="${Math.max(1,Math.min(10000,nV(selectedWh.qty)-nV(selectedWh.reserved_qty)))}"><button type="button" id="bdQtyPlus">+</button></div></label>
           <div class="brand-v3-logistics-summary" id="bdTotals"></div>
           <div class="brand-v3-truck-status"><span>ГРУЗОВИКИ</span><b>${Math.max(1,nV(lg.fleet_level,1))} шт.</b><button type="button" id="bdBuyTruck">КУПИТЬ · 2 000 000 ₽</button></div>
           <button class="brand-v3-primary" id="bdConfirm" disabled>ОТПРАВИТЬ ПАРТИЮ</button>
@@ -12867,9 +12870,10 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
         $('#bdMap',modal).innerHTML=`<div class="brand-v3-log-world-head"><span>МИРОВАЯ СЕТЬ</span><b>${escV(src)} → ${selectedStore?escV(selectedStore.city):'выбери магазин'}</b></div><div class="brand-v3-log-world-canvas"><img src="https://upload.wikimedia.org/wikipedia/commons/8/8b/Blank_map_of_the_world.svg" alt="Карта мира" loading="lazy"><div class="brand-v3-log-factory-pin" style="left:${fp.left}%;top:${fp.top}%"><i>🏭</i></div>${route}${storesHtml}${countryStores.length?'':`<div class="brand-v3-log-world-empty">В этой стране пока нет магазина. Выбери другую страну.</div>`}<div class="brand-v3-log-world-legend"><span><i class="store"></i> магазин</span><span><i class="factory"></i> производство</span></div></div>`;
         $$('[data-log-store]',modal).forEach(btn=>btn.onclick=()=>{selectedStore=stores.find(x=>String(x.id)===String(btn.dataset.logStore))||null;renderMap();renderTotals()});
       };
-      const syncQty=()=>{const max=Math.max(1,Math.min(10000,nV(selectedWh.qty)-nV(selectedWh.reserved_qty)));const el=$('#bdQty',modal);if(!el)return max;let q=Math.round(nV(el.value,max));q=Math.max(1,Math.min(max,q));el.value=String(q);return q;};
+      const syncQty=()=>{const max=Math.max(0,Math.min(10000,nV(selectedWh.qty)-nV(selectedWh.reserved_qty)));const el=$('#bdQty',modal);if(!el)return max;el.max=String(max);const raw=String(el.value??'').trim();let q=raw===''?Math.min(max,1):Math.round(nV(raw,Math.min(max,1)));q=Math.max(max>0?1:0,Math.min(max,q));if(raw!==''||max===0)el.value=String(q);return q;};
       const renderTotals=()=>{
-        const max=Math.max(0,nV(selectedWh.qty)-nV(selectedWh.reserved_qty));
+        const max=Math.max(0,Math.min(10000,nV(selectedWh.qty)-nV(selectedWh.reserved_qty)));
+        const quantityInput=$('#bdQty',modal); if(quantityInput){quantityInput.max=String(max);quantityInput.disabled=max<=0;}
         const fleet=Math.max(1,nV(lg.fleet_level,1));
         const activeOrders=(Array.isArray(brandState().logistics_orders)?brandState().logistics_orders:[]).filter(x=>String(x.status)==='in_transit').length;
         if(!selectedStore){$('#bdSelected',modal).textContent='Нажми на точку магазина на карте';$('#bdTotals',modal).innerHTML='';$('#bdConfirm',modal).disabled=true;return;}
@@ -12884,7 +12888,8 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
         $('#bdTotals',modal).innerHTML=`<div><small>ПАРТИЯ</small><b>${careerMoney(qty)} шт.</b></div><div><small>МАРШРУТ</small><b>${Math.round(dist).toLocaleString('ru-RU')} км</b></div><div><small>ДОСТАВКА</small><b>${moneyV(ship)}</b></div><div><small>В ПУТИ</small><b>${hours} ч.</b></div><div><small>СВОБОДНО</small><b>${careerMoney(max)} шт.</b></div>`;
         const balanceNow=nV(window.__resellAvitoState?.balance,0);
         const freeTrucks=Math.max(0,fleet-activeOrders);
-        const can=max>0&&freeTrucks>0;
+        const qtyValid=qty>0&&qty<=max;
+        const can=qtyValid&&freeTrucks>0;
         $('#bdConfirm',modal).disabled=!can;
         $('#bdConfirm',modal).title=freeTrucks>0?'':'Все грузовики сейчас в пути';
         const truckStatus=$('.brand-v3-truck-status b',modal);
@@ -13006,7 +13011,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     const transitUnits=orders.filter(x=>String(x.status)==='in_transit').reduce((sum,x)=>sum+nV(x.qty),0);
     const modelCard=model?`<div class="brand-flow-model-summary"><div class="brand-flow-model-art">${modelArt}</div><div class="brand-flow-model-copy"><small>ТЕКУЩАЯ МОДЕЛЬ</small><b>${escV(model.title||'Новая модель')}</b><span>${escV(categoryName(model.category))} · ${moneyV(model.price)}</span><span class="brand-flow-mini-muted">${careerMoney(nV(model.total_produced))} произведено · ${careerMoney(nV(model.total_sold))} продано</span><button type="button" class="brand-flow-secondary" data-career-action="brand_v3_edit_model" data-model-id="${escV(model.id)}">Изменить модель</button></div></div>`:`<div class="brand-flow-empty"><div class="brand-flow-empty-icon">＋</div><b>Начни с одной вещи</b><span>Создай чертёж, выбери крой и цвет. Остальное появится по ходу дела.</span><button type="button" class="brand-flow-primary" data-career-action="brand_v3_new_model">Создать модель</button></div>`;
     const productionStatus=activeJobs.length?`<div class="brand-flow-status"><span class="brand-flow-status-dot"></span><div><b>Производство идёт</b><small>${activeJobs.map(x=>`${escV(x.title||'Модель')} · ${careerMoney(x.quantity)} шт.`).join(' · ')}</small><div class="brand-flow-progress"><i style="width:${Math.round(progress)}%"></i></div></div><button type="button" data-career-action="brand_v3_refresh">Обновить</button></div>`:'';
-    const readyStatus=readyJobs.length?`<button type="button" class="brand-flow-ready" data-career-action="brand_v3_collect_production"><span>✓</span><div><b>Партия готова · ${careerMoney(readyJobs.reduce((a,x)=>a+nV(x.quantity),0))} шт.</b><small>Подтверди готовность — дальше выберешь магазины для доставки.</small></div><strong>ДАЛЬШЕ ↗</strong></button>`:'';
+    const readyStatus=readyJobs.length?`<button type="button" class="brand-flow-ready" data-career-action="brand_v3_collect_production"><span>✓</span><div><b>Партия готова · ${careerMoney(readyJobs.reduce((a,x)=>a+nV(x.quantity),0))} шт.</b><small>Подтверди партию. Товар появится на складе; доставку настроишь отдельно.</small></div><strong>ДАЛЬШЕ ↗</strong></button>`:'';
     const hasActiveFactory=factories.some(x=>Number(x.active)!==0);
     const sellAction=revenue>0?'brand_v3_collect_revenue':readyJobs.length?'brand_v3_collect_production':activeJobs.length?'brand_v3_refresh':freeUnits>0?(stores.length?'brand_v3_logistics':'brand_v3_new_store'):!models.length?'brand_v3_new_model':!hasActiveFactory?'brand_v3_new_factory':!stores.length?'brand_v3_production':storeStock>0?'brand_v3_marketing':'brand_v3_production';
     const sellLabel=revenue>0?'Забрать выручку':readyJobs.length?'Забрать готовую партию':activeJobs.length?'Проверить производство':freeUnits>0?(stores.length?'Отправить товар в магазин':'Открыть первый магазин'):!models.length?'Создать первую модель':!hasActiveFactory?'Открыть производство':!stores.length?'Произвести первую партию':storeStock>0?'Продвинуть коллекцию':'Произвести следующую партию';
@@ -13146,11 +13151,9 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
       }
       if(action==='brand_v3_marketing'){const p=await brandV3MarketingPicker();if(!p){act.disabled=false;act.dataset.busy='0';return;}await careerPost(action,p);return;}
       if(action==='brand_v3_collect_production'){
+        // Collection only acknowledges the ready batch. Delivery is a separate,
+        // deliberate action so the user can see the updated stock before shipping.
         await careerPost(action,{});
-        if(brandWarehouse().some(x=>nV(x.qty)-nV(x.reserved_qty)>0)){
-          if(!brandStores().length){const storePick=await brandV3StorePicker();if(!storePick)return;await careerPost('brand_v3_open_store',storePick);}
-          const routePick=await brandV3LogisticsPicker();if(routePick)await careerPost('brand_v3_create_distribution',routePick);
-        }
         return;
       }
       if(action==='brand_v3_collect_revenue'||action==='brand_v3_upgrade_logistics'||action==='brand_v3_refresh'){await careerPost(action,{});return;}
@@ -18726,6 +18729,90 @@ body.resell-avito-single-screen #modalBody .avx-review-sheet {
  .career-new.brand .brand-flow-home-actions .brand-flow-logistics-copy{grid-column:2!important;grid-row:1!important}
  .career-new.brand .brand-flow-home-actions .brand-flow-logistics-meta{grid-column:2!important;grid-row:2!important}
 }
+</style>
+
+
+<style id="brand-v3-contrast-and-clarity-fix-v1">
+/* Brand Studio modals: legible type and stable dark cards after every open/close. */
+#brandV3DedicatedModal.brand-v3-overlay{font-family:Nunito,system-ui,sans-serif;color:#f1f5ee}
+#brandV3DedicatedModal .brand-v3-modal-card{font-family:Nunito,system-ui,sans-serif;color:#f1f5ee!important;padding:20px!important}
+#brandV3DedicatedModal .brand-v3-modal-card h3{font:900 clamp(22px,6vw,30px)/1.12 Montserrat,Arial,sans-serif!important;letter-spacing:-.45px!important;color:#f2f5ef!important;margin:9px 0 10px!important}
+#brandV3DedicatedModal .brand-v3-modal-card p{font:700 13px/1.5 Nunito,system-ui,sans-serif!important;color:#b8c4b5!important;margin:0 0 14px!important;max-width:60ch}
+#brandV3DedicatedModal .brand-v3-kicker{display:block;color:#a5b4a0!important;font:900 9px/1.35 Montserrat,Arial,sans-serif!important;letter-spacing:1.45px!important;margin-bottom:7px!important}
+#brandV3DedicatedModal .brand-v3-production-steps,
+#brandV3DedicatedModal .brand-v3-logistics-steps{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:7px!important;margin:14px 0!important}
+#brandV3DedicatedModal .brand-v3-production-steps>span,
+#brandV3DedicatedModal .brand-v3-logistics-steps>span{display:flex!important;align-items:center!important;gap:7px!important;min-width:0!important;padding:9px 8px!important;background:#172019!important;border:1px solid #354638!important;border-radius:11px!important;color:#e0eadb!important;font:850 9px/1.25 Montserrat,Arial,sans-serif!important;letter-spacing:.25px!important;white-space:normal!important}
+#brandV3DedicatedModal .brand-v3-production-steps b,
+#brandV3DedicatedModal .brand-v3-logistics-steps b{display:grid!important;place-items:center!important;flex:0 0 23px!important;width:23px!important;height:23px!important;border-radius:7px!important;background:#b7ff6a!important;color:#10170d!important;font:950 9px/1 Montserrat,Arial,sans-serif!important}
+#brandV3DedicatedModal .brand-v3-modal-card:has(#bpConfirm) #bpModelCards{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px!important;margin:10px 0 16px!important}
+#brandV3DedicatedModal #bpModelCards>button{display:flex!important;flex-direction:column!important;justify-content:center!important;align-items:flex-start!important;gap:5px!important;min-width:0!important;min-height:68px!important;padding:11px 12px!important;white-space:normal!important;text-align:left!important;overflow-wrap:anywhere!important;background:#151e17!important;color:#eef5e9!important;border:1px solid #3b4c3c!important;border-radius:13px!important;box-shadow:none!important}
+#brandV3DedicatedModal #bpModelCards>button b{display:block!important;font:850 12px/1.25 Nunito,system-ui,sans-serif!important;color:#f4f7f1!important;white-space:normal!important;overflow-wrap:anywhere!important}
+#brandV3DedicatedModal #bpModelCards>button small{display:block!important;font:750 10px/1.3 Nunito,system-ui,sans-serif!important;color:#b9c7b5!important;letter-spacing:0!important;white-space:normal!important;overflow-wrap:anywhere!important}
+#brandV3DedicatedModal #bpModelCards>button.active{background:#e4f7dc!important;border-color:#b7ff6a!important;color:#11190e!important;box-shadow:inset 0 0 0 1px rgba(183,255,106,.35)!important}
+#brandV3DedicatedModal #bpModelCards>button.active b{color:#11190e!important}
+#brandV3DedicatedModal #bpModelCards>button.active small{color:#344a30!important}
+#brandV3DedicatedModal .brand-v3-modal-card:has(#bpConfirm)>label,
+#brandV3DedicatedModal .brand-v3-modal-card:has(#bdConfirm)>label{display:block!important;margin:13px 0 7px!important;color:#bac7b6!important;font:900 10px/1.4 Montserrat,Arial,sans-serif!important;letter-spacing:.75px!important}
+#brandV3DedicatedModal .brand-v3-production-presets{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:7px!important;margin:9px 0 16px!important}
+#brandV3DedicatedModal .brand-v3-production-presets>span{grid-column:1/-1!important;color:#a4b19f!important;font:900 9px/1.3 Montserrat,Arial,sans-serif!important;letter-spacing:1px!important;margin-bottom:1px!important}
+#brandV3DedicatedModal .brand-v3-production-presets>button{min-width:0!important;min-height:38px!important;padding:6px 4px!important;border:1px solid #3a4a3b!important;border-radius:10px!important;background:#172019!important;color:#e7efe3!important;font:850 10px/1.15 Montserrat,Arial,sans-serif!important;white-space:normal!important}
+#brandV3DedicatedModal .brand-v3-production-presets>button.active{background:#b7ff6a!important;color:#10170d!important;border-color:#b7ff6a!important}
+#brandV3DedicatedModal .brand-v3-qty{display:grid!important;grid-template-columns:52px minmax(0,1fr) 52px!important;gap:8px!important;width:100%!important}
+#brandV3DedicatedModal .brand-v3-qty>button{min-height:48px!important;border-radius:12px!important;background:#e4ebe1!important;color:#263428!important;font:900 20px/1 Nunito,system-ui,sans-serif!important;border:1px solid #bcc9b9!important}
+#brandV3DedicatedModal .brand-v3-qty>input,
+#brandV3DedicatedModal #bdQty{width:100%!important;min-width:0!important;min-height:48px!important;box-sizing:border-box!important;background:#172019!important;border:1px solid #405041!important;border-radius:12px!important;color:#f4f7f1!important;text-align:center!important;font:900 17px/1 Nunito,system-ui,sans-serif!important;padding:0 10px!important;opacity:1!important;-webkit-text-fill-color:#f4f7f1!important}
+#brandV3DedicatedModal .brand-v3-order-summary,
+#brandV3DedicatedModal .brand-v3-logistics-summary,
+#brandV3DedicatedModal .brand-v3-logistics-selected,
+#brandV3DedicatedModal .brand-v3-truck-status{background:#151d16!important;border:1px solid #344334!important;color:#eaf1e6!important;padding:13px!important;margin-top:10px!important}
+#brandV3DedicatedModal .brand-v3-order-summary>div,
+#brandV3DedicatedModal .brand-v3-logistics-summary>div{min-width:0!important;gap:5px!important}
+#brandV3DedicatedModal .brand-v3-order-summary span,
+#brandV3DedicatedModal .brand-v3-logistics-summary small{display:block!important;color:#a9b9a4!important;font:850 9px/1.3 Montserrat,Arial,sans-serif!important;letter-spacing:.45px!important}
+#brandV3DedicatedModal .brand-v3-order-summary b,
+#brandV3DedicatedModal .brand-v3-logistics-summary b{display:block!important;color:#f2f6ef!important;font:850 13px/1.35 Nunito,system-ui,sans-serif!important;overflow-wrap:anywhere!important;white-space:normal!important}
+#brandV3DedicatedModal #bpConfirm,
+#brandV3DedicatedModal #bdConfirm{display:block!important;width:100%!important;min-height:56px!important;margin-top:15px!important;border-radius:15px!important;background:#b7ff6a!important;color:#10170d!important;font:950 11px/1.25 Montserrat,Arial,sans-serif!important;letter-spacing:.7px!important;border:1px solid #b7ff6a!important;white-space:normal!important;padding:12px 14px!important}
+#brandV3DedicatedModal #bpConfirm:disabled,
+#brandV3DedicatedModal #bdConfirm:disabled{opacity:.45!important;filter:grayscale(.35)!important}
+#brandV3DedicatedModal .brand-v3-logistics-help{margin-bottom:10px!important}
+#brandV3DedicatedModal .brand-v3-logistics-parties{display:grid!important;gap:8px!important;margin:10px 0 14px!important}
+#brandV3DedicatedModal .brand-v3-log-party{display:grid!important;grid-template-columns:54px minmax(0,1fr)!important;gap:11px!important;align-items:center!important;min-width:0!important;padding:10px!important;border:1px solid #354436!important;border-radius:13px!important;background:#151e17!important;color:#eef5e9!important;text-align:left!important}
+#brandV3DedicatedModal .brand-v3-log-party.active{border-color:#b7ff6a!important;background:#1c2a1b!important}
+#brandV3DedicatedModal .brand-v3-log-party b{display:block!important;color:#f1f6ee!important;font:850 12px/1.25 Nunito,system-ui,sans-serif!important;overflow-wrap:anywhere!important}
+#brandV3DedicatedModal .brand-v3-log-party small{display:block!important;color:#b6c5b1!important;font:750 10px/1.3 Nunito,system-ui,sans-serif!important}
+#brandV3DedicatedModal .brand-v3-log-party span{display:block!important;color:#b7ff6a!important;font:900 11px/1.35 Montserrat,Arial,sans-serif!important;margin-top:4px!important}
+#brandV3DedicatedModal .brand-v3-logistics-worldmap{border:1px solid #384739!important;border-radius:14px!important;overflow:hidden!important;background:#131a14!important}
+#brandV3DedicatedModal .brand-v3-logistics-worldmap img{opacity:.78!important}
+#brandV3DedicatedModal .brand-v3-log-world-pin span{background:#0d140e!important;color:#f0f5ed!important;border:1px solid #55734e!important;font:800 9px/1.2 Nunito,system-ui,sans-serif!important}
+#brandV3DedicatedModal .brand-v3-truck-status{display:flex!important;flex-wrap:wrap!important;align-items:center!important;gap:8px!important}
+#brandV3DedicatedModal .brand-v3-truck-status span{color:#acb9a8!important;font:900 9px/1.3 Montserrat,Arial,sans-serif!important}
+#brandV3DedicatedModal .brand-v3-truck-status b{color:#f1f6ef!important;font:850 11px/1.3 Nunito,system-ui,sans-serif!important}
+#brandV3DedicatedModal .brand-v3-truck-status button{min-height:36px!important;padding:7px 10px!important;background:#28392a!important;border:1px solid #4d664c!important;color:#e4f2dc!important;border-radius:10px!important;font:850 9px/1.2 Montserrat,Arial,sans-serif!important}
+/* Main brand map CTA: dark text on lime background, never white-on-white. */
+.career-new.brand .brand-v4-world-head>button[data-career-action="brand_v3_new_store"]{display:inline-flex!important;align-items:center!important;justify-content:center!important;min-height:42px!important;padding:10px 13px!important;border-radius:12px!important;background:#b7ff6a!important;border:1px solid #b7ff6a!important;color:#10170d!important;font:950 10px/1.15 Montserrat,Arial,sans-serif!important;letter-spacing:.45px!important;white-space:nowrap!important;box-shadow:0 5px 16px rgba(183,255,106,.12)!important;opacity:1!important}
+.career-new.brand .brand-v4-world-head>button[data-career-action="brand_v3_new_store"]:active{transform:scale(.98)!important;filter:brightness(.94)!important}
+/* More readable status and metrics across the Brand screen. */
+.career-new.brand .brand-flow-home-operations :is(.brand-flow-section-title,.brand-flow-home-section-title) small{color:#a3b19f!important}
+.career-new.brand .brand-flow-home-operations .brand-flow-sell-stats small,
+.career-new.brand .brand-flow-home-operations .brand-flow-logistics-stats small{color:#afbdab!important;font:850 9px/1.35 Montserrat,Arial,sans-serif!important;letter-spacing:.55px!important}
+.career-new.brand .brand-flow-home-operations .brand-flow-sell-stats b,
+.career-new.brand .brand-flow-home-operations .brand-flow-logistics-stats b{color:#f2f6ef!important;font:900 16px/1.2 Montserrat,Arial,sans-serif!important}
+.career-new.brand .brand-flow-home-operations .brand-flow-next-step-note{color:#d0dccb!important;font:700 12px/1.5 Nunito,system-ui,sans-serif!important}
+.career-new.brand .brand-flow-home-operations .brand-flow-primary small{color:#23351c!important;font:800 11px/1.35 Nunito,system-ui,sans-serif!important}
+@media(max-width:440px){
+ #brandV3DedicatedModal{padding:calc(8px + env(safe-area-inset-top)) 8px calc(8px + env(safe-area-inset-bottom))!important;align-items:flex-end!important}
+ #brandV3DedicatedModal .brand-v3-modal-card{width:100%!important;max-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 10px)!important;padding:17px 14px calc(15px + env(safe-area-inset-bottom))!important;border-radius:20px 20px 16px 16px!important}
+ #brandV3DedicatedModal .brand-v3-modal-card:has(#bpConfirm) #bpModelCards{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:7px!important}
+ #brandV3DedicatedModal #bpModelCards>button{min-height:64px!important;padding:9px!important}
+ #brandV3DedicatedModal #bpModelCards>button b{font-size:11px!important}
+ #brandV3DedicatedModal #bpModelCards>button small{font-size:9.5px!important}
+ #brandV3DedicatedModal .brand-v3-production-steps>span,#brandV3DedicatedModal .brand-v3-logistics-steps>span{display:flex!important;font-size:8px!important;padding:8px 6px!important;gap:5px!important}
+ #brandV3DedicatedModal .brand-v3-production-steps b,#brandV3DedicatedModal .brand-v3-logistics-steps b{flex-basis:20px!important;width:20px!important;height:20px!important;font-size:8px!important}
+ #brandV3DedicatedModal .brand-v3-production-presets>button{font-size:9px!important;padding:5px 3px!important}
+}
+@media(prefers-reduced-motion:reduce){#brandV3DedicatedModal *{animation:none!important;transition:none!important}}
 </style>
 
 </body>
