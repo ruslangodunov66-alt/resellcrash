@@ -12826,8 +12826,8 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
       const storeCountry=store=>{const code=cityCountries[String(store?.city||'')]||String(store?.country||'').toUpperCase();return countryNamesByCode[code]||'';};
       const preferredCity=String(window.__brandPreferredLogisticsCity||''); window.__brandPreferredLogisticsCity='';
       let selectedStore=stores.find(x=>String(x.city||'')===preferredCity)||null, selectedWh=available[0], selectedCountry=(selectedStore?storeCountry(selectedStore):'')||Object.keys(brandCountries).find(k=>stores.some(x=>storeCountry(x)===k))||Object.keys(brandCountries)[0];
-      const mapPos=(city,fallback=null)=>{let c=cityCoords[String(city)];if(!c&&Array.isArray(fallback))c=fallback;if(!c&&fallback&&typeof fallback==='object')c=[fallback.lat??fallback[0],fallback.lon??fallback.lng??fallback[1]];if(!Array.isArray(c)||!Number.isFinite(Number(c[0]))||!Number.isFinite(Number(c[1])))c=[0,0];return {left:clampV((Number(c[1])+180)/360*100,2,98),top:clampV((90-Number(c[0]))/180*100,4,96)}};
-      const cityPair=(city,fallback=null)=>{let c=cityCoords[String(city)];if(!c&&Array.isArray(fallback))c=fallback;if(!c&&fallback&&typeof fallback==='object')c=[fallback.lat??fallback[0],fallback.lon??fallback.lng??fallback[1]];return Array.isArray(c)&&Number.isFinite(Number(c[0]))&&Number.isFinite(Number(c[1]))?[Number(c[0]),Number(c[1])]:[0,0]};
+      const cityPair=(city,fallback=null)=>{let c=cityCoords[String(city)];if(!c&&Array.isArray(fallback))c=fallback;if(!c&&fallback&&typeof fallback==='object')c=[fallback.lat??fallback[0],fallback.lon??fallback.lng??fallback[1]];if(!Array.isArray(c)||!Number.isFinite(Number(c[0]))||!Number.isFinite(Number(c[1])))return null;const lat=Number(c[0]),lon=Number(c[1]);return lat>=-90&&lat<=90&&lon>=-180&&lon<=180?[lat,lon]:null};
+      const mapPos=(city,fallback=null)=>{const c=cityPair(city,fallback)||[0,0];return {left:clampV((Number(c[1])+180)/360*100,2,98),top:clampV((90-Number(c[0]))/180*100,4,96)}};
       const distanceKm=(a,b)=>{const rad=x=>x*Math.PI/180,lat1=rad(a[0]),lat2=rad(b[0]),dlat=lat2-lat1,dlon=rad(b[1]-a[1]);const hv=Math.sin(dlat/2)**2+Math.cos(lat1)*Math.cos(lat2)*Math.sin(dlon/2)**2;return 6371*2*Math.asin(Math.min(1,Math.sqrt(Math.max(0,hv))))};
       const modal=brandV3OpenModalRaw(`
         <div class="brand-v3-modal-card brand-v3-logistics-simple brand-v3-logistics-world">
@@ -12854,8 +12854,8 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
         $$('[data-log-wh]',modal).forEach(btn=>btn.onclick=()=>{selectedWh=available.find(x=>String(x.id)===String(btn.dataset.logWh))||selectedWh;selectedStore=null;renderParties();renderMap();renderTotals()});
       };
       const renderMap=()=>{
-        const src=selectedWh.factory_city||selectedWh.city||'Moscow';
-        const sourceFactory=brandFactories().find(f=>String(f.city)===String(src));
+        const sourceFactory=brandFactories().find(f=>String(f.id)===String(selectedWh.factory_id))||brandFactories().find(f=>String(f.city)===String(selectedWh.factory_city||selectedWh.city||''));
+        const src=String(selectedWh.factory_city||sourceFactory?.city||selectedWh.city||'');
         const fp=mapPos(src,sourceFactory?.coords);
         const countryStores=stores.filter(store=>storeCountry(store)===selectedCountry || !storeCountry(store));
         const storesHtml=countryStores.map(store=>{
@@ -12877,9 +12877,10 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
         const fleet=Math.max(1,nV(lg.fleet_level,1));
         const activeOrders=(Array.isArray(brandState().logistics_orders)?brandState().logistics_orders:[]).filter(x=>String(x.status)==='in_transit').length;
         if(!selectedStore){$('#bdSelected',modal).textContent='Нажми на точку магазина на карте';$('#bdTotals',modal).innerHTML='';$('#bdConfirm',modal).disabled=true;return;}
-        const srcFactory=brandFactories().find(f=>String(f.city)===String(selectedWh.factory_city));
-        const fc=cityPair(selectedWh.factory_city,srcFactory?.coords);
+        const srcFactory=brandFactories().find(f=>String(f.id)===String(selectedWh.factory_id))||brandFactories().find(f=>String(f.city)===String(selectedWh.factory_city||selectedWh.city||''));
+        const fc=cityPair(selectedWh.factory_city||srcFactory?.city||selectedWh.city,srcFactory?.coords);
         const sc=cityPair(selectedStore.city,selectedStore.coords);
+        if(!fc||!sc){$('#bdSelected',modal).innerHTML=`<b>${escV(selectedStore.city)}</b><span>Не удалось определить координаты маршрута. Выбери другой магазин или проверь город завода.</span>`;$('#bdTotals',modal).innerHTML='';$('#bdConfirm',modal).disabled=true;return;}
         const dist=distanceKm(fc,sc);
         const qty=syncQty();
         const ship=Math.max(1000,Math.round((2500+dist*8+qty*8)*nV(lg.shipping_modifier,1))); 
@@ -13162,7 +13163,9 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     }catch(err){coreToast(err?.message||'Действие бренда не выполнено.');act.disabled=false;act.dataset.busy='0';}
     finally{
       // Never leave the Avito shell locked after a cancelled modal or a completed workflow.
-      try{core.setAvitoEditing?.(false)}catch(lockErr){console.warn('[Brand Studio] Не удалось снять флаг редактирования:',lockErr)}
+      // Keep the player inside the Avito/Brand workspace after a completed or cancelled action.
+      // Turning editing off here resets the shell and can send the player back to the main screen.
+      try{core.setAvitoEditing?.(true)}catch(lockErr){console.warn('[Brand Studio] Не удалось сохранить режим бренда:',lockErr)}
       if(act?.isConnected){act.disabled=false;act.dataset.busy='0';}
     }
   };
