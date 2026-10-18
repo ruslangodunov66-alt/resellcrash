@@ -6696,7 +6696,8 @@ async function initFarm(){
         <div class="avx-hunt-summary"><div><span>ДОСТУПНО ЛОТОВ</span><b>${suppliers.length}</b></div><div><span>НА СКЛАДЕ</span><b>${inv.length}</b></div><div><span>ПРОДАЖИ</span><b>${sales}</b></div></div>
         <div class="avx-supply-progress"><div class="avx-supply-progress-head"><span><b>${esc(discoveryTier)}</b><small>${discoveryNextSales?`${number(discoverySales)} / ${number(discoveryNextSales)} продаж до следующего уровня`:`${number(discoverySales)} продаж · максимальный уровень`}</small></span><strong>${discoveryNextSales?`${Math.min(100,Math.round((discoverySales/Math.max(1,discoveryNextSales))*100))}%`:'MAX'}</strong></div><div class="avx-supply-progress-track"><i style="width:${discoveryNextSales?Math.min(100,Math.round((discoverySales/Math.max(1,discoveryNextSales))*100)):100}%"></i></div></div>
         <div class="avx-economy-mini"><span>ПОСТАВКА</span><b>СЛУЧАЙНО</b><em>Автомобили появляются непредсказуемо</em><i>Чем выше уровень — тем шире пул</i></div>
-        <div class="avx-grid">${suppliers.slice(0,20).map(x=>{const rc=avitoRarity(x.rarity);const found=x.item_type==='avito_found';const buy=Number(x.buy_price||0);const market=Number(x.market_price||0);const margin=Math.max(0,market-buy);const apple=/iphone|ipad|macbook|airpods|apple watch|apple/i.test(String(x.name||'')+' '+String(x.cat||''));const dropLabel=found?'RARE DROP · '+avitoRarityLabel(x.rarity):avitoRarityLabel(x.rarity);return `<div class="avx-product rarity-${rc} ${found?'avx-found-product':''} ${apple?'avx-apple-product':''}" data-rarity="${rc}"><div class="avx-product-top"><div class="avx-supplier-visual ${x.found_type==='car'?'is-car':''}" aria-hidden="true">${avitoInventoryVisual(x)}</div><div class="avx-product-info"><b>${esc(x.name||'Товар')}</b><span>${esc(x.cat||'Категория')}${found?' · специальная находка':' · спрос ×'+Number(x.demand||1).toFixed(2)}</span><small class="avx-rarity-name">${dropLabel}</small></div></div><div class="avx-product-bottom"><strong>${number(buy)} ₽</strong><button class="avx-btn buy" data-avito-buy="${esc(x.id)}">КУПИТЬ · ${number(buy)} ₽</button></div>${found?`<div class="avx-found-profit">рынок ~ ${number(market)} ₽ · чистый запас +${number(margin)} ₽</div>`:''}</div>`}).join('')||'<div class="avx-empty">Поставщики временно недоступны.</div>'}</div>
+        <div class="avx-feed-tools" aria-label="Поиск и сортировка лотов"><label class="avx-feed-search-wrap"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 5 5"/></svg><input type="search" data-avito-feed-search placeholder="Найти товар…" autocomplete="off" aria-label="Поиск по товарам"><button type="button" data-avito-feed-clear aria-label="Очистить поиск">×</button></label><select data-avito-feed-sort aria-label="Сортировка товаров"><option value="profit">Больше выгоды</option><option value="recommended">Рекомендованные</option><option value="cheap">Сначала дешевле</option><option value="expensive">Сначала дороже</option></select><div class="avx-feed-count" role="status">Показано <b data-avito-feed-count>${Math.min(20,suppliers.length)}</b> из ${Math.min(20,suppliers.length)} лотов</div></div>
+        <div class="avx-grid">${suppliers.slice(0,20).map((x,feedIndex)=>{const rc=avitoRarity(x.rarity);const found=x.item_type==='avito_found';const buy=Number(x.buy_price||0);const market=Number(x.market_price||0);const margin=Math.max(0,market-buy);const apple=/iphone|ipad|macbook|airpods|apple watch|apple/i.test(String(x.name||'')+' '+String(x.cat||''));const dropLabel=found?'RARE DROP · '+avitoRarityLabel(x.rarity):avitoRarityLabel(x.rarity);return `<div class="avx-product rarity-${rc} ${found?'avx-found-product':''} ${apple?'avx-apple-product':''}" data-rarity="${rc}" data-buy-price="${buy}" data-market-price="${market}" data-source-index="${feedIndex}"><div class="avx-product-top"><div class="avx-supplier-visual ${x.found_type==='car'?'is-car':''}" aria-hidden="true">${avitoInventoryVisual(x)}</div><div class="avx-product-info"><b>${esc(x.name||'Товар')}</b><span>${esc(x.cat||'Категория')}${found?' · специальная находка':' · спрос ×'+Number(x.demand||1).toFixed(2)}</span><small class="avx-rarity-name">${dropLabel}</small></div></div><div class="avx-product-bottom"><strong>${number(buy)} ₽</strong><button class="avx-btn buy" data-avito-buy="${esc(x.id)}">КУПИТЬ · ${number(buy)} ₽</button></div>${found?`<div class="avx-found-profit">рынок ~ ${number(market)} ₽ · чистый запас +${number(margin)} ₽</div>`:''}</div>`}).join('')||'<div class="avx-empty">Поставщики временно недоступны.</div>'}</div>
       </div>`;
     } else if(avitoTab==='sales'){
       const special=inv.filter(x=>x.item_type==='avito_found' || x.item_type==='avito_hunt'); const manualGrouped=groupInventory(inv); const newUids=getAvitoNewPurchases();
@@ -6809,6 +6810,10 @@ async function initFarm(){
     clearInterval(avitoPoller);
     avitoPoller=setInterval(async()=>{
       if(avitoEditing || !modal.classList.contains('open') || !document.querySelector('.avito-shell')) return;
+      // The supplier feed changes only when explicitly refreshed/purchased; rebuilding it
+      // every poll resets search, sorting and scroll position. The unread counter has its
+      // own lightweight endpoint, so leave the live feed stable between user actions.
+      if(avitoTab==='buy') return;
       try {
         await fetchAvito();
         if(avitoEditing || document.querySelector('[data-avito-chat-sheet="1"]')) return;
@@ -6845,6 +6850,8 @@ async function initFarm(){
     const reviewClose=e.target.closest('[data-avito-review-close]'); if(reviewClose){avitoEditing=false;modalBody.innerHTML=renderAvito();return;}
     const refresh=e.target.closest('[data-avito-refresh]'); if(refresh){
       if(refresh.disabled || modalBody.classList.contains('avx-refresh-inflight')) return;
+      const savedFeedSearch=modalBody.querySelector('[data-avito-feed-search]')?.value||'';
+      const savedFeedSort=modalBody.querySelector('[data-avito-feed-sort]')?.value||'profit';
       refresh.disabled=true;
       modalBody.classList.add('avx-refresh-inflight');
       const activeRefresh=document.querySelector('[data-avito-refresh]');
@@ -6853,6 +6860,11 @@ async function initFarm(){
         const next=await tycoonFetch(`/avito/${encodeURIComponent(userId)}?force_refresh=1`);
         avitoState=next;
         modalBody.innerHTML=renderAvito();
+        const feedSearch=modalBody.querySelector('[data-avito-feed-search]');
+        const feedSort=modalBody.querySelector('[data-avito-feed-sort]');
+        if(feedSearch) feedSearch.value=savedFeedSearch;
+        if(feedSort) feedSort.value=savedFeedSort;
+        window.__resellUpdateAvitoFeedControls?.(modalBody);
         showAvitoUnlockPopup(); showToast('Поставка обновлена');
       }catch(err){showToast(err.message||'Не удалось обновить поставку');}
       finally{
@@ -6863,7 +6875,7 @@ async function initFarm(){
       return;
     }
     const tab=e.target.closest('[data-avito-tab]'); if(tab){avitoTab=tab.dataset.avitoTab;try{await fetchAvito();modalBody.innerHTML=renderAvito();showAvitoUnlockPopup()}catch(err){showToast(err.message||'Ошибка')}return;}
-    const buy=e.target.closest('[data-avito-buy]'); if(buy){buy.disabled=true;try{const p=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/buy`,{method:'POST',body:JSON.stringify({item_id:buy.dataset.avitoBuy})});profileData.balance=p.balance??profileData.balance;setBalance(profileData.balance);if(p?.item?.uid)markAvitoNewPurchase(p.item.uid);showToast(p.message||'Товар закуплен');avitoTab='buy';await fetchAvito();modalBody.innerHTML=renderAvito();showAvitoUnlockPopup()}catch(err){showToast(err.message||'Не удалось купить товар');buy.disabled=false}return;}
+    const buy=e.target.closest('[data-avito-buy]'); if(buy){const savedFeedSearch=modalBody.querySelector('[data-avito-feed-search]')?.value||'';const savedFeedSort=modalBody.querySelector('[data-avito-feed-sort]')?.value||'profit';buy.disabled=true;try{const p=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/buy`,{method:'POST',body:JSON.stringify({item_id:buy.dataset.avitoBuy})});profileData.balance=p.balance??profileData.balance;setBalance(profileData.balance);if(p?.item?.uid)markAvitoNewPurchase(p.item.uid);showToast(p.message||'Товар закуплен');avitoTab='buy';await fetchAvito();modalBody.innerHTML=renderAvito();const feedSearch=modalBody.querySelector('[data-avito-feed-search]');const feedSort=modalBody.querySelector('[data-avito-feed-sort]');if(feedSearch)feedSearch.value=savedFeedSearch;if(feedSort)feedSort.value=savedFeedSort;window.__resellUpdateAvitoFeedControls?.(modalBody);showAvitoUnlockPopup()}catch(err){showToast(err.message||'Не удалось купить товар');buy.disabled=false}return;}
     const assistantInfo=e.target.closest('[data-avito-assistant-info]'); if(assistantInfo){ openModal('Помощники Avito', `<div class="avito-shell avx-shell avx-assistant-info-sheet"><div class="avx-section"><div class="avx-info-hero"><div class="avx-info-icon">i</div><div><b>Пассивная команда</b><span>Помощники работают автоматически, даже когда игра закрыта.</span></div></div><div class="avx-info-list"><div><b>01 · ЗАКУП</b><span>Самостоятельно покупают доступные товары за свои средства.</span></div><div><b>02 · ПРОДАЖА</b><span>Выставляют товар и ведут переговоры с покупателем.</span></div><div><b>03 · ПРИБЫЛЬ</b><span>После продажи деньги и прибыль автоматически зачисляются тебе.</span></div><div><b>04 · ОНЛАЙН НЕ НУЖЕН</b><span>Закрывай игру — команда продолжит работать на сервере.</span></div></div><div class="avx-info-note">Один помощник стоит 5 000 000 ₽. Максимум — 5 помощников.</div><button class="avx-btn buy" data-avito-info-close style="width:100%;margin-top:10px;min-height:46px">ПОНЯТНО</button></div></div>`); return; }
     const openAssistants=e.target.closest('[data-avito-open-assistants]'); if(openAssistants){avitoTab='assistants';avitoShowAssistantChats=false;await fetchAvito();modalBody.innerHTML=renderAvito();return;}
     const toggleHelperChats=e.target.closest('[data-avito-toggle-helper-chats]'); if(toggleHelperChats){avitoShowAssistantChats=!avitoShowAssistantChats;modalBody.innerHTML=renderAvito();return;}
@@ -18958,6 +18970,71 @@ body.resell-avito-single-screen #modalBody .avx-review-sheet {
 }
 @media(prefers-reduced-motion:reduce){#brandV3DedicatedModal *{animation:none!important;transition:none!important}}
 </style>
+
+<style id="resell-avito-fast-feed-v1">
+/* Product feed: readable controls, no screen-wide blur while updating. */
+.avx-feed-tools{display:grid;grid-template-columns:minmax(0,1fr) minmax(132px,.76fr);gap:8px;align-items:center;margin:12px 0 10px}
+.avx-feed-search-wrap{display:flex;align-items:center;gap:8px;min-width:0;min-height:42px;padding:0 10px;border:1px solid rgba(255,255,255,.09);border-radius:12px;background:#0c0f0c;color:#dfe5df}
+.avx-feed-search-wrap>svg{width:17px;height:17px;flex:none;fill:none;stroke:#b7ff6a;stroke-width:1.8;stroke-linecap:round}
+.avx-feed-search-wrap input{width:100%;min-width:0;min-height:40px;padding:0;border:0;outline:0;background:transparent;color:#f3f6f2;font:800 11px/1.2 Nunito,sans-serif}
+.avx-feed-search-wrap input::placeholder{color:#687168}
+.avx-feed-search-wrap button{display:grid;place-items:center;flex:none;width:24px;height:24px;border-radius:7px;background:rgba(255,255,255,.05);color:#9aa39a;font:800 17px/1 Nunito,sans-serif}
+.avx-feed-tools select{width:100%;min-width:0;min-height:42px;padding:0 10px;border:1px solid rgba(183,255,106,.2);border-radius:12px;outline:0;background:#121712;color:#dfe8dc;font:900 9px/1.2 Montserrat,sans-serif}
+.avx-feed-count{grid-column:1/-1;color:#788078;font:800 8px/1.2 Nunito,sans-serif;text-align:right}.avx-feed-count b{color:#b7ff6a;font-weight:950}
+.avx-product[hidden]{display:none!important}
+.avx-refresh-inflight:after{content:"ОБНОВЛЯЕМ ПОСТАВКУ…";position:absolute;left:50%;top:42%;right:auto;bottom:auto;inset:auto;transform:translate(-50%,-50%);z-index:9999;display:flex;align-items:center;justify-content:center;width:max-content;max-width:calc(100% - 36px);min-height:46px;padding:14px 18px;border:1px solid rgba(183,255,106,.32);border-radius:14px;background:#0b1009;box-shadow:0 12px 32px rgba(0,0,0,.34);backdrop-filter:none!important;-webkit-backdrop-filter:none!important;color:#b7ff6a;font:900 10px/1.3 Montserrat,sans-serif;letter-spacing:.7px;text-align:center;pointer-events:none!important;animation:avitoRefreshPulse 1.2s ease-in-out infinite alternate}
+@keyframes avitoRefreshPulse{from{border-color:rgba(183,255,106,.20)}to{border-color:rgba(183,255,106,.48)}}
+@media(max-width:390px){.avx-feed-tools{grid-template-columns:minmax(0,1fr);gap:7px}.avx-feed-tools select{min-height:39px}.avx-feed-count{grid-column:1;text-align:left}.avx-feed-search-wrap{min-height:40px}}
+@media(prefers-reduced-motion:reduce){.avx-refresh-inflight:after{animation:none}}
+</style>
+<script id="resell-avito-feed-controls-v1">
+(function(){
+  'use strict';
+  function updateFeed(root){
+    root=root||document;
+    const shell=root.matches?.('.avx-hunt-center')?root:root.querySelector?.('.avx-hunt-center');
+    if(!shell)return;
+    const list=shell.querySelector('.avx-grid');
+    if(!list)return;
+    const input=shell.querySelector('[data-avito-feed-search]');
+    const sort=shell.querySelector('[data-avito-feed-sort]');
+    const query=String(input?.value||'').trim().toLocaleLowerCase('ru-RU');
+    const mode=sort?.value||'profit';
+    const cards=Array.from(list.querySelectorAll('.avx-product'));
+    cards.sort((a,b)=>{
+      const ab=Number(a.dataset.buyPrice||0),bb=Number(b.dataset.buyPrice||0);
+      const am=Number(a.dataset.marketPrice||0),bm=Number(b.dataset.marketPrice||0);
+      if(mode==='cheap'&&ab!==bb)return ab-bb;
+      if(mode==='expensive'&&ab!==bb)return bb-ab;
+      if(mode==='recommended')return Number(a.dataset.sourceIndex||0)-Number(b.dataset.sourceIndex||0);
+      const ap=Math.max(0,am-ab),bp=Math.max(0,bm-bb);
+      if(bp!==ap)return bp-ap;
+      return ab-bb;
+    });
+    let visible=0;
+    const fragment=document.createDocumentFragment();
+    cards.forEach(card=>{
+      const matches=!query||card.textContent.toLocaleLowerCase('ru-RU').includes(query);
+      card.hidden=!matches;
+      if(matches)visible++;
+      fragment.appendChild(card);
+    });
+    list.appendChild(fragment);
+    const count=shell.querySelector('[data-avito-feed-count]');
+    if(count)count.textContent=String(visible);
+    const status=shell.querySelector('.avx-feed-count');
+    if(status){const total=cards.length;status.setAttribute('aria-label',`Показано ${visible} из ${total} лотов`);}
+    shell.dataset.feedControlsReady='1';
+  }
+  window.__resellUpdateAvitoFeedControls=updateFeed;
+  document.addEventListener('input',function(e){if(e.target.matches?.('[data-avito-feed-search]'))updateFeed(e.target.closest('.avx-hunt-center'));});
+  document.addEventListener('change',function(e){if(e.target.matches?.('[data-avito-feed-sort]'))updateFeed(e.target.closest('.avx-hunt-center'));});
+  document.addEventListener('click',function(e){if(e.target.closest?.('[data-avito-feed-clear]')){const shell=e.target.closest('.avx-hunt-center');const input=shell?.querySelector('[data-avito-feed-search]');if(input){input.value='';updateFeed(shell);input.focus();}}});
+  const observer=new MutationObserver(function(){const shell=document.querySelector('.avx-hunt-center');if(shell&&shell.dataset.feedControlsReady!=='1')updateFeed(shell);});
+  observer.observe(document.body,{childList:true,subtree:true});
+})();
+</script>
+
 
 </body>
 </html>
