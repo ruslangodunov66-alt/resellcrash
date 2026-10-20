@@ -6611,14 +6611,21 @@ async function initFarm(){
     const special=item?.item_type==='avito_found' || item?.item_type==='avito_hunt';
     const n=String((item?.name||'')+' '+(item?.cat||'')+' '+(item?.found_id||item?.id||'')+' '+(item?.found_type||'')).toLowerCase().replace(/ё/g,'е');
     const rc=avitoRarity(item?.rarity);
-    // Ordinary drops retain the original clean rarity tile; no product photos.
+    const isAppleProduct=/iphone|айфон|ipad|айпад|macbook|макбук|airpods|apple\s*watch|apple/i.test(n);
+    // Apple goods in the regular supplier catalog use the same embedded SVG logo
+    // as special finds; rendering identity is independent from drop rarity.
+    if(isAppleProduct && typeof window.__resellAvitoRareDropVisual==='function'){
+      const appleVisual=window.__resellAvitoRareDropVisual(item);
+      if(appleVisual) return appleVisual;
+    }
+    // Ordinary non-Apple drops retain the original clean rarity tile; no product photos.
     if(!special || rc==='common') return `<div class="avx-rarity-icon rarity-${rc}" data-rarity="${rc}" aria-hidden="true"></div>`;
     // Rare special drops use hand-drawn vector marks instead of broken jacket/rim photos.
     if(typeof window.__resellAvitoRareDropVisual==='function'){
       const rareVisual=window.__resellAvitoRareDropVisual(item);
       if(rareVisual) return rareVisual;
     }
-    if(n.includes('iphone')||n.includes('айфон')) return `<div class="avx-device-mark apple" aria-label="Apple"></div>`;
+    if(/iphone|айфон|ipad|айпад|macbook|макбук|airpods|apple\s*watch|apple/i.test(n)) return `<div class="avx-device-mark apple" aria-label="Apple"><svg viewBox="0 0 48 48" role="img" aria-hidden="true" focusable="false" style="width:26px;height:26px;display:block;fill:currentColor"><path d="M30.2 8.5c-2.5 0-5.4 1.9-7.3 1.9-2 0-4.2-1.8-6.9-1.8-5.7.1-11.5 4.8-11.5 13.3 0 5.3 2.1 11.1 4.7 15 1.9 2.8 3.9 5.3 6.5 5.3 2.3 0 3.6-1.5 7-1.5 3.3 0 4.3 1.5 6.8 1.5 2.6 0 4.3-2.4 6.2-5.2 1.4-2.1 2.5-4.5 3.2-6.9-6.6-2.7-7.6-11.5-.8-15.4-2.3-3.7-6.1-6.1-10.1-6.2.9-3.5 3.8-5.8 7-6.4-1.5 3.9-3.7 6.1-6.6 6.4z"/></svg></div>`;
     if(n.includes('samsung')||n.includes('galaxy')||n.includes('самсунг')) return `<div class="avx-device-mark samsung" aria-label="Samsung">S</div>`;
     if(n.includes('macbook')||n.includes('макбук')) return `<div class="avx-device-mark mac" aria-label="MacBook">M</div>`;
     return `<div class="avx-rarity-icon rarity-${rc}" data-rarity="${rc}" aria-hidden="true"></div>`;
@@ -16570,7 +16577,10 @@ main.app{
     // IMPORTANT: existing catalogue items must keep the original renderer (Apple bitten logo,
     // exact manufacturer marks and existing artwork). Only explicitly added IDs use this module.
     if(/google pixel|pixel (?:[6-9]|1[0-9])|гугл пиксель/.test(n)) return frame(`<g transform="translate(60 31)"><path d="M0 -22A22 22 0 0 1 19 11L10 6A12 12 0 0 0 0 -12Z" fill="#4285F4"/><path d="M19 11A22 22 0 0 1 -19 11L-10 6A12 12 0 0 0 10 6Z" fill="#34A853"/><path d="M-19 11A22 22 0 0 1 -11 -19L-5 -10A12 12 0 0 0 -10 6Z" fill="#FBBC05"/><path d="M-11 -19A22 22 0 0 1 0 -22V-12A12 12 0 0 0 -5 -10Z" fill="#EA4335"/><path d="M0 0H22V7H0Z" fill="#4285F4"/><circle r="5" fill="#101510"/></g>${caption('GOOGLE',65,5.8,'#e6ebe6')}${caption('PIXEL',75,6,'#b7ff6a')}`);
-    if(/iphone|айфон|apple/.test(n)) return frame(`<g transform="translate(60 30)" fill="#e9eeea"><path d="M7 -17C1 -17 -4 -10 -4 -2C-4 8 3 19 8 19C11 19 13 17 17 17C20 17 22 19 25 19C30 19 35 10 36 5C29 2 28 -7 35 -11C31 -16 25 -17 21 -16C17 -15 14 -13 11 -14C9 -15 8 -17 7 -17Z" transform="translate(-18 0) scale(.82)"/><path d="M2 -22C2 -27 7 -31 12 -31C12 -25 8 -21 2 -22Z" transform="translate(-4 0) scale(.82)"/></g>${caption('APPLE',66,6,'#e6ebe6')}${caption('IPHONE',76,5.5,'#b7ff6a')}`);
+    if(/iphone|айфон|ipad|айпад|macbook|макбук|airpods|apple\s*watch|apple/.test(n)) {
+      const appleType=/airpods/.test(n)?'AIRPODS':/apple\s*watch|iwatch/.test(n)?'WATCH':/macbook|макбук/.test(n)?'MACBOOK':/ipad|айпад/.test(n)?'IPAD':'IPHONE';
+      return frame(`<g transform="translate(60 30)" fill="#e9eeea"><path d="M7 -17C1 -17 -4 -10 -4 -2C-4 8 3 19 8 19C11 19 13 17 17 17C20 17 22 19 25 19C30 19 35 10 36 5C29 2 28 -7 35 -11C31 -16 25 -17 21 -16C17 -15 14 -13 11 -14C9 -15 8 -17 7 -17Z" transform="translate(-18 0) scale(.82)"/><path d="M2 -22C2 -27 7 -31 12 -31C12 -25 8 -21 2 -22Z" transform="translate(-4 0) scale(.82)"/></g>${caption('APPLE',66,6,'#e6ebe6')}${caption(appleType,76,5.5,'#b7ff6a')}`);
+    }
     if(/samsung|galaxy|самсунг/.test(n)) return frame(`<ellipse cx="60" cy="31" rx="26" ry="22" fill="none" stroke="#dce3df" stroke-width="2.5"/><text x="60" y="39" text-anchor="middle" fill="#dce3df" font-family="Arial,sans-serif" font-size="28" font-weight="700">S</text>${caption('SAMSUNG',67,5.8,'#e6ebe6')}${caption('GALAXY',76,5.5,'#b7ff6a')}`);
     const isNewWheel=/found_wheels|bbs ch-r|vossen|hre p101|\b(rim|rims|wheel|wheels|диск|диски|колесо|колеса)\b/.test(n);
     const isNewWatch=/found_(casio|gshock|edifice|tissot|seiko|hamilton|longines|tag_heuer|tudor|omega|cartier|breitling|rolex|patek|audemars)|\b(casio g-shock|casio edifice|tissot prx|tissot seastar|seiko prospex|hamilton khaki|longines hydroconquest|tag heuer carrera|tudor black bay|omega speedmaster|cartier santos|breitling navitimer|rolex submariner|patek philippe nautilus|audemars piguet royal oak)\b/.test(n);
@@ -16635,7 +16645,7 @@ main.app{
     if(typeof window.__resellAvitoInventoryVisual==='function') return window.__resellAvitoInventoryVisual(it||{});
     const item=it||{};
     const n=String((item.name||'')+' '+(item.cat||'')+' '+(item.found_id||'')).toLowerCase().replace(/ё/g,'е');
-    if(n.includes('iphone')||n.includes('айфон')) return '<div class="avx-device-mark apple" aria-label="Apple"></div>';
+    if(/iphone|айфон|ipad|айпад|macbook|макбук|airpods|apple\s*watch|apple/i.test(n)) return '<div class="avx-device-mark apple" aria-label="Apple"><svg viewBox="0 0 48 48" role="img" aria-hidden="true" focusable="false" style="width:26px;height:26px;display:block;fill:currentColor"><path d="M30.2 8.5c-2.5 0-5.4 1.9-7.3 1.9-2 0-4.2-1.8-6.9-1.8-5.7.1-11.5 4.8-11.5 13.3 0 5.3 2.1 11.1 4.7 15 1.9 2.8 3.9 5.3 6.5 5.3 2.3 0 3.6-1.5 7-1.5 3.3 0 4.3 1.5 6.8 1.5 2.6 0 4.3-2.4 6.2-5.2 1.4-2.1 2.5-4.5 3.2-6.9-6.6-2.7-7.6-11.5-.8-15.4-2.3-3.7-6.1-6.1-10.1-6.2.9-3.5 3.8-5.8 7-6.4-1.5 3.9-3.7 6.1-6.6 6.4z"/></svg></div>';
     if(n.includes('samsung')||n.includes('galaxy')||n.includes('самсунг')) return '<div class="avx-device-mark samsung" aria-label="Samsung">S</div>';
     if(n.includes('macbook')||n.includes('макбук')) return '<div class="avx-device-mark mac" aria-label="MacBook">M</div>';
     if(item.item_type==='avito_found'||item.item_type==='avito_hunt') return `<div class="avx-special-icon">${esc(item.hunt_icon||item.found_icon||'R')}</div>`;
