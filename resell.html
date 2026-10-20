@@ -13,7 +13,7 @@
 @media(max-width:420px){.avito-entry-cover{border-radius:16px!important}.avito-entry-cover .avito-open-cta{bottom:9%!important;padding:9px 14px!important;border-radius:10px!important;gap:7px!important}}
 </style>
 
-<meta name="resell-build" content="V66-BANK65-INDUSTRIAL-MINING">
+<meta name="resell-build" content="V67-APPLE-DROPFREQ-FIX">
 <meta charset="utf-8"/>
 <meta content="width=device-width,initial-scale=1.0,user-scalable=no,viewport-fit=cover" name="viewport"/>
 <meta content="#050505" name="theme-color"/>
@@ -6609,8 +6609,9 @@ async function initFarm(){
   // Premium generated thumbnails for Avito special categories. Shared across supplier feed, stock and auction.
   // One source of truth for Avito-owned item visuals. Auction reuses these exact nodes/classes.
   function avitoInventoryVisual(item){
-    const special=item?.item_type==='avito_found' || item?.item_type==='avito_hunt';
-    const n=String((item?.name||'')+' '+(item?.cat||'')+' '+(item?.found_id||item?.id||'')+' '+(item?.found_type||'')).toLowerCase().replace(/ё/g,'е');
+    const itemType=String(item?.item_type||'').toLowerCase();
+    const special=itemType==='avito_found' || itemType==='avito_hunt' || Boolean(item?.found_id || item?.found_type || item?.hunt_type) || /^found[:_]/i.test(String(item?.id||''));
+    const n=String([item?.name,item?.product_name,item?.title,item?.label,item?.cat,item?.category,item?.found_id,item?.id,item?.found_type,item?.hunt_type,item?.found_icon,item?.icon].filter(Boolean).join(' ')).toLowerCase().replace(/ё/g,'е');
     const rc=avitoRarity(item?.rarity);
     // Regular supplier/catalog items must keep the original rarity-colour square.
     // Detailed category artwork is reserved strictly for rare-drop/hunt items.
@@ -6713,7 +6714,7 @@ async function initFarm(){
         <div class="avx-supply-progress"><div class="avx-supply-progress-head"><span><b>${esc(discoveryTier)}</b><small>${discoveryNextSales?`${number(discoverySales)} / ${number(discoveryNextSales)} продаж до следующего уровня`:`${number(discoverySales)} продаж · максимальный уровень`}</small></span><strong>${discoveryNextSales?`${Math.min(100,Math.round((discoverySales/Math.max(1,discoveryNextSales))*100))}%`:'MAX'}</strong></div><div class="avx-supply-progress-track"><i style="width:${discoveryNextSales?Math.min(100,Math.round((discoverySales/Math.max(1,discoveryNextSales))*100)):100}%"></i></div></div>
         <div class="avx-economy-mini"><span>ПОСТАВКА</span><b>СЛУЧАЙНО</b><em>Автомобили появляются непредсказуемо</em><i>Чем выше уровень — тем шире пул</i></div>
         <div class="avx-refresh-footer avx-refresh-footer-top"><div class="avx-refresh-footer-copy"><b>Обновить ленту</b><span>Загрузить новую партию товаров</span></div><button type="button" class="avx-refresh-stock avx-refresh-stock-bottom" data-avito-refresh data-refresh-locked="${refreshAvailable?'0':'1'}" ${refreshAvailable?'':'disabled'}><span aria-hidden="true">↻</span> ${refreshLabel}</button></div>
-        <div class="avx-grid">${suppliers.slice(0,20).map((x,feedIndex)=>{const rc=avitoRarity(x.rarity);const found=x.item_type==='avito_found';const buy=Number(x.buy_price||0);const market=Number(x.market_price||0);const margin=Math.max(0,market-buy);const apple=/iphone|ipad|macbook|airpods|apple watch|apple/i.test(String(x.name||'')+' '+String(x.cat||''));const dropLabel=found?'RARE DROP · '+avitoRarityLabel(x.rarity):avitoRarityLabel(x.rarity);return `<div class="avx-product rarity-${rc} ${found?'avx-found-product':''} ${apple?'avx-apple-product':''}" data-rarity="${rc}" data-buy-price="${buy}" data-market-price="${market}" data-source-index="${feedIndex}"><div class="avx-product-top"><div class="avx-supplier-visual ${x.found_type==='car'?'is-car':''}" aria-hidden="true">${avitoInventoryVisual(x)}</div><div class="avx-product-info"><b>${esc(x.name||'Товар')}</b><span>${esc(x.cat||'Категория')}${found?' · специальная находка':' · спрос ×'+Number(x.demand||1).toFixed(2)}</span><small class="avx-rarity-name">${dropLabel}</small></div></div><div class="avx-product-bottom"><strong>${number(buy)} ₽</strong><button class="avx-btn buy" data-avito-buy="${esc(x.id)}">КУПИТЬ · ${number(buy)} ₽</button></div>${found?`<div class="avx-found-profit">рынок ~ ${number(market)} ₽ · чистый запас +${number(margin)} ₽</div>`:''}</div>`}).join('')||'<div class="avx-empty">Поставщики временно недоступны.</div>'}</div>
+        <div class="avx-grid">${suppliers.slice(0,20).map((x,feedIndex)=>{const rc=avitoRarity(x.rarity);const found=x.item_type==='avito_found'||x.item_type==='avito_hunt'||Boolean(x.found_id||x.found_type||x.hunt_type);const buy=Number(x.buy_price||0);const market=Number(x.market_price||0);const margin=Math.max(0,market-buy);const apple=/iphone|айфон|ipad|айпад|macbook|макбук|airpods?|apple\s*watch|iwatch|imac|ipod|vision\s*pro|apple/i.test([x.name,x.product_name,x.title,x.cat,x.found_id,x.found_type,x.icon,x.found_icon].filter(Boolean).join(' '));const dropLabel=found?'RARE DROP · '+avitoRarityLabel(x.rarity):avitoRarityLabel(x.rarity);return `<div class="avx-product rarity-${rc} ${found?'avx-found-product':''} ${apple?'avx-apple-product':''}" data-rarity="${rc}" data-buy-price="${buy}" data-market-price="${market}" data-source-index="${feedIndex}"><div class="avx-product-top"><div class="avx-supplier-visual ${x.found_type==='car'?'is-car':''}" aria-hidden="true">${avitoInventoryVisual(x)}</div><div class="avx-product-info"><b>${esc(x.name||'Товар')}</b><span>${esc(x.cat||'Категория')}${found?' · специальная находка':' · спрос ×'+Number(x.demand||1).toFixed(2)}</span><small class="avx-rarity-name">${dropLabel}</small></div></div><div class="avx-product-bottom"><strong>${number(buy)} ₽</strong><button class="avx-btn buy" data-avito-buy="${esc(x.id)}">КУПИТЬ · ${number(buy)} ₽</button></div>${found?`<div class="avx-found-profit">рынок ~ ${number(market)} ₽ · чистый запас +${number(margin)} ₽</div>`:''}</div>`}).join('')||'<div class="avx-empty">Поставщики временно недоступны.</div>'}</div>
       </div>`;
     } else if(avitoTab==='sales'){
       const special=inv.filter(x=>x.item_type==='avito_found' || x.item_type==='avito_hunt'); const manualGrouped=groupInventory(inv); const newUids=getAvitoNewPurchases();
@@ -19526,5 +19527,43 @@ body.resell-avito-single-screen #modalBody .avx-review-sheet {
 })();
 </script>
 
+<script id="resell-avito-apple-shared-rare-v6">
+(function(){
+  'use strict';
+  if(window.__resellAvitoAppleSharedRareV6) return;
+  window.__resellAvitoAppleSharedRareV6 = true;
+  let seq=0;
+  const norm = item => String([
+    item?.name,item?.product_name,item?.title,item?.label,item?.cat,item?.category,
+    item?.found_id,item?.id,item?.found_type,item?.hunt_type,item?.found_icon,item?.icon,
+    item?.product_type,item?.brand,item?.manufacturer
+  ].filter(Boolean).join(' ')).toLowerCase().replace(/ё/g,'е');
+  const special = item => {
+    const t=String(item?.item_type||'').toLowerCase();
+    return t==='avito_found' || t==='avito_hunt' || Boolean(item?.found_id || item?.found_type || item?.hunt_type) || /^found[:_]/i.test(String(item?.id||''));
+  };
+  const isAppleRare = item => special(item) && /iphone|айфон|ipad|айпад|macbook|макбук|airpods?|apple\s*watch|iwatch|imac|аймак|ipod|айпод|vision\s*pro|apple||found_(?:iphone|ipad|macbook|airpods|apple)/i.test(norm(item));
+  const applePath='M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53-1.71-2.47-3.01-6.99-1.26-10.03.87-1.5 2.42-2.45 4.1-2.48 1.28-.02 2.5.87 3.29.87.79 0 2.28-1.08 3.84-.92.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.27-2.15 3.79.03 3.01 2.64 4.01 2.67 4.02-.02.07-.42 1.44-1.38 2.8M14.94 3.96c.72-.87 1.91-1.54 2.88-1.59.12 1.17-.34 2.35-1.03 3.2-.69.86-1.82 1.52-2.93 1.43-.15-1.14.42-2.32 1.08-3.04z';
+  function appleArtwork(){
+    const id='resellAppleRareV6_'+(++seq);
+    return `<svg class="resell-product-artwork resell-apple-logo-art" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" aria-label="Apple" role="img" focusable="false" preserveAspectRatio="xMidYMid meet"><defs><linearGradient id="${id}bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#202720"/><stop offset=".58" stop-color="#101410"/><stop offset="1" stop-color="#070907"/></linearGradient><radialGradient id="${id}halo"><stop stop-color="#b7ff6a" stop-opacity=".18"/><stop offset="1" stop-color="#b7ff6a" stop-opacity="0"/></radialGradient></defs><rect width="120" height="120" rx="15" fill="url(#${id}bg)"/><circle cx="60" cy="55" r="55" fill="url(#${id}halo)"/><path d="${applePath}" transform="translate(22 22) scale(3.15)" fill="#f3f6f3"/><path d="M8 94H112" stroke="#fff" stroke-opacity=".055"/><path d="M8 13V8H13M107 8H112V13M8 107V112H13M107 112H112V107" fill="none" stroke="#b7ff6a" stroke-opacity=".24" stroke-width="1.1"/></svg>`;
+  }
+  const previousRare = window.__resellAvitoRareDropVisual;
+  const previousInventory = window.__resellAvitoInventoryVisual;
+  window.__resellAvitoRareDropVisual = function(item){
+    if(isAppleRare(item)) return appleArtwork();
+    return typeof previousRare==='function' ? previousRare(item) : '';
+  };
+  window.__resellAvitoInventoryVisual = function(item){
+    if(!special(item)) return typeof previousInventory==='function' ? previousInventory(item) : '';
+    if(isAppleRare(item)) return appleArtwork();
+    return typeof previousInventory==='function' ? previousInventory(item) : (typeof window.__resellAvitoRareDropVisual==='function' ? window.__resellAvitoRareDropVisual(item) : '');
+  };
+  const css=document.createElement('style');
+  css.id='resell-avito-apple-shared-rare-v6-css';
+  css.textContent='.resell-apple-logo-art{display:block!important;width:100%!important;height:100%!important;min-width:0!important;min-height:0!important;max-width:100%!important;max-height:100%!important;object-fit:contain!important;overflow:hidden!important;flex:0 0 auto!important}.avx-supplier-visual .resell-apple-logo-art{width:100%!important;height:100%!important}.avx-special-top>.resell-apple-logo-art{width:68px!important;height:68px!important;min-width:68px!important;flex:0 0 68px!important}';
+  document.head.appendChild(css);
+})();
+</script>
 </body>
 </html>
