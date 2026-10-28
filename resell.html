@@ -12500,9 +12500,10 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
   if(window.__resellCasesV6) return;
   window.__resellCasesV6=true;
   const caseMap={
-    rare:{name:'Редкий кейс',desc:'Обычный кейс с редкими товарами',image:'case/case.PNG'},
-    legendary:{name:'Легендарный кейс',desc:'Более дорогой пул наград',image:'https://raw.githubusercontent.com/ruslangodunov66-alt/resellcrash/main/IMG_0853.png'},
-    trader_goods:{name:'Кейс поставщика',desc:'Товары для торговли и перепродажи',image:'case/trader_goods_case.png'}
+    rare:{name:'Редкий кейс',desc:'Деньги и редкие награды',image:'case/case.PNG'},
+    legendary:{name:'Легендарный кейс',desc:'Повышенный шанс на крупную денежную награду',image:'https://raw.githubusercontent.com/ruslangodunov66-alt/resellcrash/main/IMG_0853.png'},
+    trader_goods:{name:'Кейс поставщика',desc:'Товары для торговли и перепродажи',image:'case/trader_goods_case.png'},
+    automotive:{name:'Автомобильный кейс',desc:'Автомобили — от классики до премиальных моделей',image:'case/automotive_case.png'}
   };
   const core=window.__resellCoreV26||window.__resellCoreV25||{};
   function api(){ return core.apiFetch || window.apiFetch; }
@@ -12515,24 +12516,36 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     if(!fn) throw new Error('API RESSELL не инициализирован');
     const resp=await fn(base()+path,{...opts,headers:{'Content-Type':'application/json','Accept':'application/json',...(opts.headers||{})}},3);
     const payload=await resp.json().catch(()=>({}));
-    if(!resp.ok || payload?.success===false) throw new Error(payload?.error||payload?.message||'Ошибка запроса');
+    if(!resp.ok || payload?.success===false){ const err=new Error(payload?.error||payload?.message||'Ошибка запроса'); err.payload=payload; throw err; }
     return payload;
+  }
+  function syncCaseBalance(payload){
+    const raw=payload?.balance ?? payload?.main_balance ?? payload?.new_balance;
+    if(raw===undefined || raw===null || !Number.isFinite(Number(raw))) return;
+    profileData=profileData||{};
+    profileData.balance=Math.max(0,Number(raw));
+    try{setBalance(profileData.balance);}catch(_){}
   }
   function card(c,state){
     const info=caseMap[c.id]||{name:c.id,desc:'Кейс',image:''};
-    const price=Number(c.price||0);
-    const img=info.image?`<img src="${info.image}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='grid'">`:'';
-    return `<div class="case-v6-card"><div class="case-v6-media">${img}<div class="case-v6-fallback" style="display:${info.image?'none':'grid'}">?</div></div><div class="case-v6-name">${escSafe(info.name)}</div><div class="case-v6-desc">${escSafe(info.desc)}</div><div class="case-v6-row"><div class="case-v6-price">${fmt(price)}</div><button class="case-v6-buy" data-case-buy="${escSafe(c.id)}">КУПИТЬ</button></div></div>`;
+    const price=Math.max(0,Number(c.price||0));
+    const balance=Number(state?.balance ?? profileData?.balance ?? 0);
+    const canBuy=balance>=price && price>0;
+    const image=String(c.image||info.image||'');
+    const img=image?`<img src="${escSafe(image)}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='grid'">`:'';
+    const buttonLabel=canBuy?'КУПИТЬ':(price>0?'НЕ ХВАТАЕТ':'НЕДОСТУПЕН');
+    return `<div class="case-v6-card"><div class="case-v6-media">${img}<div class="case-v6-fallback" style="display:${image?'none':'grid'}">?</div></div><div class="case-v6-name">${escSafe(info.name)}</div><div class="case-v6-desc">${escSafe(info.desc)}</div><div class="case-v6-row"><div class="case-v6-price">${fmt(price)}</div><button class="case-v6-buy" data-case-buy="${escSafe(c.id)}" ${canBuy?'':'disabled'}>${buttonLabel}</button></div></div>`;
   }
   async function render(data,error=''){
-    const cases=Array.isArray(data?.cases)?data.cases:Object.entries(caseMap).map(([id,x])=>({id,price:id==='rare'?45000:id==='legendary'?550000:50000}));
+    const cases=Array.isArray(data?.cases)?data.cases:Object.entries(caseMap).map(([id,x])=>({id,price:id==='rare'?45000:id==='legendary'?550000:id==='trader_goods'?50000:3000000,image:x.image}));
+    const balance=Number(data?.balance ?? data?.main_balance ?? profileData?.balance ?? 0);
     const pending=data?.pending;
     const pendingHtml=pending?`<div class="case-v6-pending"><div class="case-v6-pending-kicker">Открытие кейса</div><div class="case-v6-pending-name">${escSafe((caseMap[pending.case_id]||{}).name||pending.case_id||'Кейс')}</div>${pending.status==='revealed'&&pending.result?`<div class="case-v6-result">${pending.result.image?`<img src="${escSafe(pending.result.image)}" alt="">`:''}<b>${escSafe(pending.result.name||'Награда')}</b><span>${escSafe(pending.result.rarity||'Товар')} · ${fmt(pending.result.value||0)}</span></div><div class="case-v6-actions"><button class="case-v6-btn" data-case-claim="${escSafe(pending.round_id)}">ЗАБРАТЬ</button><button class="case-v6-btn secondary" data-case-refresh>ОБНОВИТЬ</button></div>`:`<div class="case-v6-actions"><button class="case-v6-btn" data-case-open="${escSafe(pending.round_id)}">ОТКРЫТЬ</button><button class="case-v6-btn secondary" data-case-refresh>ОБНОВИТЬ</button></div>`}</div>`:'';
-    modalBody.innerHTML=`<div class="cases-v6"><div class="cases-v6-head"><div><div class="cases-v6-kicker">RESSELL · КЕЙСЫ</div><div class="cases-v6-title">Открой кейс</div><div class="cases-v6-sub">Купи кейс, открой его и забери награду. Всё происходит прямо здесь.</div></div><div class="cases-v6-balance"><small>Баланс</small><strong>${fmt(data?.balance||profileData?.balance||0)}</strong></div></div>${error?`<div class="case-v6-error">${escSafe(error)}</div>`:''}${pendingHtml}<div class="cases-v6-grid">${cases.map(c=>card(c,data)).join('')}</div></div>`;
+    modalBody.innerHTML=`<div class="cases-v6"><div class="cases-v6-head"><div><div class="cases-v6-kicker">RESSELL · КЕЙСЫ</div><div class="cases-v6-title">Открой кейс</div><div class="cases-v6-sub">Купи кейс, открой его и забери награду. Всё происходит прямо здесь.</div></div><div class="cases-v6-balance"><small>Баланс RESSELL</small><strong>${fmt(balance)}</strong></div></div>${error?`<div class="case-v6-error">${escSafe(error)}</div>`:''}${pendingHtml}<div class="cases-v6-grid">${cases.map(c=>card(c,{...data,balance})).join('')}</div></div>`;
   }
   async function load(){
-    try{ const data=await req(`/wheel/case/state?userId=${encodeURIComponent(uid())}`); await render(data); }
-    catch(e){ await render({balance:Number(profileData?.balance||0)},e.message||'Не удалось загрузить кейсы.'); }
+    try{ const data=await req(`/wheel/case/state?userId=${encodeURIComponent(uid())}`); syncCaseBalance(data); await render(data); }
+    catch(e){ await render({balance:profileData?.balance ?? 0},e.message||'Не удалось загрузить кейсы.'); }
   }
   window.openContainersGame=async function(){
     haptic('light');
@@ -12548,8 +12561,8 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     if(buy){
       if(buy.disabled) return;
       buy.disabled=true;
-      try{ await req('/wheel/case/buy',{method:'POST',body:JSON.stringify({userId:Number(uid()),case_id:buy.dataset.caseBuy,request_id:crypto.randomUUID?.()||String(Date.now())})}); await load(); }
-      catch(err){ buy.disabled=false; showToast(err.message||'Не удалось купить кейс'); }
+      try{ const bought=await req('/wheel/case/buy',{method:'POST',body:JSON.stringify({userId:Number(uid()),case_id:buy.dataset.caseBuy,request_id:crypto.randomUUID?.()||String(Date.now())})}); syncCaseBalance(bought); await load(); }
+      catch(err){ if(err?.payload)syncCaseBalance(err.payload); buy.disabled=false; showToast(err.message||'Не удалось купить кейс'); }
       return;
     }
     if(open){
@@ -12562,8 +12575,8 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     if(claim){
       if(claim.disabled)return;
       claim.disabled=true;
-      try{ await req('/wheel/case/claim',{method:'POST',body:JSON.stringify({userId:Number(uid()),round_id:claim.dataset.caseClaim})}); await load(); await loadProfile?.(); }
-      catch(err){ claim.disabled=false; showToast(err.message||'Не удалось забрать награду'); }
+      try{ const claimed=await req('/wheel/case/claim',{method:'POST',body:JSON.stringify({userId:Number(uid()),round_id:claim.dataset.caseClaim})}); syncCaseBalance(claimed); await load(); await loadProfile?.(); }
+      catch(err){ if(err?.payload)syncCaseBalance(err.payload); claim.disabled=false; showToast(err.message||'Не удалось забрать награду'); }
     }
   });
 })();
