@@ -1017,41 +1017,6 @@
     function clearSession(){try{sessionStorage.removeItem(RESSELL_SESSION_KEY);}catch(_){} try{localStorage.removeItem(RESSELL_SESSION_KEY);}catch(_){} }
     function getInitData(){return String(window.Telegram?.WebApp?.initData||telegramInitData||'').trim();}
 
-    // Возвращает null, если поле баланса не пришло или имеет неверный формат.
-    // Ноль остаётся допустимым значением, но ответы разных API не должны
-    // безусловно перезаписывать друг друга.
-    function readBalanceValue(payload){
-        if(!payload || typeof payload !== 'object') return null;
-        const candidates=[payload.balance,payload.main_balance,payload.coins,payload.money,
-            payload.player?.balance,payload.profile?.balance,payload.data?.balance];
-        for(const raw of candidates){
-            if(raw===undefined || raw===null || raw==='') continue;
-            let n;
-            if(typeof raw==='number') n=raw;
-            else {
-                const normalized=String(raw).replace(/[\u00a0\s₽]/g,'').replace(/,(?=\d{3}(?:\D|$))/g,'');
-                n=Number(normalized);
-            }
-            if(Number.isFinite(n) && n>=0) return Math.floor(n);
-        }
-        return null;
-    }
-
-    function resolveInitialUserId(){
-        // Сначала используем ID из подписанной сессии RESSELL; затем Telegram initData.
-        // Это не даёт запросить /profile для устаревшего userId из URL до того,
-        // как apiFetch успеет обновить глобальный идентификатор.
-        const launchUid=sessionUid(getLaunchSession());
-        if(launchUid){userId=launchUid;return userId;}
-        const init=getInitData();
-        if(init){
-            try{const q=new URLSearchParams(init);const u=JSON.parse(q.get('user')||'{}');if(u?.id){userId=String(u.id);return userId;}}catch(_){}
-        }
-        const unsafeUid=String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id||'').trim();
-        if(unsafeUid){userId=unsafeUid;return userId;}
-        return String(userId||'').trim();
-    }
-
     async function ensureResellSession(){
         const launch=getLaunchSession();
         const init=getInitData();
@@ -1367,9 +1332,7 @@
             try { window.Telegram?.WebApp?.ready?.(); window.Telegram?.WebApp?.expand?.(); } catch(_) {}
             telegramInitData = getInitData();
             const uidFromInit = (()=>{try{const q=new URLSearchParams(telegramInitData);const u=JSON.parse(q.get('user')||'{}');return String(u?.id||'');}catch(_){return '';}})();
-            const launchUid = sessionUid(getLaunchSession());
-            if(launchUid) userId=launchUid;
-            else if(uidFromInit) userId=uidFromInit;
+            if(uidFromInit) userId=uidFromInit;
 
             const headers = new Headers(options.headers || {});
             headers.set('Accept','application/json');
@@ -1422,13 +1385,22 @@
     async function loadBalance() {
         if (balanceLoading) return;
         try {
-            // Определяем авторизованный аккаунт ДО построения URL /profile/{tg_id}.
+            // Всегда разрешаем ID из подписанной сессии / Telegram initData заново.
+            // ID из URL может быть старым и не должен перекрывать авторизованный аккаунт.
             telegramInitData = getInitData();
-            userId = resolveInitialUserId();
-            if (!userId) {
-                balanceDisplay.textContent = '—';
-                return;
-            }
+            try {
+                const launchSession = String(new URLSearchParams(location.search).get('resell_session') || '').trim();
+                const storedSession = String(launchSession || sessionStorage.getItem('resell_server_session_v4') || localStorage.getItem('resell_server_session_v4') || '').trim();
+                const sessionUid = storedSession.split('.')[0] || '';
+                if (/^\d+$/.test(sessionUid)) userId = sessionUid;
+                else if (telegramInitData) {
+                    const q = new URLSearchParams(telegramInitData);
+                    const u = JSON.parse(q.get('user') || '{}');
+                    if (u?.id) userId = String(u.id);
+                }
+            } catch (_) {}
+            if (!userId) userId = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || new URLSearchParams(location.search).get('userId') || '');
+            if (!userId) return;
 
             balanceLoading = true;
 
@@ -1436,10 +1408,9 @@
             // /wheel/case/state нужен только для восстановления незавершённого кейса.
             let loaded = false;
             try {
-                const data = await apiFetch(`${API_BASE}/profile/${encodeURIComponent(userId)}`);
-                const profileBalance = readBalanceValue(data);
-                if (profileBalance !== null) {
-                    balance = profileBalance;
+                const data = await apiFetch(`${API_BASE}/profile/${userId}`);
+                if (data && data.balance !== undefined && data.balance !== null) {
+                    balance = Number(data.balance) || 0;
                     loaded = true;
                 }
             } catch (profileError) {
@@ -1467,14 +1438,11 @@
 
                 Object.keys(CASE_TYPES).forEach(k=>{caseInventory[k]=pendingRounds[k]?.length||0;});
 
-                // Только если /profile действительно не ответил, используем тот же
-                // players.balance, возвращаемый case/state, как резервный источник.
-                if (!loaded) {
-                    const stateBalance = readBalanceValue(state);
-                    if (stateBalance !== null) {
-                        balance = stateBalance;
-                        loaded = true;
-                    }
+                // /wheel/case/state читает players.balance напрямую из БД и не использует
+                // профильный кеш. Поэтому он приоритетнее /profile, если вернул число.
+                if (state && state.balance !== undefined && state.balance !== null && Number.isFinite(Number(state.balance)) && Number(state.balance) >= 0) {
+                    balance = Math.floor(Number(state.balance));
+                    loaded = true;
                 }
             } catch (stateError) {
                 console.warn('Состояние контейнеров не загрузило состояние:', stateError);
@@ -1607,35 +1575,22 @@
     const getPendingRound = (caseId) => (pendingRounds[caseId] && pendingRounds[caseId][0]) || null;
 
     async function syncWheelState() {
-        userId = resolveInitialUserId();
-        if (!userId) return;
         try {
-            // /profile — источник основного баланса RESSELL. Состояние кейсов
-            // используется для инвентаря и не должно сбрасывать баланс на 0.
-            let profileBalanceLoaded = false;
-            try {
-                const profile = await apiFetch(`${API_BASE}/profile/${encodeURIComponent(userId)}`);
-                const profileBalance = readBalanceValue(profile);
-                if (profileBalance !== null) {
-                    balance = profileBalance;
-                    profileBalanceLoaded = true;
-                }
-            } catch (profileError) {
-                console.warn('Не удалось обновить основной баланс RESSELL:', profileError);
-            }
-
+            telegramInitData = getInitData();
+            const q = new URLSearchParams(telegramInitData);
+            try { const u = JSON.parse(q.get('user') || '{}'); if (u?.id) userId = String(u.id); } catch (_) {}
+            if (!userId) userId = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || new URLSearchParams(location.search).get('userId') || '');
+            if (!userId) return;
             const state = await apiFetch(`${API_BASE}/wheel/case/state?userId=${encodeURIComponent(userId)}`);
-            if (!profileBalanceLoaded) {
-                const stateBalance = readBalanceValue(state);
-                if (stateBalance !== null) balance = stateBalance;
-            }
+            if (state && state.balance !== undefined && state.balance !== null && Number.isFinite(Number(state.balance)) && Number(state.balance) >= 0) balance = Math.floor(Number(state.balance));
             pendingRounds = Object.fromEntries(Object.keys(CASE_TYPES).map(k=>[k,[]]));
             if (Array.isArray(state.pending_rounds)) {
                 state.pending_rounds.forEach(item => {
                     const caseId = item.case_id && CASE_TYPES[item.case_id] ? item.case_id : selectedCaseId;
                     if (!pendingRounds[caseId]) pendingRounds[caseId] = [];
-                    if (item.round_id) pendingRounds[caseId].push(String(item.round_id));
+                    if (item.round_id) pendingRounds[caseId].push(item.round_id);
                 });
+                Object.keys(CASE_TYPES).forEach(k=>{caseInventory[k]=pendingRounds[k]?.length||0;});
             } else if (state.pending?.round_id) {
                 const caseId = state.pending.case_id && CASE_TYPES[state.pending.case_id] ? state.pending.case_id : selectedCaseId;
                 pendingRounds[caseId] = [String(state.pending.round_id)];
