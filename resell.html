@@ -4862,14 +4862,29 @@ const DAILY_MONEY_ASSETS={
       params.get('tgWebAppStartParam') ||
       tg?.initDataUnsafe?.start_param ||
       '';
-    if (direct) return direct;
-    try {
-      const hash = new URLSearchParams((location.hash || '').replace(/^#\?/,''));
-      return hash.get('ref') ||
-             hash.get('startapp') ||
-             hash.get('tgWebAppStartParam') ||
-             '';
-    } catch(_) { return ''; }
+    let fromHash='';
+    if(!direct){
+      try {
+        const hash = new URLSearchParams((location.hash || '').replace(/^#\?/,'').replace(/^#/,'?'));
+        fromHash = hash.get('ref') || hash.get('startapp') || hash.get('tgWebAppStartParam') || '';
+      } catch(_) { fromHash=''; }
+    }
+    const incoming=String(direct||fromHash||'').trim();
+    const uid=String(userId||tg?.initDataUnsafe?.user?.id||'').trim();
+    const storageKey=uid?`resell_incoming_ref_v2_${uid}`:'';
+    // Preserve first-touch attribution so a user who already completed signup
+    // during the outage can still be repaired on the next launch.
+    if(storageKey){
+      try{
+        const saved=String(localStorage.getItem(storageKey)||'').trim();
+        if(saved) return saved;
+        if(incoming){
+          const cleaned=cleanReferralCode(incoming);
+          if(cleaned && cleaned!==uid) localStorage.setItem(storageKey,cleaned);
+        }
+      }catch(_){}
+    }
+    return incoming;
   }
 
   function cleanReferralCode(code){
@@ -5176,8 +5191,8 @@ const DAILY_MONEY_ASSETS={
     if (!userId) return;
     const incoming = cleanReferralCode(getReferralParam());
     if (!incoming || incoming === String(userId)) return;
-    const key = `resell_ref_attached_${userId}_${incoming}`;
-    let done=false;
+    const key = `resell_ref_attached_v2_${userId}_${incoming}`;
+    let done=false, recoveredReward=0;
     try{ done=Boolean(sessionStorage.getItem(key)); }catch(_){ done=false; }
     if(done) return;
     const attempts = [
@@ -5187,16 +5202,24 @@ const DAILY_MONEY_ASSETS={
     ];
     for(const [endpoint,body] of attempts){
       try{
-        const init=await waitForTelegramInitData(3000); const endpointAuth=endpoint; const resp=await fetch(endpointAuth,{method:'POST',cache:'no-store',headers:telegramAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify(body)});
+        await waitForTelegramInitData(3000);
+        const resp=await fetch(endpoint,{method:'POST',cache:'no-store',headers:telegramAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify(body)});
         if(resp.ok){
           try{
             const payload=await resp.json();
-            if(payload?.success || payload?.referral || payload?.invited_by) { done=true; break; }
+            if(payload?.success || payload?.referral || payload?.invited_by) {
+              done=true;
+              if(payload?.recovered && payload?.activated) recoveredReward=Number(payload.invitee_reward||0);
+              break;
+            }
           }catch(_){ done=true; break; }
         }
       }catch(_){ /* optional backend endpoint */ }
     }
     if(done){ try{ sessionStorage.setItem(key,'1'); }catch(_){} }
+    if(recoveredReward>0){
+      try{ showToast(`🎁 +${number(recoveredReward)} ₽ · реферальный бонус восстановлен`); haptic('success'); }catch(_){}
+    }
   }
 
   async function fetchReferralData(){
