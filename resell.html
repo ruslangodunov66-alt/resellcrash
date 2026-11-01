@@ -7648,13 +7648,13 @@ async function initFarm(){
     const status=(isPaid,active)=>active?(isPaid?'<span class="admin-ref-status paid">ВЫДАН</span>':'<span class="admin-ref-status unpaid">НЕ ВЫДАН</span>'):'<span class="admin-ref-status waiting">ОЖИДАЕТ</span>';
     const participant=(name,tg,shop,banned)=>`<div class="admin-ref-person"><b>${esc(name||'Игрок')}</b><small>TG ${Number(tg||0)}${banned?' · БАН':''}</small>${shop?`<em>${esc(shop)}</em>`:''}</div>`;
     const tableRows=rows.map(r=>{
-      const active=String(r.referral_state)==='active', invPaid=paid(r.inviter_bonus_paid), newPaid=paid(r.invitee_bonus_paid), invitee=Number(r.invitee_tg_id||0);
-      return `<tr>
+      const adminGranted=String(r.referral_state)==='admin', active=String(r.referral_state)==='active'||adminGranted, invPaid=paid(r.inviter_bonus_paid), newPaid=paid(r.invitee_bonus_paid), invitee=Number(r.invitee_tg_id||0);
+      return `<tr class="${adminGranted?'admin-ref-virtual-row':''}">
         <td data-label="Пригласивший">${participant(r.inviter_nickname,r.inviter_tg_id,r.inviter_shop_name,Number(r.inviter_is_banned||0)===1)}</td>
-        <td data-label="Пришедший">${participant(r.invitee_nickname,r.invitee_tg_id,r.invitee_shop_name,Number(r.invitee_is_banned||0)===1)}</td>
-        <td data-label="Бонус пригласившему"><div class="admin-ref-payout">${status(invPaid,active)}<small>250 000 ₽</small><button class="admin-btn admin-ref-grant" data-admin-ref-grant="inviter" data-ref-invitee="${invitee}" ${(!active||invPaid)?'disabled':''}>${invPaid?'ВЫДАНО':'ВЫДАТЬ'}</button></div></td>
-        <td data-label="Бонус пришедшему"><div class="admin-ref-payout">${status(newPaid,active)}<small>250 000 ₽</small><button class="admin-btn admin-ref-grant" data-admin-ref-grant="invitee" data-ref-invitee="${invitee}" ${(!active||newPaid)?'disabled':''}>${newPaid?'ВЫДАНО':'ВЫДАТЬ'}</button></div></td>
-        <td data-label="Связь"><span class="admin-ref-link-state ${active?'active':'pending'}">${active?'АКТИВНА':'ОЖИДАЕТ АКТИВАЦИИ'}</span><small class="admin-ref-date">${formatTime(r.created_at)}</small></td>
+        <td data-label="Пришедший">${adminGranted?'<div class="admin-ref-person"><b>Игрок</b><small>Начислен администратором</small></div>':participant(r.invitee_nickname,r.invitee_tg_id,r.invitee_shop_name,Number(r.invitee_is_banned||0)===1)}</td>
+        <td data-label="Бонус пригласившему">${adminGranted?'<span class="admin-ref-status paid">АДМИН +1</span>':'<div class="admin-ref-payout">'+status(invPaid,active)+'<small>250 000 ₽</small><button class="admin-btn admin-ref-grant" data-admin-ref-grant="inviter" data-ref-invitee="'+invitee+'" '+((!active||invPaid)?'disabled':'')+'>'+(invPaid?'ВЫДАНО':'ВЫДАТЬ')+'</button></div>'}</td>
+        <td data-label="Бонус пришедшему">${adminGranted?'<span class="admin-ref-status paid">БЕЗ ВЫПЛАТЫ</span>':'<div class="admin-ref-payout">'+status(newPaid,active)+'<small>250 000 ₽</small><button class="admin-btn admin-ref-grant" data-admin-ref-grant="invitee" data-ref-invitee="'+invitee+'" '+((!active||newPaid)?'disabled':'')+'>'+(newPaid?'ВЫДАНО':'ВЫДАТЬ')+'</button></div>'}</td>
+        <td data-label="Связь"><span class="admin-ref-link-state active">${adminGranted?'АДМИНСКИЙ РЕФЕРАЛ': 'АКТИВНА'}</span><small class="admin-ref-date">${formatTime(r.created_at)}</small></td>
       </tr>`;
     }).join('');
     return `<div class="admin-profile admin-referrals-panel">
@@ -7667,7 +7667,8 @@ async function initFarm(){
         <div><b>${number(stats.invitee_paid||0)}</b><span>Бонусов новичкам</span></div>
       </div>
       <div class="admin-ref-search"><input id="adminReferralSearch" class="admin-input" placeholder="Никнейм или Telegram ID" value="${esc(adminReferralQuery)}"><button class="admin-btn primary" id="adminReferralSearchBtn">НАЙТИ</button></div>
-      <div class="admin-note">Каждый бонус выдаётся отдельно — по 250 000 ₽. Кнопка исчезает в статус «ВЫДАНО» после успешной транзакции. Для ожидающих активации выплату выдать нельзя.</div>
+      <div class="admin-ref-search admin-ref-admin-add"><input id="adminAddReferralTarget" class="admin-input" placeholder="Никнейм или Telegram ID игрока"><button class="admin-btn primary" id="adminAddReferralBtn">+1 РЕФЕРАЛ</button></div>
+      <div class="admin-note">Каждый бонус выдаётся отдельно — по 250 000 ₽. Кнопка исчезает в статус «ВЫДАНО» после успешной транзакции. Для ожидающих активации выплату выдать нельзя. Административный реферал отображается как «Игрок» и учитывается в реферальном множителе.</div>
       <div class="admin-ref-table-wrap"><table class="admin-ref-table"><thead><tr><th>ПРИГЛАСИВШИЙ</th><th>НОВЫЙ ИГРОК</th><th>БОНУС ПРИГЛАСИВШЕМУ</th><th>БОНУС НОВИЧКУ</th><th>СВЯЗЬ / ДАТА</th></tr></thead><tbody>${tableRows||'<tr><td colspan="5"><div class="profile-empty">Реферальных связей не найдено.</div></td></tr>'}</tbody></table></div>
       <div class="admin-ref-pagination"><button class="admin-btn" data-admin-ref-page="prev" ${offset<=0?'disabled':''}>← НАЗАД</button><span>СТРАНИЦА ${page} / ${pages} · ${number(total)} ЗАПИСЕЙ</span><button class="admin-btn" data-admin-ref-page="next" ${offset+rows.length>=total?'disabled':''}>ДАЛЕЕ →</button></div>
     </div>`;
@@ -7693,6 +7694,18 @@ async function initFarm(){
       showToast(d.already_paid?'Этот бонус уже был выдан':`Начислено ${number(d.reward||250000)} ₽ · TG ${d.recipient_tg_id}`);
       await openAdminReferrals(adminReferralOffset,adminReferralQuery);
     }catch(err){showToast(err.message||'Не удалось выдать бонус');button.disabled=false;button.textContent=oldText;}
+  }
+
+  async function addAdminReferral(){
+    const input=document.getElementById('adminAddReferralTarget'), target=String(input?.value||'').trim();
+    if(!target){showToast('Укажи никнейм или Telegram ID игрока');return;}
+    if(!confirm(`Добавить игроку ${target} одного административного реферала? Он будет отображаться как «Игрок» и повлияет на реферальный множитель.`))return;
+    const btn=document.getElementById('adminAddReferralBtn'); if(btn){btn.disabled=true;btn.textContent='НАЧИСЛЕНИЕ…';}
+    try{
+      const d=await adminFetch(`/admin/referrals/${ADMIN_OWNER_ID}/add`,{method:'POST',body:JSON.stringify({target})});
+      showToast(`Добавлен +1 реферал · ${esc(d.nickname||'Игрок')} · всего ${number(d.referral_count||0)}`);
+      await openAdminReferrals(0,adminReferralQuery);
+    }catch(err){showToast(err.message||'Не удалось начислить реферала');if(btn){btn.disabled=false;btn.textContent='+1 РЕФЕРАЛ';}}
   }
 
   async function openAdmin(){
@@ -8082,6 +8095,7 @@ async function initFarm(){
     if(e.target.closest('#adminAppealsBtn')){ await openAdminAppeals(); return; }
     if(e.target.closest('#adminReferralsBtn')){ await openAdminReferrals(0,''); return; }
     if(e.target.closest('#adminReferralSearchBtn')){ await openAdminReferrals(0,$('#adminReferralSearch')?.value||''); return; }
+    if(e.target.closest('#adminAddReferralBtn')){ await addAdminReferral(); return; }
     const refPageBtn=e.target.closest('[data-admin-ref-page]');
     if(refPageBtn){ const next=refPageBtn.dataset.adminRefPage==='next'?adminReferralOffset+ADMIN_REFERRAL_PAGE_SIZE:Math.max(0,adminReferralOffset-ADMIN_REFERRAL_PAGE_SIZE); await openAdminReferrals(next,adminReferralQuery); return; }
     const refGrantBtn=e.target.closest('[data-admin-ref-grant]');
