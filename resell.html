@@ -20101,13 +20101,7 @@ body.resell-avito-single-screen #modalBody .avx-review-sheet {
  const modes=$('resellMinerModes'), start=$('resellMinerStart'), secure=$('resellMinerSecure');
  const betInput=$('resellMinerBet'), balanceEl=$('resellMinerBalance');
  const API='https://resellgame.bothost.tech';
- const multiplierMap={
-  1:[1,1.08,1.18,1.30,1.45,1.62,1.82,2.05,2.32,2.62,2.95,3.32,3.72,4.15,4.62,5.12,5.65,6.22,6.82,7.45,8.12,8.82,9.55,10.32,11.12],
-  3:[1,1.12,1.28,1.48,1.72,2,2.35,2.75,3.22,3.78,4.42,5.18,6.05,7.05,8.18,9.45,10.88,12.45,14.18,16.08,18.15,20.4,22.82,25.42,28.2],
-  5:[1,1.18,1.42,1.72,2.10,2.58,3.18,3.95,4.92,6.15,7.70,9.65,12.10,15.15,18.95,23.65,29.45,36.55,45.25,55.85,68.75,84.45,103.5,126.6,154.6],
-  8:[1,1.28,1.68,2.22,2.95,3.95,5.32,7.18,9.72,13.2,17.95,24.45,33.35,45.55,62.25,85.15,116.5,159.5,218.4,299,409.5,560.5,767.5,1050,1437],
-  12:[1,1.48,2.22,3.35,5.08,7.72,11.75,17.9,27.3,41.7,63.7,97.4,149,228,349,534,817,1250,1912,2925,4475,6845,10470,16020,24500]
- };
+ const GRID_SIZE=25, RTP=.97, MAX_MULTIPLIER=100;
  let mines=5, field=new Set(), opened=new Set(), active=false, settling=false, safeOpened=0, routeScore=0, multiplier=1, currentBet=1000;
  let totalScore=0, rounds=0, bestRoute=0, mainBalance=0, balanceLoaded=false, roundRequestId='';
  let playerKey='guest';
@@ -20119,9 +20113,15 @@ body.resell-avito-single-screen #modalBody .avx-review-sheet {
  const storageKey='resell_miner_bet_v2_'+playerKey;
  function load(){try{const v=JSON.parse(localStorage.getItem(storageKey)||'{}');totalScore=Math.max(0,Number(v.totalScore)||0);rounds=Math.max(0,Number(v.rounds)||0);bestRoute=Math.max(0,Number(v.bestRoute)||0)}catch(_){}}
  function save(){try{localStorage.setItem(storageKey,JSON.stringify({totalScore,rounds,bestRoute}))}catch(_){}}
- function haptic(kind='light'){try{window.Telegram?.WebApp?.HapticFeedback?.impactOccurred?.(kind)}catch(_){}}
+ function haptic(kind='light'){try{window.Telegram?.WebApp?.HapticFeedback?.impactOccurred?.(kind)}catch(_){} }
  function setStatus(text){status.textContent=text;status.classList.remove('miner-status-pop');void status.offsetWidth;status.classList.add('miner-status-pop')}
  function apiFetch(url,options={},attempts=1){const c=core();if(typeof c.apiFetch==='function')return c.apiFetch(url,options,attempts);if(typeof window.apiFetch==='function')return window.apiFetch(url,options,attempts);throw new Error('Не найден защищённый API RESSELL')}
+ async function postJSON(path,payload){
+  const r=await apiFetch(`${API}${path}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)},2);
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok||d.success===false){const e=new Error(d.error||d.detail||('HTTP '+r.status));e.status=r.status;throw e}
+  return d;
+ }
  function updateBalanceUI(){balanceEl.textContent=balanceLoaded?money(mainBalance):'ЗАГРУЗКА…'}
  function updateStats(){
   const score=$('resellMinerRouteScore'), mult=$('resellMinerMultiplier'), total=$('resellMinerTotalScore'), best=$('resellMinerBestRoute');
@@ -20136,70 +20136,108 @@ body.resell-avito-single-screen #modalBody .avx-review-sheet {
   catch(e){console.error('[MINER] balance load failed:',e);balanceLoaded=false;updateBalanceUI();setStatus('Баланс не загрузился · нажми ↻');return false}
  }
  function newRequestId(){return 'miner-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,12)}
- async function settle(result,bet,payout){
-  if(settling)return false;settling=true;start.disabled=true;secure.disabled=true;betInput.disabled=true;
-  try{
-   const id=uid();if(!id)throw new Error('Нет Telegram-пользователя');
-   const r=await apiFetch(`${API}/game_result`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:id,game:'mines',result,bet,win:result==='win'?payout:0,request_id:roundRequestId||newRequestId()})},1);
-   const d=await r.json().catch(()=>({}));
-   // A timeout/retry can arrive after the server has already committed the round.
-   // Treat its idempotency response as settled and refresh the authoritative balance.
-   if(r.status===409&&String(d.status||'').toLowerCase()==='duplicate'){
-    await loadMainBalance();
-    if(result==='win'){
-     const actualPayout=Math.max(0,Math.min(Number(payout)||0,500000));totalScore+=actualPayout;bestRoute=Math.max(bestRoute,actualPayout);rounds++;save();
-     setStatus('✓ Выплата подтверждена · '+money(actualPayout));
-    }else{rounds++;save();setStatus('Раунд уже рассчитан сервером');}
-    updateStats();return true;
-   }
-   if(!r.ok)throw new Error(d.error||d.detail||('HTTP '+r.status));
-   if(d.new_balance!==undefined&&Number.isFinite(Number(d.new_balance))){mainBalance=Math.max(0,Math.floor(Number(d.new_balance)));balanceLoaded=true;updateBalanceUI()}else{await loadMainBalance()}
-   if(result==='win'){
-    const actualPayout=Math.max(0,Math.min(Number(payout)||0,500000));totalScore+=actualPayout;bestRoute=Math.max(bestRoute,actualPayout);rounds++;save();
-    setStatus('✓ Выплата · '+money(actualPayout));const shell=overlay.querySelector('.resell-miner-shell');shell?.classList.remove('payout');void shell?.offsetWidth;shell?.classList.add('payout');
-   }else{rounds++;save();setStatus('💣 Мина · −'+money(bet));}
-   updateStats();return true;
-  }catch(e){console.error('[MINER] settlement failed:',e);setStatus('Ошибка расчёта · '+String(e.message||e));await loadMainBalance();return false}
-  finally{settling=false;start.disabled=false;betInput.disabled=false;start.textContent=active?'ИДЁТ…':'СНОВА';}
+ function chooseMode(value){mines=Number(value)||5;modes.querySelectorAll('[data-mines]').forEach(x=>x.classList.toggle('active',Number(x.dataset.mines)===mines))}
+ // Casino Mines formula: RTP / chance of surviving k consecutive safe picks.
+ // C(25,k) / C(25-mines,k) is evaluated as a product to avoid big integers in JS.
+ function calcMultiplier(minesCount,k){
+  if(k<=0)return 1;
+  const safeCells=GRID_SIZE-minesCount;
+  if(k>safeCells)return MAX_MULTIPLIER;
+  let ratio=1;
+  for(let i=0;i<k;i++)ratio*=(GRID_SIZE-i)/(safeCells-i);
+  return Math.min(MAX_MULTIPLIER,RTP*ratio);
  }
- function updateMultiplier(){multiplier=multiplierMap[mines][safeOpened]||1;routeScore=Math.min(500000,Math.floor(currentBet*multiplier));updateStats()}
- function generate(){field=new Set();while(field.size<mines)field.add(Math.floor(Math.random()*25));opened=new Set();safeOpened=0;routeScore=0;multiplier=1;active=false;render();updateStats();secure.disabled=true;start.disabled=settling;start.textContent='СТАРТ';}
- function render(){grid.innerHTML='';for(let i=0;i<25;i++){const b=document.createElement('button');b.type='button';b.className='resell-miner-cell';b.style.setProperty('--cell-index',String(i));b.dataset.cell=String(i);b.setAttribute('aria-label','Клетка '+(i+1));if(opened.has(i)){b.disabled=true;if(field.has(i)){b.classList.add('mine');b.textContent='💣'}else{b.classList.add('safe');b.textContent='💎'}}b.addEventListener('click',()=>pick(i));grid.appendChild(b)}}
- function revealMines(){[...grid.children].forEach((b,i)=>{if(field.has(i)&&!opened.has(i)){b.textContent='💣';b.classList.add('mine');b.disabled=true}else{b.disabled=true}})}
- async function pick(i){if(!active||settling||opened.has(i))return;opened.add(i);if(field.has(i)){
-   active=false;routeScore=0;render();revealMines();updateStats();secure.disabled=true;start.disabled=true;start.textContent='ОБРАБОТКА…';setStatus('БУМ · расчёт ставки…');const shell=overlay.querySelector('.resell-miner-shell');shell?.classList.remove('impact');void shell?.offsetWidth;shell?.classList.add('impact');haptic('heavy');await settle('lose',currentBet,0);return;
+ function calcPayout(bet,minesCount,k){return Math.min(bet*MAX_MULTIPLIER,Math.floor(bet*calcMultiplier(minesCount,k)))}
+ function applyServerState(d){
+  if(d.round_id)roundRequestId=String(d.round_id);
+  currentBet=Math.max(100,Math.floor(Number(d.bet)||currentBet));
+  if(Number(d.mines_count))chooseMode(Number(d.mines_count));
+  opened=new Set(Array.isArray(d.opened_positions)?d.opened_positions.map(Number):[]);
+  safeOpened=Math.max(0,Number(d.safe_opened)||0);
+  field=new Set(Array.isArray(d.mine_positions)?d.mine_positions.map(Number):[]);
+  active=String(d.state)==='active';
+  multiplier=Number.isFinite(Number(d.multiplier))?Number(d.multiplier):calcMultiplier(mines,safeOpened);
+  routeScore=active?Math.max(0,Number(d.payout)||0):Math.max(0,Number(d.payout)||0);
+  if(d.balance!==undefined&&Number.isFinite(Number(d.balance))){mainBalance=Math.max(0,Math.floor(Number(d.balance)));balanceLoaded=true}
+  betInput.value=String(currentBet);
+  updateStats();render();
+  if(active){
+   start.disabled=true;start.textContent='ИДЁТ…';secure.disabled=safeOpened<1||settling;secure.textContent='ЗАБРАТЬ · '+money(routeScore);
+  }else{
+   revealMines();start.disabled=settling;start.textContent='СНОВА';secure.disabled=true;
   }
-  safeOpened++;updateMultiplier();render();haptic('light');secure.disabled=!(active&&safeOpened>0)||settling;secure.textContent='ЗАБРАТЬ · '+money(routeScore);
-  if(safeOpened===25-mines){active=false;revealMines();start.disabled=true;start.textContent='ОБРАБОТКА…';secure.disabled=true;setStatus('Шахта пройдена · расчёт…');const shell=overlay.querySelector('.resell-miner-shell');shell?.classList.remove('payout');void shell?.offsetWidth;shell?.classList.add('payout');haptic('success');await settle('win',currentBet,routeScore);return}
-  setStatus('💎 '+safeOpened+'/'+(25-mines)+' · '+multiplier.toFixed(2)+'× · '+money(routeScore));
+ }
+ function generate(){field=new Set();opened=new Set();safeOpened=0;routeScore=0;multiplier=1;active=false;roundRequestId='';render();updateStats();secure.disabled=true;start.disabled=settling;start.textContent='СТАРТ'}
+ function render(){
+  grid.innerHTML='';
+  for(let i=0;i<GRID_SIZE;i++){
+   const b=document.createElement('button');b.type='button';b.className='resell-miner-cell';b.style.setProperty('--cell-index',String(i));b.dataset.cell=String(i);b.setAttribute('aria-label','Клетка '+(i+1));
+   if(opened.has(i)){b.disabled=true;if(field.has(i)){b.classList.add('mine');b.textContent='💣'}else{b.classList.add('safe');b.textContent='💎'}}
+   else if(settling)b.disabled=true;
+   b.addEventListener('click',()=>pick(i));grid.appendChild(b);
+  }
+ }
+ function revealMines(){
+  [...grid.children].forEach((b,i)=>{
+   if(field.has(i)){b.textContent='💣';b.classList.add('mine');b.disabled=true}
+   else b.disabled=true;
+  });
+ }
+ function onTerminal(d,successMessage){
+  applyServerState(d);active=false;settling=false;rounds++;save();
+  if(String(d.state)==='lost'){
+   routeScore=0;updateStats();setStatus('💣 Мина · −'+money(currentBet));
+   const shell=overlay.querySelector('.resell-miner-shell');shell?.classList.remove('impact');void shell?.offsetWidth;shell?.classList.add('impact');haptic('heavy');
+  }else{
+   const payout=Math.max(0,Number(d.payout)||0);totalScore+=payout;bestRoute=Math.max(bestRoute,payout);save();routeScore=payout;updateStats();setStatus(successMessage+' · '+money(payout));
+   const shell=overlay.querySelector('.resell-miner-shell');shell?.classList.remove('payout');void shell?.offsetWidth;shell?.classList.add('payout');haptic('success');
+  }
+  start.disabled=false;start.textContent='СНОВА';secure.disabled=true;betInput.disabled=false;
  }
  async function begin(){
   if(active||settling)return;
   if(!balanceLoaded){if(!await loadMainBalance())return}
   let amount=Math.floor(Number(betInput.value));if(!Number.isFinite(amount))amount=1000;amount=Math.max(100,Math.min(100000,Math.floor(amount/100)*100));betInput.value=String(amount);
-  if(mainBalance<amount){setStatus('Не хватает средств · доступно '+money(mainBalance));haptic('heavy');return}
-  currentBet=amount;roundRequestId=newRequestId();field=new Set();while(field.size<mines)field.add(Math.floor(Math.random()*25));opened=new Set();safeOpened=0;routeScore=currentBet;multiplier=1;active=true;render();updateStats();start.disabled=true;start.textContent='ИДЁТ…';secure.disabled=true;secure.textContent='ЗАБРАТЬ';setStatus('Открой кристалл — затем можно забрать текущую выплату в любой момент');haptic('medium');
+  // Do not reject locally: the server may be resuming an already-paid active round.
+  settling=true;start.disabled=true;betInput.disabled=true;setStatus('Открываем шахту…');
+  const id=uid();if(!id){settling=false;start.disabled=false;betInput.disabled=false;setStatus('Открой RESSELL через Telegram');return}
+  const requestId=newRequestId();
+  try{
+   const d=await postJSON('/mines/start',{userId:id,bet:amount,mines_count:mines,request_id:requestId});
+   settling=false;applyServerState(d);betInput.disabled=false;
+   if(active){secure.disabled=safeOpened<1;setStatus(d.resumed?'Продолжаем незавершённый раунд · выбери клетку':'Открой кристалл — затем можно забрать выплату');haptic('medium')}
+   else if(d.state==='lost')setStatus('Этот раунд уже завершён · ставка проиграла');
+   else setStatus('Раунд уже рассчитан · '+money(d.payout));
+  }catch(e){console.error('[MINER] start failed:',e);settling=false;start.disabled=false;betInput.disabled=false;setStatus(e.message||'Не удалось начать игру');await loadMainBalance()}
+ }
+ async function pick(i){
+  if(!active||settling||opened.has(i))return;
+  settling=true;secure.disabled=true;render();setStatus('Проверяем клетку…');
+  try{
+   const d=await postJSON('/mines/pick',{userId:uid(),round_id:roundRequestId,cell:i});
+   if(d.state==='lost'){onTerminal(d,'Поражение');return}
+   if(d.state==='won'){onTerminal(d,'Шахта пройдена · выплата');return}
+   applyServerState(d);settling=false;active=true;render();secure.disabled=safeOpened<1;secure.textContent='ЗАБРАТЬ · '+money(routeScore);setStatus('💎 '+safeOpened+'/'+(GRID_SIZE-mines)+' · '+multiplier.toFixed(2)+'× · '+money(routeScore));haptic('light');
+  }catch(e){console.error('[MINER] pick failed:',e);settling=false;render();secure.disabled=safeOpened<1;setStatus(e.message||'Не удалось проверить клетку · попробуй ещё раз')}
  }
  async function bank(){
   if(!active||safeOpened<1||settling)return;
-  // Keep the board recoverable until the server confirms the cash-out.
-  const payout=routeScore;
-  setStatus('Фиксируем выплату…');haptic('success');
-  const ok=await settle('win',currentBet,payout);
-  if(ok){active=false;revealMines();secure.disabled=true;start.disabled=false;start.textContent='СНОВА';}
-  else{
-   active=true;render();secure.disabled=safeOpened<1;start.disabled=true;start.textContent='ИДЁТ…';
-   setStatus('Выплата не подтверждена · раунд сохранён, нажми «ЗАБРАТЬ» ещё раз');
-  }
+  settling=true;secure.disabled=true;render();setStatus('Фиксируем выплату…');haptic('success');
+  try{
+   const d=await postJSON('/mines/cashout',{userId:uid(),round_id:roundRequestId});
+   if(d.state==='cashed_out'||d.state==='won'){onTerminal(d,'Выплата получена');return}
+   if(d.state==='lost'){onTerminal(d,'Поражение');return}
+   applyServerState(d);settling=false;active=String(d.state)==='active';secure.disabled=!active||safeOpened<1;setStatus(active?'Раунд продолжается · '+money(routeScore):'Раунд завершён');
+  }catch(e){console.error('[MINER] cashout failed:',e);settling=false;render();secure.disabled=!active||safeOpened<1;setStatus(e.message||'Выплата не подтверждена · нажми «ЗАБРАТЬ» ещё раз')}
  }
  function open(){overlay.classList.add('open');overlay.setAttribute('aria-hidden','false');document.body.style.overflow='hidden';loadMainBalance().catch(()=>{});haptic('light')}
  function close(){if(active){setStatus('Раунд идёт · продолжай или забери выплату');return}overlay.classList.remove('open');overlay.setAttribute('aria-hidden','true');document.body.style.overflow=''}
  document.querySelectorAll('.game-card[data-game="miner"]').forEach(card=>card.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();open()}));
  $('resellMinerClose').addEventListener('click',close);overlay.addEventListener('click',e=>{if(e.target===overlay)close()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&overlay.classList.contains('open'))close()});
- modes.querySelectorAll('[data-mines]').forEach(btn=>btn.addEventListener('click',()=>{if(active||settling)return;mines=Number(btn.dataset.mines)||5;modes.querySelectorAll('[data-mines]').forEach(x=>x.classList.toggle('active',x===btn));generate();setStatus(mines+' мин · выбери клетки');haptic('light')}));
- start.addEventListener('click',()=>{begin().catch(e=>{console.error(e);setStatus('Не удалось начать игру. Попробуй обновить баланс.')})});secure.addEventListener('click',()=>{bank().catch(e=>console.error(e))});
+ modes.querySelectorAll('[data-mines]').forEach(btn=>btn.addEventListener('click',()=>{if(active||settling)return;chooseMode(btn.dataset.mines);generate();setStatus(mines+' мин · выбери клетки');haptic('light')}));
+ start.addEventListener('click',()=>{begin().catch(e=>{console.error(e);settling=false;start.disabled=false;betInput.disabled=false;setStatus('Не удалось начать игру. Попробуй обновить баланс.')})});secure.addEventListener('click',()=>{bank().catch(e=>console.error(e))});
  $('resellMinerRefreshBalance').addEventListener('click',()=>loadMainBalance());
- $('resellMinerMaxBet').addEventListener('click',()=>{betInput.value=String(Math.min(100000,Math.floor((balanceLoaded?mainBalance:100000)/100)*100));haptic('light')});
+ $('resellMinerMaxBet').addEventListener('click',()=>{betInput.value=String(Math.max(100,Math.min(100000,Math.floor((balanceLoaded?mainBalance:100000)/100)*100)));haptic('light')});
  betInput.addEventListener('change',()=>{let n=Math.floor(Number(betInput.value)||100);n=Math.max(100,Math.min(100000,Math.floor(n/100)*100));betInput.value=String(n);currentBet=n;updateStats()});
  load();generate();updateStats();loadMainBalance();
 })();
