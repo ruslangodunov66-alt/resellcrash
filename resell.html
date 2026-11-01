@@ -2846,12 +2846,12 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
 <div class="referral-title">Реферальная система</div>
 <div class="referral-sub">Приглашай друзей и получай бонусы.</div>
 </div>
-<div class="referral-count"><b id="referralCardCount">0</b><span>друзей</span></div>
+<div class="referral-count"><b id="referralCardCount">—</b><span>друзей</span></div>
 </div>
 <div class="referral-perks">
-<div class="referral-perk"><div class="referral-perk-value green" id="referralCardCash">0 ₽</div><div class="referral-perk-label">за регистрацию</div></div>
-<div class="referral-perk"><div class="referral-perk-value" id="referralCardPassive">+1%</div><div class="referral-perk-label">от пассива</div></div>
-<div class="referral-perk"><div class="referral-perk-value" id="referralCardBonus">×1</div><div class="referral-perk-label">буст аккаунта</div></div>
+<div class="referral-perk"><div class="referral-perk-value green" id="referralCardCash">—</div><div class="referral-perk-label">за регистрацию</div></div>
+<div class="referral-perk"><div class="referral-perk-value" id="referralCardPassive">—</div><div class="referral-perk-label">от пассива</div></div>
+<div class="referral-perk"><div class="referral-perk-value" id="referralCardBonus">—</div><div class="referral-perk-label">буст аккаунта</div></div>
 </div>
 <div class="referral-cta">
 <div class="referral-main-btn">ОТКРЫТЬ</div>
@@ -4873,6 +4873,29 @@ const DAILY_MONEY_ASSETS={
     })
   };
   let referralData = null;
+  let referralDataUserId = '';
+  let referralLoadError = false;
+
+  function referralCacheKey(uid){
+    return `resell_referral_snapshot_v1_${String(uid||'').replace(/[^0-9]/g,'')}`;
+  }
+  function saveReferralSnapshot(uid, data){
+    try{
+      if(!uid || !data) return;
+      localStorage.setItem(referralCacheKey(uid), JSON.stringify({version:1,saved_at:Date.now(),data}));
+    }catch(_){}
+  }
+  function readReferralSnapshot(uid){
+    try{
+      if(!uid) return null;
+      const saved=JSON.parse(localStorage.getItem(referralCacheKey(uid))||'null');
+      const data=saved?.data;
+      if(!data || !Array.isArray(data.invited_users) ||
+         !Number.isFinite(Number(data.active)) ||
+         !Number.isFinite(Number(data.total))) return null;
+      return normalizeReferralData(data);
+    }catch(_){ return null; }
+  }
 
   function getReferralParam(){
     const direct =
@@ -5242,26 +5265,65 @@ const DAILY_MONEY_ASSETS={
   }
 
   async function fetchReferralData(){
-    if (!userId) return normalizeReferralData({});
+    const uid=String(userId||'').trim();
+    if(!uid){
+      referralLoadError=true;
+      return referralData;
+    }
+
     const embedded = profileData?.referral || profileData?.referrals;
-    if (embedded) return normalizeReferralData(profileData);
+    if (embedded && (embedded.active !== undefined || embedded.total !== undefined || Array.isArray(embedded.invited_users))){
+      const normalized=normalizeReferralData(profileData);
+      referralData=normalized;
+      referralDataUserId=uid;
+      referralLoadError=false;
+      saveReferralSnapshot(uid, normalized);
+      return normalized;
+    }
 
     const endpoints = [
-      `${API_BASE}/referrals/${encodeURIComponent(userId)}`,
-      `${API_BASE}/referrals/status/${encodeURIComponent(userId)}`,
-      `${API_BASE}/referral/${encodeURIComponent(userId)}`
+      `${API_BASE}/referrals/${encodeURIComponent(uid)}`,
+      `${API_BASE}/referrals/status/${encodeURIComponent(uid)}`,
+      `${API_BASE}/referral/${encodeURIComponent(uid)}`
     ];
+    let lastError=null;
     for (const endpoint of endpoints){
       try{
-        const resp = await fetch(endpoint,{cache:'no-store',headers:telegramAuthHeaders()});
-        if (!resp.ok) continue;
-        const payload = await resp.json();
-        if (payload && (payload.referral || payload.referrals || payload.invite_link || payload.active !== undefined || payload.total !== undefined)){
-          return normalizeReferralData(payload);
-        }
-      }catch(_){/* optional API: keep trying */}
+        // Shared authenticated transport retries transient failures and refreshes expired sessions.
+        const resp=await apiFetch(endpoint,{cache:'no-store'},2);
+        const payload=await resp.json();
+        if(!payload || payload.success===false) continue;
+        const base=payload.referral || payload.referrals || payload;
+        const hasReferralFields=!!base && (
+          base.active !== undefined ||
+          base.active_count !== undefined ||
+          base.total !== undefined ||
+          base.total_count !== undefined ||
+          Array.isArray(base.invited_users)
+        );
+        if(!hasReferralFields) continue;
+
+        const normalized=normalizeReferralData(payload);
+        referralData=normalized;
+        referralDataUserId=uid;
+        referralLoadError=false;
+        saveReferralSnapshot(uid, normalized);
+        return normalized;
+      }catch(err){
+        lastError=err;
+      }
     }
-    return normalizeReferralData({});
+
+    // Request failure is not an authoritative zero: preserve the last successful snapshot.
+    let fallback=(referralDataUserId===uid) ? referralData : null;
+    if(!fallback) fallback=readReferralSnapshot(uid);
+    if(fallback){
+      referralData=fallback;
+      referralDataUserId=uid;
+    }
+    referralLoadError=true;
+    if(lastError) console.warn('Referral data temporarily unavailable; preserving last known snapshot:',lastError);
+    return fallback || null;
   }
 
   function referralMilestoneProgress(data, target){
@@ -5270,7 +5332,15 @@ const DAILY_MONEY_ASSETS={
   }
 
   function renderReferralModal(){
-    const d = referralData || normalizeReferralData({});
+    if(!referralData){
+      return `<div class="referral-load-state" style="padding:24px 18px;text-align:center">
+        <div style="font-size:16px;font-weight:800;margin-bottom:8px">Не удалось загрузить рефералов</div>
+        <div style="opacity:.72;font-size:13px;line-height:1.45;margin-bottom:16px">Сервер временно не передал данные. Твои приглашения и награды не удалены — попробуй загрузить ещё раз.</div>
+        <button id="referralRetryBtn" type="button" class="referral-action primary">Повторить загрузку</button>
+      </div>`;
+    }
+    const d = referralData;
+    const loadWarning = referralLoadError ? `<div style="padding:10px 12px;margin:0 0 12px;border-radius:12px;background:rgba(255,190,70,.10);font-size:12px;line-height:1.4">Сервер временно недоступен. Показаны последние успешно загруженные данные.</div>` : '';
     const progressTarget = d.nextTarget || (d.milestones.find(m => Number(m.target) > d.active)?.target || 3);
     const progressPct = Math.min(100, Math.round(d.active / Math.max(1,progressTarget) * 100));
     const milestoneHtml = (d.milestones || REFERRAL_DEFAULTS.milestones).map((m,idx)=>{
@@ -5286,6 +5356,7 @@ const DAILY_MONEY_ASSETS={
       </div>`;
     }).join('');
     return `
+      ${loadWarning}
       <div class="referral-hero-v3">
         <div class="referral-hero-grid"><div><div class="referral-kicker-v3">Твой реферальный капитал</div><div class="referral-balance-v3">+${number(d.earned)} <span>₽</span></div><div class="referral-caption-v3">заработано с приглашений</div></div><div class="referral-side-stat"><b>${number(d.total ?? (d.invited_users||[]).length)}</b><span>приглашённых</span></div></div>
         <div class="referral-progress"><div class="referral-progress-head"><span>Следующая награда</span><strong>${number(d.active)} / ${number(progressTarget)}</strong></div><div class="referral-progress-bar"><div class="referral-progress-fill" style="width:${progressPct}%"></div></div></div>
@@ -6187,12 +6258,22 @@ async function initFarm(){
 
   async function openReferral(){
     haptic('light');
-    try { referralData = await fetchReferralData(); } catch (_) { if (!referralData) referralData = { invited_users: [] }; }
+    await fetchReferralData();
+    updateReferralCard();
     openModal('Реферальная система', renderReferralModal());
     bindReferralModal();
   }
 
   function bindReferralModal(){
+    const retryBtn = $('#referralRetryBtn');
+    if(retryBtn) retryBtn.onclick=async()=>{
+      retryBtn.disabled=true;
+      retryBtn.textContent='ЗАГРУЗКА…';
+      await fetchReferralData();
+      updateReferralCard();
+      modalBody.innerHTML=renderReferralModal();
+      bindReferralModal();
+    };
     const copyBtn = $('#referralCopyBtn');
     const shareBtn = $('#referralShareBtn');
     const claimBtn = $('#referralClaimBtn');
@@ -6253,7 +6334,14 @@ async function initFarm(){
   }
 
   function updateReferralCard(){
-    const d=referralData||normalizeReferralData({});
+    if(!referralData){
+      $('#referralCardCount').textContent='—';
+      $('#referralCardCash').textContent='—';
+      $('#referralCardPassive').textContent='—';
+      $('#referralCardBonus').textContent='—';
+      return;
+    }
+    const d=referralData;
     const active=Math.max(0,Number(d.active)||0);
     const boost=getReferralBoost(active);
     $('#referralCardCount').textContent=number(active);
@@ -8503,7 +8591,7 @@ async function initFarm(){
       try{bindEngagement();}catch(_){ }
       try{initMainTycoonCards();}catch(_){ }
       try{await attachIncomingReferral();}catch(_){ }
-      try{referralData=await fetchReferralData();updateReferralCard();}catch(_){ }
+      try{await fetchReferralData();updateReferralCard();}catch(_){updateReferralCard();}
       try{setBootWelcome({identified:true});}catch(_){ }
       return data;
     }).catch(()=>null);
