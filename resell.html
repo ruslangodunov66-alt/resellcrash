@@ -7746,7 +7746,15 @@ async function initFarm(){
     const status=(isPaid,active)=>active?(isPaid?'<span class="admin-ref-status paid">ВЫДАН</span>':'<span class="admin-ref-status unpaid">НЕ ВЫДАН</span>'):'<span class="admin-ref-status waiting">ОЖИДАЕТ</span>';
     const participant=(name,tg,shop,banned)=>`<div class="admin-ref-person"><b>${esc(name||'Игрок')}</b><small>TG ${Number(tg||0)}${banned?' · БАН':''}</small>${shop?`<em>${esc(shop)}</em>`:''}</div>`;
     const tableRows=rows.map(r=>{
-      const active=String(r.referral_state)==='active', invPaid=paid(r.inviter_bonus_paid), newPaid=paid(r.invitee_bonus_paid), invitee=Number(r.invitee_tg_id||0);
+      const adminGranted=String(r.referral_state)==='admin';
+      const active=String(r.referral_state)==='active'||adminGranted, invPaid=paid(r.inviter_bonus_paid), newPaid=paid(r.invitee_bonus_paid), invitee=Number(r.invitee_tg_id||0);
+      if(adminGranted)return `<tr class="admin-ref-virtual-row">
+        <td data-label="Пригласивший">${participant(r.inviter_nickname,r.inviter_tg_id,r.inviter_shop_name,Number(r.inviter_is_banned||0)===1)}</td>
+        <td data-label="Пришедший"><div class="admin-ref-person"><b>Игрок</b><small>Добавлен администратором</small></div></td>
+        <td data-label="Бонус пригласившему"><span class="admin-ref-status paid">АДМИН +1</span></td>
+        <td data-label="Бонус пришедшему"><span class="admin-ref-status paid">БЕЗ ВЫПЛАТЫ</span></td>
+        <td data-label="Связь"><span class="admin-ref-link-state active">АДМИНСКИЙ РЕФЕРАЛ</span><small class="admin-ref-date">${formatTime(r.created_at)}</small></td>
+      </tr>`;
       return `<tr>
         <td data-label="Пригласивший">${participant(r.inviter_nickname,r.inviter_tg_id,r.inviter_shop_name,Number(r.inviter_is_banned||0)===1)}</td>
         <td data-label="Пришедший">${participant(r.invitee_nickname,r.invitee_tg_id,r.invitee_shop_name,Number(r.invitee_is_banned||0)===1)}</td>
@@ -7765,7 +7773,15 @@ async function initFarm(){
         <div><b>${number(stats.invitee_paid||0)}</b><span>Бонусов новичкам</span></div>
       </div>
       <div class="admin-ref-search"><input id="adminReferralSearch" class="admin-input" placeholder="Никнейм или Telegram ID" value="${esc(adminReferralQuery)}"><button class="admin-btn primary" id="adminReferralSearchBtn">НАЙТИ</button></div>
-      <div class="admin-note">Каждый бонус выдаётся отдельно — по 250 000 ₽. Кнопка исчезает в статус «ВЫДАНО» после успешной транзакции. Для ожидающих активации выплату выдать нельзя.</div>
+      <div class="admin-ref-addbox">
+        <b>ДОБАВИТЬ +1 РЕФЕРАЛ</b>
+        <input id="adminAddReferralSearch" class="admin-input" autocomplete="off" placeholder="Начни вводить никнейм игрока…">
+        <div id="adminAddReferralResults" class="admin-ref-player-results"><div class="admin-ref-player-empty">Введи минимум 2 символа для поиска</div></div>
+        <div id="adminAddReferralSelected" class="admin-ref-selected" hidden></div>
+        <input id="adminAddReferralTarget" type="hidden" value="">
+        <button class="admin-btn primary" id="adminAddReferralBtn" disabled>+1 РЕФЕРАЛ · ВЫБЕРИ ИГРОКА</button>
+      </div>
+      <div class="admin-note">Каждый бонус выдаётся отдельно — по 250 000 ₽. Ниже можно выбрать игрока и добавить ему +1 административного реферала: он учитывается в реферальном множителе, отображается как «Игрок» и не создаёт фиктивный Telegram-аккаунт или денежную выплату. Для ожидающих активации обычных связей выплату выдать нельзя.</div>
       <div class="admin-ref-table-wrap"><table class="admin-ref-table"><thead><tr><th>ПРИГЛАСИВШИЙ</th><th>НОВЫЙ ИГРОК</th><th>БОНУС ПРИГЛАСИВШЕМУ</th><th>БОНУС НОВИЧКУ</th><th>СВЯЗЬ / ДАТА</th></tr></thead><tbody>${tableRows||'<tr><td colspan="5"><div class="profile-empty">Реферальных связей не найдено.</div></td></tr>'}</tbody></table></div>
       <div class="admin-ref-pagination"><button class="admin-btn" data-admin-ref-page="prev" ${offset<=0?'disabled':''}>← НАЗАД</button><span>СТРАНИЦА ${page} / ${pages} · ${number(total)} ЗАПИСЕЙ</span><button class="admin-btn" data-admin-ref-page="next" ${offset+rows.length>=total?'disabled':''}>ДАЛЕЕ →</button></div>
     </div>`;
@@ -7778,8 +7794,54 @@ async function initFarm(){
       const d=await adminFetch(`/admin/referrals/${ADMIN_OWNER_ID}?q=${encodeURIComponent(adminReferralQuery)}&limit=${ADMIN_REFERRAL_PAGE_SIZE}&offset=${adminReferralOffset}`);
       modalBody.innerHTML=renderAdminReferrals(d);
       document.getElementById('adminReferralSearch')?.addEventListener('keydown',ev=>{if(ev.key==='Enter')openAdminReferrals(0,ev.currentTarget.value)});
+      document.getElementById('adminAddReferralSearch')?.addEventListener('input',ev=>{
+        clearTimeout(adminReferralPlayerSearchTimer);
+        const target=document.getElementById('adminAddReferralTarget');if(target)target.value='';
+        const selected=document.getElementById('adminAddReferralSelected');if(selected){selected.hidden=true;selected.textContent='';}
+        const btn=document.getElementById('adminAddReferralBtn');if(btn){btn.disabled=true;btn.textContent='+1 РЕФЕРАЛ · ВЫБЕРИ ИГРОКА';}
+        const q=ev.currentTarget.value;
+        adminReferralPlayerSearchTimer=setTimeout(()=>searchAdminReferralPlayers(q),220);
+      });
     }catch(err){modalBody.innerHTML=`<div class="admin-note">${esc(err.message||'Не удалось загрузить рефералов')}</div><button class="admin-btn" id="adminBack">← НАЗАД</button>`;}
   }
+  let adminReferralPlayerSearchTimer=null;
+  async function searchAdminReferralPlayers(query){
+    const box=document.getElementById('adminAddReferralResults');
+    if(!box)return;
+    const q=String(query||'').trim();
+    if(q.length<2){box.innerHTML='<div class="admin-ref-player-empty">Введи минимум 2 символа для поиска</div>';return;}
+    box.innerHTML='<div class="admin-ref-player-empty">Поиск игроков…</div>';
+    try{
+      const d=await adminFetch(`/admin/players/${ADMIN_OWNER_ID}?q=${encodeURIComponent(q)}&limit=20`);
+      const players=(d.players||[]).filter(p=>p.tg_id&&!p.is_ai_bot);
+      if(!players.length){box.innerHTML='<div class="admin-ref-player-empty">Игроки не найдены</div>';return;}
+      box.innerHTML=players.map(p=>`<button type="button" class="admin-ref-player-result" data-admin-ref-player="${Number(p.tg_id)}" data-admin-ref-name="${esc(p.nickname||'Игрок')}"><span><b>${esc(p.nickname||'Игрок')}</b><small>TG ${Number(p.tg_id)}${p.shop_name?' · '+esc(p.shop_name):''}</small></span><span>ВЫБРАТЬ →</span></button>`).join('');
+    }catch(err){box.innerHTML=`<div class="admin-ref-player-empty">${esc(err.message||'Не удалось загрузить список')}</div>`;}
+  }
+  function selectAdminReferralPlayer(button){
+    const tg=Number(button?.dataset.adminRefPlayer||0),name=String(button?.dataset.adminRefName||'Игрок');
+    if(!tg)return;
+    const target=document.getElementById('adminAddReferralTarget');
+    const selected=document.getElementById('adminAddReferralSelected');
+    const submit=document.getElementById('adminAddReferralBtn');
+    if(target)target.value=String(tg);
+    if(selected){selected.hidden=false;selected.textContent=`ВЫБРАН: ${name} · TG ${tg}`;}
+    if(submit){submit.disabled=false;submit.textContent='+1 РЕФЕРАЛ · НАЧИСЛИТЬ';}
+    document.querySelectorAll('.admin-ref-player-result').forEach(x=>x.classList.toggle('selected',x===button));
+  }
+  async function addAdminReferral(){
+    const target=String(document.getElementById('adminAddReferralTarget')?.value||'').trim();
+    if(!target){showToast('Сначала выбери игрока из списка');return;}
+    const selected=document.getElementById('adminAddReferralSelected')?.textContent||`TG ${target}`;
+    if(!confirm(`Добавить ${selected} одного административного реферала? Он будет отображаться как «Игрок» и повлияет на реферальный множитель.`))return;
+    const btn=document.getElementById('adminAddReferralBtn');if(btn){btn.disabled=true;btn.textContent='НАЧИСЛЕНИЕ…';}
+    try{
+      const d=await adminFetch(`/admin/referrals/${ADMIN_OWNER_ID}/add`,{method:'POST',body:JSON.stringify({target})});
+      showToast(`Добавлен +1 реферал · ${d.nickname||'Игрок'} · всего ${number(d.referral_count||0)}`);
+      await openAdminReferrals(0,adminReferralQuery);
+    }catch(err){showToast(err.message||'Не удалось начислить реферала');if(btn){btn.disabled=false;btn.textContent='+1 РЕФЕРАЛ · НАЧИСЛИТЬ';}}
+  }
+
   async function grantAdminReferralBonus(button){
     const invitee=Number(button?.dataset.refInvitee||0), recipient=String(button?.dataset.adminRefGrant||'');
     if(!invitee||!['inviter','invitee'].includes(recipient)) return;
@@ -8180,11 +8242,14 @@ async function initFarm(){
     if(e.target.closest('#adminEventCancel')){ await cancelAdminEvent(e.target.closest('#adminEventCancel').dataset.eventId); return; }
     if(e.target.closest('#adminAppealsBtn')){ await openAdminAppeals(); return; }
     if(e.target.closest('#adminReferralsBtn')){ await openAdminReferrals(0,''); return; }
+    const pickedReferralPlayer=e.target.closest('[data-admin-ref-player]');
+    if(pickedReferralPlayer){selectAdminReferralPlayer(pickedReferralPlayer);return;}
     if(e.target.closest('#adminReferralSearchBtn')){ await openAdminReferrals(0,$('#adminReferralSearch')?.value||''); return; }
     const refPageBtn=e.target.closest('[data-admin-ref-page]');
     if(refPageBtn){ const next=refPageBtn.dataset.adminRefPage==='next'?adminReferralOffset+ADMIN_REFERRAL_PAGE_SIZE:Math.max(0,adminReferralOffset-ADMIN_REFERRAL_PAGE_SIZE); await openAdminReferrals(next,adminReferralQuery); return; }
     const refGrantBtn=e.target.closest('[data-admin-ref-grant]');
     if(refGrantBtn){ await grantAdminReferralBonus(refGrantBtn); return; }
+    if(e.target.closest('#adminAddReferralBtn')){ await addAdminReferral(); return; }
     if(e.target.closest('[data-appeal-resolve]')){const btn=e.target.closest('[data-appeal-resolve]'),card=btn.closest('[data-appeal-id]');btn.disabled=true;try{await adminFetch(`/admin/appeal/${ADMIN_OWNER_ID}/${Number(card?.dataset.appealId||0)}/resolve`,{method:'POST',body:JSON.stringify({decision:btn.dataset.appealResolve,note:card?.querySelector('[data-appeal-note]')?.value||''})});showToast(btn.dataset.appealResolve==='approve'?'Игрок разблокирован':'Блокировка оставлена');await openAdminAppeals()}catch(e){showToast(e.message||'Ошибка');btn.disabled=false}return;}
     if(e.target.closest('#adminAiBotCreate')){
       const btn=e.target.closest('#adminAiBotCreate');
@@ -20323,6 +20388,18 @@ body.resell-avito-single-screen #modalBody .avx-review-sheet {
 #resellMinerSecure.resell-miner-action:not(:disabled){font-weight:950!important}
 </style>
 
+<style id="admin-referral-picker-v2">
+.admin-ref-addbox{display:grid;gap:8px;padding:12px;border:1px solid rgba(183,255,106,.14);border-radius:15px;background:rgba(183,255,106,.035)}
+.admin-ref-addbox>b{font:950 9px/1.2 Montserrat,sans-serif;letter-spacing:.7px;color:#caff9b}
+.admin-ref-player-results{display:grid;gap:5px;max-height:210px;overflow:auto}
+.admin-ref-player-result{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:10px 11px;border:1px solid rgba(255,255,255,.07);border-radius:11px;background:rgba(255,255,255,.025);color:#eee;text-align:left}
+.admin-ref-player-result:active,.admin-ref-player-result.selected{background:rgba(183,255,106,.10);border-color:rgba(183,255,106,.3)}
+.admin-ref-player-result b{display:block;font:900 10px Montserrat,sans-serif;overflow-wrap:anywhere}
+.admin-ref-player-result small{display:block;margin-top:4px;color:#777;font:800 8px Nunito,sans-serif}
+.admin-ref-player-empty{padding:10px;color:#777;font:800 9px/1.4 Nunito,sans-serif}
+.admin-ref-selected{padding:9px 11px;border:1px solid rgba(183,255,106,.22);border-radius:10px;background:rgba(183,255,106,.07);color:#d9ffba;font:900 9px/1.4 Montserrat,sans-serif}
+.admin-ref-addbox #adminAddReferralBtn:disabled{opacity:.45}
+</style>
 <style id="admin-referrals-control-v1">
 .admin-referrals-panel{gap:11px!important}
 .admin-ref-hero{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:15px;border:1px solid rgba(183,255,106,.12);border-radius:18px;background:linear-gradient(145deg,rgba(183,255,106,.07),rgba(255,255,255,.018))}
