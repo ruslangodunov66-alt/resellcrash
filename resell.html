@@ -7034,12 +7034,14 @@ async function initFarm(){
     const inv=Array.isArray(d.inventory)?d.inventory:[];
     const grouped=groupInventory(inv);
     const suppliers=(Array.isArray(d.suppliers)?d.suppliers:[]).slice().sort((a,b)=>{
-      const ap=Number(a.buy_price||a.price||0), bp=Number(b.buy_price||b.price||0);
-      if(bp!==ap) return bp-ap;
-      const am=Number(a.market_price||a.value||0), bm=Number(b.market_price||b.value||0);
-      if(bm!==am) return bm-am;
+      const aSpecial=a.item_type==='avito_found'||a.item_type==='avito_hunt'||Boolean(a.found_id||a.found_type||a.hunt_type);
+      const bSpecial=b.item_type==='avito_found'||b.item_type==='avito_hunt'||Boolean(b.found_id||b.found_type||b.hunt_type);
+      if(aSpecial!==bSpecial) return aSpecial?-1:1;
       const ax=Number(a.margin_pct||0), bx=Number(b.margin_pct||0);
-      return bx-ax;
+      if(bx!==ax) return bx-ax;
+      const ap=Number(a.expected_profit||0), bp=Number(b.expected_profit||0);
+      if(bp!==ap) return bp-ap;
+      return Number(b.market_price||0)-Number(a.market_price||0);
     });
     const chats=Array.isArray(d.chats)?d.chats:[];
     const unread=Number(d.unread_count||0);
@@ -7073,8 +7075,6 @@ async function initFarm(){
     const discoverySales=Number(discovery.sales||sales||0);
     const discoveryNextSales=Number(discovery.next_sales||0);
     const discoveryChance=Number(discovery.chance||0);
-    const discoveryMaxChance=Math.max(discoveryChance,Number(discovery.max_chance||10));
-    const discoveryMisses=Number(discovery.misses||0);
     const assistants=avitoState?.assistants||{};
     const assistantCount=Math.max(0,Number(assistants.count||0));
     const assistantMax=Math.max(1,Number(assistants.max||5));
@@ -7085,16 +7085,16 @@ async function initFarm(){
         <div class="avx-hunt-hero"><div class="avx-hunt-titleline"><span class="avx-hunt-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 5 5"/></svg></span><div><small>RESSELL MARKET · LIVE</small><b>Ловля товаров</b><span>Находи выгодные лоты, закупай и забирай маржу после продажи.</span></div></div><div class="avx-hunt-actions"><button type="button" class="avx-assistant-link" data-avito-open-assistants>КОМАНДА</button></div></div>
         <div class="avx-hunt-summary"><div><span>ДОСТУПНО ЛОТОВ</span><b>${suppliers.length}</b></div><div><span>НА СКЛАДЕ</span><b>${inv.length}</b></div><div><span>ПРОДАЖИ</span><b>${sales}</b></div></div>
         <div class="avx-supply-progress"><div class="avx-supply-progress-head"><span><b>${esc(discoveryTier)}</b><small>${discoveryNextSales?`${number(discoverySales)} / ${number(discoveryNextSales)} продаж до следующего уровня`:`${number(discoverySales)} продаж · максимальный уровень`}</small></span><strong>${discoveryNextSales?`${Math.min(100,Math.round((discoverySales/Math.max(1,discoveryNextSales))*100))}%`:'MAX'}</strong></div><div class="avx-supply-progress-track"><i style="width:${discoveryNextSales?Math.min(100,Math.round((discoverySales/Math.max(1,discoveryNextSales))*100)):100}%"></i></div></div>
-        <div class="avx-economy-mini"><span>ПОСТАВКА</span><b>СЛУЧАЙНО</b><em>Автомобили появляются непредсказуемо</em><i>Чем выше уровень — тем шире пул</i></div>
+        <div class="avx-economy-mini avx-car-discovery"><span>АВТОМОБИЛЬНЫЙ ДРОП · ${discoveryChance>0?'АКТИВЕН':'ЗАБЛОКИРОВАН'}</span><b>${discoveryChance>0?`${Math.min(100,Number(discoveryChance)).toFixed(1)}% НА КАЖДУЮ ПОСТАВКУ`:'ОТКРОЕТСЯ С 25 ПРОДАЖ'}</b><em>${discoveryChance>0?`Твой шанс при ${number(discoverySales)} продажах`:'Продай 25 товаров, чтобы открыть автомобильные лоты'}</em><i>${discoveryChance>0?'Шанс зависит только от количества продаж и не меняется от обновлений':'С ростом продаж вероятность немного увеличивается'}</i></div>
         <div class="avx-refresh-footer avx-refresh-footer-top"><div class="avx-refresh-footer-copy"><b>Обновить ленту</b><span>Загрузить новую партию товаров</span></div><button type="button" class="avx-refresh-stock avx-refresh-stock-bottom" data-avito-refresh data-refresh-locked="${refreshAvailable?'0':'1'}" ${refreshAvailable?'':'disabled'}><span aria-hidden="true">↻</span> ${refreshLabel}</button></div>
-        <div class="avx-grid">${suppliers.slice(0,20).map((x,feedIndex)=>{const rc=avitoRarity(x.rarity);const found=x.item_type==='avito_found'||x.item_type==='avito_hunt'||Boolean(x.found_id||x.found_type||x.hunt_type);const buy=Number(x.buy_price||0);const market=Number(x.market_price||0);const margin=Math.max(0,market-buy);const apple=/iphone|айфон|ipad|айпад|macbook|макбук|airpods?|apple\s*watch|iwatch|imac|ipod|vision\s*pro|apple/i.test([x.name,x.product_name,x.title,x.cat,x.found_id,x.found_type,x.icon,x.found_icon].filter(Boolean).join(' '));const dropLabel=found?'RARE DROP · '+avitoRarityLabel(x.rarity):avitoRarityLabel(x.rarity);return `<div class="avx-product rarity-${rc} ${found?'avx-found-product':''} ${apple?'avx-apple-product':''}" data-rarity="${rc}" data-buy-price="${buy}" data-market-price="${market}" data-source-index="${feedIndex}"><div class="avx-product-top"><div class="avx-supplier-visual ${x.found_type==='car'?'is-car':''}" aria-hidden="true">${avitoInventoryVisual(x)}</div><div class="avx-product-info"><b>${esc(x.name||'Товар')}</b><span>${esc(x.cat||'Категория')}${found?' · специальная находка':' · спрос ×'+Number(x.demand||1).toFixed(2)}</span><small class="avx-rarity-name">${dropLabel}</small></div></div><div class="avx-product-bottom"><strong>${number(buy)} ₽</strong><button class="avx-btn buy" data-avito-buy="${esc(x.id)}">КУПИТЬ · ${number(buy)} ₽</button></div>${found?`<div class="avx-found-profit">рынок ~ ${number(market)} ₽ · чистый запас +${number(margin)} ₽</div>`:''}</div>`}).join('')||'<div class="avx-empty">Поставщики временно недоступны.</div>'}</div>
+        <div class="avx-grid">${suppliers.slice(0,20).map((x,feedIndex)=>{const rc=avitoRarity(x.rarity);const found=x.item_type==='avito_found'||x.item_type==='avito_hunt'||Boolean(x.found_id||x.found_type||x.hunt_type);const buy=Number(x.buy_price||0);const market=Number(x.market_price||0);const margin=Math.max(0,market-buy);const apple=/iphone|айфон|ipad|айпад|macbook|макбук|airpods?|apple\s*watch|iwatch|imac|ipod|vision\s*pro|apple/i.test([x.name,x.product_name,x.title,x.cat,x.found_id,x.found_type,x.icon,x.found_icon].filter(Boolean).join(' '));const dropLabel=found?'RARE DROP · '+avitoRarityLabel(x.rarity):avitoRarityLabel(x.rarity);const rainbowChrome=Math.max(buy,market)>=15000000;return `<div class="avx-product rarity-${rc} ${found?'avx-found-product':''} ${apple?'avx-apple-product':''} ${rainbowChrome?'avx-rainbow-chrome':''}" style="--avx-card-index:${feedIndex}" data-rarity="${rc}" data-buy-price="${buy}" data-market-price="${market}" data-source-index="${feedIndex}"><div class="avx-product-top"><div class="avx-supplier-visual ${x.found_type==='car'?'is-car':''}" aria-hidden="true">${avitoInventoryVisual(x)}</div><div class="avx-product-info"><b>${esc(x.name||'Товар')}</b><span>${esc(x.cat||'Категория')}${found?' · специальная находка':' · спрос ×'+Number(x.demand||1).toFixed(2)}</span><small class="avx-rarity-name">${dropLabel}</small></div></div><div class="avx-product-bottom"><strong>${number(buy)} ₽</strong><button class="avx-btn buy" data-avito-buy="${esc(x.id)}">КУПИТЬ · ${number(buy)} ₽</button></div><div class="${found?'avx-found-profit':'avx-deal-profit'}">рынок ~ ${number(market)} ₽ · запас +${number(margin)} ₽</div></div>`}).join('')||'<div class="avx-empty">Поставщики временно недоступны.</div>'}</div>
       </div>`;
     } else if(avitoTab==='sales'){
       const special=inv.filter(x=>x.item_type==='avito_found' || x.item_type==='avito_hunt'); const manualGrouped=groupInventory(inv); const newUids=getAvitoNewPurchases();
       content=`<div class="avx-section">
         <div class="avx-section-head"><div><b>Продажи</b><span>Склад — обычные товары и пойманные дорогие лоты.</span></div><span class="avx-count">${inv.length}</span></div>
         ${pub?`<div class="avx-active"><div><small>АКТИВНОЕ ОБЪЯВЛЕНИЕ</small><b>${esc(pub.item?.name||'Товар')}</b><span>${number(pub.item?.market_price||0)} ₽ · качество ${number(pub.quality||0)}/10</span></div><button class="avx-btn ghost" id="avitoUnpublishBtn">СНЯТЬ</button></div>`:''}
-        ${special.length?`<div class="avx-special-list">${special.map(x=>`<div class="avx-special-item"><div class="avx-special-top">${avitoInventoryVisual(x)}<div class="avx-special-copy"><b>${esc(x.name||'Особый лот')}</b><span>${esc(x.cat||'Особый лот')} · пойманный</span></div><div class="avx-special-price">${number(x.market_price||0)} ₽</div></div><div class="avx-special-bottom"><span class="avx-special-tag">RARE DROP · ${avitoRarityLabel(x.rarity)}</span><button class="avx-btn buy" data-avito-publish="${esc(x.uid||'')}" ${pub||!x.uid?'disabled':''}>${pub?'ЗАВЕРШИ СДЕЛКУ':'ВЫСТАВИТЬ'}</button></div></div>`).join('')}</div>`:''}
+        ${special.length?`<div class="avx-special-list">${special.map(x=>`<div class="avx-special-item ${Number(x.market_price||0)>=15000000?'avx-rainbow-chrome':''}"><div class="avx-special-top">${avitoInventoryVisual(x)}<div class="avx-special-copy"><b>${esc(x.name||'Особый лот')}</b><span>${esc(x.cat||'Особый лот')} · пойманный</span></div><div class="avx-special-price">${number(x.market_price||0)} ₽</div></div><div class="avx-special-bottom"><span class="avx-special-tag">RARE DROP · ${avitoRarityLabel(x.rarity)}</span><button class="avx-btn buy" data-avito-publish="${esc(x.uid||'')}" ${pub||!x.uid?'disabled':''}>${pub?'ЗАВЕРШИ СДЕЛКУ':'ВЫСТАВИТЬ'}</button></div></div>`).join('')}</div>`:''}
         <div class="avx-stock">${(()=>{const regularGrouped=manualGrouped.filter(x=>x.item_type!=='avito_found' && x.item_type!=='avito_hunt'); return regularGrouped.length?regularGrouped.map(x=>{const rc=avitoRarity(x.rarity);const isNew=(x.uids||[]).some(u=>newUids.includes(String(u)));const isHelper=!!x.assistant_bought;const helperListed=!!x.assistant_listed;const action=helperListed?`<span class="avx-stock-status-helper">ПОМОЩНИК ПРОДАЁТ</span>`:`<button class="avx-btn buy" data-avito-publish="${esc(x.uids[0]||'')}" ${pub||!x.uids.length?'disabled':''}>${pub?'ЗАВЕРШИ СДЕЛКУ':'ВЫСТАВИТЬ'}</button>`;return `<div class="avx-stock-row rarity-${rc} ${isNew?'avx-new-purchased':''} ${isHelper?'avx-helper-stock':''}" data-rarity="${rc}"><div class="avx-stock-left"><div class="avx-rarity-icon" aria-hidden="true"></div><div><b>${esc(x.name||'Товар')} ${x.count>1?`×${x.count}`:''}${isNew?'<span class="avx-stock-new">НОВЫЙ</span>':''}${isHelper?'<span class="avx-assistant-badge">ПОМОЩНИК</span>':''}</b><span>Закуп · рынок ${number(x.market_price||0)} ₽</span><small class="avx-rarity-name">${isHelper?(helperListed?'Товар помощника · идёт продажа':'Товар помощника · в обработке'):avitoRarityLabel(x.rarity)}</small></div></div>${action}</div>`}).join(''):'<div class="avx-empty">Склад пуст. Перейди в «Закуп» — ценные находки появляются прямо среди обычных лотов.</div>'})()}</div>
       </div>`;
     } else if(avitoTab==='assistants'){
@@ -7247,14 +7247,17 @@ async function initFarm(){
     const refresh=e.target.closest('[data-avito-refresh]'); if(refresh){
       if(refresh.disabled || modalBody.classList.contains('avx-refresh-inflight')) return;
       refresh.disabled=true;
+      haptic('medium');
       modalBody.classList.add('avx-refresh-inflight');
       const activeRefresh=modalBody.querySelector('[data-avito-refresh]');
-      if(activeRefresh) activeRefresh.innerHTML='<span aria-hidden="true">↻</span> ОБНОВЛЕНИЕ…';
+      if(activeRefresh) activeRefresh.innerHTML='<span aria-hidden="true">↻</span> ПОИСК ЛОТОВ…';
       try{
         const next=await tycoonFetch(`/avito/${encodeURIComponent(userId)}?force_refresh=1`);
         avitoState=next;
         modalBody.innerHTML=renderAvito();
-        showAvitoUnlockPopup(); showToast('Поставка обновлена');
+        const newFeed=modalBody.querySelector('.avx-hunt-center');
+        if(newFeed) modalBody.scrollTo({top:Math.max(0,newFeed.offsetTop-8),behavior:'smooth'});
+        showAvitoUnlockPopup(); showToast('Новая партия поставки готова');
       }catch(err){showToast(err.message||'Не удалось обновить поставку');}
       finally{
         modalBody.classList.remove('avx-refresh-inflight');
@@ -17760,10 +17763,6 @@ main.app{
 .avx-sales-growth-top{display:flex;align-items:center;justify-content:space-between;gap:10px}.avx-sales-growth-top small{display:block;color:#69736b;font:950 6px/1 Montserrat,sans-serif;letter-spacing:1px}.avx-sales-growth-top b{display:block;margin-top:5px;color:#edf2ed;font:950 9px/1 Montserrat,sans-serif}.avx-sales-growth-top>strong{color:#b7ff6a;font:950 11px/1 Montserrat,sans-serif;text-align:right}.avx-sales-growth-top>strong span{display:block;margin-top:3px;color:#647066;font:800 5.5px/1 Nunito,sans-serif}.avx-sales-growth-track{height:5px;margin-top:9px;border-radius:99px;background:#171b17;overflow:hidden}.avx-sales-growth-track i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#7ebc4d,#b7ff6a);box-shadow:0 0 12px rgba(183,255,106,.18)}.avx-sales-growth p{margin:7px 0 0;color:#68736b;font:800 6.5px/1.4 Nunito,sans-serif}.mining-rig-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:9px;padding-top:8px;border-top:1px solid rgba(255,255,255,.05)}.mining-rig-actions span{color:#8a948c;font:900 6px/1 Montserrat,sans-serif;letter-spacing:.45px}.mining-rig-actions .tycoon-btn{min-height:32px;padding:0 10px;color:#ffb48d;border-color:rgba(255,153,110,.18);background:rgba(255,153,110,.055)}
 </style>
 
-<style id="avito-economic-pity-v1">
-.avx-economic-pity{margin-top:10px;padding:10px 11px;border-radius:14px;background:rgba(183,255,106,.035);border:1px solid rgba(183,255,106,.10)}
-.avx-economic-pity-head{display:flex;justify-content:space-between;gap:8px;align-items:center}.avx-economic-pity-head span{font:900 7px/1 Montserrat,sans-serif;color:#69736d;letter-spacing:.7px}.avx-economic-pity-head b{font:950 9px/1 Montserrat,sans-serif;color:#b7ff6a}.avx-economic-pity small{display:block;margin-top:5px;color:#626b65;font:800 7px/1.35 Montserrat,sans-serif}
-</style>
 <style id="ui-minimal-assets-v2">
 /* RESSELL minimal assets: keep the artwork, remove text overlays. */
 .main-tycoon-card{position:relative!important;overflow:hidden!important;padding:0!important;min-height:138px!important}
@@ -20470,6 +20469,71 @@ body.resell-avito-single-screen #modalBody .avx-review-sheet {
  .admin-ref-hero>strong{font-size:22px}
  .admin-ref-pagination .admin-btn{padding:0 7px;font-size:6.5px}
 }
+</style>
+
+
+<style id="resell-avito-premium-feed-v2">
+/* Premium lots (15M+): animated full-spectrum chrome edge, without tinting the artwork. */
+.avx-product.avx-rainbow-chrome{
+  position:relative!important;
+  isolation:isolate!important;
+  border:1px solid transparent!important;
+  background:linear-gradient(145deg,#141a15,#080b09) padding-box!important;
+  box-shadow:0 0 20px rgba(120,190,255,.08),0 0 30px rgba(215,90,255,.06),inset 0 1px 0 rgba(255,255,255,.07)!important;
+}
+.avx-product.avx-rainbow-chrome::after{
+  content:""!important;
+  position:absolute!important;
+  inset:0!important;
+  z-index:4!important;
+  pointer-events:none!important;
+  border-radius:inherit!important;
+  padding:1.7px!important;
+  background:conic-gradient(from 0deg,#ff375f,#ff9f0a,#ffe34d,#30d158,#64d2ff,#0a84ff,#bf5af2,#ff375f)!important;
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0)!important;
+  -webkit-mask-composite:xor!important;
+  mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0)!important;
+  mask-composite:exclude!important;
+  filter:hue-rotate(0deg) saturate(1.2)!important;
+  animation:avxChromeHue 4.8s linear infinite!important;
+}
+@keyframes avxChromeHue{to{filter:hue-rotate(360deg) saturate(1.35)}}
+/* Same premium chrome treatment for rare items already caught and waiting in Avito. */
+.avx-special-item.avx-rainbow-chrome{
+  isolation:isolate!important;
+  border:1px solid transparent!important;
+  background:linear-gradient(145deg,#141a15,#080b09) padding-box!important;
+  box-shadow:0 0 18px rgba(120,190,255,.07),0 0 26px rgba(215,90,255,.055)!important;
+}
+.avx-special-item.avx-rainbow-chrome::after{
+  content:""!important;position:absolute!important;inset:0!important;z-index:4!important;
+  pointer-events:none!important;border-radius:inherit!important;padding:1.7px!important;
+  background:conic-gradient(from 0deg,#ff375f,#ff9f0a,#ffe34d,#30d158,#64d2ff,#0a84ff,#bf5af2,#ff375f)!important;
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0)!important;
+  -webkit-mask-composite:xor!important;
+  mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0)!important;
+  mask-composite:exclude!important;
+  animation:avxChromeHue 4.8s linear infinite!important;
+}
+.avx-special-item.avx-rainbow-chrome .avx-special-top,
+.avx-special-item.avx-rainbow-chrome .avx-special-bottom{position:relative;z-index:5}
+.avx-special-item.avx-rainbow-chrome .avx-special-price{color:#fff!important;text-shadow:0 0 12px rgba(255,255,255,.16)}
+.avx-product.avx-rainbow-chrome .avx-product-top,
+.avx-product.avx-rainbow-chrome .avx-product-bottom,
+.avx-product.avx-rainbow-chrome .avx-found-profit,
+.avx-product.avx-rainbow-chrome .avx-chrome-caption{position:relative;z-index:5}
+.avx-product.avx-rainbow-chrome .avx-product-info b{color:#fff!important;text-shadow:0 0 13px rgba(255,255,255,.12)}
+.avx-product.avx-rainbow-chrome .avx-product-bottom strong{color:#fff!important}
+.avx-grid .avx-product{animation:avxLotEnter .42s cubic-bezier(.16,1,.3,1) both;animation-delay:calc(var(--avx-card-index,0) * 48ms)}
+@keyframes avxLotEnter{from{opacity:0;transform:translateY(12px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}
+.avx-deal-profit{margin-top:8px;padding-top:7px;border-top:1px solid rgba(255,255,255,.055);color:#748078;font:800 7px/1.3 Nunito,sans-serif;letter-spacing:.05px}
+.avx-deal-profit::first-letter{color:#b7ff6a}
+.avx-car-discovery{position:relative;overflow:hidden;border-color:rgba(183,255,106,.18)!important;background:linear-gradient(110deg,rgba(183,255,106,.08),rgba(255,255,255,.025),rgba(95,150,255,.055))!important}
+.avx-car-discovery::after{content:"";position:absolute;right:-38px;top:-52px;width:116px;height:116px;border-radius:50%;border:1px solid rgba(183,255,106,.16);box-shadow:0 0 0 8px rgba(183,255,106,.025),0 0 30px rgba(183,255,106,.08);pointer-events:none}
+.avx-car-discovery span{color:#b7ff6a!important}
+.avx-car-discovery b{color:#f3f6f1!important}
+.avx-car-discovery i{font-style:normal!important;color:#b7ff6a!important}
+@media(prefers-reduced-motion:reduce){.avx-product.avx-rainbow-chrome::after,.avx-special-item.avx-rainbow-chrome::after,.avx-grid .avx-product{animation:none!important}}
 </style>
 
 </body>
