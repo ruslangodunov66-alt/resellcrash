@@ -3721,11 +3721,13 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
   }
 
   let registrationDraft={nickname:"",shopName:""};
+  let registrationTestMode=false;
   let registrationLang=(localStorage.getItem("resell_language")||"ru")==="en"?"en":"ru";
   let registrationReferralPreview=null;
 
   async function loadRegistrationReferralPreview(){
     registrationReferralPreview=null;
+    if(registrationTestMode){const el=$('#registrationReferralPreview');if(el)el.innerHTML='';return;}
     const token=referralRegistrationToken();
     if(!token || !userId) return;
     try{
@@ -3741,10 +3743,19 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     }catch(_){ }
   }
 
-  function openRegistration(){
+  function openRegistration(isTest=false){
     registrationRequired=true;
+    registrationTestMode=Boolean(isTest || profileData?.registration_test);
     if(modalClose) modalClose.style.display='none';
-    registrationDraft={nickname:"",shopName:""};
+    if(registrationTestMode){
+      const savedNickname=String(profileData?.nickname||'').trim();
+      const savedShopName=String(profileData?.shop_name||'').trim();
+      const nicknameIsReal=Boolean(savedNickname && savedNickname!=='Торгаш' && !savedNickname.startsWith('Игрок_'));
+      const shopIsReal=Boolean(savedShopName && savedShopName!=='Моя лавка' && savedShopName!=='Без названия');
+      registrationDraft={nickname:nicknameIsReal?savedNickname:'',shopName:shopIsReal?savedShopName:''};
+    }else{
+      registrationDraft={nickname:"",shopName:""};
+    }
     registrationReferralPreview=null;
     renderRegistrationStep(1);
     loadRegistrationReferralPreview();
@@ -3761,9 +3772,9 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
           <div class="registration-v6-step">01 <i></i> 02</div>
         </div>
         <div class="registration-v6-copy">
-          <div class="registration-v6-kicker">ПЕРВЫЙ ЗАПУСК</div>
-          <div class="registration-v6-title">Создай свой <span>никнейм</span></div>
-          <div class="registration-v6-sub">Так тебя будут видеть в RESSELL, рейтингах и сделках.</div>
+          <div class="registration-v6-kicker">${registrationTestMode?'ТЕСТ РЕГИСТРАЦИИ':'ПЕРВЫЙ ЗАПУСК'}</div>
+          <div class="registration-v6-title">${registrationTestMode?'Проверь свой':'Создай свой'} <span>никнейм</span></div>
+          <div class="registration-v6-sub">${registrationTestMode?'Это проверка регистрации. Твой игровой аккаунт и прогресс останутся на месте.':'Так тебя будут видеть в RESSELL, рейтингах и сделках.'}</div>
         </div>
         <div class="registration-v6-progress"><i style="width:50%"></i></div>
         <div class="registration-v6-ref" id="registrationReferralPreview"></div>
@@ -3786,7 +3797,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
         </div>
         <div class="registration-v6-error" id="registrationError"></div>
         <button class="registration-v6-btn" id="registrationNext" type="button">ПРОДОЛЖИТЬ <span>→</span></button>
-        <div class="registration-v6-note">2–20 символов • Telegram-аккаунт не изменяется</div>
+        <div class="registration-v6-note">${registrationTestMode?'ТЕСТОВЫЙ РЕЖИМ • БАЛАНС И ПРОГРЕСС СОХРАНЯЮТСЯ':'2–20 символов • Telegram-аккаунт не изменяется'}</div>
       </div>`);
       $$('.registration-lang-btn').forEach(btn=>btn.addEventListener('click',()=>{
         registrationLang=btn.dataset.regLang==='en'?'en':'ru';
@@ -3829,9 +3840,9 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
         <div class="registration-v6-step">02 <i class="done"></i> 02</div>
       </div>
       <div class="registration-v6-copy">
-        <div class="registration-v6-kicker">ПОСЛЕДНИЙ ШАГ</div>
-        <div class="registration-v6-title">Создай свой <span>магазин</span></div>
-        <div class="registration-v6-sub">Придумай название бренда — оно станет лицом твоего бизнеса.</div>
+        <div class="registration-v6-kicker">${registrationTestMode?'ТЕСТ РЕГИСТРАЦИИ':'ПОСЛЕДНИЙ ШАГ'}</div>
+        <div class="registration-v6-title">${registrationTestMode?'Проверь свой':'Создай свой'} <span>магазин</span></div>
+        <div class="registration-v6-sub">${registrationTestMode?'Заверши форму. Данные сохранятся в текущий аккаунт без сброса игрового прогресса.':'Придумай название бренда — оно станет лицом твоего бизнеса.'}</div>
       </div>
       <div class="registration-v6-progress"><i style="width:100%"></i></div>
       <div class="registration-v6-summary">
@@ -3847,8 +3858,8 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
         <div><small>ТВОЙ БРЕНД</small><strong id="regShopPreview">${esc(registrationDraft.shopName||'Название магазина')}</strong></div>
       </div>
       <div class="registration-v6-error" id="registrationError"></div>
-      <button class="registration-v6-btn" id="registrationSubmit" type="button">СОЗДАТЬ ПРОФИЛЬ <span>→</span></button>
-      <div class="registration-v6-note">2–30 символов • после создания магазин станет твоим первым брендом</div>
+      <button class="registration-v6-btn" id="registrationSubmit" type="button">${registrationTestMode?'ЗАВЕРШИТЬ ТЕСТ':'СОЗДАТЬ ПРОФИЛЬ'} <span>→</span></button>
+      <div class="registration-v6-note">${registrationTestMode?'ТЕСТОВЫЙ РЕЖИМ • БАЛАНС, АКТИВЫ И ПРОГРЕСС СОХРАНЯЮТСЯ':'2–30 символов • после создания магазин станет твоим первым брендом'}</div>
     </div>`);
     const input=$('#regShopName'), preview=$('#regShopPreview'), count=$('#regShopCount');
     const sync=()=>{const v=String(input?.value||'').trim();if(preview)preview.textContent=v||'Название магазина';if(count)count.textContent=`${v.length}/30`;};
@@ -3867,18 +3878,23 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     if(shopName.length<2){error.textContent='Минимум 2 символа';return;}
     if(shopName.length>30){error.textContent='Максимум 30 символов';return;}
     if(!userId){error.textContent='Открой RESSELL внутри Telegram';return;}
-    btn.disabled=true;btn.textContent='СОЗДАНИЕ…';error.textContent='';
+    const submittingTest=registrationTestMode;
+    btn.disabled=true;btn.textContent=submittingTest?'СОХРАНЕНИЕ ТЕСТА…':'СОЗДАНИЕ…';error.textContent='';
     try{
-      const resp=await apiFetch(`${API_BASE}/register/${encodeURIComponent(userId)}`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify({nickname:registrationDraft.nickname,shop_name:shopName,referrer_id:referralRegistrationToken(),language:registrationLang})},3);
+      const resp=await apiFetch(`${API_BASE}/register/${encodeURIComponent(userId)}`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify({nickname:registrationDraft.nickname,shop_name:shopName,referrer_id:submittingTest?'':referralRegistrationToken(),language:registrationLang})},3);
       const payload=await resp.json().catch(()=>({}));
-      if(!resp.ok||!payload.success) throw new Error(payload.error||'Не удалось создать аккаунт');
-      registrationRequired=false;if(modalClose) modalClose.style.display='';closeModal();
+      if(!resp.ok||!payload.success) throw new Error(payload.error||'Не удалось сохранить регистрацию');
+      registrationRequired=false;registrationTestMode=false;if(modalClose) modalClose.style.display='';closeModal();
       document.querySelector('.sheet')?.classList.remove('registration-sheet-v5');
       profileData=await loadProfile();
-      await attachIncomingReferral();
+      // Test registration must not attach a referral from a stale launch URL.
+      if(!submittingTest) await attachIncomingReferral();
       referralData=await fetchReferralData();updateReferralCard();
       // Новичковое обучение отключено: после регистрации игрок сразу попадает в главное меню RESSELL.
-      if(payload?.referral?.activated){
+      if(submittingTest || payload.registration_test){
+        showToast('Тест регистрации завершён. Аккаунт и прогресс сохранены');
+        haptic('success');
+      }else if(payload?.referral?.activated){
         const reward=Number(payload.referral.invitee_reward||250000);
         showToast(`🎁 +${number(reward)} ₽ за приглашение`);
         haptic('success');
@@ -3886,7 +3902,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
       }else{
         showToast('Профиль RESSELL создан');
       }
-    }catch(err){error.textContent=err.message||'Ошибка регистрации';btn.disabled=false;btn.textContent='СОЗДАТЬ ПРОФИЛЬ →';}
+    }catch(err){error.textContent=err.message||'Ошибка регистрации';btn.disabled=false;btn.textContent=registrationTestMode?'ЗАВЕРШИТЬ ТЕСТ →':'СОЗДАТЬ ПРОФИЛЬ →';}
   }
 
   function primaryBalance(data){
@@ -4421,7 +4437,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
       try{
         const resp=await apiFetch(`${API_BASE}/profile/${encodeURIComponent(userId)}?t=${Date.now()}`,{method:'GET'},1);
         const data=await resp.json(); profileData=data; window.__resellProfileData=data; __lastServerStateTs=Number(data.server_state_ts||0); try{window.renderRewardAd?.();}catch(_){} try{window.__resellUpdateNavIndicators?.();}catch(_){} try{window.updateQuestNotice?.();}catch(_){}
-        if(data.registration_complete===false||data.registration_complete===0||data.registration_required===true){setBalance(primaryBalance(data));setProgress(0);statusText.textContent='Требуется регистрация';if(!registrationRequired && !launchSequenceActive)openRegistration();return data;}
+        if(data.registration_complete===false||data.registration_complete===0||data.registration_required===true){setBalance(primaryBalance(data));setProgress(0);statusText.textContent=data.registration_test?'Тест регистрации':'Требуется регистрация';if(!registrationRequired && !launchSequenceActive)openRegistration(Boolean(data.registration_test));return data;}
         setBalance(primaryBalance(data)); epochData=data.epoch||null; setProgress(Number(data.epoch_progress??epochData?.progress??0)); rcoinData=data.rcoin||null; renderRcoin(); statusText.textContent='Баланс синхронизирован'; $('.status-dot').style.background='var(--success)'; try{if(data.engagement){engagementData=data.engagement;renderEngagement();}await loadEngagement();await loadRcoinStatus();}catch(_){ } return data;
       }catch(e){lastError=e;if(attempt<2)await new Promise(r=>setTimeout(r,250));}
     }
@@ -7908,6 +7924,9 @@ async function initFarm(){
       const p=d.player||{};
       modalBody.innerHTML=`<div class="admin-profile admin-profile-player">
         <div class="admin-profile-head"><div class="admin-profile-name">${esc(p.nickname||'Без никнейма')}</div><div class="admin-profile-id">${p.is_ai_bot?'AI-ИГРОК · ВНУТРЕННИЙ ID '+Math.abs(Number(p.tg_id||0)):'TG ID: '+p.tg_id} · Магазин: ${esc(p.shop_name||'—')}</div><div class="admin-status ${p.is_banned?'banned':''}">${p.is_banned?'ЗАБЛОКИРОВАН':'АКТИВЕН'} · ⚠ ${p.warning_count||0}</div></div>
+        <div class="admin-section-title">Тест регистрации</div>
+        <div class="admin-note">${p.is_ai_bot?'Для AI-игроков тест регистрации недоступен.':d.registration_test_pending?'Тест уже включён. Регистрационная форма появится при следующем входе игрока.':'Запускает обычную форму регистрации при следующем входе. Игрок останется в этой же записи: баланс, активы, бизнесы, задания и реферальные связи не сбрасываются.'}</div>
+        ${p.is_ai_bot?'':'<button class="admin-btn primary" id="adminRegistrationTest" style="width:100%;min-height:42px;margin-top:7px" '+(d.registration_test_pending?'disabled':'')+'>'+(d.registration_test_pending?'ТЕСТ УЖЕ ВКЛЮЧЁН':'ВКЛЮЧИТЬ ТЕСТ РЕГИСТРАЦИИ')+'</button>'}
         <div class="admin-kpi-grid"><div class="admin-kpi"><b>${number(p.balance)} ₽</b><span>Баланс</span></div><div class="admin-kpi"><b>${number(p.total_earned)} ₽</b><span>Заработано</span></div><div class="admin-kpi"><b>${number(p.total_sales)}</b><span>Продаж</span></div><div class="admin-kpi"><b>${number(p.items_sold)}</b><span>Товаров</span></div></div>
         <div class="admin-section-title">Экономический профиль</div>
         <div class="admin-economic-grid">
@@ -8301,6 +8320,17 @@ async function initFarm(){
       try{const result=await adminFetch(`/admin/player/${ADMIN_OWNER_ID}/${target}/asset/remove`,{method:'POST',body:JSON.stringify({asset_type:type,asset_id:assetId})});showToast('Актив забран');await openAdminPlayer(target);requestAnimationFrame(()=>document.getElementById('adminAssetsPanel')?.scrollIntoView({block:'start',behavior:'smooth'}));}catch(err){showToast(err.message||'Не удалось забрать актив');removeAssetBtn.disabled=false;} return;
     }
     const target=modalBody.dataset.adminTarget;
+    if(target && e.target.closest('#adminRegistrationTest')){
+      const btn=e.target.closest('#adminRegistrationTest');
+      if(!confirm('Включить одноразовый тест регистрации для этого игрока?\n\nПри следующем входе откроется регистрационная форма. После сохранения игрок останется в этом же аккаунте. Баланс, активы, бизнесы, задания и реферальная история не сбрасываются.'))return;
+      btn.disabled=true;const oldText=btn.textContent;btn.textContent='ВКЛЮЧЕНИЕ…';
+      try{
+        const result=await adminFetch(`/admin/player/${ADMIN_OWNER_ID}/${encodeURIComponent(target)}/registration-test`,{method:'POST',body:JSON.stringify({})});
+        showToast(result.message||'Тест регистрации включён');
+        await openAdminPlayer(target);
+      }catch(err){showToast(err.message||'Не удалось включить тест регистрации');btn.disabled=false;btn.textContent=oldText;}
+      return;
+    }
     if(target && e.target.closest('#adminSendPersonalMessage')){ await sendAdminPersonalMessage(target); return; }
     if(target && e.target.closest('#adminGiveMoney')){
       const amount=Number($('#adminAmount')?.value||0); if(!amount){showToast('Укажи сумму');return;}
