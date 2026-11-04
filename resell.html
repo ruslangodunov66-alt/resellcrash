@@ -4882,6 +4882,11 @@ const DAILY_MONEY_ASSETS={
   }
 
   function updateStarterGoalsCard(){
+    const section=document.getElementById('starterGoalsSection');
+    const currentEra=Math.max(0,Number(window.__resellProfileData?.epoch?.current_epoch ?? profileData?.epoch?.current_epoch ?? epochData?.current_epoch ?? 0));
+    // Карточка нужна только до достижения второй эры. Удаляем весь блок,
+    // чтобы он не оставался на другом экране или в DOM после перехода.
+    if(currentEra>=2){section?.remove();return;}
     const card=$('#starterGoalsOpen'); if(!card)return;
     const goals=getStarterGoalState(),done=goals.filter(g=>g.done).length,next=goals.find(g=>!g.done);
     const fill=$('#starterGoalsProgressFill'),count=$('#starterGoalsProgressText'),summary=$('#starterGoalsSummary');
@@ -4890,6 +4895,8 @@ const DAILY_MONEY_ASSETS={
     if(summary)summary.textContent=done===goals.length?'Старт пройден. Теперь строй свою империю.':next?`Следующий шаг: ${next.title}`:'4 шага, чтобы освоиться в RESSELL';
     card.classList.toggle('starter-goals-complete',done===goals.length);
   }
+  // Lets the independent profile/quest poll refresh the same visibility rule.
+  window.__resellUpdateStarterGoalsCard=updateStarterGoalsCard;
 
   function renderStarterGoalsModal(){
     const goals=getStarterGoalState(),done=goals.filter(g=>g.done).length,pct=Math.round(done/goals.length*100);
@@ -4975,6 +4982,8 @@ const DAILY_MONEY_ASSETS={
       if (!payload.success) throw new Error(payload.error || payload.message || 'Claim failed');
       epochData = payload.epoch || epochData;
       profileData = profileData || {};
+      if(epochData){profileData.epoch=epochData;window.__resellProfileData={...(window.__resellProfileData||profileData),epoch:epochData};}
+      try{updateStarterGoalsCard();}catch(_){ }
       profileData.balance = Number(payload.balance ?? profileData.balance ?? 0);
       setBalance(profileData.balance);
       setProgress(Number(epochData?.progress ?? 0));
@@ -7151,15 +7160,18 @@ async function initFarm(){
     const d=avitoState||{};
     const inv=Array.isArray(d.inventory)?d.inventory:[];
     const grouped=groupInventory(inv);
+    // Всегда показываем самые дорогие предложения первыми: сортировка именно
+    // по цене покупки, а не по марже или типу карточки.
     const suppliers=(Array.isArray(d.suppliers)?d.suppliers:[]).slice().sort((a,b)=>{
-      const aSpecial=a.item_type==='avito_found'||a.item_type==='avito_hunt'||Boolean(a.found_id||a.found_type||a.hunt_type);
-      const bSpecial=b.item_type==='avito_found'||b.item_type==='avito_hunt'||Boolean(b.found_id||b.found_type||b.hunt_type);
-      if(aSpecial!==bSpecial) return aSpecial?-1:1;
-      const ax=Number(a.margin_pct||0), bx=Number(b.margin_pct||0);
-      if(bx!==ax) return bx-ax;
-      const ap=Number(a.expected_profit||0), bp=Number(b.expected_profit||0);
-      if(bp!==ap) return bp-ap;
-      return Number(b.market_price||0)-Number(a.market_price||0);
+      const priceA=Math.max(0,Number(a?.buy_price ?? a?.price ?? 0));
+      const priceB=Math.max(0,Number(b?.buy_price ?? b?.price ?? 0));
+      if(priceB!==priceA) return priceB-priceA;
+      const marketA=Math.max(0,Number(a?.market_price ?? a?.value ?? 0));
+      const marketB=Math.max(0,Number(b?.market_price ?? b?.value ?? 0));
+      if(marketB!==marketA) return marketB-marketA;
+      const profitA=Number(a?.expected_profit||0), profitB=Number(b?.expected_profit||0);
+      if(profitB!==profitA) return profitB-profitA;
+      return String(a?.name||'').localeCompare(String(b?.name||''),'ru');
     });
     const chats=Array.isArray(d.chats)?d.chats:[];
     const unread=Number(d.unread_count||0);
@@ -8859,8 +8871,9 @@ async function initFarm(){
       const ts=Number(d.server_state_ts||0);
       if(ts && ts!==__lastServerStateTs){
         __lastServerStateTs=ts;
-        profileData=d; setBalance(primaryBalance(d));
+        profileData=d; window.__resellProfileData=d; setBalance(primaryBalance(d));
         epochData=d.epoch||epochData; rcoinData=d.rcoin||rcoinData;
+        try{updateStarterGoalsCard();}catch(_){ }
         if(document.visibilityState==='visible'){
           try{renderEngagement();}catch(_){ }
         }
@@ -14574,6 +14587,7 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
     const findSectionByTitle=(title)=>sections.find(sec=>sec.querySelector('.section-title')?.textContent.trim()===title);
     const activity=findSectionByTitle('Активность');
     const explainer=document.getElementById('resellLaunchBrief');
+    const starterGoals=document.getElementById('starterGoalsSection');
     const engagement=document.getElementById('homeEngagementSection');
     const games=findSectionByTitle('Игровой центр');
     const epoch=findSectionByTitle('Эпоха');
@@ -14609,6 +14623,8 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
     const cap2=document.createElement('div'); cap2.className='resell-home-caption'; cap2.innerHTML='<b>Дополнительно</b><span>Сюда вынесено всё, что не нужно видеть новичку на первом экране.</span>';
     money.append(cap1);
     if(explainer) money.append(explainer);
+    // Путь новичка располагается только на главной странице.
+    if(starterGoals) money.append(starterGoals);
     if(engagement) money.append(engagement);
     more.append(cap2);
 
@@ -15230,6 +15246,14 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
       flow.appendChild(business);
       flow.appendChild(arrow);
       flow.appendChild(assets);
+
+      /* Starter guidance belongs to page 1 only and disappears at ERA 2. */
+      const starter=document.getElementById('starterGoalsSection');
+      const more=document.getElementById('resellHomeMore');
+      const currentEra=Math.max(0,Number(window.__resellProfileData?.epoch?.current_epoch||0));
+      if(currentEra>=2){starter?.remove();}
+      else if(starter){flow.appendChild(starter);}
+      more?.querySelectorAll('#starterGoalsSection').forEach(el=>el.remove());
 
       /* Put the five asset cards in the exact requested visual order. */
       const grid=assets.querySelector('.main-tycoon-grid');
@@ -16533,7 +16557,7 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
     try{
       const r=await api(`/profile/${encodeURIComponent(u)}?t=${Date.now()}`,{method:'GET'},1);
       const d=await r.json().catch(()=>null);
-      if(r.ok&&d&&typeof d==='object'){window.__resellProfileData=d; updateQuestNotice();}
+      if(r.ok&&d&&typeof d==='object'){window.__resellProfileData=d; try{window.__resellUpdateStarterGoalsCard?.();}catch(_){} updateQuestNotice();}
     }catch(_){}
     clearTimeout(profileTimer);profileTimer=setTimeout(refreshQuestState,20000);
   }
