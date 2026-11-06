@@ -14043,6 +14043,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     const nextActionDesc=!models.length?'Выбери тип вещи, цвет и фирменный знак. Затем выпусти партию на заводе.':readyJobs.length?'Партия готова. Забери её на склад — после этого сможешь отправить товар в выбранный город.':activeJobs.length?'Партия уже производится. Новую запускать не обязательно: дождись готовности, а затем забери товар на склад.':freeStock?(stores.length?'Есть свободный товар. Выбери город и магазин, проверь стоимость и срок маршрута, затем отправь партию.':'Товар готов к отправке. Сначала изучи рынок городов и открой магазин в подходящем городе, затем настрой доставку.') :!factories.length?'Без завода выпускать товар нельзя. Открой производство, подходящее для категории твоей модели.':'Твоя модель готова к выпуску. Выбери завод и размер партии; после производства забери товар и отправь его в город.';
     const nextActionLabel=nextActionId==='brand_v3_new_model'?'Создать модель':nextActionId==='brand_v3_collect_production'?'Забрать на склад':nextActionId==='brand_v3_refresh'?'Обновить статус':nextActionId==='brand_v3_logistics'?'Настроить доставку':nextActionId==='brand_v3_new_store'?'Выбрать город':'Запустить производство';
     const modelArt=model?brandV3BlueprintSvg(model.category,{...(model.colors||{}),cut:model.cut,length_pct:model.length_pct,width_pct:model.width_pct,sleeves:model.sleeves,pocket:model.pocket,collar:model.collar,hood:model.hood,logoText:model.logo_text,printText:model.print_text}):brandStudioArt('design');
+    const modelPreviewArt=model?modelArt.replace('viewBox="0 0 640 360"','viewBox="160 40 320 300"'):modelArt;
     const factorySummary=factories.length?`${factories.length} завод${factories.length===1?'':'а'} · ${factories[0].city||'город не указан'}`:'Завода пока нет';
     const freeUnits=wh.reduce((a,x)=>a+Math.max(0,nV(x.qty)-nV(x.reserved_qty)),0);
     const steps=[
@@ -14056,7 +14057,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     const stepsHtml=steps.map(x=>`<article class="brand-studio-step-card ${x.state==='done'?'is-done':''} ${x.state==='current'||x.state==='ready'?'is-active':''}"><div class="brand-studio-step-art">${x.art}</div><div class="brand-studio-step-copy"><small>${x.n} / ${x.state==='done'?'ГОТОВО':x.state==='ready'?'МОЖНО ЗАБРАТЬ':x.state==='current'?'В ПРОЦЕССЕ':'СЛЕДУЮЩИЙ ЭТАП'}</small><h3>${x.title}</h3><p>${escV(x.desc)}</p><button type="button" data-career-action="${x.action}">${x.label}<span>↗</span></button></div></article>`).join('');
     const storeStock=models.reduce((sum,x)=>sum+Math.max(0,nV(x.store_stock)),0);
     const transitUnits=orders.filter(x=>String(x.status)==='in_transit').reduce((sum,x)=>sum+nV(x.qty),0);
-    const modelCard=model?`<div class="brand-flow-model-summary"><div class="brand-flow-model-art">${modelArt}</div><div class="brand-flow-model-copy"><small>ТЕКУЩАЯ МОДЕЛЬ</small><b>${escV(model.title||'Новая модель')}</b><span>${escV(categoryName(model.category))} · ${moneyV(model.price)}</span><span class="brand-flow-mini-muted">${careerMoney(nV(model.total_produced))} произведено · ${careerMoney(nV(model.total_sold))} продано</span><button type="button" class="brand-flow-secondary" data-career-action="brand_v3_edit_model" data-model-id="${escV(model.id)}">Изменить модель</button></div></div>`:`<div class="brand-flow-empty"><div class="brand-flow-empty-icon">＋</div><b>Начни с одной вещи</b><span>Создай чертёж, выбери крой и цвет. Остальное появится по ходу дела.</span><button type="button" class="brand-flow-primary" data-career-action="brand_v3_new_model">Создать модель</button></div>`;
+    const modelCard=model?`<div class="brand-flow-model-summary"><div class="brand-flow-model-art">${modelPreviewArt}</div><div class="brand-flow-model-copy"><small>ТЕКУЩАЯ МОДЕЛЬ</small><b>${escV(model.title||'Новая модель')}</b><span>${escV(categoryName(model.category))} · ${moneyV(model.price)}</span><span class="brand-flow-mini-muted">${careerMoney(nV(model.total_produced))} произведено · ${careerMoney(nV(model.total_sold))} продано</span><button type="button" class="brand-flow-secondary" data-career-action="brand_v3_edit_model" data-model-id="${escV(model.id)}">Изменить модель</button></div></div>`:`<div class="brand-flow-empty"><div class="brand-flow-empty-icon">＋</div><b>Начни с одной вещи</b><span>Создай чертёж, выбери крой и цвет. Остальное появится по ходу дела.</span><button type="button" class="brand-flow-primary" data-career-action="brand_v3_new_model">Создать модель</button></div>`;
     const productionStatus=activeJobs.length?`<div class="brand-flow-status"><span class="brand-flow-status-dot"></span><div><b>Производство идёт</b><small>${activeJobs.map(x=>`${escV(x.title||'Модель')} · ${careerMoney(x.quantity)} шт.`).join(' · ')}</small><div class="brand-flow-progress"><i style="width:${Math.round(progress)}%"></i></div></div><button type="button" data-career-action="brand_v3_refresh">Обновить</button></div>`:'';
     const readyStatus=readyJobs.length?`<button type="button" class="brand-flow-ready" data-career-action="brand_v3_collect_production"><span>✓</span><div><b>Партия готова · ${careerMoney(readyJobs.reduce((a,x)=>a+nV(x.quantity),0))} шт.</b><small>Подтверди партию. Товар появится на складе; доставку настроишь отдельно.</small></div><strong>ДАЛЬШЕ ↗</strong></button>`:'';
     const hasActiveFactory=factories.some(x=>Number(x.active)!==0);
@@ -21096,5 +21097,112 @@ body.resell-avito-single-screen #modalBody .avx-review-sheet {
  .club7-shell .club7-floor{min-height:560px!important}
  .club7-shell .club7-section-head b{font-size:14px!important}
  .club7-shell .club7-income strong{font-size:23px!important}
+}
+</style>
+
+
+<style id="brand-visual-correction-final-v3">
+/* LOGISTICS: keep the warehouse/in-transit counters readable even while the
+   parent card is unavailable; never fade the entire card just for its state. */
+.career-new.brand button.brand-flow-home-logistics:disabled,
+.career-new.brand button.brand-flow-home-logistics[aria-disabled="true"]{
+  opacity:1!important;
+  filter:none!important;
+  -webkit-filter:none!important;
+  color:inherit!important;
+}
+.career-new.brand .brand-flow-home-logistics .brand-flow-logistics-meta{
+  display:grid!important;
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  gap:8px!important;
+  min-width:0!important;
+  margin:0!important;
+  opacity:1!important;
+  visibility:visible!important;
+  filter:none!important;
+  -webkit-filter:none!important;
+  background:transparent!important;
+  border:0!important;
+  box-shadow:none!important;
+}
+.career-new.brand .brand-flow-home-logistics .brand-flow-logistics-meta>span{
+  display:flex!important;
+  flex-direction:column!important;
+  justify-content:center!important;
+  gap:6px!important;
+  min-width:0!important;
+  min-height:62px!important;
+  padding:11px 12px!important;
+  border:1px solid rgba(183,255,106,.24)!important;
+  border-radius:12px!important;
+  background:linear-gradient(145deg,rgba(183,255,106,.10),rgba(255,255,255,.045))!important;
+  color:#b7c5b1!important;
+  font:900 8px/1.25 Montserrat,sans-serif!important;
+  letter-spacing:.65px!important;
+  opacity:1!important;
+  visibility:visible!important;
+  filter:none!important;
+  -webkit-filter:none!important;
+  box-shadow:none!important;
+}
+.career-new.brand .brand-flow-home-logistics .brand-flow-logistics-meta>span b{
+  display:block!important;
+  margin:0!important;
+  color:#f4f8f1!important;
+  font:950 15px/1.15 Montserrat,sans-serif!important;
+  letter-spacing:0!important;
+  opacity:1!important;
+  filter:none!important;
+  -webkit-filter:none!important;
+}
+/* CURRENT WORK: compact square thumbnail. Focus the SVG on the garment
+   itself; remove the old 1.48 enlargement that caused a large white blank. */
+.career-new.brand .brand-flow-home-operations .brand-flow-model-summary{
+  grid-template-columns:112px minmax(0,1fr)!important;
+  gap:11px!important;
+  align-items:center!important;
+}
+.career-new.brand .brand-flow-home-operations .brand-flow-model-art{
+  width:112px!important;
+  height:112px!important;
+  min-width:112px!important;
+  min-height:112px!important;
+  max-width:112px!important;
+  max-height:112px!important;
+  aspect-ratio:1/1!important;
+  overflow:hidden!important;
+  display:block!important;
+  position:relative!important;
+  border-radius:12px!important;
+  background:#f5f6f3!important;
+  transform:none!important;
+}
+.career-new.brand .brand-flow-home-operations .brand-flow-model-art .brand-blueprint-sheet-v4{
+  display:block!important;
+  width:100%!important;
+  height:100%!important;
+  margin:0!important;
+  overflow:hidden!important;
+  background:#f5f6f3!important;
+}
+.career-new.brand .brand-flow-home-operations .brand-flow-model-art svg{
+  display:block!important;
+  width:100%!important;
+  height:100%!important;
+  max-width:none!important;
+  max-height:none!important;
+  transform:none!important;
+  object-fit:contain!important;
+  preserveAspectRatio:xMidYMid meet;
+}
+@media(max-width:390px){
+  .career-new.brand .brand-flow-home-operations .brand-flow-model-summary{
+    grid-template-columns:96px minmax(0,1fr)!important;
+    gap:9px!important;
+  }
+  .career-new.brand .brand-flow-home-operations .brand-flow-model-art{
+    width:96px!important;height:96px!important;min-width:96px!important;
+    min-height:96px!important;max-width:96px!important;max-height:96px!important;
+  }
 }
 </style>
