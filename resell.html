@@ -13309,6 +13309,7 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
 .case-v6-result span{display:block;text-align:center;margin-top:5px;color:#7e899b;font:800 8px/1.3 "Nunito",sans-serif}
 .case-v6-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
 .case-v6-btn{width:100%;padding:11px 12px;border-radius:12px;background:#17233d;color:#fff;font:950 8px/1 "Montserrat",sans-serif;letter-spacing:.7px}
+.case-v6-btn:disabled{opacity:.58;cursor:wait}.case-v6-btn.spinning{background:linear-gradient(110deg,#17233d,#35517f,#17233d);background-size:220% 100%;animation:caseV6Spin 1s linear infinite}@keyframes caseV6Spin{to{background-position:-220% 0}}
 .case-v6-btn.secondary{background:#fff;color:#17233d;border:1px solid #dfe5ee}
 .case-v6-error{margin-top:10px;padding:10px 12px;border-radius:12px;background:#fff0f0;color:#a23c3c;border:1px solid #ffd8d8;font:800 9px/1.35 "Nunito",sans-serif}
 @media(max-width:380px){.cases-v6{padding:12px}.case-v6-media{height:112px}.cases-v6-title{font-size:22px}}
@@ -13375,8 +13376,27 @@ main.app{min-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset
     if(open){
       if(open.disabled)return;
       open.disabled=true;
-      try{ await req('/wheel/case/open',{method:'POST',body:JSON.stringify({userId:Number(uid()),round_id:open.dataset.caseOpen})}); await load(); }
-      catch(err){ open.disabled=false; showToast(err.message||'Не удалось открыть кейс'); }
+      open.classList.add('spinning');
+      const roundId=open.dataset.caseOpen;
+      const payload={userId:Number(uid()),round_id:roundId};
+      try{
+        // Keep the legacy RESSELL modal compatible with the sealed server spin.
+        // The result is requested only after the visible countdown is complete.
+        const started=await req('/wheel/case/spin-start',{method:'POST',body:JSON.stringify(payload)});
+        const startedAt=Number(started?.started_at||Math.floor(Date.now()/1000));
+        const minSpinMs=8000;
+        const remaining=Math.max(0,minSpinMs-(Date.now()-startedAt*1000));
+        const until=Date.now()+remaining;
+        while(Date.now()<until){
+          const seconds=Math.max(1,Math.ceil((until-Date.now())/1000));
+          open.textContent=`ПРОКРУТКА · ${seconds}`;
+          await new Promise(resolve=>setTimeout(resolve,180));
+        }
+        open.textContent='ПРИЗ ОТКРЫВАЕТСЯ…';
+        await req('/wheel/case/open',{method:'POST',body:JSON.stringify(payload)});
+        await load();
+      }
+      catch(err){ open.disabled=false;open.classList.remove('spinning');open.textContent='ОТКРЫТЬ';showToast(err.message||'Не удалось открыть кейс'); }
       return;
     }
     if(claim){
