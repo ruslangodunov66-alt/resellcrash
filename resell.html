@@ -9189,6 +9189,7 @@ async function initFarm(){
   let extraQuestLoading=null;
   let extraQuestPoll=null;
   let extraQuestClaimBusy=false;
+  const extraQuestUploadBusy={like:false,repost:false};
 
   function extraQuestMoney(value){return `${Math.max(0,Math.floor(Number(value)||0)).toLocaleString('ru-RU')} ₽`;}
   function extraQuestStatusLabel(status){
@@ -9226,7 +9227,7 @@ async function initFarm(){
       .xq-status{margin-left:auto;flex:none;max-width:116px;padding:6px 7px;border-radius:8px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.035);color:#8d968c;font:900 6px/1.25 Montserrat,Arial,sans-serif;letter-spacing:.35px;text-align:center}
       .xq-status.ok{color:#b7ff6a;border-color:rgba(183,255,106,.2);background:rgba(183,255,106,.08)}.xq-status.wait{color:#e9c777;border-color:rgba(233,199,119,.18)}.xq-status.bad{color:#ff8585;border-color:rgba(255,133,133,.18)}
       .xq-actions{display:flex;gap:8px;margin-top:12px}.xq-btn{min-height:41px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 13px;border:1px solid rgba(255,255,255,.10);border-radius:12px;background:rgba(255,255,255,.055);color:#e5eae2;font:900 8px/1 Montserrat,Arial,sans-serif;letter-spacing:.6px;text-transform:uppercase;transition:.15s}.xq-btn:active{transform:scale(.98)}.xq-btn.primary{background:#b7ff6a;border-color:#b7ff6a;color:#081006}.xq-btn:disabled{opacity:.42;pointer-events:none}.xq-btn.full{width:100%}
-      .xq-proof-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.xq-proof-card{min-width:0;padding:10px;border:1px solid rgba(255,255,255,.075);border-radius:13px;background:rgba(0,0,0,.18)}.xq-proof-card b{display:block;color:#dce2d9;font:900 8px/1.2 Montserrat,Arial,sans-serif}.xq-proof-card small{display:block;min-height:23px;margin-top:5px;color:#7e887d;font:750 8px/1.35 Nunito,Arial,sans-serif}.xq-proof-card .xq-btn{width:100%;min-height:34px;margin-top:8px;padding:0 6px;font-size:7px}
+      .xq-proof-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.xq-proof-card{min-width:0;padding:10px;border:1px solid rgba(255,255,255,.075);border-radius:13px;background:rgba(0,0,0,.18)}.xq-proof-card b{display:block;color:#dce2d9;font:900 8px/1.2 Montserrat,Arial,sans-serif}.xq-proof-card small{display:block;min-height:23px;margin-top:5px;color:#7e887d;font:750 8px/1.35 Nunito,Arial,sans-serif}.xq-proof-card .xq-btn{width:100%;min-height:34px;margin-top:8px;padding:0 6px;font-size:7px}.xq-preview{display:block;width:100%;max-height:112px;object-fit:cover;margin-top:8px;border-radius:9px;border:1px solid rgba(183,255,106,.2)}.xq-upload-line{display:flex;align-items:center;gap:6px;margin-top:7px;color:#b7ff6a;font:800 8px/1.3 Nunito,Arial,sans-serif}.xq-upload-line.error{color:#ff9999}.xq-upload-line:before{content:'';width:6px;height:6px;flex:none;border-radius:50%;background:currentColor}
       .xq-note{margin-top:10px;padding:9px 10px;border-radius:11px;background:rgba(255,255,255,.035);color:#858f84;font:750 9px/1.45 Nunito,Arial,sans-serif}.xq-note.error{color:#ff9b9b;background:rgba(255,80,80,.07)}
       .xq-claim{width:100%;min-height:51px;margin-top:14px;border:1px solid #fff;border-radius:14px;background:#fff;color:#080a08;font:950 10px/1 Montserrat,Arial,sans-serif;letter-spacing:1px;text-transform:uppercase;box-shadow:0 12px 28px rgba(255,255,255,.07)}.xq-claim:disabled{opacity:.34;box-shadow:none}.xq-claim.done{background:rgba(183,255,106,.1);border-color:rgba(183,255,106,.22);color:#b7ff6a;opacity:1}
       .xq-foot{margin-top:10px;color:#626d62;font:750 8px/1.45 Nunito,Arial,sans-serif;text-align:center}
@@ -9250,9 +9251,10 @@ async function initFarm(){
   function extraQuestProofCard(action,label,proof){
     const status=String(proof?.status||'not_submitted');
     const cls=status==='approved'?'ok':status==='pending'?'wait':(status==='rejected'||status==='delivery_failed')?'bad':'';
-    const button=status==='approved'?'ПРИНЯТО':status==='pending'?'ОТПРАВЛЕНО':'ЗАГРУЗИТЬ СКРИН';
-    const disabled=status==='approved'||status==='pending';
-    return `<div class="xq-proof-card"><b>${label}</b><small>${extraQuestStatusLabel(status)}</small><button class="xq-btn ${disabled?'':'primary'}" data-xq-upload="${action}" ${disabled?'disabled':''}>${button}</button><input type="file" accept="image/jpeg,image/png,image/webp" data-xq-file="${action}" hidden></div>`;
+    const busy=!!extraQuestUploadBusy[action];
+    const button=status==='approved'?'✓ ПРИНЯТО':status==='pending'?'ОТПРАВЛЕНО':busy?'ЗАГРУЗКА…':(status==='rejected'||status==='delivery_failed')?'ЗАГРУЗИТЬ ЕЩЁ РАЗ':'ВЫБРАТЬ СКРИНШОТ';
+    const disabled=status==='approved'||status==='pending'||busy;
+    return `<div class="xq-proof-card" data-xq-card="${action}"><b>${label}</b><small>${extraQuestStatusLabel(status)}</small><button type="button" class="xq-btn ${disabled?'':'primary'}" data-xq-upload="${action}" ${disabled?'disabled':''}>${button}</button><input type="file" accept="image/*" data-xq-file="${action}" hidden><div class="xq-upload-line" data-xq-inline-status>${status==='pending'?'Скриншот отправлен. Ждём проверки.':status==='approved'?'Администрация подтвердила действие.':''}</div></div>`;
   }
 
   function renderExtraQuest(){
@@ -9266,13 +9268,13 @@ async function initFarm(){
     const canClaim=member&&proofsOk&&!claimed;
     extraQuestDock.classList.toggle('show',!claimed);
     const channelStatus=member?'<span class="xq-status ok">ПОДПИСКА ЕСТЬ</span>':`<span class="xq-status ${d.telegram?.error?'bad':''}">${d.telegram?.error?'ПРОВЕРКА НЕДОСТУПНА':'НЕ ПРОВЕРЕНО'}</span>`;
-    const claimLabel=claimed?`НАГРАДА ПОЛУЧЕНА · +${extraQuestMoney(d.reward)}`:'ЗАБРАТЬ НАГРАДУ';
+    const claimLabel=claimed?`НАГРАДА ПОЛУЧЕНА · +${extraQuestMoney(d.reward)}`:'ЗАБРАТЬ';
     const content=extraQuestOverlay.querySelector('#resellExtraQuestContent');
     content.innerHTML=`
       <div class="xq-kicker">RESSELL · LIMITED DROP</div>
       <h2 class="xq-title">FUN <em>EXTRA</em><br>QUEST</h2>
       <p class="xq-lead">Выполни задания сообщества и получи дополнительный бонус на игровой баланс.</p>
-      <div class="xq-reward"><div><small>ТВОЯ НАГРАДА · 10% ОТ СУТОЧНОГО ДОХОДА</small><strong>${extraQuestMoney(d.reward_preview||0)}</strong></div><div class="xq-reward-value">+10%</div></div>
+      <div class="xq-reward"><div><small>ТВОЯ НАГРАДА · 15% ОТ СУТОЧНОГО ДОХОДА</small><strong>${extraQuestMoney(d.reward_preview||0)}</strong></div><div class="xq-reward-value">+15%</div></div>
       <div class="xq-task"><div class="xq-task-head"><div class="xq-icon">${extraQuestIconTelegram()}</div><div class="xq-task-copy"><b>ПОДПИШИСЬ НА TELEGRAM</b><small>Канал новостей и обновлений RESSELL · @resellnewsss</small></div>${channelStatus}</div><div class="xq-actions"><button class="xq-btn" id="xqOpenTelegram">ОТКРЫТЬ КАНАЛ ↗</button><button class="xq-btn primary" id="xqCheckTelegram" ${d.telegram?.error?'':''}>ПРОВЕРИТЬ</button></div>${d.telegram?.error?`<div class="xq-note error">${esc(d.telegram.error)}</div>`:(!member?'<div class="xq-note">После подписки нажми «Проверить». Статус сверяется напрямую через Telegram.</div>':'')}</div>
       <div class="xq-task"><div class="xq-task-head"><div class="xq-icon">${extraQuestIconInstagram()}</div><div class="xq-task-copy"><b>INSTAGRAM · LIKE + REPOST</b><small>Поставь лайк и сделай репост указанного видео</small></div><span class="xq-status ${proofsOk?'ok':''}">${proofsOk?'ОБА ПРИНЯТЫ':'2 ДЕЙСТВИЯ'}</span></div><div class="xq-actions"><button class="xq-btn" id="xqOpenInstagram">ОТКРЫТЬ REEL ↗</button></div><div class="xq-proof-grid">${extraQuestProofCard('like','1 · ЛАЙК',like)}${extraQuestProofCard('repost','2 · РЕПОСТ',repost)}</div><div class="xq-note">Загрузи два скриншота: отдельно подтверждение лайка и отдельно репоста. Они поступят администрации RESSELL. Награда откроется после ручного подтверждения обоих действий.</div></div>
       <button class="xq-claim ${claimed?'done':''}" id="xqClaimReward" ${(!canClaim||extraQuestClaimBusy)?'disabled':''}>${claimed?'✓ '+claimLabel:(extraQuestClaimBusy?'НАЧИСЛЯЕМ…':claimLabel)}</button>
@@ -9331,23 +9333,44 @@ async function initFarm(){
     })();
     try{return await extraQuestLoading;}finally{extraQuestLoading=null;}
   }
-  function extraQuestFileDataUrl(file){
-    return new Promise((resolve,reject)=>{
-      if(!file||!/^image\/(jpeg|png|webp)$/i.test(file.type||'')){reject(new Error('Выбери скриншот JPG, PNG или WEBP'));return;}
-      if(file.size>2*1024*1024){reject(new Error('Скриншот должен быть меньше 2 МБ'));return;}
-      const reader=new FileReader();reader.onload=()=>resolve(String(reader.result||''));reader.onerror=()=>reject(new Error('Не удалось прочитать файл'));reader.readAsDataURL(file);
-    });
+  async function extraQuestFileDataUrl(file){
+    if(!file||!String(file.type||'').startsWith('image/'))throw new Error('Выбери изображение или скриншот');
+    if(file.size>15*1024*1024)throw new Error('Файл слишком большой. Максимум 15 МБ');
+    const source=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result||''));reader.onerror=()=>reject(new Error('Не удалось прочитать выбранный файл'));reader.readAsDataURL(file);});
+    const img=await new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=()=>reject(new Error('Не удалось открыть изображение. Попробуй JPG или PNG'));image.src=source;});
+    const scale=Math.min(1,1600/Math.max(img.width,img.height));
+    const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(img.width*scale));canvas.height=Math.max(1,Math.round(img.height*scale));
+    const ctx=canvas.getContext('2d');if(!ctx)throw new Error('Браузер не поддерживает обработку изображения');ctx.drawImage(img,0,0,canvas.width,canvas.height);
+    let quality=.86;let result=canvas.toDataURL('image/jpeg',quality);
+    while(result.length>1.85*1024*1024&&quality>.55){quality-=.08;result=canvas.toDataURL('image/jpeg',quality);}
+    if(result.length>1.95*1024*1024)throw new Error('Не удалось сжать изображение. Выбери скриншот поменьше');
+    return result;
   }
   async function uploadExtraQuestProof(action,file){
-    const show=(msg,isError=false)=>{const live=extraQuestOverlay?.querySelector('#xqLiveNote');if(live){live.style.display='block';live.classList.toggle('error',!!isError);live.textContent=msg;}};
+    const card=extraQuestOverlay?.querySelector(`[data-xq-card="${action}"]`);
+    const status=card?.querySelector('[data-xq-inline-status]');
+    const button=card?.querySelector(`[data-xq-upload="${action}"]`);
+    const setStatus=(message,isError=false)=>{if(status){status.textContent=message;status.classList.toggle('error',!!isError);}};
+    if(extraQuestUploadBusy[action])return;
+    extraQuestUploadBusy[action]=true;if(button){button.disabled=true;button.textContent='ПОДГОТАВЛИВАЕМ…';}
+    setStatus('1/3 · Подготавливаем скриншот…');
     try{
-      show('Загружаем скриншот и передаём его администрации…');
       const image_data_url=await extraQuestFileDataUrl(file);
+      if(card){let preview=card.querySelector('.xq-preview');if(!preview){preview=document.createElement('img');preview.className='xq-preview';preview.alt='Предпросмотр выбранного скриншота';card.insertBefore(preview,status||null);}preview.src=image_data_url;}
+      setStatus('2/3 · Отправляем на сервер…');if(button)button.textContent='ОТПРАВЛЯЕМ…';
       const r=await apiFetch(`${API_BASE}/extra-quest/${encodeURIComponent(userId)}/proof`,{method:'POST',headers:telegramAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify({action,image_data_url})},1);
-      const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)throw new Error(d.error||'Не удалось отправить скриншот');
+      const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)throw new Error(d.error||`Ошибка отправки (${r.status||'сеть'})`);
+      setStatus('3/3 · Отправлено администрации. Ожидает проверки.');
+      if(card){const preview=document.createElement('img');preview.className='xq-preview';preview.alt='Загруженный скриншот';preview.src=image_data_url;card.insertBefore(preview,status||null);}
       await loadExtraQuestState();
-      show('Скриншот доставлен администрации. Статус появится здесь после проверки.');
-    }catch(e){show(e.message||'Ошибка загрузки',true);}
+      const refreshed=extraQuestOverlay?.querySelector(`[data-xq-card="${action}"]`);
+      const refreshedStatus=refreshed?.querySelector('[data-xq-inline-status]');if(refreshedStatus)refreshedStatus.textContent='✓ Скриншот доставлен. Ожидает проверки администрацией.';
+      const live=extraQuestOverlay?.querySelector('#xqLiveNote');if(live){live.style.display='block';live.classList.remove('error');live.textContent=`Подтверждение «${action==='like'?'Лайк':'Репост'}» успешно отправлено. Статус обновится после проверки.`;}
+    }catch(e){
+      setStatus(`Не отправлено: ${e.message||'ошибка загрузки'}`,true);
+      if(button){button.disabled=false;button.textContent='ПОПРОБОВАТЬ ЕЩЁ';}
+      const live=extraQuestOverlay?.querySelector('#xqLiveNote');if(live){live.style.display='block';live.classList.add('error');live.textContent=e.message||'Не удалось загрузить скриншот';}
+    }finally{extraQuestUploadBusy[action]=false;}
   }
   async function claimExtraQuestReward(){
     if(extraQuestClaimBusy||!extraQuestState)return;
