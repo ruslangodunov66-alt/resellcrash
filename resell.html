@@ -4550,7 +4550,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
         if(needsTelegramAuth && userId){
           // Synchronize every protected player-id path with the same signed
           // Telegram user. Business is included here explicitly.
-          requestUrl=requestUrl.replace(/(\/(?:profile|engagement|quests|passive|tycoon|business|auction|upgrades|epoch|referrals|referral|friends|hold|cars|garage|avito|referr|bank|taxi|rcoin|container|race|poker|resell\/oil|game_result)\/)\d+/i, '$1'+userId);
+          requestUrl=requestUrl.replace(/(\/(?:profile|engagement|quests|passive|tycoon|business|auction|upgrades|epoch|referrals|referral|friends|hold|cars|garage|avito|referr|bank|taxi|rcoin|container|extra-quest|race|poker|resell\/oil|game_result)\/)\d+/i, '$1'+userId);
         }
         // RESSELL server session is the primary auth transport. It is generated
         // by the bot/backend, bound to the Telegram user id and survives all
@@ -4713,7 +4713,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
         const resp=await apiFetch(`${API_BASE}/profile/${encodeURIComponent(userId)}?t=${Date.now()}`,{method:'GET'},1);
         const data=await resp.json(); profileData=data; window.__resellProfileData=data; __lastServerStateTs=Number(data.server_state_ts||0); try{updateStarterGoalsCard();}catch(_){} try{window.renderRewardAd?.();}catch(_){} try{window.__resellUpdateNavIndicators?.();}catch(_){} try{window.updateQuestNotice?.();}catch(_){}
         if(data.registration_complete===false||data.registration_complete===0||data.registration_required===true){setBalance(primaryBalance(data));setProgress(0);statusText.textContent=data.registration_test?'Тест регистрации':'Требуется регистрация';if(!registrationRequired && !launchSequenceActive)openRegistration(Boolean(data.registration_test));return data;}
-        setBalance(primaryBalance(data)); epochData=data.epoch||null; setProgress(Number(data.epoch_progress??epochData?.progress??0)); rcoinData=data.rcoin||null; renderRcoin(); statusText.textContent='Баланс синхронизирован'; $('.status-dot').style.background='var(--success)'; try{if(data.engagement){engagementData=data.engagement;renderEngagement();}await loadEngagement();await loadRcoinStatus();}catch(_){ } return data;
+        setBalance(primaryBalance(data)); epochData=data.epoch||null; setProgress(Number(data.epoch_progress??epochData?.progress??0)); rcoinData=data.rcoin||null; renderRcoin(); statusText.textContent='Баланс синхронизирован'; $('.status-dot').style.background='var(--success)'; try{if(data.engagement){engagementData=data.engagement;renderEngagement();}await loadEngagement();await loadRcoinStatus();}catch(_){ } if(!launchSequenceActive && !registrationRequired){setTimeout(()=>initResellExtraQuest({auto:true}).catch(()=>{}),180);} return data;
       }catch(e){lastError=e;if(attempt<2)await new Promise(r=>setTimeout(r,250));}
     }
     console.warn('Profile load failed:',lastError);
@@ -9070,6 +9070,7 @@ async function initFarm(){
     const firstRun=Boolean(bootData && (bootData.registration_complete===false || bootData.registration_required===true));
     if(firstRun) registrationRequired=false;
     await finishLaunch({firstRun});
+    if(!firstRun && userId && profileData && profileData.registration_complete!==false && profileData.registration_required!==true){try{await initResellExtraQuest({auto:true});}catch(e){console.warn('FUN EXTRA init failed:',e);}}
   })();
   setInterval(() => { if (document.visibilityState === 'visible') loadProfile(); }, 60000);
   // Asset confiscation is server-authoritative. A lightweight refresh keeps an online
@@ -9170,6 +9171,7 @@ async function initFarm(){
         isOwner=String(userId)===ADMIN_OWNER_ID;
         if(before && before!==signed){
           profileData=null; epochData=null; businessState=null; try{window.__resellResetMarketState?.();}catch(_){}
+          try{closeExtraQuest();extraQuestState=null;extraQuestLoading=null;}catch(_){}
           try{ sessionStorage.setItem('resell_account_switched','1'); }catch(_){}
         }
       }
@@ -9177,6 +9179,195 @@ async function initFarm(){
   };
   document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') refreshSessionIdentity().then(()=>loadProfile().catch(()=>{})); });
   window.addEventListener('focus',()=>refreshSessionIdentity().catch(()=>{}));
+
+  // ==================== RESSELL FUN EXTRA QUEST UI ====================
+  const RESSELL_EXTRA_QUEST_CHANNEL_URL='https://t.me/resellnewsss';
+  const RESSELL_EXTRA_QUEST_INSTAGRAM_URL='https://www.instagram.com/reel/Dfu0w5wRXAy/';
+  let extraQuestState=null;
+  let extraQuestOverlay=null;
+  let extraQuestDock=null;
+  let extraQuestLoading=null;
+  let extraQuestPoll=null;
+  let extraQuestClaimBusy=false;
+
+  function extraQuestMoney(value){return `${Math.max(0,Math.floor(Number(value)||0)).toLocaleString('ru-RU')} ₽`;}
+  function extraQuestStatusLabel(status){
+    if(status==='approved')return 'ПОДТВЕРЖДЕНО';
+    if(status==='pending')return 'НА ПРОВЕРКЕ';
+    if(status==='rejected')return 'НЕ ПРИНЯТО · МОЖНО ПОВТОРИТЬ';
+    if(status==='delivery_failed')return 'НЕ ДОСТАВЛЕНО · ПОВТОРИТЕ';
+    return 'СКРИНШОТ НЕ ОТПРАВЛЕН';
+  }
+  function extraQuestIconTelegram(){return `<svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="24" fill="#229ED9"/><path fill="#fff" d="M36.7 13.1 31.8 36c-.37 1.62-1.34 2.02-2.71 1.26l-7.47-5.5-3.6 3.47c-.4.4-.74.74-1.52.74l.54-7.6 13.83-12.5c.6-.54-.13-.84-.93-.3L13.1 26.14l-7.34-2.3c-1.6-.5-1.64-1.6.34-2.38l28.7-11.07c1.33-.49 2.5.32 1.9 2.71Z"/></svg>`;}
+  function extraQuestIconInstagram(){return `<svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="xqIgGrad" x1="4" y1="44" x2="44" y2="4" gradientUnits="userSpaceOnUse"><stop stop-color="#FFB13D"/><stop offset=".45" stop-color="#F13C75"/><stop offset="1" stop-color="#8C43D8"/></linearGradient></defs><rect x="3" y="3" width="42" height="42" rx="13" fill="url(#xqIgGrad)"/><rect x="11" y="11" width="26" height="26" rx="8" fill="none" stroke="#fff" stroke-width="2.7"/><circle cx="24" cy="24" r="6.5" fill="none" stroke="#fff" stroke-width="2.7"/><circle cx="32.1" cy="15.9" r="1.9" fill="#fff"/></svg>`;}
+
+  function ensureExtraQuestUI(){
+    if(extraQuestOverlay)return;
+    const css=document.createElement('style');
+    css.id='resellFunExtraQuestStyles';
+    css.textContent=`
+      #resellExtraQuestOverlay{position:fixed;inset:0;z-index:2147483645;display:none;align-items:center;justify-content:center;padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom));background:radial-gradient(ellipse at 50% 0%,rgba(183,255,106,.12),transparent 40%),rgba(2,4,3,.96);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);font-family:Montserrat,Arial,sans-serif;color:#f6f8f4}
+      #resellExtraQuestOverlay.xq-open{display:flex}
+      body.xq-lock-scroll{overflow:hidden!important;touch-action:none}
+      #resellExtraQuestPanel{position:relative;width:min(540px,100%);max-height:100%;overflow:auto;padding:22px 18px 18px;border:1px solid rgba(183,255,106,.22);border-radius:26px;background:radial-gradient(circle at 100% 0%,rgba(183,255,106,.12),transparent 32%),linear-gradient(155deg,#151a16,#080b09 66%);box-shadow:0 28px 100px rgba(0,0,0,.7),0 0 55px rgba(183,255,106,.08);overscroll-behavior:contain}
+      #resellExtraQuestClose{position:absolute;right:13px;top:13px;width:34px;height:34px;border:1px solid rgba(255,255,255,.09);border-radius:11px;background:rgba(255,255,255,.05);color:#aeb7ad;font-size:21px;line-height:1}
+      .xq-kicker{color:#899487;font:900 8px/1 Montserrat,Arial,sans-serif;letter-spacing:2px;text-transform:uppercase}
+      .xq-title{margin-top:9px;padding-right:35px;color:#f5f7f3;font:950 clamp(25px,7vw,34px)/.98 Montserrat,Arial,sans-serif;letter-spacing:-1.2px;text-transform:uppercase}
+      .xq-title em{color:#b7ff6a;font-style:normal}
+      .xq-lead{margin-top:9px;max-width:42ch;color:#929b91;font:750 11px/1.5 Nunito,Arial,sans-serif}
+      .xq-reward{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:17px 0 13px;padding:13px 14px;border-radius:17px;border:1px solid rgba(183,255,106,.22);background:linear-gradient(110deg,rgba(183,255,106,.12),rgba(255,255,255,.025))}
+      .xq-reward small{display:block;color:#819078;font:900 7px/1.2 Montserrat,Arial,sans-serif;letter-spacing:1.2px}
+      .xq-reward strong{display:block;margin-top:5px;color:#b7ff6a;font:950 23px/1 Montserrat,Arial,sans-serif;letter-spacing:-.7px}
+      .xq-reward-value{flex:none;color:#f3f7ed;font:950 16px/1 Montserrat,Arial,sans-serif;text-align:right;white-space:nowrap}
+      .xq-task{margin-top:10px;padding:13px;border-radius:18px;border:1px solid rgba(255,255,255,.085);background:linear-gradient(145deg,rgba(255,255,255,.055),rgba(255,255,255,.018))}
+      .xq-task-head{display:flex;align-items:center;gap:11px;min-width:0}
+      .xq-icon{width:43px;height:43px;flex:none;border-radius:13px;overflow:hidden;box-shadow:0 8px 20px rgba(0,0,0,.28)}.xq-icon svg{width:100%;height:100%;display:block}
+      .xq-task-copy{flex:1;min-width:0}.xq-task-copy b{display:block;color:#f1f4ef;font:900 11px/1.2 Montserrat,Arial,sans-serif;letter-spacing:.25px}.xq-task-copy small{display:block;margin-top:4px;color:#848d84;font:750 9px/1.35 Nunito,Arial,sans-serif;overflow-wrap:anywhere}
+      .xq-status{margin-left:auto;flex:none;max-width:116px;padding:6px 7px;border-radius:8px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.035);color:#8d968c;font:900 6px/1.25 Montserrat,Arial,sans-serif;letter-spacing:.35px;text-align:center}
+      .xq-status.ok{color:#b7ff6a;border-color:rgba(183,255,106,.2);background:rgba(183,255,106,.08)}.xq-status.wait{color:#e9c777;border-color:rgba(233,199,119,.18)}.xq-status.bad{color:#ff8585;border-color:rgba(255,133,133,.18)}
+      .xq-actions{display:flex;gap:8px;margin-top:12px}.xq-btn{min-height:41px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 13px;border:1px solid rgba(255,255,255,.10);border-radius:12px;background:rgba(255,255,255,.055);color:#e5eae2;font:900 8px/1 Montserrat,Arial,sans-serif;letter-spacing:.6px;text-transform:uppercase;transition:.15s}.xq-btn:active{transform:scale(.98)}.xq-btn.primary{background:#b7ff6a;border-color:#b7ff6a;color:#081006}.xq-btn:disabled{opacity:.42;pointer-events:none}.xq-btn.full{width:100%}
+      .xq-proof-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.xq-proof-card{min-width:0;padding:10px;border:1px solid rgba(255,255,255,.075);border-radius:13px;background:rgba(0,0,0,.18)}.xq-proof-card b{display:block;color:#dce2d9;font:900 8px/1.2 Montserrat,Arial,sans-serif}.xq-proof-card small{display:block;min-height:23px;margin-top:5px;color:#7e887d;font:750 8px/1.35 Nunito,Arial,sans-serif}.xq-proof-card .xq-btn{width:100%;min-height:34px;margin-top:8px;padding:0 6px;font-size:7px}
+      .xq-note{margin-top:10px;padding:9px 10px;border-radius:11px;background:rgba(255,255,255,.035);color:#858f84;font:750 9px/1.45 Nunito,Arial,sans-serif}.xq-note.error{color:#ff9b9b;background:rgba(255,80,80,.07)}
+      .xq-claim{width:100%;min-height:51px;margin-top:14px;border:1px solid #fff;border-radius:14px;background:#fff;color:#080a08;font:950 10px/1 Montserrat,Arial,sans-serif;letter-spacing:1px;text-transform:uppercase;box-shadow:0 12px 28px rgba(255,255,255,.07)}.xq-claim:disabled{opacity:.34;box-shadow:none}.xq-claim.done{background:rgba(183,255,106,.1);border-color:rgba(183,255,106,.22);color:#b7ff6a;opacity:1}
+      .xq-foot{margin-top:10px;color:#626d62;font:750 8px/1.45 Nunito,Arial,sans-serif;text-align:center}
+      #resellExtraQuestDock{position:fixed;right:14px;bottom:calc(86px + env(safe-area-inset-bottom));z-index:500;display:none;align-items:center;gap:7px;padding:10px 13px;border:1px solid rgba(183,255,106,.38);border-radius:999px;background:rgba(9,14,9,.94);color:#b7ff6a;font:950 8px/1 Montserrat,Arial,sans-serif;letter-spacing:.8px;box-shadow:0 9px 28px rgba(0,0,0,.5),0 0 22px rgba(183,255,106,.1)}#resellExtraQuestDock.show{display:flex}#resellExtraQuestDock i{width:7px;height:7px;border-radius:50%;background:#b7ff6a;box-shadow:0 0 10px #b7ff6a}
+      @media(max-width:390px){#resellExtraQuestPanel{padding:20px 13px 14px;border-radius:21px}.xq-status{max-width:91px;font-size:5.5px}.xq-proof-grid{gap:6px}.xq-task{padding:11px}.xq-task-copy b{font-size:10px}.xq-title{font-size:26px}}
+    `;
+    document.head.appendChild(css);
+    extraQuestOverlay=document.createElement('div');
+    extraQuestOverlay.id='resellExtraQuestOverlay';
+    extraQuestOverlay.innerHTML=`<section id="resellExtraQuestPanel" role="dialog" aria-modal="true" aria-label="FUN EXTRA QUEST"><button id="resellExtraQuestClose" aria-label="Закрыть">×</button><div id="resellExtraQuestContent"></div></section>`;
+    document.body.appendChild(extraQuestOverlay);
+    extraQuestOverlay.addEventListener('click',e=>{if(e.target===extraQuestOverlay)closeExtraQuest();});
+    extraQuestOverlay.querySelector('#resellExtraQuestClose').addEventListener('click',closeExtraQuest);
+    extraQuestDock=document.createElement('button');
+    extraQuestDock.id='resellExtraQuestDock';
+    extraQuestDock.innerHTML='<i></i> FUN EXTRA';
+    extraQuestDock.addEventListener('click',()=>openExtraQuest({refresh:true}));
+    document.body.appendChild(extraQuestDock);
+  }
+
+  function extraQuestProofCard(action,label,proof){
+    const status=String(proof?.status||'not_submitted');
+    const cls=status==='approved'?'ok':status==='pending'?'wait':(status==='rejected'||status==='delivery_failed')?'bad':'';
+    const button=status==='approved'?'ПРИНЯТО':status==='pending'?'ОТПРАВЛЕНО':'ЗАГРУЗИТЬ СКРИН';
+    const disabled=status==='approved'||status==='pending';
+    return `<div class="xq-proof-card"><b>${label}</b><small>${extraQuestStatusLabel(status)}</small><button class="xq-btn ${disabled?'':'primary'}" data-xq-upload="${action}" ${disabled?'disabled':''}>${button}</button><input type="file" accept="image/jpeg,image/png,image/webp" data-xq-file="${action}" hidden></div>`;
+  }
+
+  function renderExtraQuest(){
+    ensureExtraQuestUI();
+    const d=extraQuestState||{};
+    const member=!!d.telegram?.member;
+    const like=d.proofs?.like||{};
+    const repost=d.proofs?.repost||{};
+    const claimed=!!d.claimed;
+    const proofsOk=like.status==='approved'&&repost.status==='approved';
+    const canClaim=member&&proofsOk&&!claimed;
+    extraQuestDock.classList.toggle('show',!claimed);
+    const channelStatus=member?'<span class="xq-status ok">ПОДПИСКА ЕСТЬ</span>':`<span class="xq-status ${d.telegram?.error?'bad':''}">${d.telegram?.error?'ПРОВЕРКА НЕДОСТУПНА':'НЕ ПРОВЕРЕНО'}</span>`;
+    const claimLabel=claimed?`НАГРАДА ПОЛУЧЕНА · +${extraQuestMoney(d.reward)}`:'ЗАБРАТЬ НАГРАДУ';
+    const content=extraQuestOverlay.querySelector('#resellExtraQuestContent');
+    content.innerHTML=`
+      <div class="xq-kicker">RESSELL · LIMITED DROP</div>
+      <h2 class="xq-title">FUN <em>EXTRA</em><br>QUEST</h2>
+      <p class="xq-lead">Выполни задания сообщества и получи дополнительный бонус на игровой баланс.</p>
+      <div class="xq-reward"><div><small>ТВОЯ НАГРАДА · 10% ОТ СУТОЧНОГО ДОХОДА</small><strong>${extraQuestMoney(d.reward_preview||0)}</strong></div><div class="xq-reward-value">+10%</div></div>
+      <div class="xq-task"><div class="xq-task-head"><div class="xq-icon">${extraQuestIconTelegram()}</div><div class="xq-task-copy"><b>ПОДПИШИСЬ НА TELEGRAM</b><small>Канал новостей и обновлений RESSELL · @resellnewsss</small></div>${channelStatus}</div><div class="xq-actions"><button class="xq-btn" id="xqOpenTelegram">ОТКРЫТЬ КАНАЛ ↗</button><button class="xq-btn primary" id="xqCheckTelegram" ${d.telegram?.error?'':''}>ПРОВЕРИТЬ</button></div>${d.telegram?.error?`<div class="xq-note error">${esc(d.telegram.error)}</div>`:(!member?'<div class="xq-note">После подписки нажми «Проверить». Статус сверяется напрямую через Telegram.</div>':'')}</div>
+      <div class="xq-task"><div class="xq-task-head"><div class="xq-icon">${extraQuestIconInstagram()}</div><div class="xq-task-copy"><b>INSTAGRAM · LIKE + REPOST</b><small>Поставь лайк и сделай репост указанного видео</small></div><span class="xq-status ${proofsOk?'ok':''}">${proofsOk?'ОБА ПРИНЯТЫ':'2 ДЕЙСТВИЯ'}</span></div><div class="xq-actions"><button class="xq-btn" id="xqOpenInstagram">ОТКРЫТЬ REEL ↗</button></div><div class="xq-proof-grid">${extraQuestProofCard('like','1 · ЛАЙК',like)}${extraQuestProofCard('repost','2 · РЕПОСТ',repost)}</div><div class="xq-note">Загрузи два скриншота: отдельно подтверждение лайка и отдельно репоста. Они поступят администрации RESSELL. Награда откроется после ручного подтверждения обоих действий.</div></div>
+      <button class="xq-claim ${claimed?'done':''}" id="xqClaimReward" ${(!canClaim||extraQuestClaimBusy)?'disabled':''}>${claimed?'✓ '+claimLabel:(extraQuestClaimBusy?'НАЧИСЛЯЕМ…':claimLabel)}</button>
+      <div class="xq-foot">Награда начисляется один раз. Подписка проверяется повторно в момент получения бонуса.</div>
+      <div id="xqLiveNote" class="xq-note" style="display:none"></div>`;
+    content.querySelector('#xqOpenTelegram')?.addEventListener('click',()=>openExternalExtraQuest(RESSELL_EXTRA_QUEST_CHANNEL_URL,true));
+    content.querySelector('#xqOpenInstagram')?.addEventListener('click',()=>openExternalExtraQuest(RESSELL_EXTRA_QUEST_INSTAGRAM_URL,false));
+    content.querySelector('#xqCheckTelegram')?.addEventListener('click',async()=>{const b=content.querySelector('#xqCheckTelegram');b.disabled=true;b.textContent='ПРОВЕРЯЕМ…';await loadExtraQuestState({showErrors:true});});
+    content.querySelectorAll('[data-xq-upload]').forEach(btn=>btn.addEventListener('click',()=>content.querySelector(`[data-xq-file="${btn.dataset.xqUpload}"]`)?.click()));
+    content.querySelectorAll('[data-xq-file]').forEach(input=>input.addEventListener('change',async()=>{const file=input.files?.[0];if(file)await uploadExtraQuestProof(input.dataset.xqFile,file);input.value='';}));
+    content.querySelector('#xqClaimReward')?.addEventListener('click',claimExtraQuestReward);
+  }
+
+  function openExternalExtraQuest(url,isTelegram){
+    try{
+      if(isTelegram&&window.Telegram?.WebApp?.openTelegramLink){window.Telegram.WebApp.openTelegramLink(url);return;}
+      if(window.Telegram?.WebApp?.openLink){window.Telegram.WebApp.openLink(url);return;}
+    }catch(_){ }
+    try{window.open(url,'_blank','noopener,noreferrer');}catch(_){location.href=url;}
+  }
+  function closeExtraQuest(){extraQuestOverlay?.classList.remove('xq-open');document.body.classList.remove('xq-lock-scroll');if(extraQuestPoll){clearInterval(extraQuestPoll);extraQuestPoll=null;}}
+  async function markExtraQuestSeen(){
+    try{await apiFetch(`${API_BASE}/extra-quest/${encodeURIComponent(userId)}/seen`,{method:'POST',headers:telegramAuthHeaders({'Content-Type':'application/json'}),body:'{}'},1);if(extraQuestState){extraQuestState.seen_at=extraQuestState.seen_at||Date.now();extraQuestState.should_show_fullscreen=false;}}catch(_){ }
+  }
+  async function loadExtraQuestState({showErrors=false}={}){
+    if(!userId)return null;
+    const requestedUid=String(userId);
+    try{
+      const r=await apiFetch(`${API_BASE}/extra-quest/${encodeURIComponent(requestedUid)}/state?t=${Date.now()}`,{method:'GET',cache:'no-store'},1);
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok||!d.success)throw new Error(d.error||'Не удалось загрузить задания');
+      if(String(userId)!==requestedUid)return null;
+      extraQuestState=d;renderExtraQuest();return d;
+    }catch(e){
+      console.warn('FUN EXTRA state unavailable:',e);
+      if(showErrors){const live=extraQuestOverlay?.querySelector('#xqLiveNote');if(live){live.style.display='block';live.classList.add('error');live.textContent=e.message||'Сервер временно недоступен';}}
+      return null;
+    }
+  }
+  async function openExtraQuest({refresh=false}={}){
+    ensureExtraQuestUI();
+    if(refresh||!extraQuestState)await loadExtraQuestState({showErrors:true});
+    if(!extraQuestState){const c=extraQuestOverlay.querySelector('#resellExtraQuestContent');if(c)c.innerHTML='<div class="xq-kicker">RESSELL · FUN EXTRA</div><h2 class="xq-title">КВЕСТ <em>ВРЕМЕННО НЕДОСТУПЕН</em></h2><p class="xq-lead">Не удалось связаться с сервером. Проверь интернет и повтори загрузку.</p><button class="xq-btn primary full" id="xqRetryLoad">ПОВТОРИТЬ</button>';extraQuestOverlay.classList.add('xq-open');document.body.classList.add('xq-lock-scroll');c?.querySelector('#xqRetryLoad')?.addEventListener('click',()=>openExtraQuest({refresh:true}));return;}
+    renderExtraQuest();extraQuestOverlay.classList.add('xq-open');document.body.classList.add('xq-lock-scroll');
+    if(!extraQuestState.seen_at)await markExtraQuestSeen();
+    if(!extraQuestPoll)extraQuestPoll=setInterval(()=>{if(extraQuestOverlay?.classList.contains('xq-open'))loadExtraQuestState().catch(()=>{});},25000);
+  }
+  async function initResellExtraQuest({auto=false}={}){
+    if(!userId||!profileData||profileData.success===false||profileData.registration_complete===false||profileData.registration_required===true)return null;
+    if(extraQuestState){if(auto&&extraQuestState.should_show_fullscreen&&!extraQuestState.claimed)await openExtraQuest();return extraQuestState;}
+    if(extraQuestLoading)return extraQuestLoading;
+    extraQuestLoading=(async()=>{
+      const d=await loadExtraQuestState();
+      if(d&&auto&&d.should_show_fullscreen&&!d.claimed)await openExtraQuest();
+      return d;
+    })();
+    try{return await extraQuestLoading;}finally{extraQuestLoading=null;}
+  }
+  function extraQuestFileDataUrl(file){
+    return new Promise((resolve,reject)=>{
+      if(!file||!/^image\/(jpeg|png|webp)$/i.test(file.type||'')){reject(new Error('Выбери скриншот JPG, PNG или WEBP'));return;}
+      if(file.size>2*1024*1024){reject(new Error('Скриншот должен быть меньше 2 МБ'));return;}
+      const reader=new FileReader();reader.onload=()=>resolve(String(reader.result||''));reader.onerror=()=>reject(new Error('Не удалось прочитать файл'));reader.readAsDataURL(file);
+    });
+  }
+  async function uploadExtraQuestProof(action,file){
+    const show=(msg,isError=false)=>{const live=extraQuestOverlay?.querySelector('#xqLiveNote');if(live){live.style.display='block';live.classList.toggle('error',!!isError);live.textContent=msg;}};
+    try{
+      show('Загружаем скриншот и передаём его администрации…');
+      const image_data_url=await extraQuestFileDataUrl(file);
+      const r=await apiFetch(`${API_BASE}/extra-quest/${encodeURIComponent(userId)}/proof`,{method:'POST',headers:telegramAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify({action,image_data_url})},1);
+      const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)throw new Error(d.error||'Не удалось отправить скриншот');
+      await loadExtraQuestState();
+      show('Скриншот доставлен администрации. Статус появится здесь после проверки.');
+    }catch(e){show(e.message||'Ошибка загрузки',true);}
+  }
+  async function claimExtraQuestReward(){
+    if(extraQuestClaimBusy||!extraQuestState)return;
+    extraQuestClaimBusy=true;renderExtraQuest();
+    try{
+      const r=await apiFetch(`${API_BASE}/extra-quest/${encodeURIComponent(userId)}/claim`,{method:'POST',headers:telegramAuthHeaders({'Content-Type':'application/json'}),body:'{}'},1);
+      const d=await r.json().catch(()=>({}));if(!r.ok||!d.success)throw new Error(d.error||'Награда пока недоступна');
+      extraQuestState={...extraQuestState,claimed:true,reward:Number(d.reward||0),claimed_at:Number(d.claimed_at||Date.now())};
+      if(profileData){profileData.balance=Number(d.balance||profileData.balance||0);profileData.total_earned=Number(profileData.total_earned||0)+Number(d.reward||0);}
+      try{window.__resellCoreV26?.setBalance(Number(d.balance||0));}catch(_){ }
+      haptic('light');renderExtraQuest();
+      const live=extraQuestOverlay?.querySelector('#xqLiveNote');if(live){live.style.display='block';live.classList.remove('error');live.textContent=`Бонус ${extraQuestMoney(d.reward)} зачислен на баланс RESSELL.`;}
+      showToast(`FUN EXTRA: +${extraQuestMoney(d.reward)}`);
+    }catch(e){
+      const live=extraQuestOverlay?.querySelector('#xqLiveNote');if(live){live.style.display='block';live.classList.add('error');live.textContent=e.message||'Не удалось получить награду';}
+      await loadExtraQuestState();
+    }finally{extraQuestClaimBusy=false;renderExtraQuest();}
+  }
+  window.__resellOpenFunExtraQuest=()=>openExtraQuest({refresh:true});
+  // ==================== END RESSELL FUN EXTRA QUEST UI ====================
 
 })();
 </script>
