@@ -4520,9 +4520,14 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
 
   async function apiFetch(url, options={}, attempts=2){
     let lastError=null;
+    // Transactional actions such as supplier purchases may need longer than
+    // the ordinary 7-second UI request window. Only callers that explicitly
+    // opt in receive a longer timeout; all other API calls keep their old limit.
+    const requestedTimeout=Number(options?.timeoutMs||7000);
+    const timeoutMs=Math.max(7000,Math.min(45000,Number.isFinite(requestedTimeout)?requestedTimeout:7000));
     for(let i=0;i<attempts;i++){
       const controller=new AbortController();
-      const timer=setTimeout(()=>controller.abort(),7000);
+      const timer=setTimeout(()=>controller.abort(),timeoutMs);
       try{
         try{ tg?.ready?.(); }catch(_){}
         const isApiRequest=String(url||'').startsWith(API_BASE);
@@ -4645,7 +4650,10 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
         if(!initData && !serverSession && needsTelegramAuth) {
           throw Object.assign(new Error('Открой RESSELL через Telegram — Telegram-сессия не передана'), {status:401});
         }
-        const resp=await fetch(requestUrl,{cache:'no-store',...options,signal:controller.signal,headers:secureHeaders});
+        const fetchOptions={...options};
+        // timeoutMs is an internal fetch setting, not a RequestInit property.
+        delete fetchOptions.timeoutMs;
+        const resp=await fetch(requestUrl,{cache:'no-store',...fetchOptions,signal:controller.signal,headers:secureHeaders});
         clearTimeout(timer);
         if(!resp.ok){
           let payload={}; try{payload=await resp.json();}catch(_){}
@@ -6758,8 +6766,8 @@ async function initFarm(){
   window.RESSELL_CUSTOM_CAR_IMAGES=RESSELL_CUSTOM_CAR_IMAGES;
   const BANK_IMG='AgACAgIAAxkBAAIb4GoYdcW3grQ8bIlyZ5foSK885TJ_AAIZHGsbVcfBSPPaBe8AATcM_gEAAwIAA3kAAzsE';
   const MINING_IMG='AgACAgIAAxkBAAIb02oYdOPrg50NLjYRHS8cINlbD3b2AAIXHGsbVcfBSMqZednvkdzBAQADAgADdwADOwQ';
-  async function tycoonFetch(path,opts={}){
-    const resp=await apiFetch(`${API_BASE}${path}`,opts,3);
+  async function tycoonFetch(path,opts={},attempts=3){
+    const resp=await apiFetch(`${API_BASE}${path}`,opts,attempts);
     const payload=await resp.json().catch(()=>({}));
     if(!resp.ok) throw new Error(payload?.error||payload?.message||`HTTP ${resp.status}`);
     if(payload?.success===false) throw new Error(payload?.error||payload?.message||'Операция не выполнена');
@@ -7609,7 +7617,41 @@ async function initFarm(){
       return;
     }
     const tab=e.target.closest('[data-avito-tab]'); if(tab){avitoTab=tab.dataset.avitoTab;try{await fetchAvito();modalBody.innerHTML=renderAvito();showAvitoUnlockPopup()}catch(err){showToast(err.message||'Ошибка')}return;}
-    const buy=e.target.closest('[data-avito-buy]'); if(buy){buy.disabled=true;try{const p=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/buy`,{method:'POST',body:JSON.stringify({item_id:buy.dataset.avitoBuy})});profileData.balance=p.balance??profileData.balance;setBalance(profileData.balance);if(p?.item?.uid)markAvitoNewPurchase(p.item.uid);showToast(p.message||'Товар закуплен');avitoTab='buy';await fetchAvito();modalBody.innerHTML=renderAvito();showAvitoUnlockPopup()}catch(err){showToast(err.message||'Не удалось купить товар');buy.disabled=false}return;}
+    const buy=e.target.closest('[data-avito-buy]'); if(buy){
+      const originalLabel=buy.textContent;
+      buy.disabled=true;
+      buy.textContent='ПОКУПКА…';
+      let purchase;
+      try{
+        purchase=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/buy`,{
+          method:'POST',
+          headers:{'Content-Type':'application/json','Accept':'application/json'},
+          body:JSON.stringify({item_id:buy.dataset.avitoBuy}),
+          timeoutMs:40000
+        },1);
+      }catch(err){
+        showToast(err.message||'Не удалось купить товар');
+        buy.disabled=false;
+        buy.textContent=originalLabel;
+        return;
+      }
+      // From this point the server has confirmed the atomic balance + inventory
+      // transaction. A later refresh failure must never be reported as a failed
+      // purchase or re-enable the old purchase button.
+      profileData.balance=purchase.balance??profileData.balance;
+      setBalance(profileData.balance);
+      if(purchase?.item?.uid)markAvitoNewPurchase(purchase.item.uid);
+      showToast(purchase.message||'Товар закуплен');
+      avitoTab='buy';
+      try{
+        await fetchAvito();
+        modalBody.innerHTML=renderAvito();
+        showAvitoUnlockPopup();
+      }catch(refreshErr){
+        showToast('Товар куплен. Не удалось обновить склад — открой Avito ещё раз.');
+      }
+      return;
+    }
     const assistantInfo=e.target.closest('[data-avito-assistant-info]'); if(assistantInfo){ openModal('Помощники Avito', `<div class="avito-shell avx-shell avx-assistant-info-sheet"><div class="avx-section"><div class="avx-info-hero"><div class="avx-info-icon">i</div><div><b>Пассивная команда</b><span>Помощники работают автоматически, даже когда игра закрыта.</span></div></div><div class="avx-info-list"><div><b>01 · ЗАКУП</b><span>Самостоятельно покупают доступные товары за свои средства.</span></div><div><b>02 · ПРОДАЖА</b><span>Выставляют товар и ведут переговоры с покупателем.</span></div><div><b>03 · ПРИБЫЛЬ</b><span>После продажи деньги и прибыль автоматически зачисляются тебе.</span></div><div><b>04 · ОНЛАЙН НЕ НУЖЕН</b><span>Закрывай игру — команда продолжит работать на сервере.</span></div></div><div class="avx-info-note">Один помощник стоит 5 000 000 ₽. Максимум — 5 помощников.</div><button class="avx-btn buy" data-avito-info-close style="width:100%;margin-top:10px;min-height:46px">ПОНЯТНО</button></div></div>`); return; }
     const openAssistants=e.target.closest('[data-avito-open-assistants]'); if(openAssistants){avitoTab='assistants';avitoShowAssistantChats=false;await fetchAvito();modalBody.innerHTML=renderAvito();return;}
     const toggleHelperChats=e.target.closest('[data-avito-toggle-helper-chats]'); if(toggleHelperChats){avitoShowAssistantChats=!avitoShowAssistantChats;modalBody.innerHTML=renderAvito();return;}
@@ -21863,6 +21905,95 @@ body.resell-avito-single-screen #modalBody .avx-review-sheet {
 .career-new.brand .brand-flow-create .brand-flow-store-row small{display:block!important;margin-top:3px!important;color:#aab6a6!important;font:550 10px/1.4 Inter,system-ui,sans-serif!important}
 .career-new.brand .brand-flow-create .brand-flow-primary{margin-top:2px!important}
 </style>
+
+<style id="resell-startup-safe-area-and-avito-card-fix-v1">
+/* Telegram can change the usable top area after the mini-app first opens.
+   The runtime below keeps this inset synchronized with the Telegram viewport. */
+:root{--resell-tg-content-top:0px}
+main.app{
+  padding-top:max(env(safe-area-inset-top),var(--resell-tg-content-top,0px))!important;
+  box-sizing:border-box!important;
+}
+/* Rare-drop artwork is a thumbnail, not a full-width part of the stock card. */
+.avx-special-item .avx-special-top{
+  display:flex!important;align-items:center!important;gap:10px!important;
+  width:100%!important;min-width:0!important;overflow:hidden!important;
+}
+.avx-special-item .avx-special-top>:first-child{
+  display:block!important;box-sizing:border-box!important;
+  width:68px!important;min-width:68px!important;max-width:68px!important;
+  height:68px!important;min-height:68px!important;max-height:68px!important;
+  flex:0 0 68px!important;overflow:hidden!important;border-radius:14px!important;
+}
+.avx-special-item .avx-special-top>:first-child :is(img,svg){
+  display:block!important;width:100%!important;height:100%!important;
+  min-width:0!important;min-height:0!important;max-width:100%!important;
+  max-height:100%!important;object-fit:contain!important;
+}
+.avx-special-item .avx-special-copy{
+  flex:1 1 0!important;min-width:0!important;overflow:hidden!important;
+}
+.avx-special-item .avx-special-copy b,
+.avx-special-item .avx-special-copy span{
+  display:block!important;max-width:100%!important;overflow-wrap:anywhere!important;
+}
+.avx-special-item .avx-special-price{
+  flex:0 0 auto!important;max-width:42%!important;margin-left:auto!important;
+  white-space:nowrap!important;font-variant-numeric:tabular-nums!important;
+}
+@media(max-width:390px){
+  .avx-special-item .avx-special-top>:first-child{
+    width:60px!important;min-width:60px!important;max-width:60px!important;
+    height:60px!important;min-height:60px!important;max-height:60px!important;
+    flex-basis:60px!important;
+  }
+}
+</style>
+<script id="resell-telegram-content-safe-area-sync-v1">
+(function(){
+  'use strict';
+  const root=document.documentElement;
+  let tg=null;
+  function asPixels(value){
+    const n=Number(value);
+    return Number.isFinite(n)&&n>0?Math.min(300,n):0;
+  }
+  function cssPixels(name){
+    try{
+      const raw=getComputedStyle(root).getPropertyValue(name).trim();
+      const n=parseFloat(raw);
+      return Number.isFinite(n)&&n>0?Math.min(300,n):0;
+    }catch(_){return 0;}
+  }
+  function syncInsets(){
+    try{tg=window.Telegram?.WebApp||tg;}catch(_){}
+    const contentTop=asPixels(tg?.contentSafeAreaInset?.top);
+    const telegramCssTop=cssPixels('--tg-viewport-content-safe-area-inset-top');
+    const safeTop=asPixels(tg?.safeAreaInset?.top);
+    const top=contentTop||telegramCssTop||safeTop;
+    root.style.setProperty('--resell-tg-content-top',`${Math.round(top)}px`);
+  }
+  function bindTelegram(){
+    try{tg=window.Telegram?.WebApp||null;}catch(_){tg=null;}
+    if(tg?.onEvent){
+      for(const eventName of ['viewportChanged','safeAreaChanged','contentSafeAreaChanged']){
+        try{tg.onEvent(eventName,syncInsets);}catch(_){}
+      }
+    }
+    syncInsets();
+  }
+  bindTelegram();
+  window.addEventListener('resize',syncInsets,{passive:true});
+  window.visualViewport?.addEventListener('resize',syncInsets,{passive:true});
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)syncInsets();});
+  window.addEventListener('load',syncInsets,{once:true});
+  // Telegram updates the content-safe inset asynchronously during launch/expand.
+  setTimeout(syncInsets,80);
+  setTimeout(syncInsets,300);
+  setTimeout(syncInsets,900);
+})();
+</script>
+
 </body>
 </html>
 
