@@ -3382,7 +3382,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
 <div class="daily-login-sub">30 дней · награда растёт каждый день</div>
 </div><div class="daily-login-streak"><b id="engStreak">0</b><span>ДНЕЙ</span></div></div>
 <div class="daily-login-days" id="dailyLoginDays"></div>
-<div class="daily-calendar-timer" id="dailyCalendarTimer"><i></i><span>АКТИВНАЯ ИГРА</span><strong id="dailyCalendarTimerValue">60:00</strong></div>
+<div class="daily-calendar-timer" id="dailyCalendarTimer"><i></i><span>АКТИВНАЯ ИГРА</span><strong id="dailyCalendarTimerValue">15:00</strong></div>
 <button class="daily-login-claim daily-login-claim-ready" id="dailyCheckinBtn" type="button" hidden>
 <span><small id="checkinLabel">НАГРАДА ДОСТУПНА</small><b id="checkinReward">+10K</b></span>
 <strong id="checkinAction">ЗАБРАТЬ</strong>
@@ -4764,6 +4764,8 @@ const DAILY_MONEY_ASSETS={
   let dailyCalendarHeartbeatTimer=null;
   let dailyCalendarDisplayTimer=null;
   let dailyCalendarBusy=false;
+  let dailyCalendarFiveMinuteNoticeKey='';
+  let dailyCalendarReadyNoticeKey='';
 
   function compactMoney(value){
     const n=Math.max(0,Number(value)||0);
@@ -4773,27 +4775,55 @@ const DAILY_MONEY_ASSETS={
     if(n>=1e3)return fmt(n/1e3,'K');
     return String(Math.floor(n));
   }
+  function dailyCalendarRequiredSeconds(){
+    return Math.max(60,Number(dailyCalendarData?.required_seconds||15*60));
+  }
   function dailyCalendarSecondsLive(){
     if(!dailyCalendarData)return 0;
+    const required=dailyCalendarRequiredSeconds();
     const base=Math.max(0,Number(dailyCalendarBaseSeconds||0));
-    if(document.hidden || !dailyCalendarSyncAt)return Math.min(3600,base);
-    return Math.min(3600,base+Math.max(0,Math.floor((Date.now()-dailyCalendarSyncAt)/1000)));
+    if(document.hidden || !dailyCalendarSyncAt)return Math.min(required,base);
+    return Math.min(required,base+Math.max(0,Math.floor((Date.now()-dailyCalendarSyncAt)/1000)));
+  }
+  function dailyCalendarNoticeKey(){
+    if(!dailyCalendarData)return '';
+    return `${String(dailyCalendarData.cycle_key||'')}:${Number(dailyCalendarData.progress_day||0)}`;
+  }
+  function maybeNotifyDailyCalendar(active,required,ready){
+    if(!dailyCalendarData||dailyCalendarData.complete)return;
+    const key=dailyCalendarNoticeKey();
+    if(!key)return;
+    // At five minutes, give a progress reminder without falsely saying the prize is ready.
+    if(active>=5*60 && active<required && dailyCalendarFiveMinuteNoticeKey!==key){
+      dailyCalendarFiveMinuteNoticeKey=key;
+      const left=Math.max(0,required-active);
+      showToast(`⏱ Уже 5 минут в игре. До награды осталось ${dailyTimerText(active,required)}`);
+      haptic('medium');
+    }
+    // The claim notification is shown only when the server or the synchronized timer confirms readiness.
+    if(ready&&dailyCalendarReadyNoticeKey!==key){
+      dailyCalendarReadyNoticeKey=key;
+      showToast('🎁 Ежедневная награда готова! Открой серию и нажми «ЗАБРАТЬ».');
+      haptic('heavy');
+    }
   }
   function updateDailyCalendarTimer(){
     if(!dailyCalendarData)return;
     const d=dailyCalendarData;
     const complete=!!d.complete;
+    const required=dailyCalendarRequiredSeconds();
     const active=dailyCalendarSecondsLive();
-    const ready=!!d.ready||active>=Number(d.required_seconds||3600);
+    const ready=!complete&&(!!d.ready||active>=required);
     const timer=$('#dailyCalendarTimer'),timerValue=$('#dailyCalendarTimerValue');
     if(timer){timer.style.display=complete?'none':'flex';timer.classList.toggle('ready',ready)}
     if(timerValue){
-      const next=complete?'00:00':(ready?'00:00':dailyTimerText(active));
+      const next=complete?'00:00':(ready?'00:00':dailyTimerText(active,required));
       if(timerValue.textContent!==next)timerValue.textContent=next;
     }
+    maybeNotifyDailyCalendar(active,required,ready);
   }
-  function dailyTimerText(seconds){
-    const left=Math.max(0,3600-Math.floor(seconds));
+  function dailyTimerText(activeSeconds,requiredSeconds=dailyCalendarRequiredSeconds()){
+    const left=Math.max(0,Math.floor(requiredSeconds)-Math.floor(activeSeconds));
     const m=Math.floor(left/60),s=left%60;
     return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
   }
@@ -4802,7 +4832,7 @@ const DAILY_MONEY_ASSETS={
     const days=Array.isArray(d.days)?d.days:[];
     const progressDay=Math.max(1,Math.min(Number(d.total_days||30),Number(d.progress_day||1)));
     const complete=!!d.complete,active=dailyCalendarSecondsLive();
-    const ready=!!d.ready||active>=Number(d.required_seconds||3600);
+    const ready=!!d.ready||active>=Number(d.required_seconds||15*60);
     const currentReward=d.reward||days.find(x=>Number(x.day)===progressDay)||{};
     const gridKey=JSON.stringify({progressDay,complete,ready,days:days.map(item=>[Number(item.day||0),String(item.car_id||''),Number(item.cash||0),String(item.rarity||'')])});
     const daysEl=$('#dailyLoginDays');
@@ -4858,7 +4888,7 @@ const DAILY_MONEY_ASSETS={
     dailyCalendarBusy=true;
     try{
       const r=await apiFetch(`${API_BASE}/daily-calendar/${encodeURIComponent(userId)}/heartbeat?mode=${encodeURIComponent(mode)}&t=${Date.now()}`,{method:'POST'},2),d=await r.json();
-      if(d?.success){applyDailyCalendarSnapshot(d);if(d.auto_claim&&d.claim_status==='claimed'){const cash=Number(d.claim_result?.reward?.cash||0);showToast(`🔥 60 минут сыграны — награда +${compactMoney(cash)} ₽ зачислена`);haptic('heavy');try{await loadProfile()}catch(_){}}return d;}
+      if(d?.success){applyDailyCalendarSnapshot(d);if(d.auto_claim&&d.claim_status==='claimed'){const cash=Number(d.claim_result?.reward?.cash||0);showToast(`🎁 Награда готова и зачислена: +${compactMoney(cash)} ₽`);haptic('heavy');try{await loadProfile()}catch(_){}}return d;}
     }catch(err){console.warn('Daily calendar heartbeat failed:',err)}finally{dailyCalendarBusy=false}
     return null;
   }
@@ -4891,7 +4921,7 @@ const DAILY_MONEY_ASSETS={
     try{
       const r=await apiFetch(`${API_BASE}/daily-calendar/${encodeURIComponent(userId)}/claim?t=${Date.now()}`,{method:'POST'},3),d=await r.json().catch(()=>({}));
       if(!r.ok||!d?.success)throw new Error(d?.error||'Не удалось получить награду');
-      if(d.status==='locked')throw new Error(`Нужно сыграть ещё ${dailyTimerText(Number(d.active_seconds||0))}`);
+      if(d.status==='locked')throw new Error(`Нужно сыграть ещё ${dailyTimerText(Number(d.active_seconds||0),Number(d.required_seconds||15*60))}`);
       if(d.status==='already'){await loadDailyCalendar();return;}
       if(d.status==='claimed'){
         profileData=profileData||{};profileData.balance=Number(d.balance??profileData.balance??0);setBalance(profileData.balance);
@@ -4908,7 +4938,7 @@ const DAILY_MONEY_ASSETS={
         <div class="daily-login-sub">30 дней · награда растёт каждый день</div>
       </div><div class="daily-login-streak"><b id="engStreak">0</b><span>ДНЕЙ</span></div></div>
       <div class="daily-login-days" id="dailyLoginDays"></div>
-      <div class="daily-calendar-timer" id="dailyCalendarTimerTemplate"><i></i><span>АКТИВНАЯ ИГРА</span><strong>60:00</strong></div>
+      <div class="daily-calendar-timer" id="dailyCalendarTimerTemplate"><i></i><span>АКТИВНАЯ ИГРА</span><strong>15:00</strong></div>
       <button class="daily-login-claim daily-login-claim-ready" id="dailyCheckinBtnTemplate" type="button" hidden>
         <span><small>НАГРАДА ДОСТУПНА</small><b>+10K</b></span><strong>ЗАБРАТЬ</strong>
       </button>
@@ -21994,6 +22024,14 @@ main.app{
 })();
 </script>
 
+
+<style id="resell-daily-car-fit-v1">
+/* Keep special car artwork and its ribbon clipped to the reward tile on narrow screens. */
+.daily-login-day.special{box-sizing:border-box!important;min-width:0!important;overflow:hidden!important;isolation:isolate!important;contain:paint!important}
+.daily-login-day.special .calendar-reward-img.car{display:block!important;box-sizing:border-box!important;width:100%!important;max-width:62px!important;height:48px!important;max-height:48px!important;min-width:0!important;object-fit:contain!important;object-position:center!important;margin:4px auto 0!important;flex:0 1 48px!important}
+.daily-login-day.special .calendar-ribbon{right:-21px!important;top:7px!important;max-width:54px!important;padding:3px 14px!important;font-size:5px!important;line-height:1!important;white-space:nowrap!important;overflow:hidden!important;pointer-events:none!important}
+@media(max-width:380px){.daily-login-day.special .calendar-reward-img.car{max-width:54px!important;height:42px!important;max-height:42px!important;flex-basis:42px!important}.daily-login-day.special .calendar-ribbon{right:-23px!important;top:6px!important}}
+</style>
 </body>
 </html>
 
