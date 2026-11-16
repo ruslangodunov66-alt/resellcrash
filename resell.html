@@ -9007,10 +9007,32 @@ async function initFarm(){
   async function showLatestResellUpdate(){
     try{
       const r=await fetch(`${API_BASE}/updates/latest?t=${Date.now()}`,{cache:'no-store'});
-      if(!r.ok)return false; const d=await r.json().catch(()=>({})); const a=d?.announcement; if(!a?.id||!a?.message)return false;
-      const key=`resell_update_seen_${a.id}`; if(localStorage.getItem(key)==='1')return false;
+      if(!r.ok)return false;
+      const d=await r.json().catch(()=>({}));
+      const a=d?.announcement;
+      if(!a?.id||!a?.message)return false;
+      // Acknowledgement belongs to one Telegram account, not to the shared device.
+      const playerId=String(userId||tg?.initDataUnsafe?.user?.id||'').trim();
+      if(!playerId)return false;
+      const key=`resell_update_seen_${playerId}_${a.id}`;
+      try{if(localStorage.getItem(key)==='1')return false;}catch(_){}
       openModal('Сообщение от администрации',`<div class="resell-update-pop"><div class="resell-update-pop-head"><div class="resell-update-pop-logo">R</div><div><div class="resell-update-pop-kicker">RESSELL · ОТ КОМАНДЫ</div><div class="resell-update-pop-title">${esc(String(a.title||'Сообщение от администрации'))}</div></div></div><div class="resell-update-pop-body">${esc(String(a.message))}</div><div class="resell-update-pop-foot">Опубликовано командой RESSELL · ${formatTime(a.created_at)}</div><button class="admin-btn primary resell-update-pop-btn" id="resellUpdateSeenBtn">ПОНЯТНО</button></div>`);
-      await new Promise(resolve=>document.getElementById('resellUpdateSeenBtn')?.addEventListener('click',()=>{try{localStorage.setItem(key,'1')}catch(_){} closeModal();resolve();},{once:true}));
+      let dismissed=false;
+      const markSeen=()=>{
+        if(dismissed)return;
+        dismissed=true;
+        try{localStorage.setItem(key,'1');}catch(_){}
+        modalClose?.removeEventListener('click',markSeen);
+        modal?.removeEventListener('click',markBackdrop);
+        seenButton?.removeEventListener('click',markSeenAndClose);
+      };
+      const markSeenAndClose=()=>{markSeen();closeModal();};
+      const markBackdrop=(event)=>{if(event.target===modal)markSeen();};
+      const seenButton=document.getElementById('resellUpdateSeenBtn');
+      seenButton?.addEventListener('click',markSeenAndClose,{once:true});
+      // Both the sheet's X and the outer backdrop count as an acknowledgement.
+      modalClose?.addEventListener('click',markSeen,{once:true});
+      modal?.addEventListener('click',markBackdrop);
       return true;
     }catch(_){return false;}
   }
