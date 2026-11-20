@@ -10919,13 +10919,17 @@ async function initFarm(){
     const brief=money.querySelector('#resellLaunchBrief');
     const games=more?.querySelector('.section:has(.games)');
     if(brief && more && !more.contains(brief)) more.insertBefore(brief, games || more.firstChild);
-    money.insertBefore(referral, assets);
-    money.insertBefore(assets, epoch);
+    /* The final home-flow controller owns the assets section once it has been mounted.
+       Do not pull it out of that container on delayed legacy retries. */
+    if(assets.parentElement===money){
+      money.insertBefore(referral, assets);
+      money.insertBefore(assets, epoch);
+    }
     
     /* Asset order follows the RESSELL economy: Taxi → Mining → Auto → Property → Bank. */
     const grid=assets.querySelector('.main-tycoon-grid');
     if(grid){
-      const order=['taxi','mining','cars','property','bank'];
+      const order=['bank','mining','property','cars','taxi'];
       order.forEach(id=>{const card=grid.querySelector('[data-main-tycoon="'+id+'"]');if(card)grid.appendChild(card);});
     }
 
@@ -11109,7 +11113,12 @@ html[lang="en"] #resellHomeMoney #mainAssetsSection .main-tycoon-card[data-main-
     if(!money||!assets)return;
     const flow=money.querySelector('.resell-home-main-flow');
     const grid=assets.querySelector('.main-tycoon-grid');
-    if(flow&&grid){flow.appendChild(assets);['mining','cars','property','taxi','bank'].forEach(id=>{const c=grid.querySelector('[data-main-tycoon="'+id+'"]');if(c)grid.appendChild(c);});}
+    if(flow&&grid){
+      if(assets.parentElement!==flow) flow.appendChild(assets);
+      const desired=['bank','mining','property','cars','taxi'];
+      const current=Array.from(grid.querySelectorAll(':scope > [data-main-tycoon]')).map(c=>c.getAttribute('data-main-tycoon'));
+      if(current.join('|')!==desired.join('|')) desired.forEach(id=>{const c=grid.querySelector('[data-main-tycoon="'+id+'"]');if(c)grid.appendChild(c);});
+    }
     const carTitle=grid?.querySelector('[data-main-tycoon="cars"] .main-tycoon-title');if(carTitle)carTitle.textContent=localStorage.getItem('resell_language')==='en'?'Cars':'Автопарк';
   }
   function stabilizeRegistrationViewport(){
@@ -15834,7 +15843,7 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
       /* Put the five asset cards in the exact requested visual order. */
       const grid=assets.querySelector('.main-tycoon-grid');
       if(grid){
-        ['mining','cars','property','taxi','bank'].forEach(id=>{
+        ['bank','mining','property','cars','taxi'].forEach(id=>{
           const card=grid.querySelector('[data-main-tycoon="'+id+'"]');
           if(card) grid.appendChild(card);
         });
@@ -22361,3 +22370,86 @@ main.app{
 /* Telegram inset is already accounted for by the WebView viewport. Do not add it a second time to the whole app. */
 main.app{padding-top:0!important;padding-block-start:0!important}
 </style>
+
+<style id="resell-home-assets-layout-lock-v2">
+/* Stable home asset layout: fixed grid tracks, explicit card locations, no late reflow. */
+#resellHomeMoney .resell-home-main-flow{
+  display:flex!important;flex-direction:column!important;align-items:stretch!important;
+  width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important;
+  gap:10px!important;
+}
+#resellHomeMoney .resell-home-main-flow>*{
+  width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important;
+}
+#resellHomeMoney #mainAssetsSection{
+  display:block!important;position:relative!important;align-self:stretch!important;flex:0 0 auto!important;
+  order:4!important;width:100%!important;max-width:100%!important;min-width:0!important;
+  margin:0!important;box-sizing:border-box!important;clear:both!important;float:none!important;
+}
+#resellHomeMoney #mainAssetsSection .main-tycoon-grid{
+  display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  grid-auto-flow:row!important;align-content:start!important;align-items:stretch!important;
+  gap:10px!important;width:100%!important;max-width:100%!important;min-width:0!important;
+  margin:0!important;padding:0!important;box-sizing:border-box!important;
+}
+#resellHomeMoney #mainAssetsSection .main-tycoon-card{
+  position:relative!important;display:block!important;box-sizing:border-box!important;
+  width:100%!important;max-width:100%!important;min-width:0!important;
+  height:auto!important;min-height:0!important;max-height:none!important;
+  aspect-ratio:3 / 2!important;grid-column:auto!important;grid-row:auto!important;
+  align-self:stretch!important;justify-self:stretch!important;float:none!important;clear:none!important;
+  margin:0!important;padding:0!important;overflow:hidden!important;
+}
+/* Pin each asset to a permanent cell. This also protects against old scripts that reorder DOM nodes. */
+#resellHomeMoney #mainAssetsSection .main-tycoon-card[data-main-tycoon="bank"]{grid-column:1!important;grid-row:1!important}
+#resellHomeMoney #mainAssetsSection .main-tycoon-card[data-main-tycoon="mining"]{grid-column:2!important;grid-row:1!important}
+#resellHomeMoney #mainAssetsSection .main-tycoon-card[data-main-tycoon="property"]{grid-column:1!important;grid-row:2!important}
+#resellHomeMoney #mainAssetsSection .main-tycoon-card[data-main-tycoon="cars"]{grid-column:2!important;grid-row:2!important}
+#resellHomeMoney #mainAssetsSection .main-tycoon-card[data-main-tycoon="taxi"],
+#resellHomeMoney #mainAssetsSection .main-tycoon-card.wide{
+  grid-column:1 / -1!important;grid-row:3!important;
+  aspect-ratio:auto!important;height:146px!important;min-height:146px!important;max-height:146px!important;
+}
+#resellHomeMoney #mainAssetsSection .main-tycoon-card>img{
+  position:absolute!important;inset:0!important;display:block!important;
+  width:100%!important;height:100%!important;min-width:0!important;min-height:0!important;
+  max-width:none!important;max-height:none!important;object-fit:cover!important;
+  object-position:center!important;transform:none!important;box-sizing:border-box!important;
+}
+#resellHomeMoney #mainAssetsSection .main-tycoon-card[data-main-tycoon="taxi"]>img{
+  object-position:center 48%!important;
+}
+@media(max-width:390px){
+  #resellHomeMoney #mainAssetsSection .main-tycoon-grid{gap:8px!important}
+  #resellHomeMoney #mainAssetsSection .main-tycoon-card[data-main-tycoon="taxi"],
+  #resellHomeMoney #mainAssetsSection .main-tycoon-card.wide{
+    height:138px!important;min-height:138px!important;max-height:138px!important;
+  }
+}
+</style>
+<script id="resell-home-assets-layout-lock-v2-js">
+(function(){
+  'use strict';
+  const desired=['bank','mining','property','cars','taxi'];
+  function apply(){
+    const money=document.getElementById('resellHomeMoney');
+    const assets=document.getElementById('mainAssetsSection');
+    if(!money||!assets)return;
+    const flow=money.querySelector('.resell-home-main-flow');
+    if(flow&&assets.parentElement!==flow)flow.appendChild(assets);
+    const grid=assets.querySelector('.main-tycoon-grid');
+    if(!grid)return;
+    const current=Array.from(grid.querySelectorAll(':scope > [data-main-tycoon]')).map(c=>c.getAttribute('data-main-tycoon'));
+    if(current.join('|')!==desired.join('|')){
+      desired.forEach(id=>{const card=grid.querySelector('[data-main-tycoon="'+id+'"]');if(card)grid.appendChild(card);});
+    }
+    const carTitle=grid.querySelector('[data-main-tycoon="cars"] .main-tycoon-title');
+    if(carTitle)carTitle.textContent=String(localStorage.getItem('resell_language')||'ru').toLowerCase()==='en'?'Cars':'Автопарк';
+  }
+  function delayed(){apply();setTimeout(apply,300);setTimeout(apply,900);setTimeout(apply,1800);}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',delayed,{once:true});
+  else delayed();
+  window.addEventListener('resell-language-changed',()=>setTimeout(apply,80));
+})();
+</script>
+
