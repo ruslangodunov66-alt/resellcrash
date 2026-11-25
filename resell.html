@@ -3662,6 +3662,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
           <div class="vc-hud-chip vc-hud-right"><small>СКОРОСТЬ</small><b id="vcSpeed">150 KM/H</b></div>
           <div class="vc-hud-bottom"><span>ПОГОНЯ <b>АКТИВНА</b></span><strong id="vcLives">♥♥♥</strong></div>
         </div>
+        <button id="vcBrakeBtn" class="vc-brake-btn vc-brake-infield" type="button" aria-label="Удерживай, чтобы тормозить" aria-pressed="false"><span>Ⅱ</span><b>ТОРМОЗ</b></button>
         <div id="vcIntro" class="vc-screen">
           <div class="vc-intro-card">
             <div class="vc-intro-kicker">RESSELL · LIMITED EVENT</div>
@@ -3694,10 +3695,9 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
         </div>
       </div>
     </div>
-    <footer class="vc-controls vc-swipe-footer" aria-label="Свайп для смены полосы, педаль тормоза">
+    <footer class="vc-controls vc-swipe-footer" aria-label="Свайп для смены полосы">
       <div class="vc-swipe-instruction"><span class="vc-swipe-glyph" aria-hidden="true">↔</span><div><b>СВАЙПАЙ ПО ЭКРАНУ</b><small>ВЛЕВО / ВПРАВО · СМЕНА ПОЛОСЫ</small></div></div>
       <div class="vc-control-center"><b>VICE CITY</b><span>СЧЁТ <strong id="vcScore">0</strong></span></div>
-      <button id="vcBrakeBtn" class="vc-brake-btn" type="button" aria-label="Удерживай, чтобы тормозить" aria-pressed="false"><span>Ⅱ</span><b>ТОРМОЗ</b><small>УДЕРЖИВАЙ</small></button>
     </footer>
   </div>
 </div>
@@ -3805,6 +3805,11 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
 #viceCityOverlay .vc-brake-btn b{font:950 7px/1 Montserrat,Arial,sans-serif;letter-spacing:.7px;}
 #viceCityOverlay .vc-brake-btn small{font:800 5px/1 Montserrat,Arial,sans-serif;color:#c4a98f;}
 #viceCityOverlay .vc-brake-btn.is-braking{transform:translateY(2px);background:linear-gradient(150deg,#a45c38,#573047);border-color:rgba(255,211,144,.8);box-shadow:inset 0 2px 8px rgba(0,0,0,.3),0 2px 5px rgba(0,0,0,.2);}
+#viceCityOverlay .vc-brake-infield{position:absolute!important;z-index:4!important;right:10px!important;bottom:12px!important;width:64px!important;min-width:64px!important;height:58px!important;flex:none!important;opacity:.92!important;border-radius:15px!important;background:linear-gradient(150deg,rgba(91,62,45,.94),rgba(37,28,42,.94))!important;backdrop-filter:blur(4px)!important;box-shadow:0 5px 16px rgba(0,0,0,.38),inset 0 1px rgba(255,255,255,.12)!important;}
+#viceCityOverlay .vc-brake-infield b{font-size:8px!important;letter-spacing:.8px!important;}
+#viceCityOverlay .vc-brake-infield span{font-size:19px!important;}
+#viceCityOverlay .vc-brake-infield:after{content:'УДЕРЖИВАЙ';font:800 5px/1 Montserrat,Arial,sans-serif;color:#c4a98f;letter-spacing:.45px;}
+#viceCityOverlay .vc-brake-infield.is-braking{opacity:1!important;}
 #viceCityOverlay .vc-intro-guide{grid-template-columns:78px 1fr!important;}
 #viceCityOverlay .vc-intro-guide b{font-size:15px!important;letter-spacing:-1px!important;white-space:nowrap!important;}
 @media(max-height:690px){#viceCityOverlay .vc-controls.vc-swipe-footer{height:56px!important;min-height:56px!important;}}
@@ -8679,15 +8684,15 @@ async function initFarm(){
 
       // A slower vehicle ahead triggers an overtake. The indicator comes on first,
       // stays active during the entire manoeuvre and switches off only on completion.
-      if(car.targetLane===car.lane && Math.random()<dt*(1.05+difficulty*.8)){
-        const blocker=cars.find(other=>other!==car&&other.lane===car.lane&&other.y<car.y&&car.y-other.y>44&&car.y-other.y<128&&other.speed<car.speed*.94);
+      if(car.targetLane===car.lane && Math.random()<dt*(.48+difficulty*.22)){
+        const blocker=cars.find(other=>other!==car&&other.lane===car.lane&&other.y<car.y&&car.y-other.y>52&&car.y-other.y<112&&other.speed<car.speed*.88);
         if(blocker){
           const choices=[car.lane-1,car.lane+1].filter(l=>l>=0&&l<=2&&vcTrafficLaneSafe(car,l));
           if(choices.length){
             const next=choices.sort((a,b)=>Math.abs(a-car.lane)-Math.abs(b-car.lane))[0];
             car.targetLane=next;
             car.signal=next>car.lane?1:-1;
-            car.signalUntil=vc.time+.38;
+            car.signalUntil=vc.time+.52;
           }
         }
       }
@@ -8703,7 +8708,7 @@ async function initFarm(){
           car.angle*=Math.max(0,1-dt*5);
         }else{
           car.signal=car.targetLane>car.lane?1:-1;
-          const oldX=car.x;car.x+=(targetX-car.x)*Math.min(1,dt*2.75);
+          const oldX=car.x;car.x+=(targetX-car.x)*Math.min(1,dt*1.9);
           car.angle=vcClamp((car.x-oldX)*.078,-.30,.30);
           if(Math.abs(car.x-targetX)<1.8){
             car.x=targetX;car.lane=car.targetLane;car.signal=0;car.signalUntil=0;car.angle*=.35;
@@ -8752,47 +8757,41 @@ async function initFarm(){
     }
   }
   function vcSpawnTrafficWave(){
-    // Every wave is built from staggered rows. Each row intentionally leaves
-    // one lane open, so a good swipe can always create a route through traffic.
-    const stage=Math.floor(vc.time/22);
+    // Sparse, readable traffic: never spawn a solid wall across all three lanes.
+    // One- and two-car rows are separated enough for overtakes and recovery.
+    const stage=Math.floor(vc.time/30);
     const wave=++vc.waveNo;
-    // Keep a reliable escape route: dense two-car rows are always separated
-    // by a one-car recovery row, even at the highest difficulty.
-    const patterns = stage<1 ? [1,1,2,1] : stage<2 ? [1,2,1,2] : stage<3 ? [1,2,1,2,1] : [1,2,1,2,1,2];
-    const rows=patterns.length;
+    const patterns=stage<1?[1,1,2]:stage<2?[1,2,1]:stage<3?[1,2,1,1]:[1,2,1,2];
     const active=vc.items.filter(o=>o.type==='traffic'&&o.y>-300&&o.y<VC_H+40);
-    if(active.length >= (stage<1?9:stage<2?11:stage<3?14:16)) return;
+    const maxCars=stage<1?5:stage<2?6:stage<3?7:8;
+    if(active.length>=maxCars)return;
 
     const addCar=(lane,y,row)=>{
-      // Avoid stacking vehicles in the same lane and longitudinal position.
       const laneBusy=vc.items.some(o=>o.type==='traffic'&&
         Math.abs((Number.isFinite(o.x)?o.x:VC_LANES[o.lane])-VC_LANES[lane])<22&&
-        Math.abs(o.y-y)<54);
+        Math.abs(o.y-y)<58);
       if(laneBusy)return false;
       vc.items.push({
         type:'traffic',lane,targetLane:lane,x:VC_LANES[lane],y,
-        // Traffic remains slower than the player, but closer speeds reduce
-        // excessive catch-up and leave enough time to read and use each gap.
-        speed:vc.cruiseSpeed*vcRand(.58,.90+Math.min(.04,stage*.01)),collisionBrakeUntil:0,
-        variant:vcInt(0,3),angle:vcRand(-.025,.025),signal:0,difficulty:vcClamp(vc.time/95,0,1),wave,row
+        speed:vc.cruiseSpeed*vcRand(.66,.84),collisionBrakeUntil:0,
+        variant:vcInt(0,3),angle:vcRand(-.015,.015),signal:0,difficulty:vcClamp(vc.time/120,0,1),wave,row
       });
       return true;
     };
 
-    for(let row=0;row<rows;row++){
-      // Wider longitudinal spacing prevents faster traffic from compressing
-      // staggered rows into an impassable three-lane wall.
-      const y=-36-row*86;
-      const gapLane=(wave+row+(stage>1?1:0))%3;
+    for(let row=0;row<patterns.length;row++){
+      if(vc.items.filter(o=>o.type==='traffic'&&o.y>-300&&o.y<VC_H+40).length>=maxCars)break;
+      const y=-38-row*112;
+      const gapLane=(wave+row)%3;
       const otherLanes=[0,1,2].filter(l=>l!==gapLane);
       const requested=patterns[row];
-      let lanesToFill=otherLanes;
+      let lanesToFill;
       if(requested===1){
-        // Single-car rows give a brief recovery beat while keeping the wave moving.
-        lanesToFill=[otherLanes[(wave+row)%otherLanes.length]];
+        lanesToFill=[otherLanes[(wave+row)%2]];
+      }else{
+        // Two vehicles only in this row; the third lane remains a clear route.
+        lanesToFill=otherLanes;
       }
-      // If an earlier wave still occupies a planned lane, skip that car rather
-      // than close the intended escape corridor or create an unfair wall.
       lanesToFill.forEach(lane=>addCar(lane,y,row));
     }
   }
@@ -8802,8 +8801,8 @@ async function initFarm(){
     vcSpawnTrafficWave();
     const stage=Math.floor(vc.time/22);
     // Waves arrive progressively closer together, but retain a readable pause.
-    const interval=stage<1?5.2:stage<2?4.8:stage<3?4.5:4.2;
-    vc.waveTimer=interval+vcRand(.25,.75);
+    const interval=stage<1?6.4:stage<2?6.0:stage<3?5.7:5.4;
+    vc.waveTimer=interval+vcRand(.35,.85);
   }
   function vcSpawnCoin(){
     // Predict where traffic will be when the coin reaches the player. Prefer a
@@ -8860,8 +8859,8 @@ async function initFarm(){
     vc.time+=dt;
     const difficulty=vcClamp(vc.time/100,0,1);
     vc.cruiseSpeed=Math.min(270,140+vc.time*1.22);
-    const targetSpeed=vc.cruiseSpeed*(vc.brakeHeld?.48:1);
-    vc.speed+=(targetSpeed-vc.speed)*Math.min(1,dt*(vc.brakeHeld?5.5:2.2));
+    const targetSpeed=vc.cruiseSpeed*(vc.brakeHeld?.58:1);
+    vc.speed+=(targetSpeed-vc.speed)*Math.min(1,dt*(vc.brakeHeld?3.8:2.2));
     vc.scroll+=vc.speed*dt;
     vc.distance+=vc.speed*dt*.035; vc.score=Math.floor(vc.distance*12+vc.coins*100);
     const targetX=VC_LANES[vc.lane], oldX=vc.playerX; vc.playerX+=(targetX-vc.playerX)*Math.min(1,dt*12);
