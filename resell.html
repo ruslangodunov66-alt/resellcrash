@@ -3666,7 +3666,7 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
           <div class="vc-intro-card">
             <div class="vc-intro-kicker">RESSELL · LIMITED EVENT</div>
             <div class="vc-intro-title">VICE<br><em>CITY</em></div>
-            <div class="vc-intro-guide vc-swipe-guide"><small>УПРАВЛЕНИЕ · ТОЛЬКО СВАЙПЫ</small><b>←　→</b><span><strong>Свайпай по экрану</strong> влево или вправо, чтобы менять полосу. Собирай Coins и уворачивайся от машин.</span></div>
+            <div class="vc-intro-guide vc-swipe-guide"><small>УПРАВЛЕНИЕ · СВАЙП + ТОРМОЗ</small><b>←　→</b><span><strong>Свайпай</strong> для смены полосы, а педаль тормоза удерживай, чтобы замедлиться и дать машинам перестроиться.</span></div>
             <div class="vc-intro-best">РЕКОРД <b id="vcBestValue">0</b></div>
             <button id="vcStartBtn" class="vc-start-btn" type="button"><span>▶</span> НАЧАТЬ ПОГОНЮ</button>
             <div id="vcPendingExchange" class="vc-pending-box vc-hidden"><small>ЕСТЬ НЕОБМЕНЯННЫЕ COINS</small><b id="vcPendingQuote">0 COIN</b><button id="vcPendingExchangeBtn" type="button">ЗАБРАТЬ НА БАЛАНС</button></div>
@@ -3694,9 +3694,10 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
         </div>
       </div>
     </div>
-    <footer class="vc-controls vc-swipe-footer" aria-label="Управление свайпами">
+    <footer class="vc-controls vc-swipe-footer" aria-label="Свайп для смены полосы, педаль тормоза">
       <div class="vc-swipe-instruction"><span class="vc-swipe-glyph" aria-hidden="true">↔</span><div><b>СВАЙПАЙ ПО ЭКРАНУ</b><small>ВЛЕВО / ВПРАВО · СМЕНА ПОЛОСЫ</small></div></div>
       <div class="vc-control-center"><b>VICE CITY</b><span>СЧЁТ <strong id="vcScore">0</strong></span></div>
+      <button id="vcBrakeBtn" class="vc-brake-btn" type="button" aria-label="Удерживай, чтобы тормозить" aria-pressed="false"><span>Ⅱ</span><b>ТОРМОЗ</b><small>УДЕРЖИВАЙ</small></button>
     </footer>
   </div>
 </div>
@@ -3799,6 +3800,11 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
 #viceCityOverlay .vc-control-center b{font-size:8px!important;letter-spacing:1px!important;}
 #viceCityOverlay .vc-control-center span{font-size:6px!important;}
 #viceCityOverlay .vc-control-center strong{font-size:11px!important;}
+#viceCityOverlay .vc-brake-btn{flex:0 0 82px;min-width:82px;height:54px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:1px solid rgba(255,196,112,.38);border-radius:13px;background:linear-gradient(150deg,#60432f,#302238);color:#ffe0ad;box-shadow:0 7px 18px rgba(0,0,0,.25);touch-action:none;user-select:none;-webkit-user-select:none;}
+#viceCityOverlay .vc-brake-btn span{font:1000 17px/1 Montserrat,Arial,sans-serif;color:#ffd28a;}
+#viceCityOverlay .vc-brake-btn b{font:950 7px/1 Montserrat,Arial,sans-serif;letter-spacing:.7px;}
+#viceCityOverlay .vc-brake-btn small{font:800 5px/1 Montserrat,Arial,sans-serif;color:#c4a98f;}
+#viceCityOverlay .vc-brake-btn.is-braking{transform:translateY(2px);background:linear-gradient(150deg,#a45c38,#573047);border-color:rgba(255,211,144,.8);box-shadow:inset 0 2px 8px rgba(0,0,0,.3),0 2px 5px rgba(0,0,0,.2);}
 #viceCityOverlay .vc-intro-guide{grid-template-columns:78px 1fr!important;}
 #viceCityOverlay .vc-intro-guide b{font-size:15px!important;letter-spacing:-1px!important;white-space:nowrap!important;}
 @media(max-height:690px){#viceCityOverlay .vc-controls.vc-swipe-footer{height:56px!important;min-height:56px!important;}}
@@ -8237,7 +8243,7 @@ async function initFarm(){
   const vc = {
     open:false, mode:'ready', raf:0, last:0, time:0, distance:0, coins:0, score:0,
     best:0, lives:3, lane:1, playerX:VC_LANES[1], playerAngle:0, scroll:0,
-    speed:104, items:[], particles:[], waveNo:0, waveTimer:2.0, nextCoin:.45,
+    speed:104, cruiseSpeed:140, brakeHeld:false, items:[], particles:[], waveNo:0, waveTimer:2.0, nextCoin:.45,
     hitTimer:0, hitFlash:0, shake:0, laneGrace:0, startGrace:0, runId:'', laneHistory:[{at:0,lane:1}],
     police:[{x:VC_LANES[0],target:0,targetLane:0,angle:0,y:274,lag:1.55,side:-1},{x:VC_LANES[2],target:2,targetLane:2,angle:0,y:308,lag:2.45,side:1}],
     audio:null, audioOn:true, engineOsc:null, engineGain:null, sirenOsc:null, sirenGain:null,
@@ -8342,7 +8348,8 @@ async function initFarm(){
   }
   function vcReset(mode='ready'){
     vc.mode=mode; vc.time=0; vc.distance=0; vc.coins=0; vc.score=0; vc.lives=3; vc.lane=1;
-    vc.playerX=VC_LANES[1]; vc.playerAngle=0; vc.scroll=0; vc.speed=140; vc.items=[]; vc.particles=[];
+    vc.playerX=VC_LANES[1]; vc.playerAngle=0; vc.scroll=0; vc.speed=140; vc.cruiseSpeed=140; vc.brakeHeld=false; vc.items=[]; vc.particles=[];
+    const brakeBtn=vcEl('vcBrakeBtn');if(brakeBtn){brakeBtn.classList.remove('is-braking');brakeBtn.setAttribute('aria-pressed','false');}
     vc.waveNo=0; vc.waveTimer=2.15; vc.nextCoin=.95; vc.hitTimer=0; vc.hitFlash=0; vc.shake=0; vc.laneGrace=0; vc.startGrace=.9;
     vc.laneHistory=[{at:0,lane:1}]; vc.police=[{x:VC_LANES[0],target:0,targetLane:0,angle:0,y:274,lag:1.55,side:-1},{x:VC_LANES[2],target:2,targetLane:2,angle:0,y:308,lag:2.45,side:1}];
     vc.runId=''; vc.last=0; vc.lastSubmit=null; vc.exchangeBusy=false;
@@ -8369,7 +8376,7 @@ async function initFarm(){
     }catch(err){vc.runId='';vc.mode='ready';vcStopAudio();showToast(err.message||'Не удалось начать забег Vice City');}
     finally{vc.startBusy=false;if(startBtn)startBtn.disabled=false;if(restartBtn)restartBtn.disabled=false;}
   }
-  function vcPause(){ if(vc.mode!=='running') return; vc.mode='paused'; vcPersistRunSnapshot(true); vcPauseAudio(); vcShowLayer(vcPauseLayer); }
+  function vcPause(){ if(vc.mode!=='running') return; vcSetBrake(false); vc.mode='paused'; vcPersistRunSnapshot(true); vcPauseAudio(); vcShowLayer(vcPauseLayer); }
   function vcResume(){ if(vc.mode!=='paused') return; vc.mode='running'; vcResumeAudio(); vcShowLayer(null); vc.last=0; }
   function vcMoveLane(delta){
     if(vc.mode!=='running') return;
@@ -8672,7 +8679,7 @@ async function initFarm(){
 
       // A slower vehicle ahead triggers an overtake. The indicator comes on first,
       // stays active during the entire manoeuvre and switches off only on completion.
-      if(car.targetLane===car.lane && Math.random()<dt*(.72+difficulty*.62)){
+      if(car.targetLane===car.lane && Math.random()<dt*(1.05+difficulty*.8)){
         const blocker=cars.find(other=>other!==car&&other.lane===car.lane&&other.y<car.y&&car.y-other.y>44&&car.y-other.y<128&&other.speed<car.speed*.94);
         if(blocker){
           const choices=[car.lane-1,car.lane+1].filter(l=>l>=0&&l<=2&&vcTrafficLaneSafe(car,l));
@@ -8766,7 +8773,7 @@ async function initFarm(){
         type:'traffic',lane,targetLane:lane,x:VC_LANES[lane],y,
         // Traffic remains slower than the player, but closer speeds reduce
         // excessive catch-up and leave enough time to read and use each gap.
-        speed:vc.speed*vcRand(.60,.76+Math.min(.04,stage*.01)),collisionBrakeUntil:0,
+        speed:vc.cruiseSpeed*vcRand(.58,.90+Math.min(.04,stage*.01)),collisionBrakeUntil:0,
         variant:vcInt(0,3),angle:vcRand(-.025,.025),signal:0,difficulty:vcClamp(vc.time/95,0,1),wave,row
       });
       return true;
@@ -8852,7 +8859,10 @@ async function initFarm(){
     if(vc.mode!=='running') return;
     vc.time+=dt;
     const difficulty=vcClamp(vc.time/100,0,1);
-    vc.speed=Math.min(270,140+vc.time*1.22); vc.scroll+=vc.speed*dt;
+    vc.cruiseSpeed=Math.min(270,140+vc.time*1.22);
+    const targetSpeed=vc.cruiseSpeed*(vc.brakeHeld?.48:1);
+    vc.speed+=(targetSpeed-vc.speed)*Math.min(1,dt*(vc.brakeHeld?5.5:2.2));
+    vc.scroll+=vc.speed*dt;
     vc.distance+=vc.speed*dt*.035; vc.score=Math.floor(vc.distance*12+vc.coins*100);
     const targetX=VC_LANES[vc.lane], oldX=vc.playerX; vc.playerX+=(targetX-vc.playerX)*Math.min(1,dt*12);
     const dx=vc.playerX-oldX; vc.playerAngle+=(vcClamp(dx*.11,-.34,.34)-vc.playerAngle)*Math.min(1,dt*11);
@@ -8900,7 +8910,7 @@ async function initFarm(){
     vc.raf=requestAnimationFrame(vcFrame);
   }
   async function vcEnd(){
-    if(vc.mode!=='running') return; vc.mode='over';vcPersistRunSnapshot(true);vcStopAudio();
+    if(vc.mode!=='running') return; vcSetBrake(false); vc.mode='over';vcPersistRunSnapshot(true);vcStopAudio();
     const finalScore=Math.floor(vc.distance*12+vc.coins*100);vc.score=finalScore;
     vc.best=Math.max(vc.best,finalScore);vcWriteLocalBest(vc.best);vcUpdateHUD();
     vcText('vcResultScore',vcFmt(finalScore));vcText('vcResultDistance',`${vcFmt(vc.distance)} M`);vcText('vcResultCoins',vcFmt(vc.coins));vcText('vcResultBest',vcFmt(vc.best));
@@ -9001,6 +9011,21 @@ async function initFarm(){
   $('#vcPauseBtn')?.addEventListener('click',()=>vcPause());
   $('#vcResumeBtn')?.addEventListener('click',vcResume);
   $('#vcSoundBtn')?.addEventListener('click',vcToggleSound);
+  // Swipe steers; holding the dedicated brake pedal reduces the player's speed.
+  const vcBrakeBtn=vcEl('vcBrakeBtn');
+  const vcSetBrake=held=>{
+    const active=Boolean(held&&vc.mode==='running');
+    vc.brakeHeld=active;
+    if(vcBrakeBtn){vcBrakeBtn.classList.toggle('is-braking',active);vcBrakeBtn.setAttribute('aria-pressed',active?'true':'false');}
+  };
+  if(vcBrakeBtn){
+    vcBrakeBtn.addEventListener('pointerdown',e=>{if(vc.mode!=='running')return;e.preventDefault();try{vcBrakeBtn.setPointerCapture(e.pointerId);}catch(_){}vcSetBrake(true);vcHaptic('light');},{passive:false});
+    ['pointerup','pointercancel','lostpointercapture','pointerleave'].forEach(type=>vcBrakeBtn.addEventListener(type,()=>vcSetBrake(false),{passive:true}));
+    vcBrakeBtn.addEventListener('contextmenu',e=>e.preventDefault());
+  }
+  window.addEventListener('keydown',e=>{if(!vc.open||vc.mode!=='running'||e.repeat)return;if(e.code==='Space'||e.key==='ArrowDown'){e.preventDefault();vcSetBrake(true);}});
+  window.addEventListener('keyup',e=>{if(e.code==='Space'||e.key==='ArrowDown')vcSetBrake(false);});
+  window.addEventListener('blur',()=>vcSetBrake(false));
   // Swipe is the only lane-control method. A short horizontal gesture changes
   // exactly one lane; vertical gestures and taps do not affect steering.
   if(vcCanvas){
