@@ -8749,7 +8749,9 @@ async function initFarm(){
     // one lane open, so a good swipe can always create a route through traffic.
     const stage=Math.floor(vc.time/22);
     const wave=++vc.waveNo;
-    const patterns = stage<1 ? [1,2,1] : stage<2 ? [2,1,2] : stage<3 ? [2,2,1,2] : [2,2,2,1];
+    // Keep a reliable escape route: dense two-car rows are always separated
+    // by a one-car recovery row, even at the highest difficulty.
+    const patterns = stage<1 ? [1,1,2,1] : stage<2 ? [1,2,1,2] : stage<3 ? [1,2,1,2,1] : [1,2,1,2,1,2];
     const rows=patterns.length;
     const active=vc.items.filter(o=>o.type==='traffic'&&o.y>-300&&o.y<VC_H+40);
     if(active.length >= (stage<1?9:stage<2?11:stage<3?14:16)) return;
@@ -8762,14 +8764,18 @@ async function initFarm(){
       if(laneBusy)return false;
       vc.items.push({
         type:'traffic',lane,targetLane:lane,x:VC_LANES[lane],y,
-        speed:vc.speed*vcRand(.48,.66+Math.min(.08,stage*.02)),collisionBrakeUntil:0,
+        // Traffic remains slower than the player, but closer speeds reduce
+        // excessive catch-up and leave enough time to read and use each gap.
+        speed:vc.speed*vcRand(.60,.76+Math.min(.04,stage*.01)),collisionBrakeUntil:0,
         variant:vcInt(0,3),angle:vcRand(-.025,.025),signal:0,difficulty:vcClamp(vc.time/95,0,1),wave,row
       });
       return true;
     };
 
     for(let row=0;row<rows;row++){
-      const y=-36-row*62;
+      // Wider longitudinal spacing prevents faster traffic from compressing
+      // staggered rows into an impassable three-lane wall.
+      const y=-36-row*86;
       const gapLane=(wave+row+(stage>1?1:0))%3;
       const otherLanes=[0,1,2].filter(l=>l!==gapLane);
       const requested=patterns[row];
@@ -8789,7 +8795,7 @@ async function initFarm(){
     vcSpawnTrafficWave();
     const stage=Math.floor(vc.time/22);
     // Waves arrive progressively closer together, but retain a readable pause.
-    const interval=stage<1?5.0:stage<2?4.4:stage<3?3.9:3.5;
+    const interval=stage<1?5.2:stage<2?4.8:stage<3?4.5:4.2;
     vc.waveTimer=interval+vcRand(.25,.75);
   }
   function vcSpawnCoin(){
