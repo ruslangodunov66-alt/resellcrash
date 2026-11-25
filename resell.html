@@ -3647,7 +3647,6 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
   <button class="vcs-coach-close" id="vcEventCoachClose" type="button" aria-label="Скрыть подсказку">×</button>
 </div>
 <div id="viceCityOverlay" class="vc-overlay" aria-hidden="true">
-  <audio id="vcBgm" src="pixelated-adventures_92797.mp3" preload="none" loop playsinline></audio>
   <div class="vc-shell">
     <header class="vc-header">
       <button id="vcExitBtn" class="vc-pixel-btn vc-exit-btn" type="button" aria-label="Выйти из игры">◀ ВЫХОД</button>
@@ -8176,7 +8175,8 @@ async function initFarm(){
   // one requestAnimationFrame loop; the bundled chase track is loaded alongside the HTML.
   const vcOverlay = $('#viceCityOverlay');
   const vcCanvas = $('#viceCityCanvas');
-  const vcBgm = document.getElementById('vcBgm');
+  // Vice City soundtrack is generated locally with Web Audio (no missing MP3 dependency).
+  const vcBgm = null;
   const vcCtx = vcCanvas ? vcCanvas.getContext('2d', { alpha: false, desynchronized: true }) : null;
   const vcIntro = $('#vcIntro');
   const vcGameOver = $('#vcGameOver');
@@ -8294,7 +8294,7 @@ async function initFarm(){
   function vcReset(mode='ready'){
     vc.mode=mode; vc.time=0; vc.distance=0; vc.coins=0; vc.score=0; vc.lives=3; vc.lane=1;
     vc.playerX=VC_LANES[1]; vc.playerAngle=0; vc.scroll=0; vc.speed=104; vc.items=[]; vc.particles=[];
-    vc.nextTraffic=.8; vc.nextCoin=.45; vc.hitTimer=0; vc.hitFlash=0; vc.shake=0; vc.laneGrace=0; vc.startGrace=.9;
+    vc.nextTraffic=.72; vc.nextCoin=.95; vc.hitTimer=0; vc.hitFlash=0; vc.shake=0; vc.laneGrace=0; vc.startGrace=.9;
     vc.laneHistory=[{at:0,lane:1}]; vc.police=[{x:VC_LANES[0],target:0,targetLane:0,angle:0,y:274,lag:1.55,side:-1},{x:VC_LANES[2],target:2,targetLane:2,angle:0,y:308,lag:2.45,side:1}];
     vc.runId=''; vc.last=0; vc.lastSubmit=null; vc.exchangeBusy=false;
     const exchangeBtn=document.getElementById('vcExchangeBtn');if(exchangeBtn){exchangeBtn.disabled=true;exchangeBtn.textContent='ОБМЕНЯТЬ';}
@@ -8331,29 +8331,80 @@ async function initFarm(){
   }
   function vcLaneAt(t){ let lane=1; for(const h of vc.laneHistory){ if(h.at<=t) lane=h.lane; else break; } return lane; }
 
-  function vcPlayMusic(){
-    if(!vc.audioOn||!vcBgm)return;
-    try{vcBgm.volume=.42;const playPromise=vcBgm.play();if(playPromise&&typeof playPromise.catch==='function')playPromise.catch(()=>{});}catch(_){}
-  }
-  function vcPauseMusic(){try{vcBgm?.pause();}catch(_){}}
+  let vcMusicTimer = null, vcMusicStep = 0, vcMusicNextAt = 0;
   function vcInitAudio(){
     if(!vc.audioOn) return;
     try{
       const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return;
       if(!vc.audio){
-        const a=new AC(), master=a.createGain(); master.gain.value=.16; master.connect(a.destination);
+        const a=new AC(), master=a.createGain(); master.gain.value=.72; master.connect(a.destination);
         const engine=a.createOscillator(), engineGain=a.createGain(), filter=a.createBiquadFilter();
-        engine.type='sawtooth'; engine.frequency.value=58; filter.type='lowpass'; filter.frequency.value=170;
-        engineGain.gain.value=.018; engine.connect(filter); filter.connect(engineGain); engineGain.connect(master); engine.start();
+        engine.type='sawtooth'; engine.frequency.value=64; filter.type='lowpass'; filter.frequency.value=230;
+        engineGain.gain.value=.055; engine.connect(filter); filter.connect(engineGain); engineGain.connect(master); engine.start();
         const siren=a.createOscillator(), sirenGain=a.createGain(), sirenFilter=a.createBiquadFilter();
-        siren.type='triangle'; siren.frequency.value=720; sirenFilter.type='lowpass'; sirenFilter.frequency.value=1250;
-        sirenGain.gain.value=.009; siren.connect(sirenFilter); sirenFilter.connect(sirenGain); sirenGain.connect(master); siren.start();
-        vc.audio={ctx:a,master,filter}; vc.engineOsc=engine; vc.engineGain=engineGain; vc.sirenOsc=siren; vc.sirenGain=sirenGain;
+        siren.type='triangle'; siren.frequency.value=720; sirenFilter.type='lowpass'; sirenFilter.frequency.value=1650;
+        sirenGain.gain.value=.045; siren.connect(sirenFilter); sirenFilter.connect(sirenGain); sirenGain.connect(master); siren.start();
+        const musicGain=a.createGain(); musicGain.gain.value=0; musicGain.connect(master);
+        vc.audio={ctx:a,master,filter,musicGain,noiseBuffer:null};
+        vc.engineOsc=engine; vc.engineGain=engineGain; vc.sirenOsc=siren; vc.sirenGain=sirenGain;
       }
-      vc.audio.ctx.resume?.(); vc.engineGain.gain.setTargetAtTime(.018,vc.audio.ctx.currentTime,.08); vc.sirenGain.gain.setTargetAtTime(.009,vc.audio.ctx.currentTime,.08);
+      const now=vc.audio.ctx.currentTime;
+      vc.audio.ctx.resume?.();
+      const isDriving=vc.mode==='running';
+      vc.engineGain.gain.setTargetAtTime(isDriving?.055:0,now,.08);
+      vc.sirenGain.gain.setTargetAtTime(isDriving?.045:0,now,.08);
     }catch(_){ vc.audio=null; }
   }
-  function vcTone(freq=800,duration=.09,type='triangle',volume=.055,slide=0){
+  function vcMusicNote(freq,at,duration,wave='triangle',volume=.045,cutoff=2400,attack=.012){
+    const a=vc.audio?.ctx;if(!a)return;
+    try{
+      const osc=a.createOscillator(),filter=a.createBiquadFilter(),gain=a.createGain();
+      osc.type=wave;osc.frequency.setValueAtTime(Math.max(35,freq),at);
+      filter.type='lowpass';filter.frequency.setValueAtTime(cutoff,at);filter.Q.value=.55;
+      gain.gain.setValueAtTime(.0001,at);gain.gain.linearRampToValueAtTime(volume,at+attack);
+      gain.gain.setTargetAtTime(Math.max(.0001,volume*.42),at+attack,.12);
+      gain.gain.setTargetAtTime(.0001,at+Math.max(attack+.04,duration-.12),.10);
+      osc.connect(filter);filter.connect(gain);gain.connect(vc.audio.musicGain);
+      osc.start(at);osc.stop(at+duration+.08);
+    }catch(_){}
+  }
+  function vcMusicKick(at){
+    const a=vc.audio?.ctx;if(!a)return;
+    try{const o=a.createOscillator(),g=a.createGain();o.type='sine';o.frequency.setValueAtTime(132,at);o.frequency.exponentialRampToValueAtTime(47,at+.16);g.gain.setValueAtTime(.20,at);g.gain.exponentialRampToValueAtTime(.0001,at+.21);o.connect(g);g.connect(vc.audio.musicGain);o.start(at);o.stop(at+.23);}catch(_){}
+  }
+  function vcMusicNoise(at,volume=.07,duration=.12){
+    const a=vc.audio?.ctx;if(!a)return;
+    try{
+      if(!vc.audio.noiseBuffer){const n=a.createBuffer(1,Math.floor(a.sampleRate*.22),a.sampleRate),d=n.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;vc.audio.noiseBuffer=n;}
+      const src=a.createBufferSource(),filter=a.createBiquadFilter(),g=a.createGain();src.buffer=vc.audio.noiseBuffer;filter.type='highpass';filter.frequency.value=1800;
+      g.gain.setValueAtTime(volume,at);g.gain.exponentialRampToValueAtTime(.0001,at+duration);src.connect(filter);filter.connect(g);g.connect(vc.audio.musicGain);src.start(at);src.stop(at+duration+.01);
+    }catch(_){}
+  }
+  function vcScheduleMusic(){
+    const a=vc.audio?.ctx;if(!a||!vc.audioOn)return;
+    const stepSec=60/116/4,roots=[45,41,48,43],chords=[[57,60,64,69],[53,57,60,65],[60,64,67,72],[55,59,62,67]],arp=[0,2,1,3,2,1,0,1];
+    while(vcMusicNextAt<a.currentTime+.15){
+      const step=vcMusicStep%16,bar=Math.floor(vcMusicStep/16)%4,at=vcMusicNextAt,chord=chords[bar];
+      if(step===0){chord.slice(0,3).forEach(n=>vcMusicNote(440*Math.pow(2,(n-69)/12),at,1.85,'sawtooth',.018,1050,.22));}
+      if(step%4===0){vcMusicKick(at);const bass=roots[bar]-12+([0,0,7,0][step/4]||0);vcMusicNote(440*Math.pow(2,(bass-69)/12),at,.34,'sawtooth',.085,520,.008);}
+      if(step===4||step===12){vcMusicNoise(at,.085,.13);vcMusicNote(185,at,.12,'triangle',.035,850,.003);}
+      if(step%2===0){const note=chord[arp[(step/2+bar)%arp.length]];vcMusicNote(440*Math.pow(2,(note-69)/12),at,.22,'triangle',.052,2900,.008);}
+      if(step%2===1)vcMusicNoise(at,.018,.045);
+      vcMusicNextAt+=stepSec;vcMusicStep++;
+    }
+  }
+  function vcPlayMusic(){
+    if(!vc.audioOn)return;vcInitAudio();const a=vc.audio?.ctx;if(!a)return;
+    try{a.resume?.();if(vcMusicTimer)clearInterval(vcMusicTimer);vcMusicStep=0;vcMusicNextAt=a.currentTime+.035;
+      vc.audio.musicGain.gain.cancelScheduledValues(a.currentTime);vc.audio.musicGain.gain.setTargetAtTime(.82,a.currentTime,.18);
+      vcScheduleMusic();vcMusicTimer=setInterval(vcScheduleMusic,35);
+    }catch(_){}
+  }
+  function vcPauseMusic(){
+    if(vcMusicTimer){clearInterval(vcMusicTimer);vcMusicTimer=null;}
+    try{if(vc.audio){const a=vc.audio.ctx;vc.audio.musicGain.gain.setTargetAtTime(.0001,a.currentTime,.06);}}catch(_){}
+  }
+  function vcTone(freq=800,duration=.09,type='triangle',volume=.075,slide=0){
     if(!vc.audioOn) return;
     try{
       vcInitAudio(); const a=vc.audio?.ctx; if(!a) return;
@@ -8364,14 +8415,14 @@ async function initFarm(){
     }catch(_){}
   }
   function vcStopAudio(){
-    vcPauseMusic(); try{if(vc.audio){vc.engineGain.gain.setTargetAtTime(0,vc.audio.ctx.currentTime,.04);vc.sirenGain.gain.setTargetAtTime(0,vc.audio.ctx.currentTime,.04);}}catch(_){}
+    vcPauseMusic();try{if(vc.audio){const a=vc.audio.ctx;vc.engineGain.gain.setTargetAtTime(0,a.currentTime,.04);vc.sirenGain.gain.setTargetAtTime(0,a.currentTime,.04);}}catch(_){}
   }
   function vcPauseAudio(){
-    vcPauseMusic(); try{if(vc.audio){vc.engineGain.gain.setTargetAtTime(0,vc.audio.ctx.currentTime,.04);vc.sirenGain.gain.setTargetAtTime(0,vc.audio.ctx.currentTime,.04);}}catch(_){}
+    vcPauseMusic();try{if(vc.audio){const a=vc.audio.ctx;vc.engineGain.gain.setTargetAtTime(0,a.currentTime,.04);vc.sirenGain.gain.setTargetAtTime(0,a.currentTime,.04);}}catch(_){}
   }
   function vcResumeAudio(){if(!vc.audioOn)return;vcInitAudio();vcPlayMusic();}
   function vcToggleSound(){
-    vc.audioOn=!vc.audioOn; const b=vcEl('vcSoundBtn'); if(b){b.textContent=vc.audioOn?'AUDIO ON':'AUDIO OFF';b.classList.toggle('off',!vc.audioOn);}
+    vc.audioOn=!vc.audioOn;const b=vcEl('vcSoundBtn');if(b){b.textContent=vc.audioOn?'AUDIO ON':'AUDIO OFF';b.classList.toggle('off',!vc.audioOn);}
     if(vc.audioOn&&vc.mode==='running')vcResumeAudio();else vcStopAudio();vcHaptic('light');
   }
 
@@ -8551,18 +8602,28 @@ async function initFarm(){
     });
   }
   function vcSpawnTraffic(){
-    // Never close all three lanes. Keep a continuous escape route even at high difficulty.
-    const danger=vc.items.filter(o=>o.type==='traffic'&&o.y>-55&&o.y<250);
-    const occupied=new Set(danger.map(o=>o.lane));
-    if(occupied.size>=2)return;
-    const open=[0,1,2].filter(l=>!vc.items.some(o=>o.type==='traffic'&&o.lane===l&&o.y>-70&&o.y<265));
+    // Traffic density ramps in visible waves; keep at least one viable escape lane.
+    const difficulty=vcClamp(vc.time/100,0,1);
+    const active=vc.items.filter(o=>o.type==='traffic'&&o.y>-118&&o.y<270);
+    const occupied=new Set(active.map(o=>o.lane));
+    const maxOccupied=difficulty<.18?1:2;
+    if(occupied.size>=maxOccupied)return;
+    const open=[0,1,2].filter(l=>!active.some(o=>o.lane===l&&Math.abs(o.y-VC_PLAYER_Y)<170));
     if(!open.length)return;
     const lane=open[vcInt(0,open.length-1)];
-    const difficulty=vcClamp(vc.time/105,0,1);
-    vc.items.push({type:'traffic',lane,y:-42,speed:vc.speed*vcRand(.50,.64+difficulty*.07),variant:vcInt(0,3),angle:vcRand(-.025,.025),difficulty});
+    const addCar=(targetLane,y=-42)=>vc.items.push({type:'traffic',lane:targetLane,y,speed:vc.speed*vcRand(.47,.59+difficulty*.13),variant:vcInt(0,3),angle:vcRand(-.025,.025),difficulty});
+    addCar(lane);
+    // After the warm-up, occasional two-car waves leave one lane open but force a decision.
+    const occupiedAfter=new Set([...occupied,lane]);
+    const pairChance=difficulty<.22?0:(.10+difficulty*.24);
+    if(occupiedAfter.size===1&&Math.random()<pairChance){
+      const second=[0,1,2].filter(l=>l!==lane&&!active.some(o=>o.lane===l&&Math.abs(o.y-VC_PLAYER_Y)<185));
+      if(second.length)addCar(second[vcInt(0,second.length-1)],-42-vcRand(35,88));
+    }
   }
   function vcSpawnCoin(){
-    const safe=[0,1,2].filter(l=>!vc.items.some(o=>o.type==='traffic'&&o.lane===l&&o.y>-78&&o.y<255));
+    // Coins remain collectible, but are no longer placed in a guaranteed empty corridor every second.
+    const safe=[0,1,2].filter(l=>!vc.items.some(o=>o.type==='traffic'&&o.lane===l&&o.y>-58&&o.y<185));
     if(!safe.length)return;
     const lane=safe[vcInt(0,safe.length-1)];
     vc.items.push({type:'coin',lane,y:-14,phase:Math.random()*5});
@@ -8571,28 +8632,28 @@ async function initFarm(){
   function vcUpdate(dt){
     if(vc.mode!=='running') return;
     vc.time+=dt;
-    const difficulty=vcClamp(vc.time/110,0,1);
-    vc.speed=Math.min(188,104+vc.time*.78); vc.scroll+=vc.speed*dt;
+    const difficulty=vcClamp(vc.time/100,0,1);
+    vc.speed=Math.min(220,112+vc.time*.95); vc.scroll+=vc.speed*dt;
     vc.distance+=vc.speed*dt*.035; vc.score=Math.floor(vc.distance*12+vc.coins*100);
     const targetX=VC_LANES[vc.lane], oldX=vc.playerX; vc.playerX+=(targetX-vc.playerX)*Math.min(1,dt*12);
     const dx=vc.playerX-oldX; vc.playerAngle+=(vcClamp(dx*.11,-.34,.34)-vc.playerAngle)*Math.min(1,dt*11);
     vcUpdatePolice(dt);
-    vc.nextTraffic-=dt; if(vc.nextTraffic<=0){vcSpawnTraffic();vc.nextTraffic=Math.max(.92,1.48-difficulty*.55)+Math.random()*(.25-difficulty*.09);}
-    vc.nextCoin-=dt; if(vc.nextCoin<=0){vcSpawnCoin();vc.nextCoin=vcRand(.68,.98);}
+    vc.nextTraffic-=dt; if(vc.nextTraffic<=0){vcSpawnTraffic();vc.nextTraffic=Math.max(.62,1.42-difficulty*.72)+Math.random()*(.22-difficulty*.10);}
+    vc.nextCoin-=dt; if(vc.nextCoin<=0){vcSpawnCoin();vc.nextCoin=vcRand(1.08,1.48)+difficulty*.28;}
     vc.hitTimer=Math.max(0,vc.hitTimer-dt); vc.laneGrace=Math.max(0,vc.laneGrace-dt); vc.startGrace=Math.max(0,vc.startGrace-dt); vc.hitFlash=Math.max(0,vc.hitFlash-dt*2.8); vc.shake=Math.max(0,vc.shake-dt*2.2);
     for(let i=vc.items.length-1;i>=0;i--){
       const o=vc.items[i]; o.y+=(o.type==='coin'?vc.speed:vc.speed-o.speed)*dt;
       if(o.type==='coin'&&o.lane===vc.lane&&Math.abs(o.y-VC_PLAYER_Y)<23&&Math.abs(vc.playerX-VC_LANES[o.lane])<22){
-        vc.coins++;vcPersistRunSnapshot(true);vcBurst(VC_LANES[o.lane],o.y,'#ffd45b',8);vcTone(940,.09,'triangle',.05,440);vcHaptic('light');vc.items.splice(i,1);continue;
+        vc.coins++;vcPersistRunSnapshot(true);vcBurst(VC_LANES[o.lane],o.y,'#ffd45b',8);vcTone(940,.11,'triangle',.10,440);vcHaptic('light');vc.items.splice(i,1);continue;
       }
       if(o.type==='traffic'&&Math.abs(o.y-VC_PLAYER_Y)<30&&Math.abs(vc.playerX-VC_LANES[o.lane])<18&&vc.hitTimer<=0&&vc.laneGrace<=0&&vc.startGrace<=0){
-        vc.lives--;vc.hitTimer=.95;vc.hitFlash=.7;vc.shake=.8;vcBurst(vc.playerX,VC_PLAYER_Y,'#ff6c72',16);vcTone(145,.24,'sawtooth',.085,-90);vcHaptic('heavy');vc.items.splice(i,1);if(vc.lives<=0){vcEnd();return;}continue;
+        vc.lives--;vc.hitTimer=.95;vc.hitFlash=.7;vc.shake=.8;vcBurst(vc.playerX,VC_PLAYER_Y,'#ff6c72',16);vcTone(145,.28,'sawtooth',.14,-105);vcHaptic('heavy');vc.items.splice(i,1);if(vc.lives<=0){vcEnd();return;}continue;
       }
       if(o.y>VC_H+35) vc.items.splice(i,1);
     }
     vcResolvePoliceTrafficCollisions();
     for(let i=vc.particles.length-1;i>=0;i--){const p=vc.particles[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=30*dt;p.life-=dt;if(p.life<=0)vc.particles.splice(i,1);}
-    try{if(vc.audio){const now=vc.audio.ctx.currentTime;vc.engineOsc.frequency.setTargetAtTime(50+vc.speed*.31,now,.08);vc.sirenOsc.frequency.setTargetAtTime(620+Math.sin(vc.time*5)*230,now,.04);}}catch(_){}
+    try{if(vc.audio){const now=vc.audio.ctx.currentTime;vc.engineOsc.frequency.setTargetAtTime(54+vc.speed*.34,now,.08);vc.sirenOsc.frequency.setTargetAtTime(620+Math.sin(vc.time*5.8)*285,now,.04);vc.engineGain.gain.setTargetAtTime(.055+Math.min(.025,difficulty*.025),now,.12);vc.sirenGain.gain.setTargetAtTime(.045+Math.min(.025,difficulty*.025),now,.12);}}catch(_){}
     vcPersistRunSnapshot();vcUpdateHUD();
   }
   function vcUpdateHUD(){
@@ -8612,30 +8673,39 @@ async function initFarm(){
     const finalScore=Math.floor(vc.distance*12+vc.coins*100);vc.score=finalScore;
     vc.best=Math.max(vc.best,finalScore);vcWriteLocalBest(vc.best);vcUpdateHUD();
     vcText('vcResultScore',vcFmt(finalScore));vcText('vcResultDistance',`${vcFmt(vc.distance)} M`);vcText('vcResultCoins',vcFmt(vc.coins));vcText('vcResultBest',vcFmt(vc.best));
-    vcShowLayer(vcGameOver);vcTone(280,.3,'triangle',.05,-100);vcHaptic('error');
+    vcShowLayer(vcGameOver);vcTone(280,.38,'triangle',.10,-120);vcHaptic('error');
     await vcSubmitRun();
   }
   async function vcSubmitRun(){
-    if(!userId||!vc.runId) return;
-    vcText('vcExchangeQuote','РАСЧЁТ НАГРАДЫ…');
+    if(!userId||!vc.runId)return;
+    const payload=vcMakeLeavePayload();vcStoreLeavePayload(payload);
+    vcText('vcExchangeQuote','СОХРАНЯЕМ ЗАБЕГ И НАЧИСЛЯЕМ…');
+    const exchangeBtn=vcEl('vcExchangeBtn');if(exchangeBtn){exchangeBtn.disabled=true;exchangeBtn.textContent='НАЧИСЛЕНИЕ…';}
     try{
-      const resp=await apiFetch(`${API_BASE}/games/vice-city/submit`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:String(userId),run_id:vc.runId,score:vc.score,distance_m:Math.floor(vc.distance),coins:vc.coins,duration_sec:Math.floor(vc.time)})},2);
+      // /leave finalizes an active run and atomically exchanges all pending coins.
+      // This is the same server path that previously succeeded only after leaving the game.
+      const resp=await apiFetch(`${API_BASE}/games/vice-city/leave`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),keepalive:true,timeoutMs:15000},2);
       const data=await resp.json().catch(()=>({}));
-      if((resp.ok&&data.success)||(resp.status===409&&data.duplicate)){
-        vc.lastSubmit={...data,success:true,run_id:vc.runId,coins:Number(data.coins??vc.coins),exchanged:false};
-        vcText('vcSaveStatus',resp.status===409?'ЗАБЕГ УЖЕ УЧТЁН · ОБМЕН ДОСТУПЕН':'РЕЗУЛЬТАТ СОХРАНЁН');
-        const quote=Math.max(0,Number(data.exchange_quote)||0);
-        vcText('vcExchangeQuote',`${vcFmt(vc.lastSubmit.coins)} COIN = ${vcMoneyFmt(quote)} ₽`);
-        const exchangeBtn=vcEl('vcExchangeBtn');
-        if(exchangeBtn){exchangeBtn.disabled=vc.lastSubmit.coins<=0||quote<=0;}
-        vcText('vcExchangeStatus',quote>0?'Нажми «Обменять» — деньги поступят на основной баланс':'Для этого забега нет доступной суммы обмена');
-        if(data.best_score!==undefined){vc.best=Math.max(vc.best,Number(data.best_score)||0);vcText('vcBestValue',vcFmt(vc.best));vcText('vcResultBest',vcFmt(vc.best));}
-      }else{
-        vcText('vcSaveStatus',data.error||'НЕ УДАЛОСЬ СОХРАНИТЬ РЕЗУЛЬТАТ');
-        vcText('vcExchangeQuote','НАГРАДА НЕ РАССЧИТАНА');
-        vcText('vcExchangeStatus','Проверь соединение и попробуй ещё раз перед выходом');
-      }
-    }catch(_){vcText('vcSaveStatus','ОФЛАЙН · РЕЗУЛЬТАТ НЕ ОТПРАВЛЕН');vcText('vcExchangeQuote','ОБМЕН ПОКА НЕДОСТУПЕН');vcText('vcExchangeStatus','Нужна связь с сервером, чтобы сохранить и обменять Coins');}
+      if(!resp.ok||!data.success)throw new Error(data.error||`HTTP ${resp.status}`);
+      vc.lastSubmit={success:true,run_id:vc.runId,coins:Number(data.coins)||0,exchanged:true,exchange_quote:Number(data.amount)||0};
+      vcClearLeavePayload(vc.runId);
+      vc.pendingRunId='';vc.pendingCoins=0;vcEl('vcPendingExchange')?.classList.add('vc-hidden');
+      if(data.balance!==undefined){profileData=profileData||{};profileData.balance=Number(data.balance);setBalance(profileData.balance);}
+      const amount=Math.max(0,Number(data.amount)||0),coins=Math.max(0,Number(data.coins)||0);
+      vcText('vcSaveStatus','РЕЗУЛЬТАТ СОХРАНЁН · ЛИДЕРБОРД ОБНОВЛЁН');
+      vcText('vcExchangeQuote',`${vcFmt(coins)} COIN = ${vcMoneyFmt(amount)} ₽`);
+      vcText('vcExchangeStatus',amount>0?`+${vcMoneyFmt(amount)} ₽ уже зачислено на основной баланс RESSELL`:'Забег учтён. Монет для обмена в этом заезде нет.');
+      if(exchangeBtn){exchangeBtn.disabled=true;exchangeBtn.textContent=amount>0?'ЗАЧИСЛЕНО ✓':'НЕТ НАГРАДЫ';}
+      if(amount>0){showToast(`Vice City: +${vcMoneyFmt(amount)} ₽ на баланс`);vcHaptic('success');}
+    }catch(err){
+      // Keep the exact signed run snapshot locally; retry button uses the same idempotent endpoint.
+      vc.lastSubmit={success:true,run_id:vc.runId,coins:vc.coins,exchanged:false};
+      vcText('vcSaveStatus','ОЖИДАЕТ СВЯЗИ С СЕРВЕРОМ');
+      vcText('vcExchangeQuote',`${vcFmt(vc.coins)} COIN · ОЖИДАЕТ НАЧИСЛЕНИЯ`);
+      vcText('vcExchangeStatus','Забег сохранён на устройстве. Нажми повтор, либо выйди в меню — сервер повторит начисление.');
+      if(exchangeBtn){exchangeBtn.disabled=false;exchangeBtn.textContent='ПОВТОРИТЬ НАЧИСЛЕНИЕ';}
+      console.warn('Vice City finalize retry queued:',err);
+    }
     await vcLoadStats();
   }
 
@@ -8654,7 +8724,7 @@ async function initFarm(){
       btn.textContent='ОБМЕНЯНО ✓';btn.disabled=true;
       vcText('vcExchangeQuote',`${vcFmt(data.coins)} COIN = ${vcMoneyFmt(data.amount)} ₽`);
       vcText('vcExchangeStatus',`+${vcMoneyFmt(data.amount)} ₽ зачислено на основной баланс RESSELL`);
-      showToast(`Vice City: +${vcMoneyFmt(data.amount)} ₽ на баланс`);vcHaptic('success');
+      showToast(`Vice City: +${vcMoneyFmt(data.amount)} ₽ на баланс`);vcHaptic('success');await vcLoadStats();
     }catch(err){
       btn.disabled=false;btn.textContent='ОБМЕНЯТЬ';
       vcText('vcExchangeStatus',err.message||'Ошибка обмена · попробуй ещё раз');
