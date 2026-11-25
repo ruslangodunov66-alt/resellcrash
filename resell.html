@@ -8189,7 +8189,7 @@ async function initFarm(){
     open:false, mode:'ready', raf:0, last:0, time:0, distance:0, coins:0, score:0,
     best:0, lives:3, lane:1, playerX:VC_LANES[1], playerAngle:0, scroll:0,
     speed:104, items:[], particles:[], nextTraffic:.8, nextCoin:.45,
-    hitTimer:0, hitFlash:0, shake:0, runId:'', laneHistory:[{at:0,lane:1}],
+    hitTimer:0, hitFlash:0, shake:0, laneGrace:0, startGrace:0, runId:'', laneHistory:[{at:0,lane:1}],
     police:[{x:VC_LANES[0],target:0,targetLane:0,angle:0,y:274,lag:1.55,side:-1},{x:VC_LANES[2],target:2,targetLane:2,angle:0,y:308,lag:2.45,side:1}],
     audio:null, audioOn:true, engineOsc:null, engineGain:null, sirenOsc:null, sirenGain:null,
     lastSubmit:null, leaderboard:[], exchangeBusy:false, startBusy:false, pendingRunId:'', pendingCoins:0
@@ -8294,7 +8294,7 @@ async function initFarm(){
   function vcReset(mode='ready'){
     vc.mode=mode; vc.time=0; vc.distance=0; vc.coins=0; vc.score=0; vc.lives=3; vc.lane=1;
     vc.playerX=VC_LANES[1]; vc.playerAngle=0; vc.scroll=0; vc.speed=104; vc.items=[]; vc.particles=[];
-    vc.nextTraffic=.8; vc.nextCoin=.45; vc.hitTimer=0; vc.hitFlash=0; vc.shake=0;
+    vc.nextTraffic=.8; vc.nextCoin=.45; vc.hitTimer=0; vc.hitFlash=0; vc.shake=0; vc.laneGrace=0; vc.startGrace=.9;
     vc.laneHistory=[{at:0,lane:1}]; vc.police=[{x:VC_LANES[0],target:0,targetLane:0,angle:0,y:274,lag:1.55,side:-1},{x:VC_LANES[2],target:2,targetLane:2,angle:0,y:308,lag:2.45,side:1}];
     vc.runId=''; vc.last=0; vc.lastSubmit=null; vc.exchangeBusy=false;
     const exchangeBtn=document.getElementById('vcExchangeBtn');if(exchangeBtn){exchangeBtn.disabled=true;exchangeBtn.textContent='ОБМЕНЯТЬ';}
@@ -8325,7 +8325,7 @@ async function initFarm(){
   function vcMoveLane(delta){
     if(vc.mode!=='running') return;
     const next=vcClamp(vc.lane+delta,0,2); if(next===vc.lane) return;
-    vc.lane=next; vc.laneHistory.push({at:vc.time,lane:next});
+    vc.lane=next; vc.laneGrace=.24; vc.laneHistory.push({at:vc.time,lane:next});
     if(vc.laneHistory.length>14) vc.laneHistory.splice(0,vc.laneHistory.length-14);
     vcHaptic('selection');
   }
@@ -8579,13 +8579,13 @@ async function initFarm(){
     vcUpdatePolice(dt);
     vc.nextTraffic-=dt; if(vc.nextTraffic<=0){vcSpawnTraffic();vc.nextTraffic=Math.max(.92,1.48-difficulty*.55)+Math.random()*(.25-difficulty*.09);}
     vc.nextCoin-=dt; if(vc.nextCoin<=0){vcSpawnCoin();vc.nextCoin=vcRand(.68,.98);}
-    vc.hitTimer=Math.max(0,vc.hitTimer-dt); vc.hitFlash=Math.max(0,vc.hitFlash-dt*2.8); vc.shake=Math.max(0,vc.shake-dt*2.2);
+    vc.hitTimer=Math.max(0,vc.hitTimer-dt); vc.laneGrace=Math.max(0,vc.laneGrace-dt); vc.startGrace=Math.max(0,vc.startGrace-dt); vc.hitFlash=Math.max(0,vc.hitFlash-dt*2.8); vc.shake=Math.max(0,vc.shake-dt*2.2);
     for(let i=vc.items.length-1;i>=0;i--){
       const o=vc.items[i]; o.y+=(o.type==='coin'?vc.speed:vc.speed-o.speed)*dt;
       if(o.type==='coin'&&o.lane===vc.lane&&Math.abs(o.y-VC_PLAYER_Y)<23&&Math.abs(vc.playerX-VC_LANES[o.lane])<22){
         vc.coins++;vcPersistRunSnapshot(true);vcBurst(VC_LANES[o.lane],o.y,'#ffd45b',8);vcTone(940,.09,'triangle',.05,440);vcHaptic('light');vc.items.splice(i,1);continue;
       }
-      if(o.type==='traffic'&&o.lane===vc.lane&&Math.abs(o.y-VC_PLAYER_Y)<34&&Math.abs(vc.playerX-VC_LANES[o.lane])<23&&vc.hitTimer<=0){
+      if(o.type==='traffic'&&Math.abs(o.y-VC_PLAYER_Y)<30&&Math.abs(vc.playerX-VC_LANES[o.lane])<18&&vc.hitTimer<=0&&vc.laneGrace<=0&&vc.startGrace<=0){
         vc.lives--;vc.hitTimer=.95;vc.hitFlash=.7;vc.shake=.8;vcBurst(vc.playerX,VC_PLAYER_Y,'#ff6c72',16);vcTone(145,.24,'sawtooth',.085,-90);vcHaptic('heavy');vc.items.splice(i,1);if(vc.lives<=0){vcEnd();return;}continue;
       }
       if(o.y>VC_H+35) vc.items.splice(i,1);
@@ -10088,7 +10088,8 @@ async function initFarm(){
     // Keep a short, intentional account-discovery stage before the existing launch sequence.
     await new Promise(r=>setTimeout(r,520));
     await dataPromise;
-    try{ if(bootData && bootData.registration_complete!==false && bootData.registration_required!==true) setTimeout(showResellCustomUpdateOnce,260); }catch(_){}
+    // Legacy RESSELL Custom announcement (2026-09-20) is intentionally not auto-shown anymore.
+    try{localStorage.setItem('resell_custom_update_seen_2026_09_20_v2','1');}catch(_){}
     // By this point Telegram identity/profile bootstrap is complete. Re-read the
     // equipped R-HOLD skin now, even if initFarm ran earlier before userId existed.
     try{ restoreRholdSkinLocalV19(); await loadRholdSkinV19(); }catch(_){ }
@@ -10105,7 +10106,18 @@ async function initFarm(){
         if(!r.ok)return;
         const d=await r.json().catch(()=>({})); const m=d?.message; if(!m?.id||!m?.message)return;
         openModal('Сообщение администрации',`<div class="resell-personal-message"><div class="resell-personal-message-kicker">RESSELL · ADMIN</div><div class="resell-personal-message-title">ЛИЧНОЕ СООБЩЕНИЕ</div><div class="resell-personal-message-body">${esc(String(m.message))}</div><div class="resell-personal-message-meta">Администрация RESSELL · ${formatTime(m.created_at)}</div><button class="admin-btn primary resell-personal-message-btn" id="resellPersonalMessageRead">ПОНЯТНО</button></div>`);
-        document.getElementById('resellPersonalMessageRead')?.addEventListener('click',async()=>{try{await apiFetch(`${API_BASE}/player/${encodeURIComponent(userId)}/admin-message/${encodeURIComponent(m.id)}/read`,{method:'POST',headers:telegramAuthHeaders({'Content-Type':'application/json'}),body:'{}'},1);}catch(_){} closeModal();});
+        let adminMessageReadPromise=null;
+        const markAdminMessageRead=()=>{
+          if(!adminMessageReadPromise) adminMessageReadPromise=(async()=>{
+            try{await apiFetch(`${API_BASE}/player/${encodeURIComponent(userId)}/admin-message/${encodeURIComponent(m.id)}/read`,{method:'POST',headers:telegramAuthHeaders({'Content-Type':'application/json'}),body:'{}'},2);}catch(err){console.warn('Admin message read acknowledgement failed:',err);}
+          })();
+          return adminMessageReadPromise;
+        };
+        document.getElementById('resellPersonalMessageRead')?.addEventListener('click',async()=>{await markAdminMessageRead();closeModal();},{once:true});
+        modalClose?.addEventListener('click',markAdminMessageRead,{once:true});
+        modal?.addEventListener('click',event=>{if(event.target===modal)void markAdminMessageRead();},{once:true});
+        // The player has now received the message; acknowledge it immediately so an old notice cannot loop on every launch.
+        void markAdminMessageRead();
       }catch(_){ }
     }
     try{ setTimeout(()=>showLatestResellUpdate().catch(()=>{}), 700); }catch(_){}
