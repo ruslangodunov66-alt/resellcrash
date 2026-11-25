@@ -84,7 +84,7 @@
 
 </style>
 
-<meta name="resell-build" content="V72-VICE-CITY-CHARACTER-ONBOARDING">
+<meta name="resell-build" content="V73-RESSELL-SESSION-REFRESH-FIX">
 <meta charset="utf-8"/>
 <meta content="width=device-width,initial-scale=1.0,user-scalable=no,viewport-fit=cover" name="viewport"/>
 <meta content="#050505" name="theme-color"/>
@@ -4608,19 +4608,59 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
   }
   const RESSELL_SESSION_KEY='resell_server_session_v4';
 
+  // A launch URL can be bookmarked or kept alive inside Telegram for weeks.
+  // Its session may expire while a newer session has already been issued and
+  // stored. Never let an expired URL bearer override that newer session.
+  function resellSessionTokenInfo(token){
+    try{
+      const value=String(token||'').trim().replace(/^Bearer\s+/i,'');
+      const parts=value.split('.');
+      if(parts.length!==3 || !/^\d+$/.test(parts[0]) || !/^\d+$/.test(parts[1]) || !/^[a-f0-9]{64}$/i.test(parts[2])) return null;
+      const uid=parts[0], expiresAt=Number(parts[1]);
+      if(!Number.isSafeInteger(expiresAt) || expiresAt<=0) return null;
+      return {uid,expiresAt};
+    }catch(_){return null;}
+  }
+  function isFreshResellSession(token,skewSeconds=45){
+    const info=resellSessionTokenInfo(token);
+    return !!(info && info.expiresAt > Math.floor(Date.now()/1000)+skewSeconds);
+  }
+  function removeResellLaunchTokenFromUrl(expected=''){
+    try{
+      const u=new URL(location.href), current=String(u.searchParams.get('resell_session')||'');
+      if(!current || (expected && current!==String(expected))) return;
+      u.searchParams.delete('resell_session');
+      history.replaceState(history.state,'',u.pathname+u.search+u.hash);
+    }catch(_){}
+  }
   function getResellLaunchToken(){
-    try{return String(new URLSearchParams(location.search).get('resell_session')||'').trim();}
-    catch(_){return '';}
+    try{
+      const token=String(new URLSearchParams(location.search).get('resell_session')||'').trim();
+      if(!token) return '';
+      if(!isFreshResellSession(token)){
+        removeResellLaunchTokenFromUrl(token);
+        try{if(getStoredResellSession()===token) clearStoredResellSession();}catch(_){}
+        return '';
+      }
+      return token;
+    }catch(_){return '';}
   }
 
   function getStoredResellSession(){
-    try{return String(sessionStorage.getItem(RESSELL_SESSION_KEY)||localStorage.getItem(RESSELL_SESSION_KEY)||'').trim();}
-    catch(_){return '';}
+    try{
+      const token=String(sessionStorage.getItem(RESSELL_SESSION_KEY)||localStorage.getItem(RESSELL_SESSION_KEY)||'').trim();
+      if(token && !isFreshResellSession(token)){
+        try{sessionStorage.removeItem(RESSELL_SESSION_KEY);}catch(_){}
+        try{localStorage.removeItem(RESSELL_SESSION_KEY);}catch(_){}
+        return '';
+      }
+      return token;
+    }catch(_){return '';}
   }
 
   function setStoredResellSession(token){
     const value=String(token||'').trim();
-    if(!value) return;
+    if(!value || !isFreshResellSession(value)) return;
     try{sessionStorage.setItem(RESSELL_SESSION_KEY,value);}catch(_){}
     try{localStorage.setItem(RESSELL_SESSION_KEY,value);}catch(_){}
   }
@@ -4628,14 +4668,12 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
   function clearStoredResellSession(){
     try{sessionStorage.removeItem(RESSELL_SESSION_KEY);}catch(_){}
     try{localStorage.removeItem(RESSELL_SESSION_KEY);}catch(_){}
+    removeResellLaunchTokenFromUrl();
   }
 
   function resellSessionUserId(token){
-    try{
-      const value=String(token||'').trim().replace(/^Bearer\s+/i,'');
-      const uid=value.split('.')[0]||'';
-      return /^\d+$/.test(uid)?uid:'';
-    }catch(_){return '';}
+    const info=resellSessionTokenInfo(token);
+    return info?info.uid:'';
   }
 
   try{
@@ -4764,7 +4802,8 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
     const existing=getStoredResellSession();
     const existingUid=resellSessionUserId(existing);
     const wanted=String(tgUid||signedUserIdFromInit(initData)||userId||'').trim();
-    if(existing&&existingUid&&wanted&&existingUid===wanted)return existing;
+    if(existing&&existingUid&&wanted&&existingUid===wanted&&isFreshResellSession(existing))return existing;
+    if(existing) clearStoredResellSession();
     if(resellAuthBootstrapPromise)return resellAuthBootstrapPromise;
     const raw=String(initData||'').trim();
     if(!raw){
@@ -4834,53 +4873,45 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
         // subsequent game API calls without re-validating Telegram signatures.
         const launchToken=getResellLaunchToken();
         const storedSession=getStoredResellSession();
-        const launchUid=resellSessionUserId(launchToken);
+        const launchInfo=resellSessionTokenInfo(launchToken);
+        const storedInfo=resellSessionTokenInfo(storedSession);
+        const launchUid=launchInfo?.uid||'';
+        const storedUid=storedInfo?.uid||'';
         const liveUnsafeId=String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id||'').trim();
         let serverSession='';
 
-        // A launch/session token is usable only when it belongs to the current
-        // Telegram identity. Never let an old owner's token authenticate a twin.
-        if(launchToken && launchUid){
-          // A RESSELL launch token is already HMAC-signed by our backend and
-          // contains its own Telegram user id. It is the authoritative bearer
-          // when the Mini App was opened from our bot. Do not reject it just
-          // because Telegram's third-party initData signature belongs to a
-          // different WebApp owner/context.
-          serverSession=launchToken;
-          userId=launchUid;
-          telegramUserId=launchUid;
+        // Prefer the newest unexpired server-issued session. In older builds
+        // the URL token always won, even after the browser had received a new
+        // one; that caused an endless 401 loop after the launch token expired.
+        const identityUid=signedUserId || liveUnsafeId || String(userId||'').trim() || launchUid || storedUid;
+        const sessionChoices=[
+          storedSession&&storedInfo?{token:storedSession,info:storedInfo,source:'stored'}:null,
+          launchToken&&launchInfo?{token:launchToken,info:launchInfo,source:'launch'}:null
+        ].filter(Boolean).filter(item=>item.info.expiresAt>Math.floor(Date.now()/1000)+45)
+          .filter(item=>!identityUid || item.info.uid===identityUid)
+          .sort((a,b)=>b.info.expiresAt-a.info.expiresAt);
+        if(sessionChoices.length){
+          serverSession=sessionChoices[0].token;
+          const sessionUid=sessionChoices[0].info.uid;
+          if(!signedUserId && !liveUnsafeId){userId=sessionUid;telegramUserId=sessionUid;}
           isOwner=String(userId)===ADMIN_OWNER_ID;
         }
-
-        // If Telegram temporarily hides initData during WebView startup, a
-        // launch token may establish the identity. This is safe because the
-        // token itself is server-signed and bound to its tg_id.
-        if(needsTelegramAuth && launchUid && !signedUserId && !liveUnsafeId){
-          userId=launchUid;
-          telegramUserId=launchUid;
-          serverSession=launchToken;
+        if(storedSession && storedUid && identityUid && storedUid!==identityUid){
+          try{sessionStorage.removeItem(RESSELL_SESSION_KEY);}catch(_){}
+          try{localStorage.removeItem(RESSELL_SESSION_KEY);}catch(_){}
         }
-
-        // A persisted session is usable only after its uid matches the live
-        // Telegram user. This prevents cross-account localStorage reuse.
-        if(!serverSession && storedSession){
-          const storedUid=resellSessionUserId(storedSession);
-          const identityUid=signedUserId || liveUnsafeId;
-          if(storedUid && identityUid && storedUid===identityUid){
-            serverSession=storedSession;
-          }else if(storedUid && identityUid && storedUid!==identityUid){
-            clearStoredResellSession();
-          }
-        }
-
-        if(serverSession){
-          const sessionUid=resellSessionUserId(serverSession);
-          const identityUid=signedUserId || liveUnsafeId || launchUid;
-          if(sessionUid && identityUid && sessionUid!==identityUid){clearStoredResellSession();serverSession='';}
+        // A mismatching URL bearer is never allowed to override the live user.
+        if(launchToken && launchUid && identityUid && launchUid!==identityUid){
+          removeResellLaunchTokenFromUrl(launchToken);
         }
 
         if(needsTelegramAuth && !serverSession && initData && signedUserId){
           serverSession=await ensureResellServerSession(initData,signedUserId);
+        }else if(needsTelegramAuth && !serverSession && !initData){
+          // A PWA/WebView can briefly expose no initData after an expired launch
+          // link. Use the same trusted Telegram /start challenge bridge instead
+          // of failing every protected API call with a local 401.
+          serverSession=await ensureResellServerSession('',liveUnsafeId||userId||'');
         }
 
         if(needsTelegramAuth && serverSession){
@@ -4933,6 +4964,9 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
                initData, then retry once. This preserves the stable Telegram
                auth flow and prevents false "invalid session" errors. */
             try{
+              // Remove BOTH persisted and URL launch bearers before minting a
+              // replacement. Otherwise the next retry can pick the same stale
+              // URL token again and ignore the fresh session we just obtained.
               clearStoredResellSession();
               serverSession='';
               const rawFresh=await waitForTelegramInitData(2500);
