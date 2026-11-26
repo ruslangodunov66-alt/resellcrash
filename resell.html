@@ -8246,7 +8246,7 @@ async function initFarm(){
   const VC_ROAD = { left: 28, width: 124 };
   const VC_LANES = [48.7, 90, 131.3];
   const vc = {
-    open:false, mode:'ready', raf:0, last:0, time:0, distance:0, coins:0, score:0,
+    open:false, mode:'ready', raf:0, last:0, lastDraw:0, lastHudUpdate:-1, time:0, distance:0, coins:0, score:0,
     best:0, lives:3, lane:1, playerX:VC_LANES[1], playerAngle:0, scroll:0,
     speed:104, cruiseSpeed:140, brakeHeld:false, items:[], particles:[], waveNo:0, waveTimer:2.0, nextCoin:.45,
     hitTimer:0, hitFlash:0, shake:0, laneGrace:0, startGrace:0, runId:'', laneHistory:[{at:0,lane:1}],
@@ -8255,7 +8255,7 @@ async function initFarm(){
     lastSubmit:null, leaderboard:[], exchangeBusy:false, startBusy:false, pendingRunId:'', pendingCoins:0
   };
   const vcEl = id => document.getElementById(id);
-  const vcText = (id,value) => { const el=vcEl(id); if(el) el.textContent=String(value); };
+  const vcText = (id,value) => { const el=vcEl(id); if(el){const next=String(value);if(el.textContent!==next)el.textContent=next;} };
   const vcClamp = (v,a,b) => Math.max(a,Math.min(b,v));
   const vcRand = (a,b) => a + Math.random()*(b-a);
   const vcInt = (a,b) => Math.floor(vcRand(a,b+1));
@@ -8299,7 +8299,7 @@ async function initFarm(){
     vcFlushExitPromise=task.finally(()=>{vcFlushExitPromise=null;});
     return vcFlushExitPromise;
   }
-  function vcShowLayer(layer){ [vcIntro,vcGameOver,vcPauseLayer,vcLeaderboardLayer].forEach(el=>el?.classList.add('vc-hidden')); layer?.classList.remove('vc-hidden'); }
+  function vcShowLayer(layer){ vc.lastDraw=0; [vcIntro,vcGameOver,vcPauseLayer,vcLeaderboardLayer].forEach(el=>el?.classList.add('vc-hidden')); layer?.classList.remove('vc-hidden'); }
   function vcOpenLeaderboard(){ if(vc.mode==='running'){vc.mode='paused';vcPersistRunSnapshot(true);vcPauseAudio();} vcShowLayer(vcLeaderboardLayer); vcLoadStats(); vcHaptic('light'); }
   function vcCloseLeaderboard(){ vcShowLayer(vc.mode==='paused'?vcPauseLayer:(vc.mode==='over'?vcGameOver:vcIntro)); }
 
@@ -8896,7 +8896,10 @@ async function initFarm(){
     try{if(vc.audio){const now=vc.audio.ctx.currentTime;vc.engineOsc.frequency.setTargetAtTime(54+vc.speed*.34,now,.08);vc.sirenOsc.frequency.setTargetAtTime(620+Math.sin(vc.time*5.8)*285,now,.04);vc.engineGain.gain.setTargetAtTime(.055+Math.min(.025,difficulty*.025),now,.12);vc.sirenGain.gain.setTargetAtTime(.045+Math.min(.025,difficulty*.025),now,.12);}}catch(_){}
     vcPersistRunSnapshot();vcUpdateHUD();
   }
-  function vcUpdateHUD(){
+  function vcUpdateHUD(force=false){
+    // DOM text does not need to be rewritten on every simulation frame.
+    if(!force && vc.mode==='running' && vc.time-vc.lastHudUpdate<.10)return;
+    vc.lastHudUpdate=vc.time;
     vcText('vcDistance',`${vcFmt(vc.distance)} M`);vcText('vcCoins',vcFmt(vc.coins));vcText('vcScore',vcFmt(vc.score));
     vcText('vcSpeed',`${Math.round(vc.speed*1.45)} KM/H`);vcText('vcLives',`${'♥'.repeat(Math.max(0,vc.lives))}${'♡'.repeat(Math.max(0,3-vc.lives))}`);
     const best=Math.max(vc.best,vc.score);vcText('vcBestValue',vcFmt(best));
@@ -8905,7 +8908,11 @@ async function initFarm(){
     if(!vc.open){vc.raf=0;return;}
     const dt=vc.last?Math.min(.04,(now-vc.last)/1000):0;vc.last=now;
     if(vc.mode==='running') vcUpdate(dt);
-    if(vcCtx){vcCtx.imageSmoothingEnabled=false;vcDrawWorld(vcCtx);}
+    // During intro/pause/results the world is static: render only when needed,
+    // instead of burning a permanent 60 FPS loop behind the game overlays.
+    if(vcCtx && (vc.mode==='running' || !vc.lastDraw || now-vc.lastDraw>=500)){
+      vcCtx.imageSmoothingEnabled=false;vcDrawWorld(vcCtx);vc.lastDraw=now;
+    }
     vc.raf=requestAnimationFrame(vcFrame);
   }
   async function vcEnd(){
@@ -10279,16 +10286,18 @@ async function initFarm(){
   const canvas = document.getElementById('particles');
   const ctx = canvas.getContext('2d', {alpha:true});
   let particles = [];
-  let dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const perfAndroid=/Android/i.test(navigator.userAgent||'');
+  const perfLowEnd=perfAndroid && ((Number(navigator.deviceMemory)||4)<=4 || (Number(navigator.hardwareConcurrency)||4)<=6);
+  let dpr = Math.min(window.devicePixelRatio || 1, perfLowEnd ? 1.15 : 1.5);
 
   function resizeCanvas(){
-    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    dpr = Math.min(window.devicePixelRatio || 1, perfLowEnd ? 1.15 : 1.5);
     canvas.width = Math.floor(innerWidth * dpr);
     canvas.height = Math.floor(innerHeight * dpr);
     canvas.style.width = innerWidth + 'px';
     canvas.style.height = innerHeight + 'px';
     ctx.setTransform(dpr,0,0,dpr,0,0);
-    const count = Math.min(72, Math.max(34, Math.floor(innerWidth / 6.2)));
+    const count = Math.min(perfLowEnd ? 34 : 56, Math.max(perfLowEnd ? 18 : 28, Math.floor(innerWidth / (perfLowEnd ? 10 : 7.8))));
     particles = Array.from({length:count}, (_,i) => {
       const x=Math.random()*innerWidth, y=Math.random()*innerHeight;
       return {
@@ -10340,9 +10349,11 @@ async function initFarm(){
     }
     // Sparse moving links; they drift with the particles and remain very subtle.
     ctx.lineWidth=.4;
-    for(let i=0;i<particles.length;i+=2){
+    const linkStep=perfLowEnd?4:2;
+    const linkReach=perfLowEnd?5:9;
+    for(let i=0;i<particles.length;i+=linkStep){
       const a=particles[i];
-      for(let j=i+1;j<Math.min(i+9,particles.length);j++){
+      for(let j=i+1;j<Math.min(i+linkReach,particles.length);j++){
         const b=particles[j];
         const dist=Math.hypot(a.x-b.x,a.y-b.y);
         if(dist<96){
@@ -10352,7 +10363,7 @@ async function initFarm(){
         }
       }
     }
-    setTimeout(()=>requestAnimationFrame(drawParticles),50);
+    setTimeout(()=>requestAnimationFrame(drawParticles),perfLowEnd?66:50);
   }
 
   addEventListener('resize',resizeCanvas,{passive:true});
@@ -11354,7 +11365,10 @@ async function initFarm(){
 
   // Friends: decorate existing friend cards after the V20/V19 renderer runs.
   function decorateFriendsPublic(){
-    document.querySelectorAll('.friend-row').forEach(row=>{
+    // Friend rows exist only while the friends sheet is open; skip page-wide
+    // queries and repeated work when that view is not being displayed.
+    if(!document.querySelector('.friends-sheet .friend-row'))return;
+    document.querySelectorAll('.friends-sheet .friend-row').forEach(row=>{
       const idx = row.dataset.friendIndex ?? row.dataset.friendIndexV19 ?? row.dataset.friendIndexV20;
       const list = core().getFriends?.() || [];
       if(!list || idx==null) return;
