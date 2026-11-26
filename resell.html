@@ -8408,7 +8408,7 @@ async function initFarm(){
       const resp=await apiFetch(`${API_BASE}/games/vice-city/start`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:String(userId),run_id:vc.runId})},2);
       const data=await resp.json().catch(()=>({}));
       if(!resp.ok||!data.success)throw new Error(data.error||'Не удалось начать забег');
-      vc.mode='running';vc.last=0;vc.accumulator=0;vc.renderAccumulator=0;vcPersistRunSnapshot(true);vcShowLayer(null);vcInitAudio();vcHaptic('medium');
+      vc.mode='running';vc.last=0;vc.accumulator=0;vc.renderAccumulator=0;vcPersistRunSnapshot(true);vcShowLayer(null);vcResumeAudio();vcHaptic('medium');
     }catch(err){vc.runId='';vc.mode='ready';vcStopAudio();showToast(err.message||'Не удалось начать забег Vice City');}
     finally{vc.startBusy=false;if(startBtn)startBtn.disabled=false;if(restartBtn)restartBtn.disabled=false;}
   }
@@ -8451,31 +8451,58 @@ async function initFarm(){
   function vcLaneAt(t){ let lane=1; for(const h of vc.laneHistory){ if(h.at<=t) lane=h.lane; else break; } return lane; }
 
   let vcMusicTimer = null, vcMusicStep = 0, vcMusicNextAt = 0;
+  let vcAudioSuspendTimer = null, vcOrientationRecoveryTimer = null;
+  let vcLastOrientationIsLandscape = !!window.matchMedia?.('(orientation: landscape)')?.matches;
+
+  function vcApplyDriveAudio(ctx,force=false){
+    if(!ctx || ctx.state!=='running' || !vc.audio || vc.audio.ctx!==ctx)return;
+    const active=!!(vc.audioOn && vc.open && vc.mode==='running');
+    const mode=active?'running':'muted';
+    if(!force && vc.audio.driveMode===mode)return;
+    const now=ctx.currentTime;
+    for(const node of [vc.engineGain,vc.sirenGain]){
+      if(!node?.gain)continue;
+      try{
+        node.gain.cancelScheduledValues(now);
+        node.gain.setValueAtTime(node.gain.value,now);
+        node.gain.setTargetAtTime(active ? (node===vc.engineGain ? 0.055 : 0.045) : 0,now,.055);
+      }catch(_){}
+    }
+    vc.audio.driveMode=mode;
+  }
   function vcInitAudio(){
-    if(!vc.audioOn) return;
+    if(!vc.audioOn)return;
     try{
-      const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return;
+      const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;
       if(!vc.audio){
-        const a=new AC(), master=a.createGain(); master.gain.value=.72; master.connect(a.destination);
-        const engine=a.createOscillator(), engineGain=a.createGain(), filter=a.createBiquadFilter();
-        engine.type='sawtooth'; engine.frequency.value=64; filter.type='lowpass'; filter.frequency.value=230;
-        engineGain.gain.value=.055; engine.connect(filter); filter.connect(engineGain); engineGain.connect(master); engine.start();
-        const siren=a.createOscillator(), sirenGain=a.createGain(), sirenFilter=a.createBiquadFilter();
-        siren.type='triangle'; siren.frequency.value=720; sirenFilter.type='lowpass'; sirenFilter.frequency.value=1650;
-        sirenGain.gain.value=.045; siren.connect(sirenFilter); sirenFilter.connect(sirenGain); sirenGain.connect(master); siren.start();
-        const musicGain=a.createGain(); musicGain.gain.value=0; musicGain.connect(master);
-        vc.audio={ctx:a,master,filter,musicGain,noiseBuffer:null};
-        vc.engineOsc=engine; vc.engineGain=engineGain; vc.sirenOsc=siren; vc.sirenGain=sirenGain;
+        const a=new AC(),master=a.createGain();master.gain.value=.72;master.connect(a.destination);
+        const engine=a.createOscillator(),engineGain=a.createGain(),filter=a.createBiquadFilter();
+        engine.type='sawtooth';engine.frequency.value=64;filter.type='lowpass';filter.frequency.value=230;
+        engineGain.gain.value=0;engine.connect(filter);filter.connect(engineGain);engineGain.connect(master);engine.start();
+        const siren=a.createOscillator(),sirenGain=a.createGain(),sirenFilter=a.createBiquadFilter();
+        siren.type='triangle';siren.frequency.value=720;sirenFilter.type='lowpass';sirenFilter.frequency.value=1650;
+        sirenGain.gain.value=0;siren.connect(sirenFilter);sirenFilter.connect(sirenGain);sirenGain.connect(master);siren.start();
+        const musicGain=a.createGain();musicGain.gain.value=0;musicGain.connect(master);
+        vc.audio={ctx:a,master,filter,musicGain,noiseBuffer:null,driveMode:'muted'};
+        vc.engineOsc=engine;vc.engineGain=engineGain;vc.sirenOsc=siren;vc.sirenGain=sirenGain;
       }
-      const now=vc.audio.ctx.currentTime;
-      vc.audio.ctx.resume?.();
-      const isDriving=vc.mode==='running';
-      vc.engineGain.gain.setTargetAtTime(isDriving?.055:0,now,.08);
-      vc.sirenGain.gain.setTargetAtTime(isDriving?.045:0,now,.08);
-    }catch(_){ vc.audio=null; }
+      const ctx=vc.audio.ctx;
+      if(vcAudioSuspendTimer){clearTimeout(vcAudioSuspendTimer);vcAudioSuspendTimer=null;}
+      if(ctx.state==='running')vcApplyDriveAudio(ctx);
+      else{
+        // Never enqueue siren modulation while the WebAudio clock is frozen.
+        const resumeResult=ctx.resume?.();
+        if(resumeResult&&typeof resumeResult.then==='function')resumeResult.then(()=>{
+          if(vc.audio?.ctx===ctx)vcApplyDriveAudio(ctx);
+        }).catch(()=>{});
+      }
+    }catch(_){
+      try{vc.audio?.ctx?.suspend?.();}catch(__){}
+      vc.audio=null;vc.engineOsc=null;vc.engineGain=null;vc.sirenOsc=null;vc.sirenGain=null;
+    }
   }
   function vcMusicNote(freq,at,duration,wave='triangle',volume=.045,cutoff=2400,attack=.012){
-    const a=vc.audio?.ctx;if(!a)return;
+    const a=vc.audio?.ctx;if(!a||a.state!=='running'||!vc.audioOn)return;
     try{
       const osc=a.createOscillator(),filter=a.createBiquadFilter(),gain=a.createGain();
       osc.type=wave;osc.frequency.setValueAtTime(Math.max(35,freq),at);
@@ -8488,11 +8515,11 @@ async function initFarm(){
     }catch(_){}
   }
   function vcMusicKick(at){
-    const a=vc.audio?.ctx;if(!a)return;
+    const a=vc.audio?.ctx;if(!a||a.state!=='running'||!vc.audioOn)return;
     try{const o=a.createOscillator(),g=a.createGain();o.type='sine';o.frequency.setValueAtTime(132,at);o.frequency.exponentialRampToValueAtTime(47,at+.16);g.gain.setValueAtTime(.20,at);g.gain.exponentialRampToValueAtTime(.0001,at+.21);o.connect(g);g.connect(vc.audio.musicGain);o.start(at);o.stop(at+.23);}catch(_){}
   }
   function vcMusicNoise(at,volume=.07,duration=.12){
-    const a=vc.audio?.ctx;if(!a)return;
+    const a=vc.audio?.ctx;if(!a||a.state!=='running'||!vc.audioOn)return;
     try{
       if(!vc.audio.noiseBuffer){const n=a.createBuffer(1,Math.floor(a.sampleRate*.22),a.sampleRate),d=n.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;vc.audio.noiseBuffer=n;}
       const src=a.createBufferSource(),filter=a.createBiquadFilter(),g=a.createGain();src.buffer=vc.audio.noiseBuffer;filter.type='highpass';filter.frequency.value=1800;
@@ -8500,7 +8527,7 @@ async function initFarm(){
     }catch(_){}
   }
   function vcScheduleMusic(){
-    const a=vc.audio?.ctx;if(!a||!vc.audioOn)return;
+    const a=vc.audio?.ctx;if(!a||a.state!=='running'||!vc.audioOn)return;
     const stepSec=60/116/4,roots=[45,41,48,43],chords=[[57,60,64,69],[53,57,60,65],[60,64,67,72],[55,59,62,67]],arp=[0,2,1,3,2,1,0,1];
     while(vcMusicNextAt<a.currentTime+.15){
       const step=vcMusicStep%16,bar=Math.floor(vcMusicStep/16)%4,at=vcMusicNextAt,chord=chords[bar];
@@ -8513,33 +8540,103 @@ async function initFarm(){
     }
   }
   function vcPlayMusic(){
-    if(!vc.audioOn)return;vcInitAudio();const a=vc.audio?.ctx;if(!a)return;
-    try{a.resume?.();if(vcMusicTimer)clearInterval(vcMusicTimer);vcMusicStep=0;vcMusicNextAt=a.currentTime+.035;
-      vc.audio.musicGain.gain.cancelScheduledValues(a.currentTime);vc.audio.musicGain.gain.setTargetAtTime(.82,a.currentTime,.18);
-      vcScheduleMusic();vcMusicTimer=setInterval(vcScheduleMusic,35);
-    }catch(_){}
+    if(!vc.audioOn)return;
+    vcInitAudio();const ctx=vc.audio?.ctx;if(!ctx)return;
+    if(vcMusicTimer){clearInterval(vcMusicTimer);vcMusicTimer=null;}
+    const begin=()=>{
+      if(vc.audio?.ctx!==ctx||ctx.state!=='running'||!vc.audioOn)return;
+      const now=ctx.currentTime;
+      vcMusicStep=0;vcMusicNextAt=now+.035;
+      vc.audio.musicGain.gain.cancelScheduledValues(now);
+      vc.audio.musicGain.gain.setValueAtTime(0,now);
+      vc.audio.musicGain.gain.setTargetAtTime(.82,now,.18);
+      vcScheduleMusic();
+      vcMusicTimer=setInterval(()=>{
+        if(vc.audio?.ctx!==ctx||ctx.state!=='running'||!vc.audioOn){clearInterval(vcMusicTimer);vcMusicTimer=null;return;}
+        vcScheduleMusic();
+      },35);
+    };
+    if(ctx.state==='running')begin();
+    else{const p=ctx.resume?.();if(p&&typeof p.then==='function')p.then(begin).catch(()=>{});}
   }
   function vcPauseMusic(){
     if(vcMusicTimer){clearInterval(vcMusicTimer);vcMusicTimer=null;}
-    try{if(vc.audio){const a=vc.audio.ctx;vc.audio.musicGain.gain.setTargetAtTime(.0001,a.currentTime,.06);}}catch(_){}
+    try{const ctx=vc.audio?.ctx,gain=vc.audio?.musicGain?.gain;if(ctx&&gain&&ctx.state==='running'){const now=ctx.currentTime;gain.cancelScheduledValues(now);gain.setValueAtTime(gain.value,now);gain.setTargetAtTime(0,now,.025);}}catch(_){}
   }
   function vcTone(freq=800,duration=.09,type='triangle',volume=.075,slide=0){
-    if(!vc.audioOn) return;
+    if(!vc.audioOn||!vc.open||vc.mode!=='running')return;
     try{
-      vcInitAudio(); const a=vc.audio?.ctx; if(!a) return;
-      const o=a.createOscillator(),g=a.createGain(); o.type=type; o.frequency.setValueAtTime(freq,a.currentTime);
-      if(slide) o.frequency.exponentialRampToValueAtTime(Math.max(50,freq+slide),a.currentTime+duration);
-      g.gain.setValueAtTime(volume,a.currentTime); g.gain.exponentialRampToValueAtTime(.001,a.currentTime+duration);
+      vcInitAudio();const a=vc.audio?.ctx;if(!a||a.state!=='running')return;
+      const o=a.createOscillator(),g=a.createGain();o.type=type;o.frequency.setValueAtTime(freq,a.currentTime);
+      if(slide)o.frequency.exponentialRampToValueAtTime(Math.max(50,freq+slide),a.currentTime+duration);
+      g.gain.setValueAtTime(volume,a.currentTime);g.gain.exponentialRampToValueAtTime(.001,a.currentTime+duration);
       o.connect(g);g.connect(vc.audio.master);o.start();o.stop(a.currentTime+duration+.02);
     }catch(_){}
   }
-  function vcStopAudio(){
-    vcPauseMusic();try{if(vc.audio){const a=vc.audio.ctx;vc.engineGain.gain.setTargetAtTime(0,a.currentTime,.04);vc.sirenGain.gain.setTargetAtTime(0,a.currentTime,.04);}}catch(_){}
+  function vcSilenceAudio(forceSuspend=false){
+    if(vcMusicTimer){clearInterval(vcMusicTimer);vcMusicTimer=null;}
+    const ctx=vc.audio?.ctx;if(!ctx)return;
+    try{
+      const now=ctx.currentTime;
+      // Cancel stale automation first. This is important when iOS/Android
+      // temporarily freezes AudioContext during rotation or app focus changes.
+      for(const node of [vc.engineGain,vc.sirenGain,vc.audio.musicGain]){
+        const gain=node?.gain;if(!gain)continue;
+        gain.cancelScheduledValues(now);
+        gain.setValueAtTime(gain.value,now);
+        gain.linearRampToValueAtTime(0,now+.025);
+      }
+      if(vc.sirenOsc?.frequency){vc.sirenOsc.frequency.cancelScheduledValues(now);vc.sirenOsc.frequency.setValueAtTime(720,now);}
+      if(vc.engineOsc?.frequency){vc.engineOsc.frequency.cancelScheduledValues(now);vc.engineOsc.frequency.setValueAtTime(64,now);}
+      vc.audio.driveMode='muted';
+      if(vcAudioSuspendTimer)clearTimeout(vcAudioSuspendTimer);
+      vcAudioSuspendTimer=setTimeout(()=>{
+        vcAudioSuspendTimer=null;
+        if(vc.audio?.ctx===ctx && ctx.state==='running' && (forceSuspend||!vc.audioOn||!vc.open||vc.mode!=='running')){
+          try{ctx.suspend().catch(()=>{});}catch(_){}
+        }
+      },70);
+    }catch(_){}
   }
-  function vcPauseAudio(){
-    vcPauseMusic();try{if(vc.audio){const a=vc.audio.ctx;vc.engineGain.gain.setTargetAtTime(0,a.currentTime,.04);vc.sirenGain.gain.setTargetAtTime(0,a.currentTime,.04);}}catch(_){}
+  function vcStopAudio(){vcSilenceAudio(false);}
+  function vcPauseAudio(){vcSilenceAudio(false);}
+  function vcResumeAudio(){
+    if(!vc.audioOn||!vc.open||vc.mode!=='running')return;
+    if(vcOrientationRecoveryTimer){clearTimeout(vcOrientationRecoveryTimer);vcOrientationRecoveryTimer=null;}
+    vcInitAudio();const ctx=vc.audio?.ctx;if(!ctx)return;
+    const activate=()=>{
+      if(vc.audio?.ctx!==ctx||!vc.audioOn||!vc.open||vc.mode!=='running')return;
+      const now=ctx.currentTime;
+      try{
+        for(const node of [vc.engineGain,vc.sirenGain]){
+          if(!node?.gain)continue;node.gain.cancelScheduledValues(now);node.gain.setValueAtTime(0,now);
+        }
+        if(vc.sirenOsc?.frequency){vc.sirenOsc.frequency.cancelScheduledValues(now);vc.sirenOsc.frequency.setValueAtTime(720,now);}
+        if(vc.engineOsc?.frequency){vc.engineOsc.frequency.cancelScheduledValues(now);vc.engineOsc.frequency.setValueAtTime(64,now);}
+        vc.audio.driveMode='muted';vcApplyDriveAudio(ctx,true);
+      }catch(_){}
+      vcPlayMusic();
+    };
+    if(ctx.state==='running')activate();
+    else{const p=ctx.resume?.();if(p&&typeof p.then==='function')p.then(activate).catch(()=>{});}
   }
-  function vcResumeAudio(){if(!vc.audioOn)return;vcInitAudio();vcPlayMusic();}
+  function vcRecoverAudioAfterOrientation(){
+    const isLandscape=!!window.matchMedia?.('(orientation: landscape)')?.matches;
+    if(isLandscape===vcLastOrientationIsLandscape)return;
+    vcLastOrientationIsLandscape=isLandscape;
+    if(!vc.open||vc.mode!=='running'||!vc.audioOn||!vc.audio)return;
+    if(vcOrientationRecoveryTimer)clearTimeout(vcOrientationRecoveryTimer);
+    // Briefly silence and suspend the context so stale siren frequency ramps
+    // cannot pile up while the mobile browser relayouts the rotated viewport.
+    vcSilenceAudio(true);
+    vcOrientationRecoveryTimer=setTimeout(()=>{
+      vcOrientationRecoveryTimer=null;
+      if(vc.open&&vc.mode==='running'&&vc.audioOn)vcResumeAudio();
+    },240);
+  }
+  window.addEventListener('orientationchange',vcRecoverAudioAfterOrientation,{passive:true});
+  window.screen?.orientation?.addEventListener?.('change',vcRecoverAudioAfterOrientation);
+  window.addEventListener('resize',vcRecoverAudioAfterOrientation,{passive:true});
   function vcToggleSound(){
     vc.audioOn=!vc.audioOn;const b=vcEl('vcSoundBtn');if(b){b.textContent=vc.audioOn?'AUDIO ON':'AUDIO OFF';b.classList.toggle('off',!vc.audioOn);}
     if(vc.audioOn&&vc.mode==='running')vcResumeAudio();else vcStopAudio();vcHaptic('light');
@@ -9107,7 +9204,16 @@ async function initFarm(){
     for(let i=vc.particles.length-1;i>=0;i--){const p=vc.particles[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=30*dt;p.life-=dt;if(p.life<=0)vc.particles.splice(i,1);}
     if(vc.time-vc.lastAudioUpdate>=.05){
       vc.lastAudioUpdate=vc.time;
-      try{if(vc.audio){const now=vc.audio.ctx.currentTime;vc.engineOsc.frequency.setTargetAtTime(54+vc.speed*.34,now,.08);vc.sirenOsc.frequency.setTargetAtTime(620+Math.sin(vc.time*5.8)*285,now,.04);vc.engineGain.gain.setTargetAtTime(.055+Math.min(.025,difficulty*.025),now,.12);vc.sirenGain.gain.setTargetAtTime(.045+Math.min(.025,difficulty*.025),now,.12);}}catch(_){}
+      try{
+        const audioCtx=vc.audio?.ctx;
+        if(vc.mode==='running'&&vc.audioOn&&audioCtx?.state==='running'&&vc.engineOsc&&vc.sirenOsc&&vc.engineGain&&vc.sirenGain){
+          const now=audioCtx.currentTime;
+          vc.engineOsc.frequency.setTargetAtTime(54+vc.speed*.34,now,.08);
+          vc.sirenOsc.frequency.setTargetAtTime(620+Math.sin(vc.time*5.8)*285,now,.07);
+          vc.engineGain.gain.setTargetAtTime(.055+Math.min(.025,difficulty*.025),now,.12);
+          vc.sirenGain.gain.setTargetAtTime(.045+Math.min(.025,difficulty*.025),now,.12);
+        }
+      }catch(_){}
     }
     vcPersistRunSnapshot();vcUpdateHUD();
   }
