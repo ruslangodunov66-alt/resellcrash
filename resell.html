@@ -8245,6 +8245,20 @@ async function initFarm(){
   const VC_W = 180, VC_H = 320, VC_PLAYER_Y = 208;
   const VC_ROAD = { left: 28, width: 124 };
   const VC_LANES = [48.7, 90, 131.3];
+  // Static post-processing is rasterized once instead of rebuilding scanlines
+  // and a full-canvas gradient on every animation frame (helps slower Android GPUs).
+  const vcEffectLayer=document.createElement('canvas');
+  vcEffectLayer.width=VC_W;vcEffectLayer.height=VC_H;
+  const vcEffectCtx=vcEffectLayer.getContext('2d');
+  if(vcEffectCtx){
+    vcEffectCtx.fillStyle='rgba(2,5,10,.12)';
+    for(let y=1;y<VC_H;y+=4)vcEffectCtx.fillRect(0,y,VC_W,1);
+    const vg=vcEffectCtx.createLinearGradient(0,0,0,VC_H);
+    vg.addColorStop(0,'rgba(0,0,0,.22)');vg.addColorStop(.18,'rgba(0,0,0,0)');
+    vg.addColorStop(.78,'rgba(0,0,0,0)');vg.addColorStop(1,'rgba(0,0,0,.26)');
+    vcEffectCtx.fillStyle=vg;vcEffectCtx.fillRect(0,0,VC_W,VC_H);
+  }
+  const vcGlowCache=new Map();
   const vc = {
     open:false, mode:'ready', raf:0, last:0, lastDraw:0, lastHudUpdate:-1, time:0, distance:0, coins:0, score:0,
     best:0, lives:3, lane:1, playerX:VC_LANES[1], playerAngle:0, scroll:0,
@@ -8490,8 +8504,18 @@ async function initFarm(){
   function vcRect(c,x,y,w,h,color){ c.fillStyle=color; c.fillRect(Math.round(x),Math.round(y),Math.max(1,Math.round(w)),Math.max(1,Math.round(h))); }
   function vcPoly(c,pts,color){ c.fillStyle=color;c.beginPath();c.moveTo(pts[0][0],pts[0][1]);for(let i=1;i<pts.length;i++)c.lineTo(pts[i][0],pts[i][1]);c.closePath();c.fill(); }
   function vcGlow(c,x,y,r,color,alpha=.35){
-    const g=c.createRadialGradient(x,y,0,x,y,r); g.addColorStop(0,color); g.addColorStop(1,'rgba(0,0,0,0)');
-    c.save(); c.globalAlpha=alpha; c.fillStyle=g; c.fillRect(x-r,y-r,r*2,r*2); c.restore();
+    // Reuse a tiny pre-rendered radial glow. Recreating many CanvasGradient
+    // objects for every car/coin each frame is expensive on entry-level phones.
+    const radius=Math.max(1,Math.ceil(r));
+    const key=`${radius}|${color}`;
+    let sprite=vcGlowCache.get(key);
+    if(!sprite){
+      sprite=document.createElement('canvas');sprite.width=radius*2;sprite.height=radius*2;
+      const gctx=sprite.getContext('2d');
+      if(gctx){const g=gctx.createRadialGradient(radius,radius,0,radius,radius,radius);g.addColorStop(0,color);g.addColorStop(1,'rgba(0,0,0,0)');gctx.fillStyle=g;gctx.fillRect(0,0,radius*2,radius*2);}
+      vcGlowCache.set(key,sprite);
+    }
+    c.save();c.globalAlpha=alpha;c.drawImage(sprite,Math.round(x-radius),Math.round(y-radius));c.restore();
   }
   function vcDrawPalm(c,x,y,scale=1){
     c.save(); c.translate(Math.round(x),Math.round(y)); c.scale(scale,scale);
@@ -8610,9 +8634,8 @@ async function initFarm(){
     if(vc.hitFlash>0 && Math.floor(vc.time*18)%2===0){c.globalAlpha=.65;vcDrawCar(c,vc.playerX,VC_PLAYER_Y,'player',vc.playerAngle);c.globalAlpha=1;}
     else vcDrawCar(c,vc.playerX,VC_PLAYER_Y,'player',vc.playerAngle);
     vc.particles.forEach(p=>{c.globalAlpha=Math.max(0,p.life/p.max);vcRect(c,p.x,p.y,p.size,p.size,p.color);});c.globalAlpha=1;
-    // subtle scanline texture and vignette
-    c.fillStyle='rgba(2,5,10,.12)';for(let y=1;y<VC_H;y+=4)c.fillRect(0,y,VC_W,1);
-    const vg=c.createLinearGradient(0,0,0,VC_H);vg.addColorStop(0,'rgba(0,0,0,.22)');vg.addColorStop(.18,'rgba(0,0,0,0)');vg.addColorStop(.78,'rgba(0,0,0,0)');vg.addColorStop(1,'rgba(0,0,0,.26)');c.fillStyle=vg;c.fillRect(0,0,VC_W,VC_H);
+    // Same scanline/vignette appearance, composited from a cached layer.
+    if(vcEffectLayer)c.drawImage(vcEffectLayer,0,0);
     if(vc.hitFlash>0){c.fillStyle=`rgba(255,50,70,${Math.min(.18,vc.hitFlash*.12)})`;c.fillRect(0,0,VC_W,VC_H);}
     c.restore();
   }
@@ -8772,7 +8795,7 @@ async function initFarm(){
         Math.abs(o.y-y)<58);
       if(laneBusy)return false;
       vc.items.push({
-        type:'traffic',lane,targetLane:lane,x:VC_LANES[lane],y,
+        type:'traffic',lane,targetLane:lane,x:VC_LANES[lane],y,prevX:VC_LANES[lane],prevY:y,
         speed:vc.cruiseSpeed*vcRand(.66,.84),collisionBrakeUntil:0,
         variant:vcInt(0,3),angle:vcRand(-.015,.015),signal:0,difficulty:vcClamp(vc.time/120,0,1),wave,row
       });
@@ -8854,8 +8877,36 @@ async function initFarm(){
     vc.items.push({type:'coin',lane:selected.lane,y:-14,phase:Math.random()*5,gapChallenge:selected.gapChallenge});
   }
   function vcBurst(x,y,color,count=10){for(let i=0;i<count;i++){const a=Math.random()*Math.PI*2,v=vcRand(16,70);vc.particles.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,life:vcRand(.25,.55),max:.55,size:vcInt(1,3),color});}}
+  function vcSweptPlayerHit(car){
+    // Test the whole relative path between frames, not only the final positions.
+    // This prevents a rapid left-right swipe from tunnelling through a vehicle.
+    const carX0=Number.isFinite(car.prevX)?car.prevX:(Number.isFinite(car.x)?car.x:VC_LANES[car.lane]);
+    const carY0=Number.isFinite(car.prevY)?car.prevY:car.y;
+    const carX1=Number.isFinite(car.x)?car.x:VC_LANES[car.lane];
+    let x0=(Number.isFinite(vc.playerPrevX)?vc.playerPrevX:vc.playerX)-carX0;
+    let y0=VC_PLAYER_Y-carY0;
+    const dx=(vc.playerX-carX1)-x0;
+    const dy=(VC_PLAYER_Y-car.y)-y0;
+    let t0=0,t1=1;
+    const clip=(start,delta,half)=>{
+      if(Math.abs(delta)<1e-8)return Math.abs(start)<=half;
+      let a=(-half-start)/delta,b=(half-start)/delta;
+      if(a>b){const tmp=a;a=b;b=tmp;}
+      t0=Math.max(t0,a);t1=Math.min(t1,b);
+      return t0<=t1;
+    };
+    return clip(x0,dx,21)&&clip(y0,dy,38)&&t1>=0&&t0<=1;
+  }
   function vcUpdate(dt){
     if(vc.mode!=='running') return;
+    // Preserve start-of-frame positions for continuous collision detection.
+    vc.playerPrevX=vc.playerX;
+    for(const item of vc.items){
+      if(item.type==='traffic'){
+        item.prevX=Number.isFinite(item.x)?item.x:VC_LANES[item.lane];
+        item.prevY=item.y;
+      }
+    }
     vc.time+=dt;
     const difficulty=vcClamp(vc.time/100,0,1);
     vc.cruiseSpeed=Math.min(270,140+vc.time*1.22);
@@ -8886,7 +8937,7 @@ async function initFarm(){
       if(o.type==='coin'&&o.lane===vc.lane&&Math.abs(o.y-VC_PLAYER_Y)<23&&Math.abs(vc.playerX-VC_LANES[o.lane])<22){
         vc.coins++;vcPersistRunSnapshot(true);vcBurst(VC_LANES[o.lane],o.y,'#ffd45b',8);vcTone(940,.11,'triangle',.10,440);vcHaptic('light');vc.items.splice(i,1);continue;
       }
-      if(o.type==='traffic'&&Math.abs(o.y-VC_PLAYER_Y)<38&&Math.abs(vc.playerX-(Number.isFinite(o.x)?o.x:VC_LANES[o.lane]))<21&&vc.hitTimer<=0&&vc.laneGrace<=0&&vc.startGrace<=0){
+      if(o.type==='traffic'&&vcSweptPlayerHit(o)&&vc.hitTimer<=0&&vc.laneGrace<=0&&vc.startGrace<=0){
         vc.lives--;vc.hitTimer=.95;vc.hitFlash=.7;vc.shake=.8;vcBurst(vc.playerX,VC_PLAYER_Y,'#ff6c72',16);vcTone(145,.28,'sawtooth',.14,-105);vcHaptic('heavy');vc.items.splice(i,1);if(vc.lives<=0){vcEnd();return;}continue;
       }
       if(o.y>VC_H+35) vc.items.splice(i,1);
