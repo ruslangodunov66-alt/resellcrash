@@ -8250,75 +8250,18 @@ async function initFarm(){
   const VC_PALM_FRONDS=[[-10,-7],[-7,-12],[0,-14],[7,-12],[10,-7],[-11,0],[11,0]];
   const vcDrawQueue=[],vcTrafficScratch=[];
   const vcDrawSortByY=(a,b)=>a.y-b.y;
-  // Automatic graphics profiles. There is deliberately no in-game quality control.
-  const VC_GRAPHICS = {
-    // All devices keep the same 60 Hz simulation and use the display's natural
-    // requestAnimationFrame cadence. Quality tiers reduce drawing cost, never
-    // impose an artificial 30/45 FPS cap (which caused visible judder).
-    high:   {fps:60, simHz:60, dpr:1.5, particles:42, particleMs:60, links:2, glow:2, roadFlecks:24, cityDetail:2, streaks:true, burst:8},
-    medium: {fps:60, simHz:60, dpr:1.15,particles:22, particleMs:85, links:4, glow:1, roadFlecks:8,  cityDetail:1, streaks:false,burst:5},
-    low:    {fps:60, simHz:60, dpr:1.0, particles:8,  particleMs:120,links:0, glow:0, roadFlecks:0,  cityDetail:0, streaks:false,burst:2}
-  };
-  const vcDeviceIsAndroid=/Android/i.test(navigator.userAgent||'');
-  const vcDeviceIsIOS=/iPhone|iPad|iPod/i.test(navigator.userAgent||'');
-  function vcInitialGraphicsTier(){
-    const cores=Number(navigator.hardwareConcurrency)||0;
-    const memory=Number(navigator.deviceMemory)||0;
-    if(vcDeviceIsAndroid){
-      if((memory>0&&memory<=3)||(cores>0&&cores<=4))return 'low';
-      if(!memory||!cores||memory<=4||cores<=6)return 'medium';
-      if(memory>=8&&cores>=8)return 'high';
-      return 'medium';
-    }
-    if(vcDeviceIsIOS){
-      if(cores>0&&cores<=4)return 'low';
-      if(!cores||cores<=6)return 'medium';
-      return 'high';
-    }
-    if((memory>0&&memory<=3)||(cores>0&&cores<=4))return 'low';
-    if((memory>0&&memory<=4)||(cores>0&&cores<=6))return 'medium';
-    return 'high';
-  }
-  let vcGraphicsTier=vcInitialGraphicsTier();
-  let vcGraphicsProfile=VC_GRAPHICS[vcGraphicsTier];
-  function vcSetGraphicsTier(next,reason='auto'){
-    if(!VC_GRAPHICS[next]||next===vcGraphicsTier)return;
-    const order=['high','medium','low'];
-    // Runtime adaptation only lowers quality; it never oscillates or changes gameplay.
-    if(order.indexOf(next)<order.indexOf(vcGraphicsTier))return;
-    vcGraphicsTier=next;vcGraphicsProfile=VC_GRAPHICS[next];vcFixedStep=1/vcGraphicsProfile.simHz;
-    window.__resellGraphicsTier=next;
-    window.__resellGraphicsProfile=vcGraphicsProfile;
-    document.documentElement.dataset.resellGraphics=next;
-    document.documentElement.style.setProperty('--resell-ambient-opacity',next==='high'?'1':next==='medium'?'.72':'.48');
-    window.dispatchEvent(new CustomEvent('resell-graphics-change',{detail:{tier:next,reason}}));
-  }
-  window.__resellGraphicsTier=vcGraphicsTier;
-  window.__resellGraphicsProfile=vcGraphicsProfile;
-  document.documentElement.dataset.resellGraphics=vcGraphicsTier;
-  document.documentElement.style.setProperty('--resell-ambient-opacity',vcGraphicsTier==='high'?'1':vcGraphicsTier==='medium'?'.72':'.48');
-  let vcFixedStep=1/vcGraphicsProfile.simHz;
-  // A lightweight page-wide frame probe adapts visual detail to actual device load.
-  // It never reduces simulation frequency or imposes a render FPS cap.
-  let resellPerfLast=0,resellPerfSamples=[];
-  function resellGraphicsPerfProbe(now){
-    if(document.visibilityState==='visible'){
-      if(resellPerfLast){
-        resellPerfSamples.push(now-resellPerfLast);
-        if(resellPerfSamples.length>=60){
-          const sorted=resellPerfSamples.slice().sort((a,b)=>a-b);
-          const p90=sorted[Math.floor(sorted.length*.90)]||0;
-          const avg=resellPerfSamples.reduce((a,b)=>a+b,0)/resellPerfSamples.length;
-          if((avg>24||p90>42)&&vcGraphicsTier!=='low')vcSetGraphicsTier('low','runtime');
-          else if((avg>19||p90>30)&&vcGraphicsTier==='high')vcSetGraphicsTier('medium','runtime');
-          resellPerfSamples.length=0;
-        }
-      }
-      resellPerfLast=now;
-    }else{resellPerfLast=0;resellPerfSamples.length=0;}
-    requestAnimationFrame(resellGraphicsPerfProbe);
-  }
-  setTimeout(()=>requestAnimationFrame(resellGraphicsPerfProbe),2200);
+  // One fixed ORIGINAL full-quality profile for every device.
+  // No hardware-based presets, no runtime quality reduction and no 30/45 FPS cap.
+  // Simulation is fixed at 60 Hz; rendering follows the screen's native RAF cadence.
+  const VC_GRAPHICS = Object.freeze({
+    simHz:60, dpr:1.5, particles:42, particleMs:60, links:2,
+    glow:2, roadFlecks:24, cityDetail:2, streaks:true, burst:8
+  });
+  const vcGraphicsProfile=VC_GRAPHICS;
+  // The shared home-screen particle canvas uses this same single, fixed profile.
+  window.__resellGraphicsProfile=VC_GRAPHICS;
+  let vcFixedStep=1/60;
+
   // Static post-processing is rasterized once instead of rebuilding scanlines
   // and a full-canvas gradient on every animation frame (helps slower Android GPUs).
   const vcEffectLayer=document.createElement('canvas');
@@ -8387,7 +8330,7 @@ async function initFarm(){
     vcFlushExitPromise=task.finally(()=>{vcFlushExitPromise=null;});
     return vcFlushExitPromise;
   }
-  function vcShowLayer(layer){ vc.lastDraw=0;vc.renderAccumulator=0; [vcIntro,vcGameOver,vcPauseLayer,vcLeaderboardLayer].forEach(el=>el?.classList.add('vc-hidden')); layer?.classList.remove('vc-hidden'); }
+  function vcShowLayer(layer){ vc.lastDraw=0;vc.renderAccumulator=0; [vcIntro,vcGameOver,vcPauseLayer,vcLeaderboardLayer].forEach(el=>el?.classList.add('vc-hidden')); layer?.classList.remove('vc-hidden'); vcEnsureFrameLoop(); }
   function vcOpenLeaderboard(){ if(vc.mode==='running'){vc.mode='paused';vcPersistRunSnapshot(true);vcPauseAudio();} vcShowLayer(vcLeaderboardLayer); vcLoadStats(); vcHaptic('light'); }
   function vcCloseLeaderboard(){ vcShowLayer(vc.mode==='paused'?vcPauseLayer:(vc.mode==='over'?vcGameOver:vcIntro)); }
 
@@ -8397,7 +8340,7 @@ async function initFarm(){
     document.body.dataset.vcOverflow=document.body.style.overflow||''; document.body.style.overflow='hidden';
     vcReset('ready'); vc.best=Math.max(vc.best,vcReadLocalBest()); vcText('vcBestValue',vcFmt(vc.best));
     vcShowLayer(vcIntro); vcResize(); vc.last=0;
-    if(!vc.raf) vc.raf=requestAnimationFrame(vcFrame);
+    vcEnsureFrameLoop();
     void vcFlushStoredLeave(true).then(()=>vcLoadStats()); vcHaptic('light');
   }
   function vcFinishClose(){
@@ -8626,41 +8569,79 @@ async function initFarm(){
     for(let i=0;i<VC_PALM_FRONDS.length;i++){const p=VC_PALM_FRONDS[i];vcRect(c,p[0],p[1],i%2?7:8,2,i%3===0?'#2b9368':'#40a46e');vcRect(c,p[0]+(p[0]<0?0:5),p[1]+2,2,3,'#1b6d54');}
     c.restore();
   }
+  // Pre-render the six repeating city blocks once. The scene keeps the same
+  // buildings, windows, palms, curbs and colors, but avoids rebuilding them
+  // with dozens of fillRect calls on every animation frame.
+  function vcBuildCityTiles(){
+    const tiles=[];
+    for(let n=0;n<6;n++){
+      const tile=document.createElement('canvas');tile.width=VC_W;tile.height=64;
+      const t=tile.getContext('2d');
+      vcRect(t,0,0,VC_W,64,'#183a36');
+      const leftW=17+(n%3)*3, rightW=17+((n+2)%3)*3;
+      vcRect(t,2,5,leftW,48,n%2?'#253b43':'#243246');
+      vcRect(t,4,7,leftW-4,4,'#3d5960');
+      vcRect(t,5,15,3,4,n%2?'#ed8a9b':'#f7bf68');
+      vcRect(t,11,15,3,4,'#65d8d6');
+      vcRect(t,5,26,3,4,'#65d8d6');
+      vcRect(t,11,26,3,4,n%2?'#f7bf68':'#ed8a9b');
+      vcRect(t,VC_W-rightW+3,16,3,4,'#65d8d6');
+      vcRect(t,VC_W-rightW+10,16,3,4,'#f5a2a4');
+      vcRect(t,VC_W-rightW+3,29,3,4,'#f1c26a');
+      vcRect(t,VC_W-rightW+10,29,3,4,'#65d8d6');
+      if(n%2===0){vcDrawPalm(t,24,50,.72);vcDrawPalm(t,VC_W-23,11,.72);}
+      vcRect(t,0,59,VC_W,2,'#30424b');
+      tiles.push(tile);
+    }
+    return tiles;
+  }
+  const vcCityTileCache=vcBuildCityTiles();
+
+  // A transparent 56 px repeating lane-mark strip preserves the original
+  // asphalt-fleck -> lane-dash layering while reducing per-frame draw calls.
+  const vcRoadMarkTile=(()=>{
+    const tile=document.createElement('canvas');tile.width=VC_ROAD.width;tile.height=56;
+    const t=tile.getContext('2d');
+    for(let lane=1;lane<=2;lane++){
+      const x=Math.round(VC_ROAD.width*lane/3-1);
+      vcRect(t,x,25,2,31,'#a6abb0');
+      vcRect(t,x+1,25,1,31,'#d4d1c7');
+    }
+    return tile;
+  })();
+
   function vcDrawCity(c,scroll){
     vcRect(c,0,0,VC_W,VC_H,'#101d29');
-    const detail=vcGraphicsProfile.cityDetail;
-    const tile=64, travel=scroll*.78, off=travel%tile, base=-Math.floor(travel/tile);
-    vcRect(c,0,0,VC_ROAD.left,VC_H,'#183a36'); vcRect(c,VC_ROAD.left+VC_ROAD.width,0,VC_W-(VC_ROAD.left+VC_ROAD.width),VC_H,'#183a36');
+    const tile=64,travel=scroll*.78,off=travel%tile,base=-Math.floor(travel/tile);
+    vcRect(c,0,0,VC_ROAD.left,VC_H,'#183a36');
+    vcRect(c,VC_ROAD.left+VC_ROAD.width,0,VC_W-(VC_ROAD.left+VC_ROAD.width),VC_H,'#183a36');
     for(let i=-1;i<7;i++){
-      const y=Math.round(i*tile+off), n=(((base+i)%6)+6)%6;
-      const leftW=17+(n%3)*3, rightW=17+((n+2)%3)*3;
-      vcRect(c,2,y+5,leftW,48,n%2?'#253b43':'#243246'); vcRect(c,4,y+7,leftW-4,4,'#3d5960');
-      if(detail>=1){
-        vcRect(c,5,y+15,3,4,n%2?'#ed8a9b':'#f7bf68'); vcRect(c,11,y+15,3,4,'#65d8d6');
-        vcRect(c,5,y+26,3,4,'#65d8d6'); vcRect(c,11,y+26,3,4,n%2?'#f7bf68':'#ed8a9b');
-        vcRect(c,VC_W-rightW+3,y+16,3,4,'#65d8d6'); vcRect(c,VC_W-rightW+10,y+16,3,4,'#f5a2a4');
-        vcRect(c,VC_W-rightW+3,y+29,3,4,'#f1c26a'); vcRect(c,VC_W-rightW+10,y+29,3,4,'#65d8d6');
-      }
-      if(detail>=2&&n%2===0){vcDrawPalm(c,24,y+50,.72);vcDrawPalm(c,VC_W-23,y+11,.72);}
-      vcRect(c,0,y+59,VC_W,2,'#30424b');
+      const y=Math.round(i*tile+off),n=(((base+i)%6)+6)%6;
+      c.drawImage(vcCityTileCache[n],0,y);
     }
-    // Neon curbs stay visible beside the buildings as the city scrolls by.
-    for(let y=-14+(scroll*.85%28);y<VC_H;y+=28){vcRect(c,24,y,3,10,'#ef7398');vcRect(c,153,y+12,3,10,'#42d4d0');}
+    for(let y=-14+(scroll*.85%28);y<VC_H;y+=28){
+      vcRect(c,24,y,3,10,'#ef7398');
+      vcRect(c,153,y+12,3,10,'#42d4d0');
+    }
   }
   function vcDrawRoad(c,scroll){
     const L=VC_ROAD.left,R=L+VC_ROAD.width;
-    vcRect(c,L-3,0,VC_ROAD.width+6,VC_H,'#171d25'); vcRect(c,L,0,VC_ROAD.width,VC_H,'#303640');
-    vcRect(c,L,0,2,VC_H,'#f18ca8'); vcRect(c,R-2,0,2,VC_H,'#59c7cf');
-    // Asphalt flecks are reduced automatically on slower devices.
-    for(let i=0;i<vcGraphicsProfile.roadFlecks;i++){const x=L+5+((i*37)%112), y=(i*53+Math.floor(scroll*.9))%VC_H; vcRect(c,x,y,1,1,i%3?'#39404a':'#45414a');}
-    const dash=31, gap=25, offset=scroll%(dash+gap);
-    for(let lane=1;lane<=2;lane++){
-      const x=Math.round(L+VC_ROAD.width*lane/3-1);
-      for(let y=-dash+offset;y<VC_H;y+=dash+gap){vcRect(c,x,y,2,dash,'#a6abb0');vcRect(c,x+1,y,1,dash,'#d4d1c7');}
+    vcRect(c,L-3,0,VC_ROAD.width+6,VC_H,'#171d25');
+    vcRect(c,L,0,VC_ROAD.width,VC_H,'#303640');
+    vcRect(c,L,0,2,VC_H,'#f18ca8');
+    vcRect(c,R-2,0,2,VC_H,'#59c7cf');
+    for(let i=0;i<vcGraphicsProfile.roadFlecks;i++){
+      const x=L+5+((i*37)%112),y=(i*53+Math.floor(scroll*.9))%VC_H;
+      vcRect(c,x,y,1,1,i%3?'#39404a':'#45414a');
     }
-    for(let y=-20+(scroll*.6%42);y<VC_H;y+=42){vcRect(c,L+4,y,2,2,'#59616a');vcRect(c,R-6,y+15,2,2,'#59616a');}
+    const offset=scroll%56;
+    for(let y=offset-56;y<VC_H;y+=56)c.drawImage(vcRoadMarkTile,L,y);
+    for(let y=-20+(scroll*.6%42);y<VC_H;y+=42){
+      vcRect(c,L+4,y,2,2,'#59616a');
+      vcRect(c,R-6,y+15,2,2,'#59616a');
+    }
   }
-  function vcDrawCar(c,x,y,kind='player',angle=0,phase=0,variant=0,signal=0){
+  function vcDrawCarArt(c,x,y,kind='player',angle=0,phase=0,variant=0,signal=0){
     c.save(); c.translate(Math.round(x),Math.round(y)); c.rotate(angle);
     // ground shadow and wheels
     vcRect(c,-12, -17,4,12,'#090d12');vcRect(c,8,-17,4,12,'#090d12');vcRect(c,-12,7,4,12,'#090d12');vcRect(c,8,7,4,12,'#090d12');
@@ -8701,6 +8682,42 @@ async function initFarm(){
     vcRect(c,-12,-15,2,6,'#77808a');vcRect(c,10,-15,2,6,'#77808a');vcRect(c,-12,9,2,6,'#77808a');vcRect(c,10,9,2,6,'#77808a');
     c.restore();
   }
+
+  // Cars are pixel-art sprites with only a few discrete visual states (paint,
+  // indicator side and police-light phase). Rasterize those states once.
+  const vcCarSpriteCache=new Map();
+  function vcGetCarSprite(kind,variant=0,signal=0,policeFlash=0){
+    const key=kind==='traffic'?`traffic:${variant%VC_CAR_PALETTES.length}:${signal}`:
+      kind==='police'?`police:${policeFlash?1:0}`:'player';
+    let sprite=vcCarSpriteCache.get(key);
+    if(sprite)return sprite;
+    sprite=document.createElement('canvas');sprite.width=40;sprite.height=64;
+    const sc=sprite.getContext('2d');
+    if(sc)vcDrawCarArt(sc,20,32,kind,0,kind==='police'?(policeFlash?1:0):(signal ? .1 : 0),variant,signal);
+    vcCarSpriteCache.set(key,sprite);
+    return sprite;
+  }
+  // Build all possible variants up front so the first encounter with a car
+  // does not cause a frame-time spike.
+  for(let v=0;v<VC_CAR_PALETTES.length;v++){
+    vcGetCarSprite('traffic',v,0,0);
+    vcGetCarSprite('traffic',v,-1,0);
+    vcGetCarSprite('traffic',v,1,0);
+  }
+  vcGetCarSprite('player',0,0,0);
+  vcGetCarSprite('police',0,0,0);
+  vcGetCarSprite('police',0,0,1);
+
+  function vcDrawCar(c,x,y,kind='player',angle=0,phase=0,variant=0,signal=0){
+    const activeSignal=kind==='traffic'&&signal&&Math.floor(phase*3.2)%2===0?signal:0;
+    const policeFlash=kind==='police'&&Math.sin(phase*1.25)>0?1:0;
+    const sprite=vcGetCarSprite(kind,variant,activeSignal,policeFlash);
+    c.save();
+    c.translate(Math.round(x),Math.round(y));
+    c.rotate(angle);
+    c.drawImage(sprite,-20,-32);
+    c.restore();
+  }
   function vcDrawCoin(c,x,y,t){
     const spin=Math.abs(Math.cos(t*7)); const w=Math.max(2,Math.round(7*spin));
     vcGlow(c,x,y,15,'#ffbd42',.34);
@@ -8722,7 +8739,7 @@ async function initFarm(){
     }
     // Speed streaks are decorative; the low profile omits them to save fill calls.
     if(vcGraphicsProfile.streaks&&vc.mode==='running'&&vc.speed>130){
-      const streaks=vcGraphicsTier==='high'?7:4;
+      const streaks=7;
       for(let i=0;i<streaks;i++){let x=VC_ROAD.left+8+(i*23)%108,y=(i*61+vc.scroll*1.7)%VC_H;vcRect(c,x,y,1,vc.speed>175?8:4,'rgba(220,235,255,.18)');}
     }
     for(let i=0;i<vc.items.length;i++){
@@ -8884,8 +8901,11 @@ async function initFarm(){
           if(!vcSweptAabb(a0x,a0y,a1x,a1y,b0x,b0y,b1x,b1y,28,45))continue;
 
           let trailing,leading;
-          if(Math.abs(a.y-b.y)>1){
-            trailing=a.y<b.y?a:b;
+          // Use the order before this physics step. Looking at final y values
+          // after a fast crossing would swap the cars and effectively let them
+          // tunnel through one another.
+          if(Math.abs(a0y-b0y)>1){
+            trailing=a0y<b0y?a:b;
             leading=trailing===a?b:a;
           }else if(Number(a.speed||0)!==Number(b.speed||0)){
             // Lower-speed traffic has the greater relative closing speed on screen.
@@ -9099,25 +9119,39 @@ async function initFarm(){
     vcText('vcSpeed',`${Math.round(vc.speed*1.45)} KM/H`);vcText('vcLives',`${'♥'.repeat(Math.max(0,vc.lives))}${'♡'.repeat(Math.max(0,3-vc.lives))}`);
     const best=Math.max(vc.best,vc.score);vcText('vcBestValue',vcFmt(best));
   }
+  function vcEnsureFrameLoop(){
+    if(vc.open&&!vc.raf)vc.raf=requestAnimationFrame(vcFrame);
+  }
   function vcFrame(now){
     if(!vc.open){vc.raf=0;return;}
-    const elapsed=vc.last?Math.max(0,(now-vc.last)/1000):0;vc.last=now;
-    if(vc.mode==='running'){
-      vc.accumulator=Math.min(.16,vc.accumulator+Math.min(.16,elapsed));
-      let steps=0;
-      while(vc.accumulator>=vcFixedStep&&steps<10&&vc.mode==='running'){
-        vcUpdate(vcFixedStep);vc.accumulator-=vcFixedStep;steps++;
+    if(vc.mode!=='running'){
+      // Intro, pause and result screens are static. Draw once after a layer
+      // transition, then release the animation callback until gameplay resumes.
+      if(vcCtx&&!vc.lastDraw){
+        vcCtx.imageSmoothingEnabled=false;
+        vcDrawWorld(vcCtx);
+        vc.lastDraw=now||1;
       }
-      if(steps>=10)vc.accumulator=Math.min(vc.accumulator,vcFixedStep);
-    }else{
-      vc.accumulator=0;
+      vc.raf=0;
+      return;
     }
-    // Never throttle rendering to a synthetic 30/45 FPS cadence. On 60/90/120 Hz
-    // screens the browser presents at its natural cadence; on slower devices it
-    // falls back only as far as the hardware actually manages. Low tier reduces
-    // scene complexity instead of deliberately making motion less fluid.
-    if(vcCtx){vcCtx.imageSmoothingEnabled=false;vcDrawWorld(vcCtx);vc.lastDraw=now;}
-    vc.raf=requestAnimationFrame(vcFrame);
+    const elapsed=vc.last?Math.max(0,(now-vc.last)/1000):0;
+    vc.last=now;
+    vc.accumulator=Math.min(.16,vc.accumulator+Math.min(.16,elapsed));
+    let steps=0;
+    while(vc.accumulator>=vcFixedStep&&steps<10&&vc.mode==='running'){
+      vcUpdate(vcFixedStep);
+      vc.accumulator-=vcFixedStep;
+      steps++;
+    }
+    if(steps>=10)vc.accumulator=Math.min(vc.accumulator,vcFixedStep);
+    if(vcCtx){
+      vcCtx.imageSmoothingEnabled=false;
+      vcDrawWorld(vcCtx);
+      vc.lastDraw=now||1;
+    }
+    if(vc.mode==='running')vc.raf=requestAnimationFrame(vcFrame);
+    else vc.raf=0;
   }
   async function vcEnd(){
     if(vc.mode!=='running') return; vcSetBrake(false); vc.mode='over';vcPersistRunSnapshot(true);vcStopAudio();
@@ -10489,19 +10523,8 @@ async function initFarm(){
   // Particle field — visible flying particles for Telegram WebView, still lightweight.
   const canvas = document.getElementById('particles');
   const ctx = canvas.getContext('2d', {alpha:true});
-  const autoGraphicsStyle=document.createElement('style');
-  autoGraphicsStyle.id='resell-auto-graphics-profile';
-  const mediumBlurTargets=[".glass", ".nav", ".toast", ".intro-ref-card", ".tycoon-tabs", ".bottom-nav,.nav-bar,.tabbar", ".info-build-modal", "#resellMinerOverlay", ".oil-overlay", "#resellMaintenanceOverlay", "#vcEventAnnouncement", "#vcEventAnnouncement .vcs-copy-card", "#vcEventCoach", "#viceCityOverlay .vc-header", ".rhold-v19-btn", ".r26-overlay", ".r28-shop-overlay", ".v33-unlock-overlay", ".resell-home-nav", ".info-progress-overlay", ".avp-decision", ".avx-tabs", ".header", ".balance", "#resellCustomUpdateOverlay .rc-update-backdrop", ".modal:has(.resell-broadcast-admin),.modal:has(.resell-update-pop)", "#infoBuildModal.info-build-modal", "#avcDecisionModal.brand-v3-overlay", ".oil-tutorial-coach"];
-  const lowBlurTargets=[".level-up-flash", ".glass", ".game-live", ".era-node b", ".era-current-card", ".nav", ".toast", ".modal", ".intro-ref-card", ".intro-skip", ".era-map-caption", ".tycoon-car-media-tag", ".main-tycoon-tag", ".tycoon-tabs", ".bottom-nav,.nav-bar,.tabbar", "#resellHomeMoney #mainAssetsSection .main-tycoon-tag", ".resell-auth-bridge-backdrop", ".info-build-modal", "#resellMinerOverlay", ".oil-overlay", ".vice-city-cover .vc-cover-live", "#resellMaintenanceOverlay", "#vcEventAnnouncement", "#vcEventAnnouncement .vcs-copy-card", "#vcEventCoach", "#viceCityOverlay .vc-header", "#viceCityOverlay .vc-hud-chip", "#viceCityOverlay .vc-screen", "#viceCityOverlay .vc-brake-infield", ".rhold-v19-btn", ".r26-overlay", ".r28-shop-overlay", ".v33-unlock-overlay", ".resell-home-nav", ".swipe-caption", "#resellTutorialOverlay .rt-backdrop", ".avc-ritual", ".info-progress-overlay", ".avp-decision", ".career-new.brand .avp-decision", ".brand-v3-overlay", ".club7-hire-overlay", ".avx-tabs", ".header", ".balance", ".rc-media-top span,.rc-media-top b,.rc-media-bottom span,.rc-media-bottom b", "#resellCustomUpdateOverlay .rc-update-backdrop", ".career-store-setup", ".modal:has(.resell-broadcast-admin),.modal:has(.resell-update-pop)", "#infoBuildModal.info-build-modal", "#avcDecisionModal.brand-v3-overlay", "#avcDecisionModal:has(.brand-v2-modal)", "#brandV3DedicatedModal", ".career-new.infobusiness .info-studio-action-icon", ".career-new.infobusiness .info-studio-create.is-locked:after", ".oil-tutorial-coach"];
-  autoGraphicsStyle.textContent=`
-    html[data-resell-graphics="medium"] #particles{opacity:.72}
-    html[data-resell-graphics="low"] #particles{opacity:.48}
-    html[data-resell-graphics="medium"] :is(${mediumBlurTargets.join(',')}){backdrop-filter:blur(12px)!important;-webkit-backdrop-filter:blur(12px)!important}
-    html[data-resell-graphics="low"] :is(${lowBlurTargets.join(',')}){backdrop-filter:blur(3px)!important;-webkit-backdrop-filter:blur(3px)!important}
-  `;
-  document.head.appendChild(autoGraphicsStyle);
   let particles = [];
-  const getResellGraphicsProfile=()=>window.__resellGraphicsProfile||VC_GRAPHICS[window.__resellGraphicsTier||'medium'];
+  const getResellGraphicsProfile=()=>window.__resellGraphicsProfile||VC_GRAPHICS;
   let dpr = Math.min(window.devicePixelRatio || 1, getResellGraphicsProfile().dpr);
 
   function resizeCanvas(){
@@ -10532,6 +10555,13 @@ async function initFarm(){
   function drawParticles(){
     if(document.visibilityState !== 'visible'){
       particleSleepTimer=setTimeout(()=>requestAnimationFrame(drawParticles),500);
+      return;
+    }
+    // Vice City occupies the entire screen with an opaque backdrop. The home
+    // particle layer is fully covered there, so pause its timer while the game
+    // is open; this saves CPU/GPU time without changing any in-game pixels.
+    if(document.getElementById('viceCityOverlay')?.classList.contains('open')){
+      particleSleepTimer=setTimeout(()=>requestAnimationFrame(drawParticles),300);
       return;
     }
     ctx.clearRect(0,0,innerWidth,innerHeight);
@@ -10583,7 +10613,6 @@ async function initFarm(){
   }
 
   addEventListener('resize',resizeCanvas,{passive:true});
-  window.addEventListener('resell-graphics-change',resizeCanvas,{passive:true});
   resizeCanvas();
   drawParticles();
 
@@ -23077,8 +23106,8 @@ body.resell-avito-single-screen #modalBody .avx-review-sheet {
   function marketPct(change){const v=Number(change||0);return `<span class="oil-market-change ${v>0?'up':v<0?'down':''}">${v>0?'+':''}${v.toFixed(2).replace('.',',')}%</span>`}
   function renderLock(d){const balance=Number(d.balance||0),price=Number(d.entry_price||1e9),can=balance>=price;return `<section class="oil-lock"><svg class="oil-lock-art" viewBox="0 0 120 100" fill="none"><path d="M12 75V20q0-6 6-6h29q6 0 6 6v55M7 75h53M17 23h31v25H17z" stroke="#b7ff6a" stroke-width="2"/><path d="M52 30h9l10 10v25q0 8-7 8t-7-8V50" stroke="#cde8c0" stroke-width="3" stroke-linecap="round"/><path d="M24 57h17M24 64h17M79 78l8-24 8 24m-13-9h10m12-29-5 13h7l-10 17" stroke="#9fd27f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M74 20h31" stroke="#b7ff6a" stroke-opacity=".45" stroke-width="2" stroke-linecap="round"/><circle cx="92" cy="20" r="3" fill="#b7ff6a"/></svg><h3>Твоя нефтяная компания</h3><p>Открой собственную топливную сеть: управляй ценами на литр, следи за очередью машин, закупай топливо, добывай нефть и развивай НПЗ.</p><strong>1 000 000 000 ₽</strong><small>ЕДИНОВРЕМЕННЫЙ ВХОД · В СТОИМОСТЬ ВХОДИТ ПЕРВАЯ АЗС И СТАРТОВЫЙ ЗАПАС</small><div class="oil-hint">Твой баланс: <b>${money(balance)}</b></div><button type="button" id="oilOpenCompany" ${can?'':'disabled'}>${can?'ОТКРЫТЬ RESSELL OIL':'НЕДОСТАТОЧНО СРЕДСТВ'}</button></section>`}
   function tabs(){return `<div class="oil-tabs"><button type="button" data-oil-tab="station" class="oil-tab ${state.tab==='station'?'active':''}">АЗС</button><button type="button" data-oil-tab="production" class="oil-tab ${state.tab==='production'?'active':''}">ПРОИЗВОДСТВО</button><button type="button" data-oil-tab="market" class="oil-tab ${state.tab==='market'?'active':''}">РЫНОК</button></div>`}
-  function hero(c){return `<section class="oil-hero"><div class="oil-hero-top"><div><div class="oil-kicker">OIL RETAIL NETWORK · RUSSIA</div><div class="oil-hero-title">ТВОЯ ТОПЛИВНАЯ<br>ИМПЕРИЯ</div><div class="oil-hero-sub">Станция работает · рынок обновляется по данным РФ</div></div><div class="oil-live"><i></i> LIVE TRAFFIC</div></div><div class="oil-scene">${stationArt()}</div></section><div class="oil-kpi-grid"><div class="oil-kpi"><small>Поток машин / час</small><b>${n(c.traffic_cars_hour)}</b><span>прогноз с учётом цены и времени</span></div><div class="oil-kpi"><small>Чистая прибыль компании</small><b id="oilPendingValue">${money(c.pending_cash)}</b><span>продажи минус себестоимость и расходы</span></div><div class="oil-kpi"><small>Запас топлива</small><b>${n(c.stock_total)} л</b><span>из ${n(c.stock_capacity)} л · резервуары</span></div><div class="oil-kpi"><small>Расчётная прибыль / час</small><b>${money(c.estimated_profit_hour)}</b><span>оценка при текущем трафике и марже</span></div></div>`}
-  function renderStation(d){const c=d.company,m=d.market;const quote=(g,l)=>Math.round(l*Math.round(Number(c.prices[g].market_kop||0)*.87+150)/100);return `${hero(c)}${tabs()}<section class="oil-section"><div class="oil-section-head"><div><b>ПОТОК АВТОМОБИЛЕЙ</b><small>Моделирование по часам Москвы, пропускной способности и цене</small></div><span>${c.reputation}/100 · РЕПУТАЦИЯ</span></div><div class="oil-traffic-bar"><div class="oil-traffic-visual">${trafficArt()}</div><div class="oil-traffic-copy"><small>МАШИН В ПОСЛЕДНЕМ ИНТЕРВАЛЕ</small><b>${n(c.last_bucket_cars)}</b><span>обслужено ${n(c.last_bucket_served)} · очередь ${n(c.last_bucket_queue)}</span></div></div><div class="oil-hint">В часы пик поток растёт. Если колонок или топлива не хватает, часть водителей уезжает, а репутация станции снижается.</div></section><section class="oil-section"><div class="oil-section-head"><div><b>ЦЕНА НА ТВОЕЙ АЗС</b><small>Установи собственную цену за литр каждой марки</small></div><span>₽ / Л</span></div>${grades.map(([g,label,short])=>{const p=c.prices[g];const val=Number(p.price_kop||p.market_kop)/100;const delta=(val/Math.max(1,Number(p.market_kop)/100)-1)*100;return `<div class="oil-price-row"><div class="oil-grade-main"><div class="oil-grade-chip">${short}</div><div class="oil-grade-copy"><b>${label}</b><small>Рынок ${moneyKop(p.market_kop)} · ${delta>0?'+':''}${delta.toFixed(1).replace('.',',')}% к рынку</small></div></div><div class="oil-grade-price"><input class="oil-price-input" type="number" inputmode="decimal" min="0" step="0.01" value="${val.toFixed(2)}" data-oil-price-input="${g}" aria-label="Цена ${label} за литр"><button type="button" class="oil-price-save" data-oil-save-price="${g}">СОХР.</button></div></div>`}).join('')}<div class="oil-price-foot">Дороже рынка — меньше клиентов. Слишком низкая цена может продавать топливо в убыток. Цена 0 автоматически следует за рынком.</div></section><section class="oil-section"><div class="oil-section-head"><div><b>ТОПЛИВНЫЕ РЕЗЕРВУАРЫ</b><small>Не допускай пустых колонок</small></div><span>${Math.round(c.stock_total/c.stock_capacity*100)}%</span></div>${grades.map(([g,label])=>`<div class="oil-stock-row"><div><b>${label}</b><small>Остаток · себестоимость ${moneyKop(c.prices[g].cost_kop)} / л</small></div><strong>${n(c.stock[g])} л</strong></div>`).join('')}<div class="oil-actions-grid"><button type="button" class="oil-action-btn" data-oil-supply="ai92"><span>ЗАКАЗАТЬ АИ-92 · 2 000 Л</span><strong>~${money(quote('ai92',2000))}</strong></button><button type="button" class="oil-action-btn" data-oil-supply="ai95"><span>ЗАКАЗАТЬ АИ-95 · 2 000 Л</span><strong>~${money(quote('ai95',2000))}</strong></button><button type="button" class="oil-action-btn" data-oil-supply="ai98"><span>ЗАКАЗАТЬ АИ-98 · 1 000 Л</span><strong>~${money(quote('ai98',1000))}</strong></button><button type="button" class="oil-action-btn" data-oil-supply="diesel"><span>ЗАКАЗАТЬ ДИЗЕЛЬ · 2 000 Л</span><strong>~${money(quote('diesel',2000))}</strong></button></div>${state.notice?`<div class="oil-operation-notice ${state.noticeType==='error'?'error':'success'}" role="status">${esc(state.notice)}</div>`:''}</section><section class="oil-cashout-panel"><div class="oil-cashout-copy"><small id="oilCashoutLabel">${Number(c.pending_cash||0)>0?'ПРИБЫЛЬ К ВЫПЛАТЕ':'ФИНАНСОВЫЙ РЕЗУЛЬТАТ'}</small><b id="oilCashoutValue">${money(c.pending_cash)}</b><span id="oilCashoutHint">${Number(c.pending_cash||0)>=0?'Сумма фиксируется сервером каждую минуту':'Себестоимость учитывается при продаже топлива, а не при заполнении резервуаров'}</span></div><button type="button" id="oilCollect" ${c.pending_cash>0?'':'disabled'}><span>ЗАБРАТЬ ПРИБЫЛЬ</span><strong id="oilCollectAmount">${money(c.pending_cash)}</strong></button></section>`}
+  function hero(c){return `<section class="oil-hero"><div class="oil-hero-top"><div><div class="oil-kicker">OIL RETAIL NETWORK · RUSSIA</div><div class="oil-hero-title">ТВОЯ ТОПЛИВНАЯ<br>ИМПЕРИЯ</div><div class="oil-hero-sub">Станция работает · рынок обновляется по данным РФ</div></div><div class="oil-live"><i></i> LIVE TRAFFIC</div></div><div class="oil-scene">${stationArt()}</div></section><div class="oil-kpi-grid"><div class="oil-kpi"><small>Поток машин / час</small><b>${n(c.traffic_cars_hour)}</b><span>прогноз с учётом цены и времени</span></div><div class="oil-kpi"><small>Чистая прибыль компании</small><b id="oilPendingValue">${money(c.pending_cash)}</b><span>продажи минус себестоимость и расходы</span></div><div class="oil-kpi"><small>Запас топлива</small><b>${n(c.stock_total)} л</b><span>из ${n(c.stock_capacity)} л · резервуары</span></div><div class="oil-kpi"><small>Расчётная прибыль / час</small><b>${money(c.estimated_profit_hour)}</b><span>${Number(c.daily_profit_today||0)>=Number(c.daily_profit_cap||1)?'Дневной лимит прибыли исчерпан':`До дневного лимита: ${money(Math.max(0,Number(c.daily_profit_cap||0)-Number(c.daily_profit_today||0)))}`}</span></div></div>`}
+  function renderStation(d){const c=d.company,m=d.market;const quote=(g,l)=>Math.round(l*Math.round(Number(c.prices[g].market_kop||0)*.87+150)/100);return `${hero(c)}${tabs()}<section class="oil-section"><div class="oil-section-head"><div><b>ПОТОК АВТОМОБИЛЕЙ</b><small>Моделирование по часам Москвы, пропускной способности и цене</small></div><span>${c.reputation}/100 · РЕПУТАЦИЯ</span></div><div class="oil-traffic-bar"><div class="oil-traffic-visual">${trafficArt()}</div><div class="oil-traffic-copy"><small>МАШИН В ПОСЛЕДНЕМ ИНТЕРВАЛЕ</small><b>${n(c.last_bucket_cars)}</b><span>обслужено ${n(c.last_bucket_served)} · очередь ${n(c.last_bucket_queue)}</span></div></div><div class="oil-hint">В часы пик поток растёт. Если колонок или топлива не хватает, часть водителей уезжает, а репутация станции снижается.</div></section><section class="oil-section"><div class="oil-section-head"><div><b>ЦЕНА НА ТВОЕЙ АЗС</b><small>Установи собственную цену за литр каждой марки</small></div><span>₽ / Л</span></div>${grades.map(([g,label,short])=>{const p=c.prices[g];const val=Number(p.price_kop||p.market_kop)/100;const delta=(val/Math.max(1,Number(p.market_kop)/100)-1)*100;const margin=val-Number(p.cost_kop||0)/100;return `<div class="oil-price-row"><div class="oil-grade-main"><div class="oil-grade-chip">${short}</div><div class="oil-grade-copy"><b>${label}</b><small>Рынок ${moneyKop(p.market_kop)} · маржа ${margin>=0?'+':''}${margin.toFixed(2).replace('.',',')} ₽/л</small></div></div><div class="oil-grade-price"><input class="oil-price-input" type="number" inputmode="decimal" min="0" step="0.01" value="${val.toFixed(2)}" data-oil-price-input="${g}" aria-label="Цена ${label} за литр"><button type="button" class="oil-price-save" data-oil-save-price="${g}">СОХР.</button></div></div>`}).join('')}<div class="oil-price-foot">Дороже рынка — меньше клиентов. Слишком низкая цена может продавать топливо в убыток. Цена 0 автоматически следует за рынком.</div></section><section class="oil-section"><div class="oil-section-head"><div><b>ТОПЛИВНЫЕ РЕЗЕРВУАРЫ</b><small>Не допускай пустых колонок</small></div><span>${Math.round(c.stock_total/c.stock_capacity*100)}%</span></div>${grades.map(([g,label])=>`<div class="oil-stock-row"><div><b>${label}</b><small>Остаток · себестоимость ${moneyKop(c.prices[g].cost_kop)} / л</small></div><strong>${n(c.stock[g])} л</strong></div>`).join('')}<div class="oil-actions-grid"><button type="button" class="oil-action-btn" data-oil-supply="ai92"><span>ЗАКАЗАТЬ АИ-92 · ДО 2 000 Л</span><strong>~${money(quote('ai92',2000))}</strong></button><button type="button" class="oil-action-btn" data-oil-supply="ai95"><span>ЗАКАЗАТЬ АИ-95 · ДО 2 000 Л</span><strong>~${money(quote('ai95',2000))}</strong></button><button type="button" class="oil-action-btn" data-oil-supply="ai98"><span>ЗАКАЗАТЬ АИ-98 · ДО 1 000 Л</span><strong>~${money(quote('ai98',1000))}</strong></button><button type="button" class="oil-action-btn" data-oil-supply="diesel"><span>ЗАКАЗАТЬ ДИЗЕЛЬ · ДО 2 000 Л</span><strong>~${money(quote('diesel',2000))}</strong></button></div><div class="oil-price-foot">Поставка оформляется в пределах свободного места: можно получить неполную партию от 500 л, не дожидаясь, пока освободится объём на весь заказ.</div>${state.notice?`<div class="oil-operation-notice ${state.noticeType==='error'?'error':'success'}" role="status">${esc(state.notice)}</div>`:''}</section><section class="oil-cashout-panel"><div class="oil-cashout-copy"><small id="oilCashoutLabel">${Number(c.pending_cash||0)>0?'ПРИБЫЛЬ К ВЫПЛАТЕ':'ФИНАНСОВЫЙ РЕЗУЛЬТАТ'}</small><b id="oilCashoutValue">${money(c.pending_cash)}</b><span id="oilCashoutHint">${Number(c.pending_cash||0)>=0?'Сумма фиксируется сервером каждую минуту':'Себестоимость учитывается при продаже топлива, а не при заполнении резервуаров'}</span></div><button type="button" id="oilCollect" ${c.pending_cash>0?'':'disabled'}><span>ЗАБРАТЬ ПРИБЫЛЬ</span><strong id="oilCollectAmount">${money(c.pending_cash)}</strong></button></section>`}
   function oilFacilityArt(c){
     const u=c.upgrades||{};
     const level=k=>Math.max(0,Math.min(5,Number((u[k]&&u[k].level)??c[`${k}_level`]??0)));
