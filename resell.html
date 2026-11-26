@@ -8245,6 +8245,77 @@ async function initFarm(){
   const VC_W = 180, VC_H = 320, VC_PLAYER_Y = 208;
   const VC_ROAD = { left: 28, width: 124 };
   const VC_LANES = [48.7, 90, 131.3];
+  const VC_CAR_PALETTES=[['#e94e9b','#ff8ab7','#4dd4db'],['#37a9cf','#75e0e7','#f1c36e'],['#d8a348','#f5d08a','#e77988'],['#72c579','#b5eea1','#6dd5e4']];
+  const VC_PLAYER_PALETTE=['#dc3e91','#ff78b3','#55e6e4'];
+  const VC_PALM_FRONDS=[[-10,-7],[-7,-12],[0,-14],[7,-12],[10,-7],[-11,0],[11,0]];
+  const vcDrawQueue=[],vcTrafficScratch=[];
+  const vcDrawSortByY=(a,b)=>a.y-b.y;
+  // Automatic graphics profiles. There is deliberately no in-game quality control.
+  const VC_GRAPHICS = {
+    high:   {fps:60, simHz:60, dpr:1.5, particles:52, particleMs:50, links:2, glow:2, roadFlecks:38, cityDetail:2, streaks:true, burst:10},
+    medium: {fps:45, simHz:45, dpr:1.2, particles:30, particleMs:70, links:4, glow:1, roadFlecks:18, cityDetail:1, streaks:true, burst:6},
+    low:    {fps:30, simHz:30, dpr:1.0, particles:14, particleMs:100,links:0, glow:0, roadFlecks:0,  cityDetail:0, streaks:false,burst:3}
+  };
+  const vcDeviceIsAndroid=/Android/i.test(navigator.userAgent||'');
+  const vcDeviceIsIOS=/iPhone|iPad|iPod/i.test(navigator.userAgent||'');
+  function vcInitialGraphicsTier(){
+    const cores=Number(navigator.hardwareConcurrency)||0;
+    const memory=Number(navigator.deviceMemory)||0;
+    if(vcDeviceIsAndroid){
+      if((memory>0&&memory<=3)||(cores>0&&cores<=4))return 'low';
+      if(!memory||!cores||memory<=4||cores<=6)return 'medium';
+      if(memory>=8&&cores>=8)return 'high';
+      return 'medium';
+    }
+    if(vcDeviceIsIOS){
+      if(cores>0&&cores<=4)return 'low';
+      if(!cores||cores<=6)return 'medium';
+      return 'high';
+    }
+    if((memory>0&&memory<=3)||(cores>0&&cores<=4))return 'low';
+    if((memory>0&&memory<=4)||(cores>0&&cores<=6))return 'medium';
+    return 'high';
+  }
+  let vcGraphicsTier=vcInitialGraphicsTier();
+  let vcGraphicsProfile=VC_GRAPHICS[vcGraphicsTier];
+  function vcSetGraphicsTier(next,reason='auto'){
+    if(!VC_GRAPHICS[next]||next===vcGraphicsTier)return;
+    const order=['high','medium','low'];
+    // Runtime adaptation only lowers quality; it never oscillates or changes gameplay.
+    if(order.indexOf(next)<order.indexOf(vcGraphicsTier))return;
+    vcGraphicsTier=next;vcGraphicsProfile=VC_GRAPHICS[next];vcFixedStep=1/vcGraphicsProfile.simHz;
+    window.__resellGraphicsTier=next;
+    window.__resellGraphicsProfile=vcGraphicsProfile;
+    document.documentElement.dataset.resellGraphics=next;
+    document.documentElement.style.setProperty('--resell-ambient-opacity',next==='high'?'1':next==='medium'?'.72':'.48');
+    window.dispatchEvent(new CustomEvent('resell-graphics-change',{detail:{tier:next,reason}}));
+  }
+  window.__resellGraphicsTier=vcGraphicsTier;
+  window.__resellGraphicsProfile=vcGraphicsProfile;
+  document.documentElement.dataset.resellGraphics=vcGraphicsTier;
+  document.documentElement.style.setProperty('--resell-ambient-opacity',vcGraphicsTier==='high'?'1':vcGraphicsTier==='medium'?'.72':'.48');
+  let vcFixedStep=1/vcGraphicsProfile.simHz;
+  // A lightweight page-wide frame probe adapts Resell graphics to real device load,
+  // not just reported CPU/RAM. It runs only while the page is visible.
+  let resellPerfLast=0,resellPerfSamples=[];
+  function resellGraphicsPerfProbe(now){
+    if(document.visibilityState==='visible'){
+      if(resellPerfLast){
+        resellPerfSamples.push(now-resellPerfLast);
+        if(resellPerfSamples.length>=60){
+          const sorted=resellPerfSamples.slice().sort((a,b)=>a-b);
+          const p90=sorted[Math.floor(sorted.length*.90)]||0;
+          const avg=resellPerfSamples.reduce((a,b)=>a+b,0)/resellPerfSamples.length;
+          if((avg>24||p90>42)&&vcGraphicsTier!=='low')vcSetGraphicsTier('low','runtime');
+          else if((avg>19||p90>30)&&vcGraphicsTier==='high')vcSetGraphicsTier('medium','runtime');
+          resellPerfSamples.length=0;
+        }
+      }
+      resellPerfLast=now;
+    }else{resellPerfLast=0;resellPerfSamples.length=0;}
+    requestAnimationFrame(resellGraphicsPerfProbe);
+  }
+  setTimeout(()=>requestAnimationFrame(resellGraphicsPerfProbe),2200);
   // Static post-processing is rasterized once instead of rebuilding scanlines
   // and a full-canvas gradient on every animation frame (helps slower Android GPUs).
   const vcEffectLayer=document.createElement('canvas');
@@ -8260,11 +8331,11 @@ async function initFarm(){
   }
   const vcGlowCache=new Map();
   const vc = {
-    open:false, mode:'ready', raf:0, last:0, lastDraw:0, lastHudUpdate:-1, time:0, distance:0, coins:0, score:0,
-    best:0, lives:3, lane:1, playerX:VC_LANES[1], playerAngle:0, scroll:0,
+    open:false, mode:'ready', raf:0, last:0, lastDraw:0, accumulator:0, renderAccumulator:0, lastHudUpdate:-1, lastAudioUpdate:-1, time:0, distance:0, coins:0, score:0,
+    best:0, lives:3, lane:1, playerX:VC_LANES[1], playerPrevX:VC_LANES[1], inputPathX:VC_LANES[1], playerAngle:0, scroll:0,
     speed:104, cruiseSpeed:140, brakeHeld:false, items:[], particles:[], waveNo:0, waveTimer:2.0, nextCoin:.45,
-    hitTimer:0, hitFlash:0, shake:0, laneGrace:0, startGrace:0, runId:'', laneHistory:[{at:0,lane:1}],
-    police:[{x:VC_LANES[0],target:0,targetLane:0,angle:0,y:274,lag:1.55,side:-1},{x:VC_LANES[2],target:2,targetLane:2,angle:0,y:308,lag:2.45,side:1}],
+    hitFlash:0, shake:0, runId:'', laneHistory:[{at:0,lane:1}],
+    police:[{type:'police',drawIndex:0,x:VC_LANES[0],target:0,targetLane:0,angle:0,y:274,lag:1.55,side:-1},{type:'police',drawIndex:1,x:VC_LANES[2],target:2,targetLane:2,angle:0,y:308,lag:2.45,side:1}],
     audio:null, audioOn:true, engineOsc:null, engineGain:null, sirenOsc:null, sirenGain:null,
     lastSubmit:null, leaderboard:[], exchangeBusy:false, startBusy:false, pendingRunId:'', pendingCoins:0
   };
@@ -8313,7 +8384,7 @@ async function initFarm(){
     vcFlushExitPromise=task.finally(()=>{vcFlushExitPromise=null;});
     return vcFlushExitPromise;
   }
-  function vcShowLayer(layer){ vc.lastDraw=0; [vcIntro,vcGameOver,vcPauseLayer,vcLeaderboardLayer].forEach(el=>el?.classList.add('vc-hidden')); layer?.classList.remove('vc-hidden'); }
+  function vcShowLayer(layer){ vc.lastDraw=0;vc.renderAccumulator=0; [vcIntro,vcGameOver,vcPauseLayer,vcLeaderboardLayer].forEach(el=>el?.classList.add('vc-hidden')); layer?.classList.remove('vc-hidden'); }
   function vcOpenLeaderboard(){ if(vc.mode==='running'){vc.mode='paused';vcPersistRunSnapshot(true);vcPauseAudio();} vcShowLayer(vcLeaderboardLayer); vcLoadStats(); vcHaptic('light'); }
   function vcCloseLeaderboard(){ vcShowLayer(vc.mode==='paused'?vcPauseLayer:(vc.mode==='over'?vcGameOver:vcIntro)); }
 
@@ -8367,11 +8438,11 @@ async function initFarm(){
   }
   function vcReset(mode='ready'){
     vc.mode=mode; vc.time=0; vc.distance=0; vc.coins=0; vc.score=0; vc.lives=3; vc.lane=1;
-    vc.playerX=VC_LANES[1]; vc.playerAngle=0; vc.scroll=0; vc.speed=140; vc.cruiseSpeed=140; vc.brakeHeld=false; vc.items=[]; vc.particles=[];
+    vc.playerX=VC_LANES[1]; vc.playerPrevX=VC_LANES[1]; vc.inputPathX=VC_LANES[1]; vc.playerAngle=0; vc.scroll=0; vc.speed=140; vc.cruiseSpeed=140; vc.brakeHeld=false; vc.items=[]; vc.particles=[];
     const brakeBtn=vcEl('vcBrakeBtn');if(brakeBtn){brakeBtn.classList.remove('is-braking');brakeBtn.setAttribute('aria-pressed','false');}
-    vc.waveNo=0; vc.waveTimer=2.15; vc.nextCoin=.95; vc.hitTimer=0; vc.hitFlash=0; vc.shake=0; vc.laneGrace=0; vc.startGrace=.9;
-    vc.laneHistory=[{at:0,lane:1}]; vc.police=[{x:VC_LANES[0],target:0,targetLane:0,angle:0,y:274,lag:1.55,side:-1},{x:VC_LANES[2],target:2,targetLane:2,angle:0,y:308,lag:2.45,side:1}];
-    vc.runId=''; vc.last=0; vc.lastSubmit=null; vc.exchangeBusy=false;
+    vc.waveNo=0; vc.waveTimer=2.15; vc.nextCoin=.95; vc.hitFlash=0; vc.shake=0; vc.accumulator=0;
+    vc.laneHistory=[{at:0,lane:1}]; vc.police=[{type:'police',drawIndex:0,x:VC_LANES[0],target:0,targetLane:0,angle:0,y:274,lag:1.55,side:-1},{type:'police',drawIndex:1,x:VC_LANES[2],target:2,targetLane:2,angle:0,y:308,lag:2.45,side:1}];
+    vc.runId=''; vc.last=0; vc.accumulator=0; vc.renderAccumulator=0; vc.lastDraw=0; vc.lastSubmit=null; vc.exchangeBusy=false;
     const exchangeBtn=document.getElementById('vcExchangeBtn');if(exchangeBtn){exchangeBtn.disabled=true;exchangeBtn.textContent='ОБМЕНЯТЬ';}
     vcText('vcExchangeQuote','РАСЧЁТ НАГРАДЫ…');vcText('vcExchangeStatus','Награда будет зачислена на основной баланс RESSELL');vcUpdateHUD();
   }
@@ -8391,16 +8462,43 @@ async function initFarm(){
       const resp=await apiFetch(`${API_BASE}/games/vice-city/start`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:String(userId),run_id:vc.runId})},2);
       const data=await resp.json().catch(()=>({}));
       if(!resp.ok||!data.success)throw new Error(data.error||'Не удалось начать забег');
-      vc.mode='running';vcPersistRunSnapshot(true);vcShowLayer(null);vcInitAudio();vcHaptic('medium');
+      vc.mode='running';vc.last=0;vc.accumulator=0;vc.renderAccumulator=0;vcPersistRunSnapshot(true);vcShowLayer(null);vcInitAudio();vcHaptic('medium');
     }catch(err){vc.runId='';vc.mode='ready';vcStopAudio();showToast(err.message||'Не удалось начать забег Vice City');}
     finally{vc.startBusy=false;if(startBtn)startBtn.disabled=false;if(restartBtn)restartBtn.disabled=false;}
   }
   function vcPause(){ if(vc.mode!=='running') return; vcSetBrake(false); vc.mode='paused'; vcPersistRunSnapshot(true); vcPauseAudio(); vcShowLayer(vcPauseLayer); }
-  function vcResume(){ if(vc.mode!=='paused') return; vc.mode='running'; vcResumeAudio(); vcShowLayer(null); vc.last=0; }
+  function vcResume(){ if(vc.mode!=='paused') return; vc.mode='running'; vcResumeAudio(); vcShowLayer(null); vc.last=0; vc.accumulator=0;vc.renderAccumulator=0; }
+  function vcApplyPlayerTrafficHit(car){
+    if(!car||vc.mode!=='running')return false;
+    const hitIndex=vc.items.indexOf(car);
+    if(hitIndex>=0)vc.items.splice(hitIndex,1);
+    vc.lives--;vc.hitFlash=.7;vc.shake=.8;
+    vcBurst(vc.playerX,VC_PLAYER_Y,'#ff6c72',16);
+    vcTone(145,.28,'sawtooth',.14,-105);vcHaptic('heavy');vcUpdateHUD(true);
+    if(vc.lives<=0)vcEnd();
+    return true;
+  }
   function vcMoveLane(delta){
     if(vc.mode!=='running') return;
     const next=vcClamp(vc.lane+delta,0,2); if(next===vc.lane) return;
-    vc.lane=next; vc.laneGrace=.24; vc.laneHistory.push({at:vc.time,lane:next});
+    const fromX=Number.isFinite(vc.inputPathX)?vc.inputPathX:vc.playerX;
+    const toX=VC_LANES[next];
+    // Input events can arrive several times between simulation frames. Check
+    // each commanded lateral segment immediately so a rapid left-right flick
+    // cannot erase the intermediate path before the next physics step.
+    vc.inputPathX=toX;
+    const lo=Math.min(fromX,toX)-28,hi=Math.max(fromX,toX)+28;
+    for(let i=vc.items.length-1;i>=0;i--){
+      const car=vc.items[i];
+      if(car.type!=='traffic')continue;
+      const carX=Number.isFinite(car.x)?car.x:VC_LANES[car.lane];
+      const carY=Number.isFinite(car.contactY)?car.contactY:car.y;
+      if(carX>=lo&&carX<=hi&&Math.abs(carY-VC_PLAYER_Y)<=45){
+        vcApplyPlayerTrafficHit(car);
+        if(vc.mode!=='running')return;
+      }
+    }
+    vc.lane=next; vc.laneHistory.push({at:vc.time,lane:next});
     if(vc.laneHistory.length>14) vc.laneHistory.splice(0,vc.laneHistory.length-14);
     vcHaptic('selection');
   }
@@ -8504,6 +8602,8 @@ async function initFarm(){
   function vcRect(c,x,y,w,h,color){ c.fillStyle=color; c.fillRect(Math.round(x),Math.round(y),Math.max(1,Math.round(w)),Math.max(1,Math.round(h))); }
   function vcPoly(c,pts,color){ c.fillStyle=color;c.beginPath();c.moveTo(pts[0][0],pts[0][1]);for(let i=1;i<pts.length;i++)c.lineTo(pts[i][0],pts[i][1]);c.closePath();c.fill(); }
   function vcGlow(c,x,y,r,color,alpha=.35){
+    if(vcGraphicsProfile.glow===0)return;
+    if(vcGraphicsProfile.glow===1)alpha*=.58;
     // Reuse a tiny pre-rendered radial glow. Recreating many CanvasGradient
     // objects for every car/coin each frame is expensive on entry-level phones.
     const radius=Math.max(1,Math.ceil(r));
@@ -8520,24 +8620,25 @@ async function initFarm(){
   function vcDrawPalm(c,x,y,scale=1){
     c.save(); c.translate(Math.round(x),Math.round(y)); c.scale(scale,scale);
     vcRect(c,-1,-2,3,10,'#624b3d'); vcRect(c,-1,6,2,3,'#9c7850');
-    const fronds=[[-10,-7],[-7,-12],[0,-14],[7,-12],[10,-7],[-11,0],[11,0]];
-    fronds.forEach((p,i)=>{vcRect(c,p[0],p[1],i%2?7:8,2,i%3===0?'#2b9368':'#40a46e');vcRect(c,p[0]+(p[0]<0?0:5),p[1]+2,2,3,'#1b6d54');});
+    for(let i=0;i<VC_PALM_FRONDS.length;i++){const p=VC_PALM_FRONDS[i];vcRect(c,p[0],p[1],i%2?7:8,2,i%3===0?'#2b9368':'#40a46e');vcRect(c,p[0]+(p[0]<0?0:5),p[1]+2,2,3,'#1b6d54');}
     c.restore();
   }
   function vcDrawCity(c,scroll){
     vcRect(c,0,0,VC_W,VC_H,'#101d29');
+    const detail=vcGraphicsProfile.cityDetail;
     const tile=64, travel=scroll*.78, off=travel%tile, base=-Math.floor(travel/tile);
     vcRect(c,0,0,VC_ROAD.left,VC_H,'#183a36'); vcRect(c,VC_ROAD.left+VC_ROAD.width,0,VC_W-(VC_ROAD.left+VC_ROAD.width),VC_H,'#183a36');
     for(let i=-1;i<7;i++){
       const y=Math.round(i*tile+off), n=(((base+i)%6)+6)%6;
       const leftW=17+(n%3)*3, rightW=17+((n+2)%3)*3;
       vcRect(c,2,y+5,leftW,48,n%2?'#253b43':'#243246'); vcRect(c,4,y+7,leftW-4,4,'#3d5960');
-      vcRect(c,5,y+15,3,4,n%2?'#ed8a9b':'#f7bf68'); vcRect(c,11,y+15,3,4,'#65d8d6');
-      vcRect(c,5,y+26,3,4,'#65d8d6'); vcRect(c,11,y+26,3,4,n%2?'#f7bf68':'#ed8a9b');
-      vcRect(c,VC_W-rightW-2,y+3,rightW,52,n%2?'#26344a':'#293b40'); vcRect(c,VC_W-rightW,y+6,rightW-4,4,'#53676a');
-      vcRect(c,VC_W-rightW+3,y+16,3,4,'#65d8d6'); vcRect(c,VC_W-rightW+10,y+16,3,4,'#f5a2a4');
-      vcRect(c,VC_W-rightW+3,y+29,3,4,'#f1c26a'); vcRect(c,VC_W-rightW+10,y+29,3,4,'#65d8d6');
-      if(n%2===0){vcDrawPalm(c,24,y+50,.72);vcDrawPalm(c,VC_W-23,y+11,.72);}
+      if(detail>=1){
+        vcRect(c,5,y+15,3,4,n%2?'#ed8a9b':'#f7bf68'); vcRect(c,11,y+15,3,4,'#65d8d6');
+        vcRect(c,5,y+26,3,4,'#65d8d6'); vcRect(c,11,y+26,3,4,n%2?'#f7bf68':'#ed8a9b');
+        vcRect(c,VC_W-rightW+3,y+16,3,4,'#65d8d6'); vcRect(c,VC_W-rightW+10,y+16,3,4,'#f5a2a4');
+        vcRect(c,VC_W-rightW+3,y+29,3,4,'#f1c26a'); vcRect(c,VC_W-rightW+10,y+29,3,4,'#65d8d6');
+      }
+      if(detail>=2&&n%2===0){vcDrawPalm(c,24,y+50,.72);vcDrawPalm(c,VC_W-23,y+11,.72);}
       vcRect(c,0,y+59,VC_W,2,'#30424b');
     }
     // Neon curbs stay visible beside the buildings as the city scrolls by.
@@ -8547,8 +8648,8 @@ async function initFarm(){
     const L=VC_ROAD.left,R=L+VC_ROAD.width;
     vcRect(c,L-3,0,VC_ROAD.width+6,VC_H,'#171d25'); vcRect(c,L,0,VC_ROAD.width,VC_H,'#303640');
     vcRect(c,L,0,2,VC_H,'#f18ca8'); vcRect(c,R-2,0,2,VC_H,'#59c7cf');
-    // Asphalt texture: tiny stable pixel flecks on both sides of the moving lane paint.
-    for(let i=0;i<38;i++){const x=L+5+((i*37)%112), y=(i*53+Math.floor(scroll*.9))%VC_H; vcRect(c,x,y,1,1,i%3?'#39404a':'#45414a');}
+    // Asphalt flecks are reduced automatically on slower devices.
+    for(let i=0;i<vcGraphicsProfile.roadFlecks;i++){const x=L+5+((i*37)%112), y=(i*53+Math.floor(scroll*.9))%VC_H; vcRect(c,x,y,1,1,i%3?'#39404a':'#45414a');}
     const dash=31, gap=25, offset=scroll%(dash+gap);
     for(let lane=1;lane<=2;lane++){
       const x=Math.round(L+VC_ROAD.width*lane/3-1);
@@ -8574,8 +8675,7 @@ async function initFarm(){
       vcRect(c,-8,-21,4,2,'#ff4051');vcRect(c,4,-21,4,2,'#ff4051');
       vcRect(c,-8,20,4,2,'#f33c4b');vcRect(c,4,20,4,2,'#f33c4b');
     } else {
-      const palettes=[['#e94e9b','#ff8ab7','#4dd4db'],['#37a9cf','#75e0e7','#f1c36e'],['#d8a348','#f5d08a','#e77988'],['#72c579','#b5eea1','#6dd5e4']];
-      const p=kind==='player'?['#dc3e91','#ff78b3','#55e6e4']:palettes[variant%palettes.length];
+      const p=kind==='player'?VC_PLAYER_PALETTE:VC_CAR_PALETTES[variant%VC_CAR_PALETTES.length];
       vcPoly(c,[[-7,-22],[7,-22],[11,-14],[10,14],[7,21],[-7,21],[-10,14],[-11,-14]],'#090d14');
       vcPoly(c,[[-6,-20],[6,-20],[9,-13],[8,14],[5,19],[-5,19],[-8,14],[-9,-13]],p[0]);
       vcPoly(c,[[-6,-17],[6,-17],[7,-10],[-7,-10]],p[1]);
@@ -8612,28 +8712,33 @@ async function initFarm(){
     if(vc.shake>0){const s=vc.shake*2;c.translate(vcRand(-s,s),vcRand(-s,s));}
     vcDrawCity(c,vc.scroll); vcDrawRoad(c,vc.scroll);
     // Distant reflections of the two pursuing police cars.
-    vc.police.forEach((p,i)=>{
-      const red=(Math.sin(vc.time*11+i*1.8)>0);
+    for(let i=0;i<vc.police.length&&vcGraphicsProfile.glow>0;i++){
+      const p=vc.police[i],red=(Math.sin(vc.time*11+i*1.8)>0);
       vcGlow(c,p.x-5,p.y-4,27,red?'#ff2448':'#267bff',.42);
-      vcGlow(c,p.x+5,p.y-4,27,red?'#267bff':'#ff2448',.42);
-    });
-    // Speed streaks become more visible as the chase gets faster.
-    if(vc.mode==='running' && vc.speed>130){for(let i=0;i<7;i++){let x=VC_ROAD.left+8+(i*17)%108,y=(i*61+vc.scroll*1.7)%VC_H;vcRect(c,x,y,1,vc.speed>175?8:4,'rgba(220,235,255,.18)');}}
-    vc.items.forEach(item=>{
+      if(vcGraphicsProfile.glow>=2)vcGlow(c,p.x+5,p.y-4,27,red?'#267bff':'#ff2448',.42);
+    }
+    // Speed streaks are decorative; the low profile omits them to save fill calls.
+    if(vcGraphicsProfile.streaks&&vc.mode==='running'&&vc.speed>130){
+      const streaks=vcGraphicsTier==='high'?7:4;
+      for(let i=0;i<streaks;i++){let x=VC_ROAD.left+8+(i*23)%108,y=(i*61+vc.scroll*1.7)%VC_H;vcRect(c,x,y,1,vc.speed>175?8:4,'rgba(220,235,255,.18)');}
+    }
+    for(let i=0;i<vc.items.length;i++){
+      const item=vc.items[i];
       if(item.type==='coin')vcDrawCoin(c,VC_LANES[item.lane],item.y,vc.time+item.phase);
-    });
-    // Draw vehicles from far to near so the nearer car correctly occludes the farther one.
-    const movingCars=[
-      ...vc.items.filter(item=>item.type==='traffic').map(item=>({kind:'traffic',y:item.y,x:(Number.isFinite(item.x)?item.x:VC_LANES[item.lane]),item})),
-      ...vc.police.map((cop,i)=>({kind:'police',y:cop.y,x:cop.x,cop,index:i}))
-    ].sort((a,b)=>a.y-b.y);
-    movingCars.forEach(car=>{
-      if(car.kind==='traffic')vcDrawCar(c,car.x,car.y,'traffic',car.item.angle||0,vc.time,car.item.variant||0,car.item.signal||0);
-      else vcDrawCar(c,car.x,car.y,'police',car.cop.angle,vc.time+car.index*.7);
-    });
+    }
+    // Reuse a single draw queue: no temporary object/array churn on every frame.
+    vcDrawQueue.length=0;
+    for(let i=0;i<vc.items.length;i++)if(vc.items[i].type==='traffic')vcDrawQueue.push(vc.items[i]);
+    for(let i=0;i<vc.police.length;i++)vcDrawQueue.push(vc.police[i]);
+    vcDrawQueue.sort(vcDrawSortByY);
+    for(let i=0;i<vcDrawQueue.length;i++){
+      const car=vcDrawQueue[i];
+      if(car.type==='traffic')vcDrawCar(c,Number.isFinite(car.x)?car.x:VC_LANES[car.lane],car.y,'traffic',car.angle||0,vc.time,car.variant||0,car.signal||0);
+      else vcDrawCar(c,car.x,car.y,'police',car.angle,vc.time+(car.drawIndex||0)*.7);
+    }
     if(vc.hitFlash>0 && Math.floor(vc.time*18)%2===0){c.globalAlpha=.65;vcDrawCar(c,vc.playerX,VC_PLAYER_Y,'player',vc.playerAngle);c.globalAlpha=1;}
     else vcDrawCar(c,vc.playerX,VC_PLAYER_Y,'player',vc.playerAngle);
-    vc.particles.forEach(p=>{c.globalAlpha=Math.max(0,p.life/p.max);vcRect(c,p.x,p.y,p.size,p.size,p.color);});c.globalAlpha=1;
+    for(let i=0;i<vc.particles.length;i++){const p=vc.particles[i];c.globalAlpha=Math.max(0,p.life/p.max);vcRect(c,p.x,p.y,p.size,p.size,p.color);}c.globalAlpha=1;
     // Same scanline/vignette appearance, composited from a cached layer.
     if(vcEffectLayer)c.drawImage(vcEffectLayer,0,0);
     if(vc.hitFlash>0){c.fillStyle=`rgba(255,50,70,${Math.min(.18,vc.hitFlash*.12)})`;c.fillRect(0,0,VC_W,VC_H);}
@@ -8641,55 +8746,77 @@ async function initFarm(){
   }
   function vcPoliceLaneBlocked(p,lane,near=84){
     const x=VC_LANES[lane];
-    if(vc.items.some(o=>o.type==='traffic'&&Math.abs(o.y-p.y)<near&&Math.abs((Number.isFinite(o.x)?o.x:VC_LANES[o.lane])-x)<24))return true;
-    if(vc.police.some(other=>other!==p&&Math.abs(other.y-p.y)<45&&Math.abs(other.x-x)<25))return true;
+    for(let i=0;i<vc.items.length;i++){
+      const o=vc.items[i];
+      if(o.type==='traffic'&&Math.abs(o.y-p.y)<near&&Math.abs((Number.isFinite(o.x)?o.x:VC_LANES[o.lane])-x)<24)return true;
+    }
+    for(let i=0;i<vc.police.length;i++){
+      const other=vc.police[i];
+      if(other!==p&&Math.abs(other.y-p.y)<45&&Math.abs(other.x-x)<25)return true;
+    }
     return false;
   }
   function vcUpdatePolice(dt){
-    vc.police.forEach((p,index)=>{
+    for(let index=0;index<vc.police.length;index++){
+      const p=vc.police[index];
       const historyLane=vcLaneAt(Math.max(0,vc.time-p.lag));
       const preferred=vcClamp(historyLane+(p.side||0),0,2);
-      const candidates=[preferred,p.targetLane,0,1,2].filter((v,i,a)=>a.indexOf(v)===i)
-        .sort((a,b)=>Math.abs(VC_LANES[a]-VC_LANES[preferred])-Math.abs(VC_LANES[b]-VC_LANES[preferred]));
-      let chosen=null;
-      for(const lane of candidates){
-        // Start steering early: the police car is wider than a lane marker and
-        // needs time to move before an incoming traffic car reaches it.
+      let chosen=null,bestDistance=Infinity,bestRank=Infinity;
+      // Evaluate the three lanes directly; no temporary candidate arrays or sort.
+      for(let lane=0;lane<3;lane++){
         if(vcPoliceLaneBlocked(p,lane,126))continue;
-        const targetX=VC_LANES[lane];
-        const pathBlocked=vc.items.some(o=>{
-          if(o.type!=='traffic'||Math.abs(o.y-p.y)>=105)return false;
-          const lo=Math.min(p.x,targetX)-24,hi=Math.max(p.x,targetX)+24;
-          const ox=Number.isFinite(o.x)?o.x:VC_LANES[o.lane];return ox>=lo&&ox<=hi;
-        });
-        if(!pathBlocked){chosen=lane;break;}
+        const targetX=VC_LANES[lane],lo=Math.min(p.x,targetX)-24,hi=Math.max(p.x,targetX)+24;
+        let pathBlocked=false;
+        for(let oi=0;oi<vc.items.length;oi++){
+          const o=vc.items[oi];
+          if(o.type!=='traffic'||Math.abs(o.y-p.y)>=105)continue;
+          const ox=Number.isFinite(o.x)?o.x:VC_LANES[o.lane];
+          if(ox>=lo&&ox<=hi){pathBlocked=true;break;}
+        }
+        if(pathBlocked)continue;
+        const distance=Math.abs(lane-preferred);
+        const rank=lane===preferred?0:lane===p.targetLane?1:2+lane;
+        if(distance<bestDistance||(distance===bestDistance&&rank<bestRank)){
+          chosen=lane;bestDistance=distance;bestRank=rank;
+        }
       }
       if(chosen!==null)p.targetLane=chosen;
       const targetX=VC_LANES[p.targetLane];
-      const prev=p.x; p.x+=(targetX-p.x)*Math.min(1,dt*(3.8+index*.25));
+      const prev=p.x;p.x+=(targetX-p.x)*Math.min(1,dt*(3.8+index*.25));
       p.angle+=(vcClamp((p.x-prev)*.09,-.42,.42)-p.angle)*Math.min(1,dt*8.5);
-    });
+    }
   }
   function vcResolvePoliceTrafficCollisions(){
-    // Last-resort physical separation: never let a police sprite be drawn
-    // through a traffic car if both reach the same point in the same frame.
-    vc.police.forEach(p=>{
-      const hit=vc.items.find(o=>o.type==='traffic'&&Math.abs(o.y-p.y)<40&&Math.abs((Number.isFinite(o.x)?o.x:VC_LANES[o.lane])-p.x)<22);
-      if(!hit)return;
-      const safe=[0,1,2].filter(l=>
-        !vc.items.some(o=>o.type==='traffic'&&o.lane===l&&Math.abs(o.y-p.y)<112) &&
-        !vc.police.some(other=>other!==p&&Math.abs(other.y-p.y)<56&&Math.abs(other.x-VC_LANES[l])<24)
-      );
-      if(safe.length){
-        const lane=safe.sort((a,b)=>Math.abs(VC_LANES[a]-p.x)-Math.abs(VC_LANES[b]-p.x))[0];
-        const old=p.x;p.x=VC_LANES[lane];p.targetLane=lane;
+    // Last-resort separation without allocating temporary arrays each physics step.
+    for(let pi=0;pi<vc.police.length;pi++){
+      const p=vc.police[pi];let hit=null;
+      for(let oi=0;oi<vc.items.length;oi++){
+        const o=vc.items[oi];
+        if(o.type==='traffic'&&Math.abs(o.y-p.y)<40&&Math.abs((Number.isFinite(o.x)?o.x:VC_LANES[o.lane])-p.x)<22){hit=o;break;}
+      }
+      if(!hit)continue;
+      let bestLane=-1,bestDistance=Infinity;
+      for(let lane=0;lane<3;lane++){
+        const x=VC_LANES[lane];let blocked=false;
+        for(let oi=0;oi<vc.items.length;oi++){
+          const o=vc.items[oi];if(o.type==='traffic'&&o.lane===lane&&Math.abs(o.y-p.y)<112){blocked=true;break;}
+        }
+        if(blocked)continue;
+        for(let otherIndex=0;otherIndex<vc.police.length;otherIndex++){
+          const other=vc.police[otherIndex];
+          if(other!==p&&Math.abs(other.y-p.y)<56&&Math.abs(other.x-x)<24){blocked=true;break;}
+        }
+        if(blocked)continue;
+        const distance=Math.abs(x-p.x);
+        if(distance<bestDistance){bestDistance=distance;bestLane=lane;}
+      }
+      if(bestLane>=0){
+        const old=p.x;p.x=VC_LANES[bestLane];p.targetLane=bestLane;
         p.angle=vcClamp((p.x-old)*.035,-.48,.48);
       }else{
-        // A rare fully boxed-in frame: let the police drop behind the traffic
-        // car instead of allowing two cars to occupy the same coordinates.
         p.y=Math.min(VC_H+12,Math.max(p.y,hit.y+44));
       }
-    });
+    }
   }
   function vcTrafficLaneSafe(car,lane){
     const x=VC_LANES[lane];
@@ -8699,56 +8826,47 @@ async function initFarm(){
   }
   function vcUpdateTraffic(dt){
     const difficulty=vcClamp(vc.time/100,0,1);
-    const cars=vc.items.filter(o=>o.type==='traffic');
-    cars.forEach(car=>{
+    const cars=vcTrafficScratch;cars.length=0;
+    for(let i=0;i<vc.items.length;i++)if(vc.items[i].type==='traffic')cars.push(vc.items[i]);
+    for(let ci=0;ci<cars.length;ci++){
+      const car=cars[ci];
       if(!Number.isFinite(car.x))car.x=VC_LANES[car.lane];
       if(!Number.isFinite(car.targetLane))car.targetLane=car.lane;
       car.signal=car.signal||0;
-
-      // A slower vehicle ahead triggers an overtake. The indicator comes on first,
-      // stays active during the entire manoeuvre and switches off only on completion.
       if(car.targetLane===car.lane && Math.random()<dt*(.48+difficulty*.22)){
-        const blocker=cars.find(other=>other!==car&&other.lane===car.lane&&other.y<car.y&&car.y-other.y>52&&car.y-other.y<112&&other.speed<car.speed*.88);
+        let blocker=false;
+        for(let bi=0;bi<cars.length;bi++){
+          const other=cars[bi];
+          if(other!==car&&other.lane===car.lane&&other.y<car.y&&car.y-other.y>52&&car.y-other.y<112&&other.speed<car.speed*.88){blocker=true;break;}
+        }
         if(blocker){
-          const choices=[car.lane-1,car.lane+1].filter(l=>l>=0&&l<=2&&vcTrafficLaneSafe(car,l));
-          if(choices.length){
-            const next=choices.sort((a,b)=>Math.abs(a-car.lane)-Math.abs(b-car.lane))[0];
-            car.targetLane=next;
-            car.signal=next>car.lane?1:-1;
-            car.signalUntil=vc.time+.52;
-          }
+          let nextLane=-1;
+          const leftLane=car.lane-1,rightLane=car.lane+1;
+          if(leftLane>=0&&vcTrafficLaneSafe(car,leftLane))nextLane=leftLane;
+          else if(rightLane<=2&&vcTrafficLaneSafe(car,rightLane))nextLane=rightLane;
+          if(nextLane>=0){car.targetLane=nextLane;car.signal=nextLane>car.lane?1:-1;car.signalUntil=vc.time+.52;}
         }
       }
-
       if(car.targetLane!==car.lane){
         const targetX=VC_LANES[car.targetLane];
-        // Abort only if the destination has become occupied; never silently turn off
-        // the indicator while the car is still travelling across the lane.
-        if(!vcTrafficLaneSafe(car,car.targetLane)&&Math.abs(car.x-targetX)>10){
-          car.targetLane=car.lane;car.signal=0;car.signalUntil=0;
-        }else if(vc.time<(car.signalUntil||0)){
-          car.x+=(VC_LANES[car.lane]-car.x)*Math.min(1,dt*3.2);
-          car.angle*=Math.max(0,1-dt*5);
-        }else{
+        if(!vcTrafficLaneSafe(car,car.targetLane)&&Math.abs(car.x-targetX)>10){car.targetLane=car.lane;car.signal=0;car.signalUntil=0;}
+        else if(vc.time<(car.signalUntil||0)){car.x+=(VC_LANES[car.lane]-car.x)*Math.min(1,dt*3.2);car.angle*=Math.max(0,1-dt*5);}
+        else{
           car.signal=car.targetLane>car.lane?1:-1;
-          const oldX=car.x;car.x+=(targetX-car.x)*Math.min(1,dt*1.9);
-          car.angle=vcClamp((car.x-oldX)*.078,-.30,.30);
-          if(Math.abs(car.x-targetX)<1.8){
-            car.x=targetX;car.lane=car.targetLane;car.signal=0;car.signalUntil=0;car.angle*=.35;
-          }
+          const oldX=car.x;car.x+=(targetX-car.x)*Math.min(1,dt*1.9);car.angle=vcClamp((car.x-oldX)*.078,-.30,.30);
+          if(Math.abs(car.x-targetX)<1.8){car.x=targetX;car.lane=car.targetLane;car.signal=0;car.signalUntil=0;car.angle*=.35;}
         }
       }else{
-        car.x+=(VC_LANES[car.lane]-car.x)*Math.min(1,dt*3.2);
-        car.angle*=Math.max(0,1-dt*4);
+        car.x+=(VC_LANES[car.lane]-car.x)*Math.min(1,dt*3.2);car.angle*=Math.max(0,1-dt*4);
         if(car.signal){car.signal=0;car.signalUntil=0;}
       }
-    });
+    }
   }
 
   function vcResolveTrafficCollisions(dt){
     // Cars have a 24x44 px body. Resolve overlaps after their relative movement,
     // so a faster vehicle cannot tunnel through a slower one between frames.
-    const cars=vc.items.filter(o=>o.type==='traffic'&&o.y>-320&&o.y<VC_H+90);
+    const cars=vcTrafficScratch;cars.length=0;for(let i=0;i<vc.items.length;i++){const o=vc.items[i];if(o.type==='traffic'&&o.y>-320&&o.y<VC_H+90)cars.push(o);}
     for(let pass=0;pass<cars.length;pass++){
       let changed=false;
       for(let i=0;i<cars.length;i++){
@@ -8756,8 +8874,11 @@ async function initFarm(){
           const a=cars[i],b=cars[j];
           const ax=Number.isFinite(a.x)?a.x:VC_LANES[a.lane];
           const bx=Number.isFinite(b.x)?b.x:VC_LANES[b.lane];
-          if(Math.abs(ax-bx)>=23)continue;
-          if(Math.abs(a.y-b.y)>=47)continue;
+          const a0x=Number.isFinite(a.prevX)?a.prevX:ax,a0y=Number.isFinite(a.prevY)?a.prevY:a.y;
+          const b0x=Number.isFinite(b.prevX)?b.prevX:bx,b0y=Number.isFinite(b.prevY)?b.prevY:b.y;
+          const a1x=Number.isFinite(a.contactX)?a.contactX:ax,a1y=Number.isFinite(a.contactY)?a.contactY:a.y;
+          const b1x=Number.isFinite(b.contactX)?b.contactX:bx,b1y=Number.isFinite(b.contactY)?b.contactY:b.y;
+          if(!vcSweptAabb(a0x,a0y,a1x,a1y,b0x,b0y,b1x,b1y,28,45))continue;
 
           let trailing,leading;
           if(Math.abs(a.y-b.y)>1){
@@ -8876,26 +8997,41 @@ async function initFarm(){
     }
     vc.items.push({type:'coin',lane:selected.lane,y:-14,phase:Math.random()*5,gapChallenge:selected.gapChallenge});
   }
-  function vcBurst(x,y,color,count=10){for(let i=0;i<count;i++){const a=Math.random()*Math.PI*2,v=vcRand(16,70);vc.particles.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,life:vcRand(.25,.55),max:.55,size:vcInt(1,3),color});}}
+  function vcBurst(x,y,color,count=10){
+    const total=Math.min(count,vcGraphicsProfile.burst);
+    for(let i=0;i<total;i++){const a=Math.random()*Math.PI*2,v=vcRand(16,70);vc.particles.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,life:vcRand(.25,.55),max:.55,size:vcInt(1,3),color});}
+  }
+  function vcSweptAabb(ax0,ay0,ax1,ay1,bx0,by0,bx1,by1,halfWidth,halfHeight){
+    const relX0=ax0-bx0,relY0=ay0-by0;
+    const dx=(ax1-bx1)-relX0,dy=(ay1-by1)-relY0;
+    let tEnter=0,tExit=1;
+    if(Math.abs(dx)<1e-9){if(Math.abs(relX0)>halfWidth)return false;}
+    else{
+      let a=(-halfWidth-relX0)/dx,b=(halfWidth-relX0)/dx;
+      if(a>b){const swap=a;a=b;b=swap;}
+      tEnter=Math.max(tEnter,a);tExit=Math.min(tExit,b);
+      if(tEnter>tExit)return false;
+    }
+    if(Math.abs(dy)<1e-9){if(Math.abs(relY0)>halfHeight)return false;}
+    else{
+      let a=(-halfHeight-relY0)/dy,b=(halfHeight-relY0)/dy;
+      if(a>b){const swap=a;a=b;b=swap;}
+      tEnter=Math.max(tEnter,a);tExit=Math.min(tExit,b);
+    }
+    return tEnter<=tExit&&tExit>=0&&tEnter<=1;
+  }
   function vcSweptPlayerHit(car){
-    // Test the whole relative path between frames, not only the final positions.
-    // This prevents a rapid left-right swipe from tunnelling through a vehicle.
+    // Check both complete car paths through the step, not just their final
+    // coordinates. Bounding extents include wheels and angled sprite corners.
     const carX0=Number.isFinite(car.prevX)?car.prevX:(Number.isFinite(car.x)?car.x:VC_LANES[car.lane]);
     const carY0=Number.isFinite(car.prevY)?car.prevY:car.y;
-    const carX1=Number.isFinite(car.x)?car.x:VC_LANES[car.lane];
-    let x0=(Number.isFinite(vc.playerPrevX)?vc.playerPrevX:vc.playerX)-carX0;
-    let y0=VC_PLAYER_Y-carY0;
-    const dx=(vc.playerX-carX1)-x0;
-    const dy=(VC_PLAYER_Y-car.y)-y0;
-    let t0=0,t1=1;
-    const clip=(start,delta,half)=>{
-      if(Math.abs(delta)<1e-8)return Math.abs(start)<=half;
-      let a=(-half-start)/delta,b=(half-start)/delta;
-      if(a>b){const tmp=a;a=b;b=tmp;}
-      t0=Math.max(t0,a);t1=Math.min(t1,b);
-      return t0<=t1;
-    };
-    return clip(x0,dx,21)&&clip(y0,dy,38)&&t1>=0&&t0<=1;
+    const carX1=Number.isFinite(car.contactX)?car.contactX:(Number.isFinite(car.x)?car.x:VC_LANES[car.lane]);
+    const carY1=Number.isFinite(car.contactY)?car.contactY:car.y;
+    return vcSweptAabb(
+      Number.isFinite(vc.playerPrevX)?vc.playerPrevX:vc.playerX,VC_PLAYER_Y,
+      vc.playerX,VC_PLAYER_Y,
+      carX0,carY0,carX1,carY1,28,45
+    );
   }
   function vcUpdate(dt){
     if(vc.mode!=='running') return;
@@ -8915,12 +9051,13 @@ async function initFarm(){
     vc.scroll+=vc.speed*dt;
     vc.distance+=vc.speed*dt*.035; vc.score=Math.floor(vc.distance*12+vc.coins*100);
     const targetX=VC_LANES[vc.lane], oldX=vc.playerX; vc.playerX+=(targetX-vc.playerX)*Math.min(1,dt*12);
+    vc.inputPathX=vc.playerX;
     const dx=vc.playerX-oldX; vc.playerAngle+=(vcClamp(dx*.11,-.34,.34)-vc.playerAngle)*Math.min(1,dt*11);
     vcUpdateTraffic(dt);
     vcUpdatePolice(dt);
     vcUpdateTrafficWaves(dt);
     vc.nextCoin-=dt; if(vc.nextCoin<=0){vcSpawnCoin();vc.nextCoin=vcRand(.98,1.28)+difficulty*.18;}
-    vc.hitTimer=Math.max(0,vc.hitTimer-dt); vc.laneGrace=Math.max(0,vc.laneGrace-dt); vc.startGrace=Math.max(0,vc.startGrace-dt); vc.hitFlash=Math.max(0,vc.hitFlash-dt*2.8); vc.shake=Math.max(0,vc.shake-dt*2.2);
+    vc.hitFlash=Math.max(0,vc.hitFlash-dt*2.8); vc.shake=Math.max(0,vc.shake-dt*2.2);
     // Advance every object first, then separate traffic bodies before any
     // player collision checks. A short brake prevents immediate re-overlap.
     for(const o of vc.items){
@@ -8929,6 +9066,7 @@ async function initFarm(){
         const relativeSpeed=vc.speed-Number(o.speed||0);
         const braking=vc.time<Number(o.collisionBrakeUntil||0);
         o.y+=relativeSpeed*(braking ? 0.22 : 1)*dt;
+        o.contactX=Number.isFinite(o.x)?o.x:VC_LANES[o.lane];o.contactY=o.y;
       }
     }
     vcResolveTrafficCollisions(dt);
@@ -8937,14 +9075,17 @@ async function initFarm(){
       if(o.type==='coin'&&o.lane===vc.lane&&Math.abs(o.y-VC_PLAYER_Y)<23&&Math.abs(vc.playerX-VC_LANES[o.lane])<22){
         vc.coins++;vcPersistRunSnapshot(true);vcBurst(VC_LANES[o.lane],o.y,'#ffd45b',8);vcTone(940,.11,'triangle',.10,440);vcHaptic('light');vc.items.splice(i,1);continue;
       }
-      if(o.type==='traffic'&&vcSweptPlayerHit(o)&&vc.hitTimer<=0&&vc.laneGrace<=0&&vc.startGrace<=0){
-        vc.lives--;vc.hitTimer=.95;vc.hitFlash=.7;vc.shake=.8;vcBurst(vc.playerX,VC_PLAYER_Y,'#ff6c72',16);vcTone(145,.28,'sawtooth',.14,-105);vcHaptic('heavy');vc.items.splice(i,1);if(vc.lives<=0){vcEnd();return;}continue;
+      if(o.type==='traffic'&&vcSweptPlayerHit(o)){
+        vcApplyPlayerTrafficHit(o);if(vc.mode!=='running')return;continue;
       }
       if(o.y>VC_H+35) vc.items.splice(i,1);
     }
     vcResolvePoliceTrafficCollisions();
     for(let i=vc.particles.length-1;i>=0;i--){const p=vc.particles[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=30*dt;p.life-=dt;if(p.life<=0)vc.particles.splice(i,1);}
-    try{if(vc.audio){const now=vc.audio.ctx.currentTime;vc.engineOsc.frequency.setTargetAtTime(54+vc.speed*.34,now,.08);vc.sirenOsc.frequency.setTargetAtTime(620+Math.sin(vc.time*5.8)*285,now,.04);vc.engineGain.gain.setTargetAtTime(.055+Math.min(.025,difficulty*.025),now,.12);vc.sirenGain.gain.setTargetAtTime(.045+Math.min(.025,difficulty*.025),now,.12);}}catch(_){}
+    if(vc.time-vc.lastAudioUpdate>=.05){
+      vc.lastAudioUpdate=vc.time;
+      try{if(vc.audio){const now=vc.audio.ctx.currentTime;vc.engineOsc.frequency.setTargetAtTime(54+vc.speed*.34,now,.08);vc.sirenOsc.frequency.setTargetAtTime(620+Math.sin(vc.time*5.8)*285,now,.04);vc.engineGain.gain.setTargetAtTime(.055+Math.min(.025,difficulty*.025),now,.12);vc.sirenGain.gain.setTargetAtTime(.045+Math.min(.025,difficulty*.025),now,.12);}}catch(_){}
+    }
     vcPersistRunSnapshot();vcUpdateHUD();
   }
   function vcUpdateHUD(force=false){
@@ -8957,13 +9098,27 @@ async function initFarm(){
   }
   function vcFrame(now){
     if(!vc.open){vc.raf=0;return;}
-    const dt=vc.last?Math.min(.04,(now-vc.last)/1000):0;vc.last=now;
-    if(vc.mode==='running') vcUpdate(dt);
-    // During intro/pause/results the world is static: render only when needed,
-    // instead of burning a permanent 60 FPS loop behind the game overlays.
-    if(vcCtx && (vc.mode==='running' || !vc.lastDraw || now-vc.lastDraw>=500)){
-      vcCtx.imageSmoothingEnabled=false;vcDrawWorld(vcCtx);vc.lastDraw=now;
+    const elapsed=vc.last?Math.max(0,(now-vc.last)/1000):0;vc.last=now;
+    if(vc.mode==='running'){
+      vc.accumulator=Math.min(.16,vc.accumulator+Math.min(.16,elapsed));
+      let steps=0;
+      while(vc.accumulator>=vcFixedStep&&steps<10&&vc.mode==='running'){
+        vcUpdate(vcFixedStep);vc.accumulator-=vcFixedStep;steps++;
+      }
+      if(steps>=10)vc.accumulator=Math.min(vc.accumulator,vcFixedStep);
+    }else{
+      vc.accumulator=0;
     }
+    // Simulation stays fixed at 60 Hz. A render accumulator gives a real
+    // 45 FPS cadence on 60 Hz displays instead of accidentally falling to 30.
+    const drawInterval=1000/vcGraphicsProfile.fps;
+    let shouldDraw=false;
+    if(vc.mode==='running'){
+      vc.renderAccumulator=Math.min(100,vc.renderAccumulator+elapsed*1000);
+      if(vc.renderAccumulator>=drawInterval){shouldDraw=true;vc.renderAccumulator-=drawInterval;}
+      if(vc.renderAccumulator>drawInterval)vc.renderAccumulator=0;
+    }else if(!vc.lastDraw||now-vc.lastDraw>=500)shouldDraw=true;
+    if(vcCtx&&shouldDraw){vcCtx.imageSmoothingEnabled=false;vcDrawWorld(vcCtx);vc.lastDraw=now;}
     vc.raf=requestAnimationFrame(vcFrame);
   }
   async function vcEnd(){
@@ -10336,19 +10491,30 @@ async function initFarm(){
   // Particle field — visible flying particles for Telegram WebView, still lightweight.
   const canvas = document.getElementById('particles');
   const ctx = canvas.getContext('2d', {alpha:true});
+  const autoGraphicsStyle=document.createElement('style');
+  autoGraphicsStyle.id='resell-auto-graphics-profile';
+  const mediumBlurTargets=[".glass", ".nav", ".toast", ".intro-ref-card", ".tycoon-tabs", ".bottom-nav,.nav-bar,.tabbar", ".info-build-modal", "#resellMinerOverlay", ".oil-overlay", "#resellMaintenanceOverlay", "#vcEventAnnouncement", "#vcEventAnnouncement .vcs-copy-card", "#vcEventCoach", "#viceCityOverlay .vc-header", ".rhold-v19-btn", ".r26-overlay", ".r28-shop-overlay", ".v33-unlock-overlay", ".resell-home-nav", ".info-progress-overlay", ".avp-decision", ".avx-tabs", ".header", ".balance", "#resellCustomUpdateOverlay .rc-update-backdrop", ".modal:has(.resell-broadcast-admin),.modal:has(.resell-update-pop)", "#infoBuildModal.info-build-modal", "#avcDecisionModal.brand-v3-overlay", ".oil-tutorial-coach"];
+  const lowBlurTargets=[".level-up-flash", ".glass", ".game-live", ".era-node b", ".era-current-card", ".nav", ".toast", ".modal", ".intro-ref-card", ".intro-skip", ".era-map-caption", ".tycoon-car-media-tag", ".main-tycoon-tag", ".tycoon-tabs", ".bottom-nav,.nav-bar,.tabbar", "#resellHomeMoney #mainAssetsSection .main-tycoon-tag", ".resell-auth-bridge-backdrop", ".info-build-modal", "#resellMinerOverlay", ".oil-overlay", ".vice-city-cover .vc-cover-live", "#resellMaintenanceOverlay", "#vcEventAnnouncement", "#vcEventAnnouncement .vcs-copy-card", "#vcEventCoach", "#viceCityOverlay .vc-header", "#viceCityOverlay .vc-hud-chip", "#viceCityOverlay .vc-screen", "#viceCityOverlay .vc-brake-infield", ".rhold-v19-btn", ".r26-overlay", ".r28-shop-overlay", ".v33-unlock-overlay", ".resell-home-nav", ".swipe-caption", "#resellTutorialOverlay .rt-backdrop", ".avc-ritual", ".info-progress-overlay", ".avp-decision", ".career-new.brand .avp-decision", ".brand-v3-overlay", ".club7-hire-overlay", ".avx-tabs", ".header", ".balance", ".rc-media-top span,.rc-media-top b,.rc-media-bottom span,.rc-media-bottom b", "#resellCustomUpdateOverlay .rc-update-backdrop", ".career-store-setup", ".modal:has(.resell-broadcast-admin),.modal:has(.resell-update-pop)", "#infoBuildModal.info-build-modal", "#avcDecisionModal.brand-v3-overlay", "#avcDecisionModal:has(.brand-v2-modal)", "#brandV3DedicatedModal", ".career-new.infobusiness .info-studio-action-icon", ".career-new.infobusiness .info-studio-create.is-locked:after", ".oil-tutorial-coach"];
+  autoGraphicsStyle.textContent=`
+    html[data-resell-graphics="medium"] #particles{opacity:.72}
+    html[data-resell-graphics="low"] #particles{opacity:.48}
+    html[data-resell-graphics="medium"] :is(${mediumBlurTargets.join(',')}){backdrop-filter:blur(12px)!important;-webkit-backdrop-filter:blur(12px)!important}
+    html[data-resell-graphics="low"] :is(${lowBlurTargets.join(',')}){backdrop-filter:blur(3px)!important;-webkit-backdrop-filter:blur(3px)!important}
+  `;
+  document.head.appendChild(autoGraphicsStyle);
   let particles = [];
-  const perfAndroid=/Android/i.test(navigator.userAgent||'');
-  const perfLowEnd=perfAndroid && ((Number(navigator.deviceMemory)||4)<=4 || (Number(navigator.hardwareConcurrency)||4)<=6);
-  let dpr = Math.min(window.devicePixelRatio || 1, perfLowEnd ? 1.15 : 1.5);
+  const getResellGraphicsProfile=()=>window.__resellGraphicsProfile||VC_GRAPHICS[window.__resellGraphicsTier||'medium'];
+  let dpr = Math.min(window.devicePixelRatio || 1, getResellGraphicsProfile().dpr);
 
   function resizeCanvas(){
-    dpr = Math.min(window.devicePixelRatio || 1, perfLowEnd ? 1.15 : 1.5);
+    const gfx=getResellGraphicsProfile();
+    dpr = Math.min(window.devicePixelRatio || 1, gfx.dpr);
     canvas.width = Math.floor(innerWidth * dpr);
     canvas.height = Math.floor(innerHeight * dpr);
     canvas.style.width = innerWidth + 'px';
     canvas.style.height = innerHeight + 'px';
     ctx.setTransform(dpr,0,0,dpr,0,0);
-    const count = Math.min(perfLowEnd ? 34 : 56, Math.max(perfLowEnd ? 18 : 28, Math.floor(innerWidth / (perfLowEnd ? 10 : 7.8))));
+    const count = Math.min(gfx.particles, Math.max(Math.min(10,gfx.particles), Math.floor(innerWidth / (gfx.particles>=45 ? 7.8 : gfx.particles>=24 ? 12 : 22))));
     particles = Array.from({length:count}, (_,i) => {
       const x=Math.random()*innerWidth, y=Math.random()*innerHeight;
       return {
@@ -10389,7 +10555,7 @@ async function initFarm(){
         ctx.strokeStyle=`rgba(255,255,255,${alpha*.48})`;
         ctx.beginPath(); ctx.moveTo(p.px,p.py); ctx.lineTo(p.x,p.y); ctx.stroke();
       }
-      if(p.big){
+      if(p.big&&getResellGraphicsProfile().glow>=2){
         const glow=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,9);
         glow.addColorStop(0,`rgba(255,255,255,${alpha*.58})`);
         glow.addColorStop(1,'rgba(255,255,255,0)');
@@ -10399,25 +10565,27 @@ async function initFarm(){
       ctx.fillStyle=`rgba(255,255,255,${alpha})`; ctx.fill();
     }
     // Sparse moving links; they drift with the particles and remain very subtle.
-    ctx.lineWidth=.4;
-    const linkStep=perfLowEnd?4:2;
-    const linkReach=perfLowEnd?5:9;
-    for(let i=0;i<particles.length;i+=linkStep){
-      const a=particles[i];
-      for(let j=i+1;j<Math.min(i+linkReach,particles.length);j++){
-        const b=particles[j];
-        const dist=Math.hypot(a.x-b.x,a.y-b.y);
-        if(dist<96){
-          const opacity=(1-dist/96)*.045;
-          ctx.strokeStyle=`rgba(255,255,255,${opacity})`;
-          ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+    const gfx=getResellGraphicsProfile();
+    if(gfx.links){
+      ctx.lineWidth=.4;
+      for(let i=0;i<particles.length;i+=gfx.links){
+        const a=particles[i];
+        for(let j=i+1;j<Math.min(i+gfx.links+3,particles.length);j++){
+          const b=particles[j];
+          const dist=Math.hypot(a.x-b.x,a.y-b.y);
+          if(dist<96){
+            const opacity=(1-dist/96)*.045;
+            ctx.strokeStyle=`rgba(255,255,255,${opacity})`;
+            ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+          }
         }
       }
     }
-    setTimeout(()=>requestAnimationFrame(drawParticles),perfLowEnd?66:50);
+    setTimeout(()=>requestAnimationFrame(drawParticles),getResellGraphicsProfile().particleMs);
   }
 
   addEventListener('resize',resizeCanvas,{passive:true});
+  window.addEventListener('resell-graphics-change',resizeCanvas,{passive:true});
   resizeCanvas();
   drawParticles();
 
