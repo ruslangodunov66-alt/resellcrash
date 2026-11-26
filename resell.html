@@ -8250,18 +8250,75 @@ async function initFarm(){
   const VC_PALM_FRONDS=[[-10,-7],[-7,-12],[0,-14],[7,-12],[10,-7],[-11,0],[11,0]];
   const vcDrawQueue=[],vcTrafficScratch=[];
   const vcDrawSortByY=(a,b)=>a.y-b.y;
-  // One fixed ORIGINAL full-quality profile for every device.
-  // No hardware-based presets, no runtime quality reduction and no 30/45 FPS cap.
-  // Simulation is fixed at 60 Hz; rendering follows the screen's native RAF cadence.
-  const VC_GRAPHICS = Object.freeze({
-    simHz:60, dpr:1.5, particles:42, particleMs:60, links:2,
-    glow:2, roadFlecks:24, cityDetail:2, streaks:true, burst:8
-  });
-  const vcGraphicsProfile=VC_GRAPHICS;
-  // The shared home-screen particle canvas uses this same single, fixed profile.
-  window.__resellGraphicsProfile=VC_GRAPHICS;
-  let vcFixedStep=1/60;
-
+  // Automatic graphics profiles. There is deliberately no in-game quality control.
+  const VC_GRAPHICS = {
+    // All devices keep the same 60 Hz simulation and use the display's natural
+    // requestAnimationFrame cadence. Quality tiers reduce drawing cost, never
+    // impose an artificial 30/45 FPS cap (which caused visible judder).
+    high:   {fps:60, simHz:60, dpr:1.5, particles:42, particleMs:60, links:2, glow:2, roadFlecks:24, cityDetail:2, streaks:true, burst:8},
+    medium: {fps:60, simHz:60, dpr:1.15,particles:22, particleMs:85, links:4, glow:1, roadFlecks:8,  cityDetail:1, streaks:false,burst:5},
+    low:    {fps:60, simHz:60, dpr:1.0, particles:8,  particleMs:120,links:0, glow:0, roadFlecks:0,  cityDetail:0, streaks:false,burst:2}
+  };
+  const vcDeviceIsAndroid=/Android/i.test(navigator.userAgent||'');
+  const vcDeviceIsIOS=/iPhone|iPad|iPod/i.test(navigator.userAgent||'');
+  function vcInitialGraphicsTier(){
+    const cores=Number(navigator.hardwareConcurrency)||0;
+    const memory=Number(navigator.deviceMemory)||0;
+    if(vcDeviceIsAndroid){
+      if((memory>0&&memory<=3)||(cores>0&&cores<=4))return 'low';
+      if(!memory||!cores||memory<=4||cores<=6)return 'medium';
+      if(memory>=8&&cores>=8)return 'high';
+      return 'medium';
+    }
+    if(vcDeviceIsIOS){
+      if(cores>0&&cores<=4)return 'low';
+      if(!cores||cores<=6)return 'medium';
+      return 'high';
+    }
+    if((memory>0&&memory<=3)||(cores>0&&cores<=4))return 'low';
+    if((memory>0&&memory<=4)||(cores>0&&cores<=6))return 'medium';
+    return 'high';
+  }
+  let vcGraphicsTier=vcInitialGraphicsTier();
+  let vcGraphicsProfile=VC_GRAPHICS[vcGraphicsTier];
+  function vcSetGraphicsTier(next,reason='auto'){
+    if(!VC_GRAPHICS[next]||next===vcGraphicsTier)return;
+    const order=['high','medium','low'];
+    // Runtime adaptation only lowers quality; it never oscillates or changes gameplay.
+    if(order.indexOf(next)<order.indexOf(vcGraphicsTier))return;
+    vcGraphicsTier=next;vcGraphicsProfile=VC_GRAPHICS[next];vcFixedStep=1/vcGraphicsProfile.simHz;
+    window.__resellGraphicsTier=next;
+    window.__resellGraphicsProfile=vcGraphicsProfile;
+    document.documentElement.dataset.resellGraphics=next;
+    document.documentElement.style.setProperty('--resell-ambient-opacity',next==='high'?'1':next==='medium'?'.72':'.48');
+    window.dispatchEvent(new CustomEvent('resell-graphics-change',{detail:{tier:next,reason}}));
+  }
+  window.__resellGraphicsTier=vcGraphicsTier;
+  window.__resellGraphicsProfile=vcGraphicsProfile;
+  document.documentElement.dataset.resellGraphics=vcGraphicsTier;
+  document.documentElement.style.setProperty('--resell-ambient-opacity',vcGraphicsTier==='high'?'1':vcGraphicsTier==='medium'?'.72':'.48');
+  let vcFixedStep=1/vcGraphicsProfile.simHz;
+  // A lightweight page-wide frame probe adapts visual detail to actual device load.
+  // It never reduces simulation frequency or imposes a render FPS cap.
+  let resellPerfLast=0,resellPerfSamples=[];
+  function resellGraphicsPerfProbe(now){
+    if(document.visibilityState==='visible'){
+      if(resellPerfLast){
+        resellPerfSamples.push(now-resellPerfLast);
+        if(resellPerfSamples.length>=60){
+          const sorted=resellPerfSamples.slice().sort((a,b)=>a-b);
+          const p90=sorted[Math.floor(sorted.length*.90)]||0;
+          const avg=resellPerfSamples.reduce((a,b)=>a+b,0)/resellPerfSamples.length;
+          if((avg>24||p90>42)&&vcGraphicsTier!=='low')vcSetGraphicsTier('low','runtime');
+          else if((avg>19||p90>30)&&vcGraphicsTier==='high')vcSetGraphicsTier('medium','runtime');
+          resellPerfSamples.length=0;
+        }
+      }
+      resellPerfLast=now;
+    }else{resellPerfLast=0;resellPerfSamples.length=0;}
+    requestAnimationFrame(resellGraphicsPerfProbe);
+  }
+  setTimeout(()=>requestAnimationFrame(resellGraphicsPerfProbe),2200);
   // Static post-processing is rasterized once instead of rebuilding scanlines
   // and a full-canvas gradient on every animation frame (helps slower Android GPUs).
   const vcEffectLayer=document.createElement('canvas');
@@ -8282,7 +8339,7 @@ async function initFarm(){
     speed:104, cruiseSpeed:140, brakeHeld:false, items:[], particles:[], waveNo:0, waveTimer:2.0, nextCoin:.45,
     hitFlash:0, shake:0, runId:'', laneHistory:[{at:0,lane:1}],
     police:[{type:'police',drawIndex:0,x:VC_LANES[0],target:0,targetLane:0,angle:0,y:274,lag:1.55,side:-1},{type:'police',drawIndex:1,x:VC_LANES[2],target:2,targetLane:2,angle:0,y:308,lag:2.45,side:1}],
-    audio:null, audioOn:true, engineOsc:null, engineGain:null, sirenOsc:null, sirenGain:null,
+    audio:null, audioOn:true, engineOsc:null, engineGain:null, sirenOsc:null, sirenGain:null, sirenLfo:null, sirenLfoGain:null,
     lastSubmit:null, leaderboard:[], exchangeBusy:false, startBusy:false, pendingRunId:'', pendingCoins:0
   };
   const vcEl = id => document.getElementById(id);
@@ -8330,7 +8387,7 @@ async function initFarm(){
     vcFlushExitPromise=task.finally(()=>{vcFlushExitPromise=null;});
     return vcFlushExitPromise;
   }
-  function vcShowLayer(layer){ vc.lastDraw=0;vc.renderAccumulator=0; [vcIntro,vcGameOver,vcPauseLayer,vcLeaderboardLayer].forEach(el=>el?.classList.add('vc-hidden')); layer?.classList.remove('vc-hidden'); vcEnsureFrameLoop(); }
+  function vcShowLayer(layer){ vc.lastDraw=0;vc.renderAccumulator=0; [vcIntro,vcGameOver,vcPauseLayer,vcLeaderboardLayer].forEach(el=>el?.classList.add('vc-hidden')); layer?.classList.remove('vc-hidden'); }
   function vcOpenLeaderboard(){ if(vc.mode==='running'){vc.mode='paused';vcPersistRunSnapshot(true);vcPauseAudio();} vcShowLayer(vcLeaderboardLayer); vcLoadStats(); vcHaptic('light'); }
   function vcCloseLeaderboard(){ vcShowLayer(vc.mode==='paused'?vcPauseLayer:(vc.mode==='over'?vcGameOver:vcIntro)); }
 
@@ -8340,7 +8397,7 @@ async function initFarm(){
     document.body.dataset.vcOverflow=document.body.style.overflow||''; document.body.style.overflow='hidden';
     vcReset('ready'); vc.best=Math.max(vc.best,vcReadLocalBest()); vcText('vcBestValue',vcFmt(vc.best));
     vcShowLayer(vcIntro); vcResize(); vc.last=0;
-    vcEnsureFrameLoop();
+    if(!vc.raf) vc.raf=requestAnimationFrame(vcFrame);
     void vcFlushStoredLeave(true).then(()=>vcLoadStats()); vcHaptic('light');
   }
   function vcFinishClose(){
@@ -8408,7 +8465,7 @@ async function initFarm(){
       const resp=await apiFetch(`${API_BASE}/games/vice-city/start`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:String(userId),run_id:vc.runId})},2);
       const data=await resp.json().catch(()=>({}));
       if(!resp.ok||!data.success)throw new Error(data.error||'Не удалось начать забег');
-      vc.mode='running';vc.last=0;vc.accumulator=0;vc.renderAccumulator=0;vcPersistRunSnapshot(true);vcShowLayer(null);vcResumeAudio();vcHaptic('medium');
+      vc.mode='running';vc.last=0;vc.accumulator=0;vc.renderAccumulator=0;vcPersistRunSnapshot(true);vcShowLayer(null);vcInitAudio();vcHaptic('medium');
     }catch(err){vc.runId='';vc.mode='ready';vcStopAudio();showToast(err.message||'Не удалось начать забег Vice City');}
     finally{vc.startBusy=false;if(startBtn)startBtn.disabled=false;if(restartBtn)restartBtn.disabled=false;}
   }
@@ -8451,58 +8508,37 @@ async function initFarm(){
   function vcLaneAt(t){ let lane=1; for(const h of vc.laneHistory){ if(h.at<=t) lane=h.lane; else break; } return lane; }
 
   let vcMusicTimer = null, vcMusicStep = 0, vcMusicNextAt = 0;
-  let vcAudioSuspendTimer = null, vcOrientationRecoveryTimer = null;
-  let vcLastOrientationIsLandscape = !!window.matchMedia?.('(orientation: landscape)')?.matches;
-
-  function vcApplyDriveAudio(ctx,force=false){
-    if(!ctx || ctx.state!=='running' || !vc.audio || vc.audio.ctx!==ctx)return;
-    const active=!!(vc.audioOn && vc.open && vc.mode==='running');
-    const mode=active?'running':'muted';
-    if(!force && vc.audio.driveMode===mode)return;
-    const now=ctx.currentTime;
-    for(const node of [vc.engineGain,vc.sirenGain]){
-      if(!node?.gain)continue;
-      try{
-        node.gain.cancelScheduledValues(now);
-        node.gain.setValueAtTime(node.gain.value,now);
-        node.gain.setTargetAtTime(active ? (node===vc.engineGain ? 0.055 : 0.045) : 0,now,.055);
-      }catch(_){}
-    }
-    vc.audio.driveMode=mode;
-  }
   function vcInitAudio(){
-    if(!vc.audioOn)return;
+    if(!vc.audioOn) return;
     try{
-      const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;
+      const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return;
       if(!vc.audio){
-        const a=new AC(),master=a.createGain();master.gain.value=.72;master.connect(a.destination);
-        const engine=a.createOscillator(),engineGain=a.createGain(),filter=a.createBiquadFilter();
-        engine.type='sawtooth';engine.frequency.value=64;filter.type='lowpass';filter.frequency.value=230;
-        engineGain.gain.value=0;engine.connect(filter);filter.connect(engineGain);engineGain.connect(master);engine.start();
-        const siren=a.createOscillator(),sirenGain=a.createGain(),sirenFilter=a.createBiquadFilter();
-        siren.type='triangle';siren.frequency.value=720;sirenFilter.type='lowpass';sirenFilter.frequency.value=1650;
-        sirenGain.gain.value=0;siren.connect(sirenFilter);sirenFilter.connect(sirenGain);sirenGain.connect(master);siren.start();
-        const musicGain=a.createGain();musicGain.gain.value=0;musicGain.connect(master);
-        vc.audio={ctx:a,master,filter,musicGain,noiseBuffer:null,driveMode:'muted'};
-        vc.engineOsc=engine;vc.engineGain=engineGain;vc.sirenOsc=siren;vc.sirenGain=sirenGain;
+        const a=new AC(), master=a.createGain(); master.gain.value=.72; master.connect(a.destination);
+        const engine=a.createOscillator(), engineGain=a.createGain(), filter=a.createBiquadFilter();
+        engine.type='sawtooth'; engine.frequency.value=64; filter.type='lowpass'; filter.frequency.value=230;
+        engineGain.gain.value=.055; engine.connect(filter); filter.connect(engineGain); engineGain.connect(master); engine.start();
+        const siren=a.createOscillator(), sirenGain=a.createGain(), sirenFilter=a.createBiquadFilter();
+        // Stable police wail: a dedicated low-frequency oscillator smoothly
+        // modulates siren pitch. Avoid repeatedly retargeting the siren pitch
+        // from the render loop, which can create clicks/short beeps in WebViews.
+        siren.type='triangle'; siren.frequency.value=620; sirenFilter.type='lowpass'; sirenFilter.frequency.value=1650;
+        const sirenLfo=a.createOscillator(), sirenLfoGain=a.createGain();
+        sirenLfo.type='triangle'; sirenLfo.frequency.value=.78; sirenLfoGain.gain.value=245;
+        sirenLfo.connect(sirenLfoGain); sirenLfoGain.connect(siren.frequency); sirenLfo.start();
+        sirenGain.gain.value=.045; siren.connect(sirenFilter); sirenFilter.connect(sirenGain); sirenGain.connect(master); siren.start();
+        const musicGain=a.createGain(); musicGain.gain.value=0; musicGain.connect(master);
+        vc.audio={ctx:a,master,filter,musicGain,noiseBuffer:null};
+        vc.engineOsc=engine; vc.engineGain=engineGain; vc.sirenOsc=siren; vc.sirenGain=sirenGain; vc.sirenLfo=sirenLfo; vc.sirenLfoGain=sirenLfoGain;
       }
-      const ctx=vc.audio.ctx;
-      if(vcAudioSuspendTimer){clearTimeout(vcAudioSuspendTimer);vcAudioSuspendTimer=null;}
-      if(ctx.state==='running')vcApplyDriveAudio(ctx);
-      else{
-        // Never enqueue siren modulation while the WebAudio clock is frozen.
-        const resumeResult=ctx.resume?.();
-        if(resumeResult&&typeof resumeResult.then==='function')resumeResult.then(()=>{
-          if(vc.audio?.ctx===ctx)vcApplyDriveAudio(ctx);
-        }).catch(()=>{});
-      }
-    }catch(_){
-      try{vc.audio?.ctx?.suspend?.();}catch(__){}
-      vc.audio=null;vc.engineOsc=null;vc.engineGain=null;vc.sirenOsc=null;vc.sirenGain=null;
-    }
+      const now=vc.audio.ctx.currentTime;
+      vc.audio.ctx.resume?.();
+      const isDriving=vc.mode==='running';
+      vc.engineGain.gain.setTargetAtTime(isDriving?.055:0,now,.08);
+      vc.sirenGain.gain.setTargetAtTime(isDriving?.045:0,now,.08);
+    }catch(_){ vc.audio=null; }
   }
   function vcMusicNote(freq,at,duration,wave='triangle',volume=.045,cutoff=2400,attack=.012){
-    const a=vc.audio?.ctx;if(!a||a.state!=='running'||!vc.audioOn)return;
+    const a=vc.audio?.ctx;if(!a)return;
     try{
       const osc=a.createOscillator(),filter=a.createBiquadFilter(),gain=a.createGain();
       osc.type=wave;osc.frequency.setValueAtTime(Math.max(35,freq),at);
@@ -8515,11 +8551,11 @@ async function initFarm(){
     }catch(_){}
   }
   function vcMusicKick(at){
-    const a=vc.audio?.ctx;if(!a||a.state!=='running'||!vc.audioOn)return;
+    const a=vc.audio?.ctx;if(!a)return;
     try{const o=a.createOscillator(),g=a.createGain();o.type='sine';o.frequency.setValueAtTime(132,at);o.frequency.exponentialRampToValueAtTime(47,at+.16);g.gain.setValueAtTime(.20,at);g.gain.exponentialRampToValueAtTime(.0001,at+.21);o.connect(g);g.connect(vc.audio.musicGain);o.start(at);o.stop(at+.23);}catch(_){}
   }
   function vcMusicNoise(at,volume=.07,duration=.12){
-    const a=vc.audio?.ctx;if(!a||a.state!=='running'||!vc.audioOn)return;
+    const a=vc.audio?.ctx;if(!a)return;
     try{
       if(!vc.audio.noiseBuffer){const n=a.createBuffer(1,Math.floor(a.sampleRate*.22),a.sampleRate),d=n.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;vc.audio.noiseBuffer=n;}
       const src=a.createBufferSource(),filter=a.createBiquadFilter(),g=a.createGain();src.buffer=vc.audio.noiseBuffer;filter.type='highpass';filter.frequency.value=1800;
@@ -8527,7 +8563,7 @@ async function initFarm(){
     }catch(_){}
   }
   function vcScheduleMusic(){
-    const a=vc.audio?.ctx;if(!a||a.state!=='running'||!vc.audioOn)return;
+    const a=vc.audio?.ctx;if(!a||!vc.audioOn)return;
     const stepSec=60/116/4,roots=[45,41,48,43],chords=[[57,60,64,69],[53,57,60,65],[60,64,67,72],[55,59,62,67]],arp=[0,2,1,3,2,1,0,1];
     while(vcMusicNextAt<a.currentTime+.15){
       const step=vcMusicStep%16,bar=Math.floor(vcMusicStep/16)%4,at=vcMusicNextAt,chord=chords[bar];
@@ -8540,103 +8576,33 @@ async function initFarm(){
     }
   }
   function vcPlayMusic(){
-    if(!vc.audioOn)return;
-    vcInitAudio();const ctx=vc.audio?.ctx;if(!ctx)return;
-    if(vcMusicTimer){clearInterval(vcMusicTimer);vcMusicTimer=null;}
-    const begin=()=>{
-      if(vc.audio?.ctx!==ctx||ctx.state!=='running'||!vc.audioOn)return;
-      const now=ctx.currentTime;
-      vcMusicStep=0;vcMusicNextAt=now+.035;
-      vc.audio.musicGain.gain.cancelScheduledValues(now);
-      vc.audio.musicGain.gain.setValueAtTime(0,now);
-      vc.audio.musicGain.gain.setTargetAtTime(.82,now,.18);
-      vcScheduleMusic();
-      vcMusicTimer=setInterval(()=>{
-        if(vc.audio?.ctx!==ctx||ctx.state!=='running'||!vc.audioOn){clearInterval(vcMusicTimer);vcMusicTimer=null;return;}
-        vcScheduleMusic();
-      },35);
-    };
-    if(ctx.state==='running')begin();
-    else{const p=ctx.resume?.();if(p&&typeof p.then==='function')p.then(begin).catch(()=>{});}
+    if(!vc.audioOn)return;vcInitAudio();const a=vc.audio?.ctx;if(!a)return;
+    try{a.resume?.();if(vcMusicTimer)clearInterval(vcMusicTimer);vcMusicStep=0;vcMusicNextAt=a.currentTime+.035;
+      vc.audio.musicGain.gain.cancelScheduledValues(a.currentTime);vc.audio.musicGain.gain.setTargetAtTime(.82,a.currentTime,.18);
+      vcScheduleMusic();vcMusicTimer=setInterval(vcScheduleMusic,35);
+    }catch(_){}
   }
   function vcPauseMusic(){
     if(vcMusicTimer){clearInterval(vcMusicTimer);vcMusicTimer=null;}
-    try{const ctx=vc.audio?.ctx,gain=vc.audio?.musicGain?.gain;if(ctx&&gain&&ctx.state==='running'){const now=ctx.currentTime;gain.cancelScheduledValues(now);gain.setValueAtTime(gain.value,now);gain.setTargetAtTime(0,now,.025);}}catch(_){}
+    try{if(vc.audio){const a=vc.audio.ctx;vc.audio.musicGain.gain.setTargetAtTime(.0001,a.currentTime,.06);}}catch(_){}
   }
   function vcTone(freq=800,duration=.09,type='triangle',volume=.075,slide=0){
-    if(!vc.audioOn||!vc.open||vc.mode!=='running')return;
+    if(!vc.audioOn) return;
     try{
-      vcInitAudio();const a=vc.audio?.ctx;if(!a||a.state!=='running')return;
-      const o=a.createOscillator(),g=a.createGain();o.type=type;o.frequency.setValueAtTime(freq,a.currentTime);
-      if(slide)o.frequency.exponentialRampToValueAtTime(Math.max(50,freq+slide),a.currentTime+duration);
-      g.gain.setValueAtTime(volume,a.currentTime);g.gain.exponentialRampToValueAtTime(.001,a.currentTime+duration);
+      vcInitAudio(); const a=vc.audio?.ctx; if(!a) return;
+      const o=a.createOscillator(),g=a.createGain(); o.type=type; o.frequency.setValueAtTime(freq,a.currentTime);
+      if(slide) o.frequency.exponentialRampToValueAtTime(Math.max(50,freq+slide),a.currentTime+duration);
+      g.gain.setValueAtTime(volume,a.currentTime); g.gain.exponentialRampToValueAtTime(.001,a.currentTime+duration);
       o.connect(g);g.connect(vc.audio.master);o.start();o.stop(a.currentTime+duration+.02);
     }catch(_){}
   }
-  function vcSilenceAudio(forceSuspend=false){
-    if(vcMusicTimer){clearInterval(vcMusicTimer);vcMusicTimer=null;}
-    const ctx=vc.audio?.ctx;if(!ctx)return;
-    try{
-      const now=ctx.currentTime;
-      // Cancel stale automation first. This is important when iOS/Android
-      // temporarily freezes AudioContext during rotation or app focus changes.
-      for(const node of [vc.engineGain,vc.sirenGain,vc.audio.musicGain]){
-        const gain=node?.gain;if(!gain)continue;
-        gain.cancelScheduledValues(now);
-        gain.setValueAtTime(gain.value,now);
-        gain.linearRampToValueAtTime(0,now+.025);
-      }
-      if(vc.sirenOsc?.frequency){vc.sirenOsc.frequency.cancelScheduledValues(now);vc.sirenOsc.frequency.setValueAtTime(720,now);}
-      if(vc.engineOsc?.frequency){vc.engineOsc.frequency.cancelScheduledValues(now);vc.engineOsc.frequency.setValueAtTime(64,now);}
-      vc.audio.driveMode='muted';
-      if(vcAudioSuspendTimer)clearTimeout(vcAudioSuspendTimer);
-      vcAudioSuspendTimer=setTimeout(()=>{
-        vcAudioSuspendTimer=null;
-        if(vc.audio?.ctx===ctx && ctx.state==='running' && (forceSuspend||!vc.audioOn||!vc.open||vc.mode!=='running')){
-          try{ctx.suspend().catch(()=>{});}catch(_){}
-        }
-      },70);
-    }catch(_){}
+  function vcStopAudio(){
+    vcPauseMusic();try{if(vc.audio){const a=vc.audio.ctx;vc.engineGain.gain.setTargetAtTime(0,a.currentTime,.04);vc.sirenGain.gain.setTargetAtTime(0,a.currentTime,.04);}}catch(_){}
   }
-  function vcStopAudio(){vcSilenceAudio(false);}
-  function vcPauseAudio(){vcSilenceAudio(false);}
-  function vcResumeAudio(){
-    if(!vc.audioOn||!vc.open||vc.mode!=='running')return;
-    if(vcOrientationRecoveryTimer){clearTimeout(vcOrientationRecoveryTimer);vcOrientationRecoveryTimer=null;}
-    vcInitAudio();const ctx=vc.audio?.ctx;if(!ctx)return;
-    const activate=()=>{
-      if(vc.audio?.ctx!==ctx||!vc.audioOn||!vc.open||vc.mode!=='running')return;
-      const now=ctx.currentTime;
-      try{
-        for(const node of [vc.engineGain,vc.sirenGain]){
-          if(!node?.gain)continue;node.gain.cancelScheduledValues(now);node.gain.setValueAtTime(0,now);
-        }
-        if(vc.sirenOsc?.frequency){vc.sirenOsc.frequency.cancelScheduledValues(now);vc.sirenOsc.frequency.setValueAtTime(720,now);}
-        if(vc.engineOsc?.frequency){vc.engineOsc.frequency.cancelScheduledValues(now);vc.engineOsc.frequency.setValueAtTime(64,now);}
-        vc.audio.driveMode='muted';vcApplyDriveAudio(ctx,true);
-      }catch(_){}
-      vcPlayMusic();
-    };
-    if(ctx.state==='running')activate();
-    else{const p=ctx.resume?.();if(p&&typeof p.then==='function')p.then(activate).catch(()=>{});}
+  function vcPauseAudio(){
+    vcPauseMusic();try{if(vc.audio){const a=vc.audio.ctx;vc.engineGain.gain.setTargetAtTime(0,a.currentTime,.04);vc.sirenGain.gain.setTargetAtTime(0,a.currentTime,.04);}}catch(_){}
   }
-  function vcRecoverAudioAfterOrientation(){
-    const isLandscape=!!window.matchMedia?.('(orientation: landscape)')?.matches;
-    if(isLandscape===vcLastOrientationIsLandscape)return;
-    vcLastOrientationIsLandscape=isLandscape;
-    if(!vc.open||vc.mode!=='running'||!vc.audioOn||!vc.audio)return;
-    if(vcOrientationRecoveryTimer)clearTimeout(vcOrientationRecoveryTimer);
-    // Briefly silence and suspend the context so stale siren frequency ramps
-    // cannot pile up while the mobile browser relayouts the rotated viewport.
-    vcSilenceAudio(true);
-    vcOrientationRecoveryTimer=setTimeout(()=>{
-      vcOrientationRecoveryTimer=null;
-      if(vc.open&&vc.mode==='running'&&vc.audioOn)vcResumeAudio();
-    },240);
-  }
-  window.addEventListener('orientationchange',vcRecoverAudioAfterOrientation,{passive:true});
-  window.screen?.orientation?.addEventListener?.('change',vcRecoverAudioAfterOrientation);
-  window.addEventListener('resize',vcRecoverAudioAfterOrientation,{passive:true});
+  function vcResumeAudio(){if(!vc.audioOn)return;vcInitAudio();vcPlayMusic();}
   function vcToggleSound(){
     vc.audioOn=!vc.audioOn;const b=vcEl('vcSoundBtn');if(b){b.textContent=vc.audioOn?'AUDIO ON':'AUDIO OFF';b.classList.toggle('off',!vc.audioOn);}
     if(vc.audioOn&&vc.mode==='running')vcResumeAudio();else vcStopAudio();vcHaptic('light');
@@ -8666,79 +8632,41 @@ async function initFarm(){
     for(let i=0;i<VC_PALM_FRONDS.length;i++){const p=VC_PALM_FRONDS[i];vcRect(c,p[0],p[1],i%2?7:8,2,i%3===0?'#2b9368':'#40a46e');vcRect(c,p[0]+(p[0]<0?0:5),p[1]+2,2,3,'#1b6d54');}
     c.restore();
   }
-  // Pre-render the six repeating city blocks once. The scene keeps the same
-  // buildings, windows, palms, curbs and colors, but avoids rebuilding them
-  // with dozens of fillRect calls on every animation frame.
-  function vcBuildCityTiles(){
-    const tiles=[];
-    for(let n=0;n<6;n++){
-      const tile=document.createElement('canvas');tile.width=VC_W;tile.height=64;
-      const t=tile.getContext('2d');
-      vcRect(t,0,0,VC_W,64,'#183a36');
-      const leftW=17+(n%3)*3, rightW=17+((n+2)%3)*3;
-      vcRect(t,2,5,leftW,48,n%2?'#253b43':'#243246');
-      vcRect(t,4,7,leftW-4,4,'#3d5960');
-      vcRect(t,5,15,3,4,n%2?'#ed8a9b':'#f7bf68');
-      vcRect(t,11,15,3,4,'#65d8d6');
-      vcRect(t,5,26,3,4,'#65d8d6');
-      vcRect(t,11,26,3,4,n%2?'#f7bf68':'#ed8a9b');
-      vcRect(t,VC_W-rightW+3,16,3,4,'#65d8d6');
-      vcRect(t,VC_W-rightW+10,16,3,4,'#f5a2a4');
-      vcRect(t,VC_W-rightW+3,29,3,4,'#f1c26a');
-      vcRect(t,VC_W-rightW+10,29,3,4,'#65d8d6');
-      if(n%2===0){vcDrawPalm(t,24,50,.72);vcDrawPalm(t,VC_W-23,11,.72);}
-      vcRect(t,0,59,VC_W,2,'#30424b');
-      tiles.push(tile);
-    }
-    return tiles;
-  }
-  const vcCityTileCache=vcBuildCityTiles();
-
-  // A transparent 56 px repeating lane-mark strip preserves the original
-  // asphalt-fleck -> lane-dash layering while reducing per-frame draw calls.
-  const vcRoadMarkTile=(()=>{
-    const tile=document.createElement('canvas');tile.width=VC_ROAD.width;tile.height=56;
-    const t=tile.getContext('2d');
-    for(let lane=1;lane<=2;lane++){
-      const x=Math.round(VC_ROAD.width*lane/3-1);
-      vcRect(t,x,25,2,31,'#a6abb0');
-      vcRect(t,x+1,25,1,31,'#d4d1c7');
-    }
-    return tile;
-  })();
-
   function vcDrawCity(c,scroll){
     vcRect(c,0,0,VC_W,VC_H,'#101d29');
-    const tile=64,travel=scroll*.78,off=travel%tile,base=-Math.floor(travel/tile);
-    vcRect(c,0,0,VC_ROAD.left,VC_H,'#183a36');
-    vcRect(c,VC_ROAD.left+VC_ROAD.width,0,VC_W-(VC_ROAD.left+VC_ROAD.width),VC_H,'#183a36');
+    const detail=vcGraphicsProfile.cityDetail;
+    const tile=64, travel=scroll*.78, off=travel%tile, base=-Math.floor(travel/tile);
+    vcRect(c,0,0,VC_ROAD.left,VC_H,'#183a36'); vcRect(c,VC_ROAD.left+VC_ROAD.width,0,VC_W-(VC_ROAD.left+VC_ROAD.width),VC_H,'#183a36');
     for(let i=-1;i<7;i++){
-      const y=Math.round(i*tile+off),n=(((base+i)%6)+6)%6;
-      c.drawImage(vcCityTileCache[n],0,y);
+      const y=Math.round(i*tile+off), n=(((base+i)%6)+6)%6;
+      const leftW=17+(n%3)*3, rightW=17+((n+2)%3)*3;
+      vcRect(c,2,y+5,leftW,48,n%2?'#253b43':'#243246'); vcRect(c,4,y+7,leftW-4,4,'#3d5960');
+      if(detail>=1){
+        vcRect(c,5,y+15,3,4,n%2?'#ed8a9b':'#f7bf68'); vcRect(c,11,y+15,3,4,'#65d8d6');
+        vcRect(c,5,y+26,3,4,'#65d8d6'); vcRect(c,11,y+26,3,4,n%2?'#f7bf68':'#ed8a9b');
+        vcRect(c,VC_W-rightW+3,y+16,3,4,'#65d8d6'); vcRect(c,VC_W-rightW+10,y+16,3,4,'#f5a2a4');
+        vcRect(c,VC_W-rightW+3,y+29,3,4,'#f1c26a'); vcRect(c,VC_W-rightW+10,y+29,3,4,'#65d8d6');
+      }
+      if(detail>=2&&n%2===0){vcDrawPalm(c,24,y+50,.72);vcDrawPalm(c,VC_W-23,y+11,.72);}
+      vcRect(c,0,y+59,VC_W,2,'#30424b');
     }
-    for(let y=-14+(scroll*.85%28);y<VC_H;y+=28){
-      vcRect(c,24,y,3,10,'#ef7398');
-      vcRect(c,153,y+12,3,10,'#42d4d0');
-    }
+    // Neon curbs stay visible beside the buildings as the city scrolls by.
+    for(let y=-14+(scroll*.85%28);y<VC_H;y+=28){vcRect(c,24,y,3,10,'#ef7398');vcRect(c,153,y+12,3,10,'#42d4d0');}
   }
   function vcDrawRoad(c,scroll){
     const L=VC_ROAD.left,R=L+VC_ROAD.width;
-    vcRect(c,L-3,0,VC_ROAD.width+6,VC_H,'#171d25');
-    vcRect(c,L,0,VC_ROAD.width,VC_H,'#303640');
-    vcRect(c,L,0,2,VC_H,'#f18ca8');
-    vcRect(c,R-2,0,2,VC_H,'#59c7cf');
-    for(let i=0;i<vcGraphicsProfile.roadFlecks;i++){
-      const x=L+5+((i*37)%112),y=(i*53+Math.floor(scroll*.9))%VC_H;
-      vcRect(c,x,y,1,1,i%3?'#39404a':'#45414a');
+    vcRect(c,L-3,0,VC_ROAD.width+6,VC_H,'#171d25'); vcRect(c,L,0,VC_ROAD.width,VC_H,'#303640');
+    vcRect(c,L,0,2,VC_H,'#f18ca8'); vcRect(c,R-2,0,2,VC_H,'#59c7cf');
+    // Asphalt flecks are reduced automatically on slower devices.
+    for(let i=0;i<vcGraphicsProfile.roadFlecks;i++){const x=L+5+((i*37)%112), y=(i*53+Math.floor(scroll*.9))%VC_H; vcRect(c,x,y,1,1,i%3?'#39404a':'#45414a');}
+    const dash=31, gap=25, offset=scroll%(dash+gap);
+    for(let lane=1;lane<=2;lane++){
+      const x=Math.round(L+VC_ROAD.width*lane/3-1);
+      for(let y=-dash+offset;y<VC_H;y+=dash+gap){vcRect(c,x,y,2,dash,'#a6abb0');vcRect(c,x+1,y,1,dash,'#d4d1c7');}
     }
-    const offset=scroll%56;
-    for(let y=offset-56;y<VC_H;y+=56)c.drawImage(vcRoadMarkTile,L,y);
-    for(let y=-20+(scroll*.6%42);y<VC_H;y+=42){
-      vcRect(c,L+4,y,2,2,'#59616a');
-      vcRect(c,R-6,y+15,2,2,'#59616a');
-    }
+    for(let y=-20+(scroll*.6%42);y<VC_H;y+=42){vcRect(c,L+4,y,2,2,'#59616a');vcRect(c,R-6,y+15,2,2,'#59616a');}
   }
-  function vcDrawCarArt(c,x,y,kind='player',angle=0,phase=0,variant=0,signal=0){
+  function vcDrawCar(c,x,y,kind='player',angle=0,phase=0,variant=0,signal=0){
     c.save(); c.translate(Math.round(x),Math.round(y)); c.rotate(angle);
     // ground shadow and wheels
     vcRect(c,-12, -17,4,12,'#090d12');vcRect(c,8,-17,4,12,'#090d12');vcRect(c,-12,7,4,12,'#090d12');vcRect(c,8,7,4,12,'#090d12');
@@ -8779,42 +8707,6 @@ async function initFarm(){
     vcRect(c,-12,-15,2,6,'#77808a');vcRect(c,10,-15,2,6,'#77808a');vcRect(c,-12,9,2,6,'#77808a');vcRect(c,10,9,2,6,'#77808a');
     c.restore();
   }
-
-  // Cars are pixel-art sprites with only a few discrete visual states (paint,
-  // indicator side and police-light phase). Rasterize those states once.
-  const vcCarSpriteCache=new Map();
-  function vcGetCarSprite(kind,variant=0,signal=0,policeFlash=0){
-    const key=kind==='traffic'?`traffic:${variant%VC_CAR_PALETTES.length}:${signal}`:
-      kind==='police'?`police:${policeFlash?1:0}`:'player';
-    let sprite=vcCarSpriteCache.get(key);
-    if(sprite)return sprite;
-    sprite=document.createElement('canvas');sprite.width=40;sprite.height=64;
-    const sc=sprite.getContext('2d');
-    if(sc)vcDrawCarArt(sc,20,32,kind,0,kind==='police'?(policeFlash?1:0):(signal ? .1 : 0),variant,signal);
-    vcCarSpriteCache.set(key,sprite);
-    return sprite;
-  }
-  // Build all possible variants up front so the first encounter with a car
-  // does not cause a frame-time spike.
-  for(let v=0;v<VC_CAR_PALETTES.length;v++){
-    vcGetCarSprite('traffic',v,0,0);
-    vcGetCarSprite('traffic',v,-1,0);
-    vcGetCarSprite('traffic',v,1,0);
-  }
-  vcGetCarSprite('player',0,0,0);
-  vcGetCarSprite('police',0,0,0);
-  vcGetCarSprite('police',0,0,1);
-
-  function vcDrawCar(c,x,y,kind='player',angle=0,phase=0,variant=0,signal=0){
-    const activeSignal=kind==='traffic'&&signal&&Math.floor(phase*3.2)%2===0?signal:0;
-    const policeFlash=kind==='police'&&Math.sin(phase*1.25)>0?1:0;
-    const sprite=vcGetCarSprite(kind,variant,activeSignal,policeFlash);
-    c.save();
-    c.translate(Math.round(x),Math.round(y));
-    c.rotate(angle);
-    c.drawImage(sprite,-20,-32);
-    c.restore();
-  }
   function vcDrawCoin(c,x,y,t){
     const spin=Math.abs(Math.cos(t*7)); const w=Math.max(2,Math.round(7*spin));
     vcGlow(c,x,y,15,'#ffbd42',.34);
@@ -8836,7 +8728,7 @@ async function initFarm(){
     }
     // Speed streaks are decorative; the low profile omits them to save fill calls.
     if(vcGraphicsProfile.streaks&&vc.mode==='running'&&vc.speed>130){
-      const streaks=7;
+      const streaks=vcGraphicsTier==='high'?7:4;
       for(let i=0;i<streaks;i++){let x=VC_ROAD.left+8+(i*23)%108,y=(i*61+vc.scroll*1.7)%VC_H;vcRect(c,x,y,1,vc.speed>175?8:4,'rgba(220,235,255,.18)');}
     }
     for(let i=0;i<vc.items.length;i++){
@@ -8998,11 +8890,8 @@ async function initFarm(){
           if(!vcSweptAabb(a0x,a0y,a1x,a1y,b0x,b0y,b1x,b1y,28,45))continue;
 
           let trailing,leading;
-          // Use the order before this physics step. Looking at final y values
-          // after a fast crossing would swap the cars and effectively let them
-          // tunnel through one another.
-          if(Math.abs(a0y-b0y)>1){
-            trailing=a0y<b0y?a:b;
+          if(Math.abs(a.y-b.y)>1){
+            trailing=a.y<b.y?a:b;
             leading=trailing===a?b:a;
           }else if(Number(a.speed||0)!==Number(b.speed||0)){
             // Lower-speed traffic has the greater relative closing speed on screen.
@@ -9204,16 +9093,7 @@ async function initFarm(){
     for(let i=vc.particles.length-1;i>=0;i--){const p=vc.particles[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=30*dt;p.life-=dt;if(p.life<=0)vc.particles.splice(i,1);}
     if(vc.time-vc.lastAudioUpdate>=.05){
       vc.lastAudioUpdate=vc.time;
-      try{
-        const audioCtx=vc.audio?.ctx;
-        if(vc.mode==='running'&&vc.audioOn&&audioCtx?.state==='running'&&vc.engineOsc&&vc.sirenOsc&&vc.engineGain&&vc.sirenGain){
-          const now=audioCtx.currentTime;
-          vc.engineOsc.frequency.setTargetAtTime(54+vc.speed*.34,now,.08);
-          vc.sirenOsc.frequency.setTargetAtTime(620+Math.sin(vc.time*5.8)*285,now,.07);
-          vc.engineGain.gain.setTargetAtTime(.055+Math.min(.025,difficulty*.025),now,.12);
-          vc.sirenGain.gain.setTargetAtTime(.045+Math.min(.025,difficulty*.025),now,.12);
-        }
-      }catch(_){}
+      try{if(vc.audio){const now=vc.audio.ctx.currentTime;vc.engineOsc.frequency.setTargetAtTime(54+vc.speed*.34,now,.08);vc.engineGain.gain.setTargetAtTime(.055+Math.min(.025,difficulty*.025),now,.12);vc.sirenGain.gain.setTargetAtTime(.045+Math.min(.025,difficulty*.025),now,.12);}}catch(_){}
     }
     vcPersistRunSnapshot();vcUpdateHUD();
   }
@@ -9225,39 +9105,25 @@ async function initFarm(){
     vcText('vcSpeed',`${Math.round(vc.speed*1.45)} KM/H`);vcText('vcLives',`${'♥'.repeat(Math.max(0,vc.lives))}${'♡'.repeat(Math.max(0,3-vc.lives))}`);
     const best=Math.max(vc.best,vc.score);vcText('vcBestValue',vcFmt(best));
   }
-  function vcEnsureFrameLoop(){
-    if(vc.open&&!vc.raf)vc.raf=requestAnimationFrame(vcFrame);
-  }
   function vcFrame(now){
     if(!vc.open){vc.raf=0;return;}
-    if(vc.mode!=='running'){
-      // Intro, pause and result screens are static. Draw once after a layer
-      // transition, then release the animation callback until gameplay resumes.
-      if(vcCtx&&!vc.lastDraw){
-        vcCtx.imageSmoothingEnabled=false;
-        vcDrawWorld(vcCtx);
-        vc.lastDraw=now||1;
+    const elapsed=vc.last?Math.max(0,(now-vc.last)/1000):0;vc.last=now;
+    if(vc.mode==='running'){
+      vc.accumulator=Math.min(.16,vc.accumulator+Math.min(.16,elapsed));
+      let steps=0;
+      while(vc.accumulator>=vcFixedStep&&steps<10&&vc.mode==='running'){
+        vcUpdate(vcFixedStep);vc.accumulator-=vcFixedStep;steps++;
       }
-      vc.raf=0;
-      return;
+      if(steps>=10)vc.accumulator=Math.min(vc.accumulator,vcFixedStep);
+    }else{
+      vc.accumulator=0;
     }
-    const elapsed=vc.last?Math.max(0,(now-vc.last)/1000):0;
-    vc.last=now;
-    vc.accumulator=Math.min(.16,vc.accumulator+Math.min(.16,elapsed));
-    let steps=0;
-    while(vc.accumulator>=vcFixedStep&&steps<10&&vc.mode==='running'){
-      vcUpdate(vcFixedStep);
-      vc.accumulator-=vcFixedStep;
-      steps++;
-    }
-    if(steps>=10)vc.accumulator=Math.min(vc.accumulator,vcFixedStep);
-    if(vcCtx){
-      vcCtx.imageSmoothingEnabled=false;
-      vcDrawWorld(vcCtx);
-      vc.lastDraw=now||1;
-    }
-    if(vc.mode==='running')vc.raf=requestAnimationFrame(vcFrame);
-    else vc.raf=0;
+    // Never throttle rendering to a synthetic 30/45 FPS cadence. On 60/90/120 Hz
+    // screens the browser presents at its natural cadence; on slower devices it
+    // falls back only as far as the hardware actually manages. Low tier reduces
+    // scene complexity instead of deliberately making motion less fluid.
+    if(vcCtx){vcCtx.imageSmoothingEnabled=false;vcDrawWorld(vcCtx);vc.lastDraw=now;}
+    vc.raf=requestAnimationFrame(vcFrame);
   }
   async function vcEnd(){
     if(vc.mode!=='running') return; vcSetBrake(false); vc.mode='over';vcPersistRunSnapshot(true);vcStopAudio();
@@ -10629,8 +10495,19 @@ async function initFarm(){
   // Particle field — visible flying particles for Telegram WebView, still lightweight.
   const canvas = document.getElementById('particles');
   const ctx = canvas.getContext('2d', {alpha:true});
+  const autoGraphicsStyle=document.createElement('style');
+  autoGraphicsStyle.id='resell-auto-graphics-profile';
+  const mediumBlurTargets=[".glass", ".nav", ".toast", ".intro-ref-card", ".tycoon-tabs", ".bottom-nav,.nav-bar,.tabbar", ".info-build-modal", "#resellMinerOverlay", ".oil-overlay", "#resellMaintenanceOverlay", "#vcEventAnnouncement", "#vcEventAnnouncement .vcs-copy-card", "#vcEventCoach", "#viceCityOverlay .vc-header", ".rhold-v19-btn", ".r26-overlay", ".r28-shop-overlay", ".v33-unlock-overlay", ".resell-home-nav", ".info-progress-overlay", ".avp-decision", ".avx-tabs", ".header", ".balance", "#resellCustomUpdateOverlay .rc-update-backdrop", ".modal:has(.resell-broadcast-admin),.modal:has(.resell-update-pop)", "#infoBuildModal.info-build-modal", "#avcDecisionModal.brand-v3-overlay", ".oil-tutorial-coach"];
+  const lowBlurTargets=[".level-up-flash", ".glass", ".game-live", ".era-node b", ".era-current-card", ".nav", ".toast", ".modal", ".intro-ref-card", ".intro-skip", ".era-map-caption", ".tycoon-car-media-tag", ".main-tycoon-tag", ".tycoon-tabs", ".bottom-nav,.nav-bar,.tabbar", "#resellHomeMoney #mainAssetsSection .main-tycoon-tag", ".resell-auth-bridge-backdrop", ".info-build-modal", "#resellMinerOverlay", ".oil-overlay", ".vice-city-cover .vc-cover-live", "#resellMaintenanceOverlay", "#vcEventAnnouncement", "#vcEventAnnouncement .vcs-copy-card", "#vcEventCoach", "#viceCityOverlay .vc-header", "#viceCityOverlay .vc-hud-chip", "#viceCityOverlay .vc-screen", "#viceCityOverlay .vc-brake-infield", ".rhold-v19-btn", ".r26-overlay", ".r28-shop-overlay", ".v33-unlock-overlay", ".resell-home-nav", ".swipe-caption", "#resellTutorialOverlay .rt-backdrop", ".avc-ritual", ".info-progress-overlay", ".avp-decision", ".career-new.brand .avp-decision", ".brand-v3-overlay", ".club7-hire-overlay", ".avx-tabs", ".header", ".balance", ".rc-media-top span,.rc-media-top b,.rc-media-bottom span,.rc-media-bottom b", "#resellCustomUpdateOverlay .rc-update-backdrop", ".career-store-setup", ".modal:has(.resell-broadcast-admin),.modal:has(.resell-update-pop)", "#infoBuildModal.info-build-modal", "#avcDecisionModal.brand-v3-overlay", "#avcDecisionModal:has(.brand-v2-modal)", "#brandV3DedicatedModal", ".career-new.infobusiness .info-studio-action-icon", ".career-new.infobusiness .info-studio-create.is-locked:after", ".oil-tutorial-coach"];
+  autoGraphicsStyle.textContent=`
+    html[data-resell-graphics="medium"] #particles{opacity:.72}
+    html[data-resell-graphics="low"] #particles{opacity:.48}
+    html[data-resell-graphics="medium"] :is(${mediumBlurTargets.join(',')}){backdrop-filter:blur(12px)!important;-webkit-backdrop-filter:blur(12px)!important}
+    html[data-resell-graphics="low"] :is(${lowBlurTargets.join(',')}){backdrop-filter:blur(3px)!important;-webkit-backdrop-filter:blur(3px)!important}
+  `;
+  document.head.appendChild(autoGraphicsStyle);
   let particles = [];
-  const getResellGraphicsProfile=()=>window.__resellGraphicsProfile||VC_GRAPHICS;
+  const getResellGraphicsProfile=()=>window.__resellGraphicsProfile||VC_GRAPHICS[window.__resellGraphicsTier||'medium'];
   let dpr = Math.min(window.devicePixelRatio || 1, getResellGraphicsProfile().dpr);
 
   function resizeCanvas(){
@@ -10661,13 +10538,6 @@ async function initFarm(){
   function drawParticles(){
     if(document.visibilityState !== 'visible'){
       particleSleepTimer=setTimeout(()=>requestAnimationFrame(drawParticles),500);
-      return;
-    }
-    // Vice City occupies the entire screen with an opaque backdrop. The home
-    // particle layer is fully covered there, so pause its timer while the game
-    // is open; this saves CPU/GPU time without changing any in-game pixels.
-    if(document.getElementById('viceCityOverlay')?.classList.contains('open')){
-      particleSleepTimer=setTimeout(()=>requestAnimationFrame(drawParticles),300);
       return;
     }
     ctx.clearRect(0,0,innerWidth,innerHeight);
@@ -10719,6 +10589,7 @@ async function initFarm(){
   }
 
   addEventListener('resize',resizeCanvas,{passive:true});
+  window.addEventListener('resell-graphics-change',resizeCanvas,{passive:true});
   resizeCanvas();
   drawParticles();
 
