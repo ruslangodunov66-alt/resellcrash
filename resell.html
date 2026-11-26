@@ -8252,9 +8252,12 @@ async function initFarm(){
   const vcDrawSortByY=(a,b)=>a.y-b.y;
   // Automatic graphics profiles. There is deliberately no in-game quality control.
   const VC_GRAPHICS = {
-    high:   {fps:60, simHz:60, dpr:1.5, particles:52, particleMs:50, links:2, glow:2, roadFlecks:38, cityDetail:2, streaks:true, burst:10},
-    medium: {fps:45, simHz:45, dpr:1.2, particles:30, particleMs:70, links:4, glow:1, roadFlecks:18, cityDetail:1, streaks:true, burst:6},
-    low:    {fps:30, simHz:30, dpr:1.0, particles:14, particleMs:100,links:0, glow:0, roadFlecks:0,  cityDetail:0, streaks:false,burst:3}
+    // All devices keep the same 60 Hz simulation and use the display's natural
+    // requestAnimationFrame cadence. Quality tiers reduce drawing cost, never
+    // impose an artificial 30/45 FPS cap (which caused visible judder).
+    high:   {fps:60, simHz:60, dpr:1.5, particles:42, particleMs:60, links:2, glow:2, roadFlecks:24, cityDetail:2, streaks:true, burst:8},
+    medium: {fps:60, simHz:60, dpr:1.15,particles:22, particleMs:85, links:4, glow:1, roadFlecks:8,  cityDetail:1, streaks:false,burst:5},
+    low:    {fps:60, simHz:60, dpr:1.0, particles:8,  particleMs:120,links:0, glow:0, roadFlecks:0,  cityDetail:0, streaks:false,burst:2}
   };
   const vcDeviceIsAndroid=/Android/i.test(navigator.userAgent||'');
   const vcDeviceIsIOS=/iPhone|iPad|iPod/i.test(navigator.userAgent||'');
@@ -8295,8 +8298,8 @@ async function initFarm(){
   document.documentElement.dataset.resellGraphics=vcGraphicsTier;
   document.documentElement.style.setProperty('--resell-ambient-opacity',vcGraphicsTier==='high'?'1':vcGraphicsTier==='medium'?'.72':'.48');
   let vcFixedStep=1/vcGraphicsProfile.simHz;
-  // A lightweight page-wide frame probe adapts Resell graphics to real device load,
-  // not just reported CPU/RAM. It runs only while the page is visible.
+  // A lightweight page-wide frame probe adapts visual detail to actual device load.
+  // It never reduces simulation frequency or imposes a render FPS cap.
   let resellPerfLast=0,resellPerfSamples=[];
   function resellGraphicsPerfProbe(now){
     if(document.visibilityState==='visible'){
@@ -9109,16 +9112,11 @@ async function initFarm(){
     }else{
       vc.accumulator=0;
     }
-    // Simulation stays fixed at 60 Hz. A render accumulator gives a real
-    // 45 FPS cadence on 60 Hz displays instead of accidentally falling to 30.
-    const drawInterval=1000/vcGraphicsProfile.fps;
-    let shouldDraw=false;
-    if(vc.mode==='running'){
-      vc.renderAccumulator=Math.min(100,vc.renderAccumulator+elapsed*1000);
-      if(vc.renderAccumulator>=drawInterval){shouldDraw=true;vc.renderAccumulator-=drawInterval;}
-      if(vc.renderAccumulator>drawInterval)vc.renderAccumulator=0;
-    }else if(!vc.lastDraw||now-vc.lastDraw>=500)shouldDraw=true;
-    if(vcCtx&&shouldDraw){vcCtx.imageSmoothingEnabled=false;vcDrawWorld(vcCtx);vc.lastDraw=now;}
+    // Never throttle rendering to a synthetic 30/45 FPS cadence. On 60/90/120 Hz
+    // screens the browser presents at its natural cadence; on slower devices it
+    // falls back only as far as the hardware actually manages. Low tier reduces
+    // scene complexity instead of deliberately making motion less fluid.
+    if(vcCtx){vcCtx.imageSmoothingEnabled=false;vcDrawWorld(vcCtx);vc.lastDraw=now;}
     vc.raf=requestAnimationFrame(vcFrame);
   }
   async function vcEnd(){
