@@ -8794,15 +8794,33 @@ async function initFarm(){
     if(vc.hitFlash>0){c.fillStyle=`rgba(255,50,70,${Math.min(.18,vc.hitFlash*.12)})`;c.fillRect(0,0,VC_W,VC_H);}
     c.restore();
   }
+  function vcPoliceNearestLane(x){
+    let best=0,bestGap=Infinity;
+    for(let lane=0;lane<VC_LANES.length;lane++){
+      const gap=Math.abs(VC_LANES[lane]-x);
+      if(gap<bestGap){bestGap=gap;best=lane;}
+    }
+    return best;
+  }
   function vcPoliceLaneBlocked(p,lane,near=84){
-    const x=VC_LANES[lane];
+    const laneX=VC_LANES[lane];
     for(let i=0;i<vc.items.length;i++){
       const o=vc.items[i];
-      if(o.type==='traffic'&&Math.abs(o.y-p.y)<near&&Math.abs((Number.isFinite(o.x)?o.x:VC_LANES[o.lane])-x)<24)return true;
+      if(o.type!=='traffic')continue;
+      const ox=Number.isFinite(o.x)?o.x:VC_LANES[o.lane];
+      const targetLane=Number.isFinite(o.targetLane)?o.targetLane:o.lane;
+      const targetX=VC_LANES[vcClamp(targetLane,0,2)];
+      // Account for traffic already moving into the lane, not just its current centre.
+      const projectedX=ox+(targetX-ox)*.55;
+      const relativeY=vc.speed-Number(o.speed||0);
+      const projectedY=o.y+relativeY*.45;
+      const verticalGap=Math.min(Math.abs(o.y-p.y),Math.abs(projectedY-p.y));
+      if(verticalGap<near&&(Math.abs(ox-laneX)<24||Math.abs(projectedX-laneX)<24||targetLane===lane))return true;
     }
     for(let i=0;i<vc.police.length;i++){
       const other=vc.police[i];
-      if(other!==p&&Math.abs(other.y-p.y)<45&&Math.abs(other.x-x)<25)return true;
+      if(other!==p&&Math.abs(other.y-p.y)<52&&
+        (Math.abs(other.x-laneX)<25||other.targetLane===lane))return true;
     }
     return false;
   }
@@ -8810,35 +8828,41 @@ async function initFarm(){
     const x=VC_LANES[lane];let count=0;
     for(let i=0;i<vc.items.length;i++){
       const o=vc.items[i];
-      if(o.type==='traffic'&&o.y>=minY&&o.y<=maxY&&Math.abs((Number.isFinite(o.x)?o.x:VC_LANES[o.lane])-x)<24)count++;
+      if(o.type!=='traffic'||o.y<minY||o.y>maxY)continue;
+      const ox=Number.isFinite(o.x)?o.x:VC_LANES[o.lane];
+      const targetLane=Number.isFinite(o.targetLane)?o.targetLane:o.lane;
+      const targetX=VC_LANES[vcClamp(targetLane,0,2)];
+      if(Math.abs(ox-x)<24||Math.abs(ox+(targetX-ox)*.55-x)<24||targetLane===lane)count++;
     }
     return count;
   }
   function vcUpdatePolice(dt){
-    // Keep previous coordinates for swept collision detection during both
-    // lateral evasions and the police overtake itself.
+    // Preserve each patrol car's real position. Interception starts from these
+    // coordinates; there is no off-screen respawn or instant lane reassignment.
     for(let i=0;i<vc.police.length;i++){
       const p=vc.police[i];p.prevX=p.x;p.prevY=p.y;
     }
 
     if(vc.policePhase==='cooldown'){
-      // The patrol remains behind the player and mirrors the recent route.
-      // It is decorative/non-colliding until an actual interception begins.
       for(let index=0;index<vc.police.length;index++){
         const p=vc.police[index];p.active=false;p.hit=false;p.phase='trail';
         const historyLane=vcLaneAt(Math.max(0,vc.time-p.lag));
         const preferred=vcClamp(historyLane+(p.side||0),0,2);
-        if(!vcPoliceLaneBlocked(p,preferred,78))p.targetLane=preferred;
-        const targetX=VC_LANES[p.targetLane];
-        const prev=p.x;p.x+=(targetX-p.x)*Math.min(1,dt*(3.8+index*.25));
-        p.angle+=(vcClamp((p.x-prev)*.075,-.34,.34)-p.angle)*Math.min(1,dt*8);
-        const trailY=274+index*34;p.y+=(trailY-p.y)*Math.min(1,dt*3.2);
+        if(!vcPoliceLaneBlocked(p,preferred,88))p.targetLane=preferred;
+        else{
+          const current=vcPoliceNearestLane(p.x);
+          const alternatives=[0,1,2].filter(lane=>Math.abs(lane-current)<=1&&!vcPoliceLaneBlocked(p,lane,82));
+          if(alternatives.length){alternatives.sort((a,b)=>Math.abs(a-preferred)-Math.abs(b-preferred));p.targetLane=alternatives[0];}
+        }
+        const targetX=VC_LANES[p.targetLane],prev=p.x;
+        p.x+=(targetX-p.x)*Math.min(1,dt*2.8);
+        p.angle+=(vcClamp((p.x-prev)*.075,-.34,.34)-p.angle)*Math.min(1,dt*6.5);
+        const trailY=274+index*34;p.y+=(trailY-p.y)*Math.min(1,dt*2.8);
       }
       if(vc.time<vc.nextPoliceAt)return;
 
-      // Pick a safe escape lane before the pursuit starts. It must be adjacent
-      // to the player's current lane and free of nearby traffic, so the event
-      // is a skill check rather than an unavoidable hit.
+      // Pick a safe escape lane before the pursuit starts. A police car only
+      // joins when its approach/blocking corridor has enough clear space.
       const playerLane=vc.lane;
       const candidates=[0,1,2].filter(lane=>lane!==playerLane);
       candidates.sort((a,b)=>{
@@ -8848,24 +8872,32 @@ async function initFarm(){
       });
       const escapeLane=candidates.find(lane=>vcPoliceLaneTrafficCount(lane)===0);
       if(escapeLane===undefined||vcPoliceLaneTrafficCount(playerLane)>0){
-        vc.nextPoliceAt=vc.time+2.4;
-        return;
+        vc.nextPoliceAt=vc.time+2.4;return;
       }
       const farBlockLane=[0,1,2].find(lane=>lane!==playerLane&&lane!==escapeLane);
       const secondCopCanJoin=vcPoliceLaneTrafficCount(farBlockLane)===0;
       vc.policeEscapeLane=escapeLane;
       vc.policeBlockLanes=[playerLane,farBlockLane];
-      vc.policeHitThisEvent=false;
-      vc.policeEventNo++;
+      vc.policeHitThisEvent=false;vc.policeEventNo++;
+
+      // Match the nearest patrol car to each intended blocking lane. Keep its
+      // current x/y and let the normal steering and acceleration do the work.
+      const desired=[playerLane,farBlockLane];
+      const starts=vc.police.map(p=>vcPoliceNearestLane(p.x));
+      const directCost=Math.abs(starts[0]-desired[0])+Math.abs(starts[1]-desired[1]);
+      const swappedCost=Math.abs(starts[0]-desired[1])+Math.abs(starts[1]-desired[0]);
+      const assignments=swappedCost<directCost?[desired[1],desired[0]]:desired;
       vc.policePhase='approach';vc.policePhaseTimer=0;
-      const overtakeSpeed=118+Math.min(22,vc.time*.10);
       for(let index=0;index<vc.police.length;index++){
         const p=vc.police[index];
         p.active=index===0||secondCopCanJoin;p.hit=false;
         p.phase=p.active?'approach':'trail';
-        if(!p.active){p.y=308;p.prevY=p.y;continue;}
-        p.targetLane=vc.policeBlockLanes[index];
-        p.y=VC_H+48;p.prevY=p.y;p.speedY=overtakeSpeed;
+        if(!p.active){p.speedY=0;continue;}
+        p.targetLane=assignments[index];
+        p.speedY=0;
+        p.maxSpeedY=142+Math.min(20,vc.time*.08);
+        p.accelY=104;
+        p.blockedUntil=0;
       }
       return;
     }
@@ -8874,14 +8906,37 @@ async function initFarm(){
       let allAhead=true;
       for(let index=0;index<vc.police.length;index++){
         const p=vc.police[index];if(!p.active)continue;
-        const targetX=VC_LANES[p.targetLane],oldX=p.x;
-        p.x+=(targetX-p.x)*Math.min(1,dt*7.2);
-        p.angle+=(vcClamp((p.x-oldX)*.09,-.42,.42)-p.angle)*Math.min(1,dt*8.5);
+        let targetLane=p.targetLane;
+        if(vcPoliceLaneBlocked(p,targetLane,94)){
+          // If the chosen lane becomes occupied, use a clear adjacent lane.
+          // Never snap across the road: steering remains continuous.
+          const current=vcPoliceNearestLane(p.x);
+          const alternatives=[0,1,2].filter(lane=>Math.abs(lane-current)<=1&&!vcPoliceLaneBlocked(p,lane,100));
+          if(alternatives.length){
+            alternatives.sort((a,b)=>Math.abs(a-targetLane)-Math.abs(b-targetLane));
+            targetLane=alternatives[0];p.targetLane=targetLane;
+          }
+        }
+        const laneBlocked=vcPoliceLaneBlocked(p,p.targetLane,92);
+        if(!laneBlocked){
+          const targetX=VC_LANES[p.targetLane],oldX=p.x;
+          // Slower lateral response makes lane changes visible and deliberate.
+          p.x+=(targetX-p.x)*Math.min(1,dt*2.65);
+          p.angle+=(vcClamp((p.x-oldX)*.085,-.36,.36)-p.angle)*Math.min(1,dt*6.5);
+        }else{
+          p.angle*=Math.max(0,1-dt*5);
+        }
+        if(vc.time>=Number(p.blockedUntil||0)&&!laneBlocked){
+          p.speedY=Math.min(p.maxSpeedY||158,(Number(p.speedY)||0)+(p.accelY||104)*dt);
+        }else{
+          p.speedY=Math.max(0,(Number(p.speedY)||0)-240*dt);
+        }
         p.y-=p.speedY*dt;
         if(p.y>150)allAhead=false;
       }
       if(allAhead){
-        for(const p of vc.police){if(!p.active)continue;p.y=150;p.prevY=150;p.phase='block';}
+        // Keep the exact position reached by the smooth overtake; only change phase.
+        for(const p of vc.police){if(!p.active)continue;p.phase='block';}
         vc.policePhase='block';vc.policePhaseTimer=0;
       }
       return;
@@ -8889,14 +8944,15 @@ async function initFarm(){
 
     if(vc.policePhase==='block'){
       vc.policePhaseTimer+=dt;
-      // The cops brake in front of the player and hold the two lanes briefly.
-      // The remaining lane is intentionally left open for a single evasive move.
       for(const p of vc.police){
         if(!p.active)continue;
         const targetX=VC_LANES[p.targetLane],oldX=p.x;
-        p.x+=(targetX-p.x)*Math.min(1,dt*7.5);
-        p.angle+=(vcClamp((p.x-oldX)*.08,-.32,.32)-p.angle)*Math.min(1,dt*8);
-        p.y+=Math.max(24,vc.speed*.10)*dt;
+        if(!vcPoliceLaneBlocked(p,p.targetLane,86))p.x+=(targetX-p.x)*Math.min(1,dt*2.5);
+        p.angle+=(vcClamp((p.x-oldX)*.07,-.30,.30)-p.angle)*Math.min(1,dt*6);
+        // Smoothly shed the overtake speed instead of instantly freezing the car.
+        p.speedY=Math.max(0,(Number(p.speedY)||0)-245*dt);
+        p.y-=p.speedY*dt;
+        if(p.speedY<10)p.y+=Math.max(20,vc.speed*.10)*dt;
       }
       if(vc.policePhaseTimer>=.82)vc.policePhase='pass';
       return;
@@ -8907,48 +8963,57 @@ async function initFarm(){
       for(const p of vc.police){
         if(!p.active)continue;
         anyActive=true;
-        p.y+=(105+vc.speed*.62)*dt;
-        p.angle*=Math.max(0,1-dt*3.5);
+        // If traffic enters the exit path, steer into a safe adjacent lane
+        // gradually; otherwise the swept collision guard holds the cop back.
+        if(vcPoliceLaneBlocked(p,p.targetLane,82)){
+          const current=vcPoliceNearestLane(p.x);
+          const alternatives=[0,1,2].filter(lane=>Math.abs(lane-current)<=1&&!vcPoliceLaneBlocked(p,lane,92));
+          if(alternatives.length){alternatives.sort((a,b)=>Math.abs(a-p.targetLane)-Math.abs(b-p.targetLane));p.targetLane=alternatives[0];}
+        }
+        if(!vcPoliceLaneBlocked(p,p.targetLane,78)){
+          const targetX=VC_LANES[p.targetLane],oldX=p.x;
+          p.x+=(targetX-p.x)*Math.min(1,dt*2.6);
+          p.angle+=(vcClamp((p.x-oldX)*.07,-.30,.30)-p.angle)*Math.min(1,dt*6);
+          p.y+=(105+vc.speed*.62)*dt;
+        }else{
+          p.angle*=Math.max(0,1-dt*4);
+        }
         if(p.y>VC_H+38){p.active=false;p.phase='passed';}
       }
       if(!anyActive||vc.police.every(p=>!p.active)){
-        vc.policePhase='cooldown';
-        vc.nextPoliceAt=vc.time+vcRand(25,34);
+        vc.policePhase='cooldown';vc.nextPoliceAt=vc.time+vcRand(25,34);
         for(let i=0;i<vc.police.length;i++){
-          const p=vc.police[i];p.active=false;p.hit=false;p.phase='trail';p.y=274+i*34;
+          const p=vc.police[i];p.active=false;p.hit=false;p.phase='trail';p.y=274+i*34;p.speedY=0;
         }
       }
     }
   }
-  function vcResolvePoliceTrafficCollisions(){
-    // Last-resort separation without allocating temporary arrays each physics step.
+  function vcResolvePoliceTrafficCollisions(dt=1/60){
+    // Continuous swept collision: a police car cannot tunnel through a traffic
+    // car even if both move substantially in one simulation step. On contact,
+    // roll back this frame and route the police smoothly into a clear adjacent lane.
     for(let pi=0;pi<vc.police.length;pi++){
-      const p=vc.police[pi];let hit=null;
+      const p=vc.police[pi];
+      let obstacle=null;
       for(let oi=0;oi<vc.items.length;oi++){
-        const o=vc.items[oi];
-        if(o.type==='traffic'&&Math.abs(o.y-p.y)<40&&Math.abs((Number.isFinite(o.x)?o.x:VC_LANES[o.lane])-p.x)<22){hit=o;break;}
+        const o=vc.items[oi];if(o.type!=='traffic')continue;
+        const ox0=Number.isFinite(o.prevX)?o.prevX:(Number.isFinite(o.x)?o.x:VC_LANES[o.lane]);
+        const oy0=Number.isFinite(o.prevY)?o.prevY:o.y;
+        const ox1=Number.isFinite(o.contactX)?o.contactX:(Number.isFinite(o.x)?o.x:VC_LANES[o.lane]);
+        const oy1=Number.isFinite(o.contactY)?o.contactY:o.y;
+        if(vcSweptAabb(p.prevX,p.prevY,p.x,p.y,ox0,oy0,ox1,oy1,24,43)){obstacle=o;break;}
       }
-      if(!hit)continue;
-      let bestLane=-1,bestDistance=Infinity;
-      for(let lane=0;lane<3;lane++){
-        const x=VC_LANES[lane];let blocked=false;
-        for(let oi=0;oi<vc.items.length;oi++){
-          const o=vc.items[oi];if(o.type==='traffic'&&o.lane===lane&&Math.abs(o.y-p.y)<112){blocked=true;break;}
-        }
-        if(blocked)continue;
-        for(let otherIndex=0;otherIndex<vc.police.length;otherIndex++){
-          const other=vc.police[otherIndex];
-          if(other!==p&&Math.abs(other.y-p.y)<56&&Math.abs(other.x-x)<24){blocked=true;break;}
-        }
-        if(blocked)continue;
-        const distance=Math.abs(x-p.x);
-        if(distance<bestDistance){bestDistance=distance;bestLane=lane;}
-      }
-      if(bestLane>=0){
-        const old=p.x;p.x=VC_LANES[bestLane];p.targetLane=bestLane;
-        p.angle=vcClamp((p.x-old)*.035,-.48,.48);
+      if(!obstacle)continue;
+      p.x=p.prevX;p.y=p.prevY;p.angle=0;p.speedY=0;
+      p.blockedUntil=Math.max(Number(p.blockedUntil||0),vc.time+.24);
+      const current=vcPoliceNearestLane(p.x);
+      const alternatives=[0,1,2].filter(lane=>Math.abs(lane-current)<=1&&!vcPoliceLaneBlocked(p,lane,112));
+      if(alternatives.length){
+        alternatives.sort((a,b)=>Math.abs(a-p.targetLane)-Math.abs(b-p.targetLane));
+        p.targetLane=alternatives[0];
       }else{
-        p.y=Math.min(VC_H+12,Math.max(p.y,hit.y+44));
+        // No safe lane yet: hold position until the traffic gap opens.
+        p.targetLane=current;
       }
     }
   }
@@ -9048,7 +9113,8 @@ async function initFarm(){
       const laneBusy=vc.items.some(o=>o.type==='traffic'&&
         Math.abs((Number.isFinite(o.x)?o.x:VC_LANES[o.lane])-VC_LANES[lane])<22&&
         Math.abs(o.y-y)<58);
-      if(laneBusy)return false;
+      const policeBusy=vc.police.some(p=>Math.abs(p.x-VC_LANES[lane])<23&&Math.abs(p.y-y)<62);
+      if(laneBusy||policeBusy)return false;
       vc.items.push({
         type:'traffic',lane,targetLane:lane,x:VC_LANES[lane],y,prevX:VC_LANES[lane],prevY:y,
         speed:vc.cruiseSpeed*vcRand(.66,.84),collisionBrakeUntil:0,
@@ -9233,7 +9299,7 @@ async function initFarm(){
         }
       }
     }
-    vcResolvePoliceTrafficCollisions();
+    vcResolvePoliceTrafficCollisions(dt);
     for(let i=vc.particles.length-1;i>=0;i--){const p=vc.particles[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=30*dt;p.life-=dt;if(p.life<=0)vc.particles.splice(i,1);}
     if(vc.time-vc.lastAudioUpdate>=.05){
       vc.lastAudioUpdate=vc.time;
