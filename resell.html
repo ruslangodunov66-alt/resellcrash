@@ -8351,7 +8351,8 @@ async function initFarm(){
     best:0, lives:3, lane:1, playerX:VC_LANES[1], playerPrevX:VC_LANES[1], inputPathX:VC_LANES[1], playerAngle:0, scroll:0,
     speed:104, cruiseSpeed:140, brakeHeld:false, items:[], particles:[], waveNo:0, waveTimer:2.0, nextCoin:.45,
     hitFlash:0, shake:0, runId:'', laneHistory:[{at:0,lane:1}],
-    police:[{type:'police',drawIndex:0,x:VC_LANES[0],target:0,targetLane:0,angle:0,y:274,lag:1.55,side:-1},{type:'police',drawIndex:1,x:VC_LANES[2],target:2,targetLane:2,angle:0,y:308,lag:2.45,side:1}],
+    police:[{type:'police',drawIndex:0,x:VC_LANES[0],target:0,targetLane:0,angle:0,y:274,lag:1.55,side:-1,prevX:VC_LANES[0],prevY:274,phase:'trail',active:false,hit:false},{type:'police',drawIndex:1,x:VC_LANES[2],target:2,targetLane:2,angle:0,y:308,lag:2.45,side:1,prevX:VC_LANES[2],prevY:308,phase:'trail',active:false,hit:false}],
+    policePhase:'cooldown', nextPoliceAt:20, policeEscapeLane:1, policeBlockLanes:[1,2], policeHitThisEvent:false, policeEventNo:0, policePhaseTimer:0,
     audio:null, audioOn:true, engineOsc:null, engineGain:null, sirenOsc:null, sirenGain:null,
     lastSubmit:null, leaderboard:[], exchangeBusy:false, startBusy:false, pendingRunId:'', pendingCoins:0
   };
@@ -8465,7 +8466,12 @@ async function initFarm(){
     vc.playerX=VC_LANES[1]; vc.playerPrevX=VC_LANES[1]; vc.inputPathX=VC_LANES[1]; vc.playerAngle=0; vc.scroll=0; vc.speed=140; vc.cruiseSpeed=140; vc.brakeHeld=false; vc.items=[]; vc.particles=[];
     const brakeBtn=vcEl('vcBrakeBtn');if(brakeBtn){brakeBtn.classList.remove('is-braking');brakeBtn.setAttribute('aria-pressed','false');}
     vc.waveNo=0; vc.waveTimer=2.15; vc.nextCoin=.95; vc.hitFlash=0; vc.shake=0; vc.accumulator=0;
-    vc.laneHistory=[{at:0,lane:1}]; vc.police=[{type:'police',drawIndex:0,x:VC_LANES[0],target:0,targetLane:0,angle:0,y:274,lag:1.55,side:-1},{type:'police',drawIndex:1,x:VC_LANES[2],target:2,targetLane:2,angle:0,y:308,lag:2.45,side:1}];
+    vc.laneHistory=[{at:0,lane:1}];
+    vc.policePhase='cooldown';vc.nextPoliceAt=vcRand(17,23);vc.policeEscapeLane=1;vc.policeBlockLanes=[1,2];vc.policeHitThisEvent=false;vc.policeEventNo=0;vc.policePhaseTimer=0;
+    vc.police=[
+      {type:'police',drawIndex:0,x:VC_LANES[0],target:0,targetLane:0,angle:0,y:274,lag:1.55,side:-1,prevX:VC_LANES[0],prevY:274,phase:'trail',active:false,hit:false},
+      {type:'police',drawIndex:1,x:VC_LANES[2],target:2,targetLane:2,angle:0,y:308,lag:2.45,side:1,prevX:VC_LANES[2],prevY:308,phase:'trail',active:false,hit:false}
+    ];
     vc.runId=''; vc.last=0; vc.lastDraw=0; vc.rafIntervalAvg=16.67; vc.accumulator=0; vc.renderAccumulator=0; vc.lastSubmit=null; vc.exchangeBusy=false;
     const exchangeBtn=document.getElementById('vcExchangeBtn');if(exchangeBtn){exchangeBtn.disabled=true;exchangeBtn.textContent='ОБМЕНЯТЬ';}
     vcText('vcExchangeQuote','РАСЧЁТ НАГРАДЫ…');vcText('vcExchangeStatus','Награда будет зачислена на основной баланс RESSELL');vcUpdateHUD();
@@ -8502,6 +8508,16 @@ async function initFarm(){
     if(vc.lives<=0)vcEnd();
     return true;
   }
+  function vcApplyPlayerPoliceHit(cop){
+    if(!cop||!cop.active||cop.hit||vc.mode!=='running'||vc.policeHitThisEvent)return false;
+    cop.hit=true;cop.active=false;cop.phase='passed';cop.y=VC_H+78;
+    vc.policeHitThisEvent=true;
+    vc.lives--;vc.hitFlash=.62;vc.shake=.68;
+    vcBurst(vc.playerX,VC_PLAYER_Y,'#ff5265',14);
+    vcTone(170,.25,'sawtooth',.12,-95);vcHaptic('heavy');vcUpdateHUD(true);
+    if(vc.lives<=0)vcEnd();
+    return true;
+  }
   function vcMoveLane(delta){
     if(vc.mode!=='running') return;
     const next=vcClamp(vc.lane+delta,0,2); if(next===vc.lane) return;
@@ -8520,6 +8536,16 @@ async function initFarm(){
       if(vcSweptAabb(fromX,VC_PLAYER_Y,toX,VC_PLAYER_Y,carX0,carY0,carX1,carY1,VC_PLAYER_HIT_HALF_WIDTH,VC_PLAYER_HIT_HALF_HEIGHT)){
         vcApplyPlayerTrafficHit(car);
         if(vc.mode!=='running')return;
+      }
+    }
+    if(vc.policePhase==='approach'||vc.policePhase==='block'||vc.policePhase==='pass'){
+      for(let i=0;i<vc.police.length;i++){
+        const cop=vc.police[i];if(!cop.active||cop.hit)continue;
+        const copX0=Number.isFinite(cop.prevX)?cop.prevX:cop.x;
+        const copY0=Number.isFinite(cop.prevY)?cop.prevY:cop.y;
+        if(vcSweptAabb(fromX,VC_PLAYER_Y,toX,VC_PLAYER_Y,copX0,copY0,cop.x,cop.y,VC_PLAYER_HIT_HALF_WIDTH,VC_PLAYER_HIT_HALF_HEIGHT)){
+          vcApplyPlayerPoliceHit(cop);if(vc.mode!=='running')return;
+        }
       }
     }
     vc.lane=next; vc.laneHistory.push({at:vc.time,lane:next});
@@ -8780,34 +8806,118 @@ async function initFarm(){
     }
     return false;
   }
+  function vcPoliceLaneTrafficCount(lane,minY=76,maxY=300){
+    const x=VC_LANES[lane];let count=0;
+    for(let i=0;i<vc.items.length;i++){
+      const o=vc.items[i];
+      if(o.type==='traffic'&&o.y>=minY&&o.y<=maxY&&Math.abs((Number.isFinite(o.x)?o.x:VC_LANES[o.lane])-x)<24)count++;
+    }
+    return count;
+  }
   function vcUpdatePolice(dt){
-    for(let index=0;index<vc.police.length;index++){
-      const p=vc.police[index];
-      const historyLane=vcLaneAt(Math.max(0,vc.time-p.lag));
-      const preferred=vcClamp(historyLane+(p.side||0),0,2);
-      let chosen=null,bestDistance=Infinity,bestRank=Infinity;
-      // Evaluate the three lanes directly; no temporary candidate arrays or sort.
-      for(let lane=0;lane<3;lane++){
-        if(vcPoliceLaneBlocked(p,lane,126))continue;
-        const targetX=VC_LANES[lane],lo=Math.min(p.x,targetX)-24,hi=Math.max(p.x,targetX)+24;
-        let pathBlocked=false;
-        for(let oi=0;oi<vc.items.length;oi++){
-          const o=vc.items[oi];
-          if(o.type!=='traffic'||Math.abs(o.y-p.y)>=105)continue;
-          const ox=Number.isFinite(o.x)?o.x:VC_LANES[o.lane];
-          if(ox>=lo&&ox<=hi){pathBlocked=true;break;}
-        }
-        if(pathBlocked)continue;
-        const distance=Math.abs(lane-preferred);
-        const rank=lane===preferred?0:lane===p.targetLane?1:2+lane;
-        if(distance<bestDistance||(distance===bestDistance&&rank<bestRank)){
-          chosen=lane;bestDistance=distance;bestRank=rank;
+    // Keep previous coordinates for swept collision detection during both
+    // lateral evasions and the police overtake itself.
+    for(let i=0;i<vc.police.length;i++){
+      const p=vc.police[i];p.prevX=p.x;p.prevY=p.y;
+    }
+
+    if(vc.policePhase==='cooldown'){
+      // The patrol remains behind the player and mirrors the recent route.
+      // It is decorative/non-colliding until an actual interception begins.
+      for(let index=0;index<vc.police.length;index++){
+        const p=vc.police[index];p.active=false;p.hit=false;p.phase='trail';
+        const historyLane=vcLaneAt(Math.max(0,vc.time-p.lag));
+        const preferred=vcClamp(historyLane+(p.side||0),0,2);
+        if(!vcPoliceLaneBlocked(p,preferred,78))p.targetLane=preferred;
+        const targetX=VC_LANES[p.targetLane];
+        const prev=p.x;p.x+=(targetX-p.x)*Math.min(1,dt*(3.8+index*.25));
+        p.angle+=(vcClamp((p.x-prev)*.075,-.34,.34)-p.angle)*Math.min(1,dt*8);
+        const trailY=274+index*34;p.y+=(trailY-p.y)*Math.min(1,dt*3.2);
+      }
+      if(vc.time<vc.nextPoliceAt)return;
+
+      // Pick a safe escape lane before the pursuit starts. It must be adjacent
+      // to the player's current lane and free of nearby traffic, so the event
+      // is a skill check rather than an unavoidable hit.
+      const playerLane=vc.lane;
+      const candidates=[0,1,2].filter(lane=>lane!==playerLane);
+      candidates.sort((a,b)=>{
+        const pressure=vcPoliceLaneTrafficCount(a)-vcPoliceLaneTrafficCount(b);
+        if(pressure)return pressure;
+        return Math.abs(a-playerLane)-Math.abs(b-playerLane);
+      });
+      const escapeLane=candidates.find(lane=>vcPoliceLaneTrafficCount(lane)===0);
+      if(escapeLane===undefined||vcPoliceLaneTrafficCount(playerLane)>0){
+        vc.nextPoliceAt=vc.time+2.4;
+        return;
+      }
+      const farBlockLane=[0,1,2].find(lane=>lane!==playerLane&&lane!==escapeLane);
+      const secondCopCanJoin=vcPoliceLaneTrafficCount(farBlockLane)===0;
+      vc.policeEscapeLane=escapeLane;
+      vc.policeBlockLanes=[playerLane,farBlockLane];
+      vc.policeHitThisEvent=false;
+      vc.policeEventNo++;
+      vc.policePhase='approach';vc.policePhaseTimer=0;
+      const overtakeSpeed=118+Math.min(22,vc.time*.10);
+      for(let index=0;index<vc.police.length;index++){
+        const p=vc.police[index];
+        p.active=index===0||secondCopCanJoin;p.hit=false;
+        p.phase=p.active?'approach':'trail';
+        if(!p.active){p.y=308;p.prevY=p.y;continue;}
+        p.targetLane=vc.policeBlockLanes[index];
+        p.y=VC_H+48;p.prevY=p.y;p.speedY=overtakeSpeed;
+      }
+      return;
+    }
+
+    if(vc.policePhase==='approach'){
+      let allAhead=true;
+      for(let index=0;index<vc.police.length;index++){
+        const p=vc.police[index];if(!p.active)continue;
+        const targetX=VC_LANES[p.targetLane],oldX=p.x;
+        p.x+=(targetX-p.x)*Math.min(1,dt*7.2);
+        p.angle+=(vcClamp((p.x-oldX)*.09,-.42,.42)-p.angle)*Math.min(1,dt*8.5);
+        p.y-=p.speedY*dt;
+        if(p.y>150)allAhead=false;
+      }
+      if(allAhead){
+        for(const p of vc.police){if(!p.active)continue;p.y=150;p.prevY=150;p.phase='block';}
+        vc.policePhase='block';vc.policePhaseTimer=0;
+      }
+      return;
+    }
+
+    if(vc.policePhase==='block'){
+      vc.policePhaseTimer+=dt;
+      // The cops brake in front of the player and hold the two lanes briefly.
+      // The remaining lane is intentionally left open for a single evasive move.
+      for(const p of vc.police){
+        if(!p.active)continue;
+        const targetX=VC_LANES[p.targetLane],oldX=p.x;
+        p.x+=(targetX-p.x)*Math.min(1,dt*7.5);
+        p.angle+=(vcClamp((p.x-oldX)*.08,-.32,.32)-p.angle)*Math.min(1,dt*8);
+        p.y+=Math.max(24,vc.speed*.10)*dt;
+      }
+      if(vc.policePhaseTimer>=.82)vc.policePhase='pass';
+      return;
+    }
+
+    if(vc.policePhase==='pass'){
+      let anyActive=false;
+      for(const p of vc.police){
+        if(!p.active)continue;
+        anyActive=true;
+        p.y+=(105+vc.speed*.62)*dt;
+        p.angle*=Math.max(0,1-dt*3.5);
+        if(p.y>VC_H+38){p.active=false;p.phase='passed';}
+      }
+      if(!anyActive||vc.police.every(p=>!p.active)){
+        vc.policePhase='cooldown';
+        vc.nextPoliceAt=vc.time+vcRand(25,34);
+        for(let i=0;i<vc.police.length;i++){
+          const p=vc.police[i];p.active=false;p.hit=false;p.phase='trail';p.y=274+i*34;
         }
       }
-      if(chosen!==null)p.targetLane=chosen;
-      const targetX=VC_LANES[p.targetLane];
-      const prev=p.x;p.x+=(targetX-p.x)*Math.min(1,dt*(3.8+index*.25));
-      p.angle+=(vcClamp((p.x-prev)*.09,-.42,.42)-p.angle)*Math.min(1,dt*8.5);
     }
   }
   function vcResolvePoliceTrafficCollisions(){
@@ -9057,6 +9167,16 @@ async function initFarm(){
       carX0,carY0,carX1,carY1,VC_PLAYER_HIT_HALF_WIDTH,VC_PLAYER_HIT_HALF_HEIGHT
     );
   }
+  function vcSweptPlayerPoliceHit(cop){
+    if(!cop||!cop.active||cop.hit)return false;
+    return vcSweptAabb(
+      Number.isFinite(vc.playerPrevX)?vc.playerPrevX:vc.playerX,VC_PLAYER_Y,
+      vc.playerX,VC_PLAYER_Y,
+      Number.isFinite(cop.prevX)?cop.prevX:cop.x,
+      Number.isFinite(cop.prevY)?cop.prevY:cop.y,
+      cop.x,cop.y,VC_PLAYER_HIT_HALF_WIDTH,VC_PLAYER_HIT_HALF_HEIGHT
+    );
+  }
   function vcUpdate(dt){
     if(vc.mode!=='running') return;
     // Preserve start-of-frame positions for continuous collision detection.
@@ -9104,11 +9224,20 @@ async function initFarm(){
       }
       if(o.y>VC_H+35) vc.items.splice(i,1);
     }
+    if(vc.policePhase==='approach'||vc.policePhase==='block'||vc.policePhase==='pass'){
+      for(let i=0;i<vc.police.length;i++){
+        const cop=vc.police[i];
+        if(vcSweptPlayerPoliceHit(cop)){
+          vcApplyPlayerPoliceHit(cop);
+          if(vc.mode!=='running')return;
+        }
+      }
+    }
     vcResolvePoliceTrafficCollisions();
     for(let i=vc.particles.length-1;i>=0;i--){const p=vc.particles[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=30*dt;p.life-=dt;if(p.life<=0)vc.particles.splice(i,1);}
     if(vc.time-vc.lastAudioUpdate>=.05){
       vc.lastAudioUpdate=vc.time;
-      try{if(vc.audio){const now=vc.audio.ctx.currentTime;vc.engineOsc.frequency.setTargetAtTime(54+vc.speed*.34,now,.08);vc.sirenOsc.frequency.setTargetAtTime(620+Math.sin(vc.time*5.8)*285,now,.04);vc.engineGain.gain.setTargetAtTime(.055+Math.min(.025,difficulty*.025),now,.12);vc.sirenGain.gain.setTargetAtTime(.045+Math.min(.025,difficulty*.025),now,.12);}}catch(_){}
+      try{if(vc.audio){const now=vc.audio.ctx.currentTime,policeAlert=vc.policePhase==='approach'||vc.policePhase==='block'||vc.policePhase==='pass';vc.engineOsc.frequency.setTargetAtTime(54+vc.speed*.34,now,.08);vc.sirenOsc.frequency.setTargetAtTime((policeAlert?710:620)+Math.sin(vc.time*(policeAlert?9.2:5.8))*(policeAlert?340:285),now,.04);vc.engineGain.gain.setTargetAtTime(.055+Math.min(.025,difficulty*.025),now,.12);vc.sirenGain.gain.setTargetAtTime((policeAlert ? .075 : .045)+Math.min(.025,difficulty*.025),now,.12);}}catch(_){}
     }
     vcPersistRunSnapshot();vcUpdateHUD();
   }
