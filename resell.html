@@ -8353,7 +8353,7 @@ async function initFarm(){
     hitFlash:0, shake:0, runId:'', laneHistory:[{at:0,lane:1}],
     police:[{type:'police',drawIndex:0,x:VC_LANES[0],target:0,targetLane:0,angle:0,y:274,lag:1.55,side:-1,prevX:VC_LANES[0],prevY:274,phase:'trail',active:false,hit:false},{type:'police',drawIndex:1,x:VC_LANES[2],target:2,targetLane:2,angle:0,y:308,lag:2.45,side:1,prevX:VC_LANES[2],prevY:308,phase:'trail',active:false,hit:false}],
     policePhase:'cooldown', nextPoliceAt:20, policeEscapeLane:1, policeBlockLanes:[1,2], policeHitThisEvent:false, policeEventNo:0, policePhaseTimer:0,
-    audio:null, audioOn:true, engineOsc:null, engineGain:null, sirenOsc:null, sirenGain:null,
+    audio:null, audioOn:true, ambientAudioActive:false, engineOsc:null, engineGain:null, sirenOsc:null, sirenGain:null,
     lastSubmit:null, leaderboard:[], exchangeBusy:false, startBusy:false, pendingRunId:'', pendingCoins:0
   };
   const vcEl = id => document.getElementById(id);
@@ -8462,7 +8462,7 @@ async function initFarm(){
     if(vcCtx) vcCtx.imageSmoothingEnabled=false;
   }
   function vcReset(mode='ready'){
-    vc.mode=mode; vc.time=0; vc.distance=0; vc.coins=0; vc.score=0; vc.lives=3; vc.lane=1;
+    vc.mode=mode; vc.ambientAudioActive=false; vc.time=0; vc.distance=0; vc.coins=0; vc.score=0; vc.lives=3; vc.lane=1;
     vc.playerX=VC_LANES[1]; vc.playerPrevX=VC_LANES[1]; vc.inputPathX=VC_LANES[1]; vc.playerAngle=0; vc.scroll=0; vc.speed=140; vc.cruiseSpeed=140; vc.brakeHeld=false; vc.items=[]; vc.particles=[];
     const brakeBtn=vcEl('vcBrakeBtn');if(brakeBtn){brakeBtn.classList.remove('is-braking');brakeBtn.setAttribute('aria-pressed','false');}
     vc.waveNo=0; vc.waveTimer=2.15; vc.nextCoin=.95; vc.hitFlash=0; vc.shake=0; vc.accumulator=0;
@@ -8492,7 +8492,7 @@ async function initFarm(){
       const resp=await apiFetch(`${API_BASE}/games/vice-city/start`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:String(userId),run_id:vc.runId})},2);
       const data=await resp.json().catch(()=>({}));
       if(!resp.ok||!data.success)throw new Error(data.error||'Не удалось начать забег');
-      vc.mode='running';vc.last=0;vc.accumulator=0;vc.renderAccumulator=0;vcPersistRunSnapshot(true);vcShowLayer(null);vcEnsureFrameLoop();vcInitAudio();vcHaptic('medium');
+      vc.mode='running';vc.ambientAudioActive=true;vc.last=0;vc.accumulator=0;vc.renderAccumulator=0;vcPersistRunSnapshot(true);vcShowLayer(null);vcEnsureFrameLoop();vcInitAudio();vcHaptic('medium');
     }catch(err){vc.runId='';vc.mode='ready';vcStopAudio();showToast(err.message||'Не удалось начать забег Vice City');}
     finally{vc.startBusy=false;if(startBtn)startBtn.disabled=false;if(restartBtn)restartBtn.disabled=false;}
   }
@@ -8563,17 +8563,17 @@ async function initFarm(){
         const a=new AC(), master=a.createGain(); master.gain.value=.72; master.connect(a.destination);
         const engine=a.createOscillator(), engineGain=a.createGain(), filter=a.createBiquadFilter();
         engine.type='sawtooth'; engine.frequency.value=64; filter.type='lowpass'; filter.frequency.value=230;
-        engineGain.gain.value=.055; engine.connect(filter); filter.connect(engineGain); engineGain.connect(master); engine.start();
+        engineGain.gain.value=0; engine.connect(filter); filter.connect(engineGain); engineGain.connect(master); engine.start();
         const siren=a.createOscillator(), sirenGain=a.createGain(), sirenFilter=a.createBiquadFilter();
         siren.type='triangle'; siren.frequency.value=720; sirenFilter.type='lowpass'; sirenFilter.frequency.value=1650;
-        sirenGain.gain.value=.045; siren.connect(sirenFilter); sirenFilter.connect(sirenGain); sirenGain.connect(master); siren.start();
+        sirenGain.gain.value=0; siren.connect(sirenFilter); sirenFilter.connect(sirenGain); sirenGain.connect(master); siren.start();
         const musicGain=a.createGain(); musicGain.gain.value=0; musicGain.connect(master);
         vc.audio={ctx:a,master,filter,musicGain,noiseBuffer:null};
         vc.engineOsc=engine; vc.engineGain=engineGain; vc.sirenOsc=siren; vc.sirenGain=sirenGain;
       }
       const now=vc.audio.ctx.currentTime;
       vc.audio.ctx.resume?.();
-      const isDriving=vc.mode==='running';
+      const isDriving=vc.mode==='running'&&vc.ambientAudioActive&&vc.audioOn;
       vc.engineGain.gain.setTargetAtTime(isDriving?.055:0,now,.08);
       vc.sirenGain.gain.setTargetAtTime(isDriving?.045:0,now,.08);
     }catch(_){ vc.audio=null; }
@@ -8630,7 +8630,9 @@ async function initFarm(){
   function vcTone(freq=800,duration=.09,type='triangle',volume=.075,slide=0){
     if(!vc.audioOn) return;
     try{
-      vcInitAudio(); const a=vc.audio?.ctx; if(!a) return;
+      // UI/game effects are one-shot only. Never recreate the persistent
+      // engine+siren oscillators from a result-screen sound effect.
+      const a=vc.audio?.ctx; if(!a||a.state==='closed') return;
       const o=a.createOscillator(),g=a.createGain(); o.type=type; o.frequency.setValueAtTime(freq,a.currentTime);
       if(slide) o.frequency.exponentialRampToValueAtTime(Math.max(50,freq+slide),a.currentTime+duration);
       g.gain.setValueAtTime(volume,a.currentTime); g.gain.exponentialRampToValueAtTime(.001,a.currentTime+duration);
@@ -8638,12 +8640,21 @@ async function initFarm(){
     }catch(_){}
   }
   function vcStopAudio(){
-    vcPauseMusic();try{if(vc.audio){const a=vc.audio.ctx;vc.engineGain.gain.setTargetAtTime(0,a.currentTime,.04);vc.sirenGain.gain.setTargetAtTime(0,a.currentTime,.04);}}catch(_){}
+    vc.ambientAudioActive=false;
+    vcPauseMusic();
+    try{
+      if(vc.audio){
+        const a=vc.audio.ctx,now=a.currentTime;
+        for(const gain of [vc.engineGain?.gain,vc.sirenGain?.gain,vc.audio.musicGain?.gain]){
+          if(!gain)continue;
+          gain.cancelScheduledValues(now);
+          gain.setValueAtTime(0,now);
+        }
+      }
+    }catch(_){}
   }
-  function vcPauseAudio(){
-    vcPauseMusic();try{if(vc.audio){const a=vc.audio.ctx;vc.engineGain.gain.setTargetAtTime(0,a.currentTime,.04);vc.sirenGain.gain.setTargetAtTime(0,a.currentTime,.04);}}catch(_){}
-  }
-  function vcResumeAudio(){if(!vc.audioOn)return;vcInitAudio();vcPlayMusic();}
+  function vcPauseAudio(){vcStopAudio();}
+  function vcResumeAudio(){if(!vc.audioOn)return;vc.ambientAudioActive=true;vcInitAudio();vcPlayMusic();}
   function vcToggleSound(){
     vc.audioOn=!vc.audioOn;const b=vcEl('vcSoundBtn');if(b){b.textContent=vc.audioOn?'AUDIO ON':'AUDIO OFF';b.classList.toggle('off',!vc.audioOn);}
     if(vc.audioOn&&vc.mode==='running')vcResumeAudio();else vcStopAudio();vcHaptic('light');
@@ -8802,25 +8813,41 @@ async function initFarm(){
     }
     return best;
   }
+  function vcPoliceVerticalVelocity(p){
+    if(p.phase==='approach')return -Math.max(0,Number(p.speedY)||0);
+    if(p.phase==='block')return -Math.max(0,Number(p.speedY)||0)+((Number(p.speedY)||0)<10?Math.max(20,vc.speed*.10):0);
+    if(p.phase==='pass')return 105+vc.speed*.62;
+    return 0;
+  }
   function vcPoliceLaneBlocked(p,lane,near=84){
     const laneX=VC_LANES[lane];
+    const horizon=vcClamp(near/Math.max(120,vc.speed),.28,.68);
+    const policeFutureY=p.y+vcPoliceVerticalVelocity(p)*horizon;
+    // During the overtake, never use the player's lane while the cop is still
+    // level with or behind the player. It must pass on a neighbouring lane.
+    if(p.active&&p.phase==='approach'&&p.y>VC_PLAYER_Y-72&&Math.abs(laneX-vc.playerX)<25)return true;
     for(let i=0;i<vc.items.length;i++){
       const o=vc.items[i];
       if(o.type!=='traffic')continue;
       const ox=Number.isFinite(o.x)?o.x:VC_LANES[o.lane];
       const targetLane=Number.isFinite(o.targetLane)?o.targetLane:o.lane;
       const targetX=VC_LANES[vcClamp(targetLane,0,2)];
-      // Account for traffic already moving into the lane, not just its current centre.
-      const projectedX=ox+(targetX-ox)*.55;
+      const blend=1-Math.exp(-2.15*horizon);
+      const futureX=ox+(targetX-ox)*blend;
       const relativeY=vc.speed-Number(o.speed||0);
-      const projectedY=o.y+relativeY*.45;
-      const verticalGap=Math.min(Math.abs(o.y-p.y),Math.abs(projectedY-p.y));
-      if(verticalGap<near&&(Math.abs(ox-laneX)<24||Math.abs(projectedX-laneX)<24||targetLane===lane))return true;
+      const futureY=o.y+relativeY*horizon;
+      const midY=o.y+relativeY*horizon*.5;
+      const midPoliceY=p.y+vcPoliceVerticalVelocity(p)*horizon*.5;
+      const verticalGap=Math.min(Math.abs(o.y-p.y),Math.abs(midY-midPoliceY),Math.abs(futureY-policeFutureY));
+      const horizontalGap=Math.min(Math.abs(ox-laneX),Math.abs(futureX-laneX),Math.abs((ox+(targetX-ox)*.55)-laneX));
+      if(verticalGap<near&&(horizontalGap<27||targetLane===lane))return true;
     }
     for(let i=0;i<vc.police.length;i++){
       const other=vc.police[i];
-      if(other!==p&&Math.abs(other.y-p.y)<52&&
-        (Math.abs(other.x-laneX)<25||other.targetLane===lane))return true;
+      if(other===p||!other.active)continue;
+      const otherFutureY=other.y+vcPoliceVerticalVelocity(other)*horizon;
+      if(Math.min(Math.abs(other.y-p.y),Math.abs(otherFutureY-policeFutureY))<58&&
+        (Math.abs(other.x-laneX)<28||other.targetLane===lane))return true;
     }
     return false;
   }
@@ -8882,18 +8909,28 @@ async function initFarm(){
 
       // Match the nearest patrol car to each intended blocking lane. Keep its
       // current x/y and let the normal steering and acceleration do the work.
-      const desired=[playerLane,farBlockLane];
+      // Approach lanes are both different from the player's current lane.
+      // A cop first overtakes beside the player, never straight through the rear.
+      const approachDesired=[escapeLane,farBlockLane];
       const starts=vc.police.map(p=>vcPoliceNearestLane(p.x));
-      const directCost=Math.abs(starts[0]-desired[0])+Math.abs(starts[1]-desired[1]);
-      const swappedCost=Math.abs(starts[0]-desired[1])+Math.abs(starts[1]-desired[0]);
-      const assignments=swappedCost<directCost?[desired[1],desired[0]]:desired;
+      let assignments=[null,null],singleIndex=0;
+      if(secondCopCanJoin){
+        const directCost=Math.abs(starts[0]-approachDesired[0])+Math.abs(starts[1]-approachDesired[1]);
+        const swappedCost=Math.abs(starts[0]-approachDesired[1])+Math.abs(starts[1]-approachDesired[0]);
+        assignments=swappedCost<directCost?[approachDesired[1],approachDesired[0]]:approachDesired.slice();
+      }else{
+        singleIndex=Math.abs(starts[0]-escapeLane)<=Math.abs(starts[1]-escapeLane)?0:1;
+        assignments[singleIndex]=escapeLane;
+      }
       vc.policePhase='approach';vc.policePhaseTimer=0;
       for(let index=0;index<vc.police.length;index++){
         const p=vc.police[index];
-        p.active=index===0||secondCopCanJoin;p.hit=false;
+        p.active=secondCopCanJoin||index===singleIndex;p.hit=false;
         p.phase=p.active?'approach':'trail';
         if(!p.active){p.speedY=0;continue;}
         p.targetLane=assignments[index];
+        // Once ahead, this patrol car can move into the corresponding blocking lane.
+        p.blockTargetLane=p.targetLane===escapeLane?playerLane:farBlockLane;
         p.speedY=0;
         p.maxSpeedY=142+Math.min(20,vc.time*.08);
         p.accelY=104;
@@ -8935,8 +8972,8 @@ async function initFarm(){
         if(p.y>150)allAhead=false;
       }
       if(allAhead){
-        // Keep the exact position reached by the smooth overtake; only change phase.
-        for(const p of vc.police){if(!p.active)continue;p.phase='block';}
+        // Only after a clear lead can police start moving into blocking positions.
+        for(const p of vc.police){if(!p.active)continue;p.phase='block';p.targetLane=vcClamp(Number(p.blockTargetLane),0,2);}
         vc.policePhase='block';vc.policePhaseTimer=0;
       }
       return;
@@ -8946,8 +8983,18 @@ async function initFarm(){
       vc.policePhaseTimer+=dt;
       for(const p of vc.police){
         if(!p.active)continue;
+        const desired=vcClamp(Number(p.blockTargetLane??p.targetLane),0,2);
+        if(vcPoliceLaneBlocked(p,desired,96)){
+          const current=vcPoliceNearestLane(p.x);
+          const alternatives=[current,current-1,current+1,0,1,2]
+            .filter((lane,index,array)=>lane>=0&&lane<=2&&array.indexOf(lane)===index&&!vcPoliceLaneBlocked(p,lane,100));
+          if(alternatives.length){
+            alternatives.sort((a,b)=>Math.abs(a-desired)-Math.abs(b-desired));
+            p.targetLane=alternatives[0];
+          }else p.targetLane=current;
+        }else p.targetLane=desired;
         const targetX=VC_LANES[p.targetLane],oldX=p.x;
-        if(!vcPoliceLaneBlocked(p,p.targetLane,86))p.x+=(targetX-p.x)*Math.min(1,dt*2.5);
+        if(!vcPoliceLaneBlocked(p,p.targetLane,82))p.x+=(targetX-p.x)*Math.min(1,dt*2.5);
         p.angle+=(vcClamp((p.x-oldX)*.07,-.30,.30)-p.angle)*Math.min(1,dt*6);
         // Smoothly shed the overtake speed instead of instantly freezing the car.
         p.speedY=Math.max(0,(Number(p.speedY)||0)-245*dt);
@@ -8988,32 +9035,64 @@ async function initFarm(){
       }
     }
   }
+  function vcPoliceTrafficObstacle(p,toX,toY){
+    for(let oi=0;oi<vc.items.length;oi++){
+      const o=vc.items[oi];if(o.type!=='traffic')continue;
+      const ox0=Number.isFinite(o.prevX)?o.prevX:(Number.isFinite(o.x)?o.x:VC_LANES[o.lane]);
+      const oy0=Number.isFinite(o.prevY)?o.prevY:o.y;
+      const ox1=Number.isFinite(o.x)?o.x:VC_LANES[o.lane];
+      const oy1=Number.isFinite(o.y)?o.y:o.contactY;
+      if(vcSweptAabb(p.prevX,p.prevY,toX,toY,ox0,oy0,ox1,oy1,25,45))return o;
+    }
+    return null;
+  }
   function vcResolvePoliceTrafficCollisions(dt=1/60){
-    // Continuous swept collision: a police car cannot tunnel through a traffic
-    // car even if both move substantially in one simulation step. On contact,
-    // roll back this frame and route the police smoothly into a clear adjacent lane.
     for(let pi=0;pi<vc.police.length;pi++){
-      const p=vc.police[pi];
-      let obstacle=null;
-      for(let oi=0;oi<vc.items.length;oi++){
-        const o=vc.items[oi];if(o.type!=='traffic')continue;
-        const ox0=Number.isFinite(o.prevX)?o.prevX:(Number.isFinite(o.x)?o.x:VC_LANES[o.lane]);
-        const oy0=Number.isFinite(o.prevY)?o.prevY:o.y;
-        const ox1=Number.isFinite(o.contactX)?o.contactX:(Number.isFinite(o.x)?o.x:VC_LANES[o.lane]);
-        const oy1=Number.isFinite(o.contactY)?o.contactY:o.y;
-        if(vcSweptAabb(p.prevX,p.prevY,p.x,p.y,ox0,oy0,ox1,oy1,24,43)){obstacle=o;break;}
-      }
+      const p=vc.police[pi];if(!p.active)continue;
+      const obstacle=vcPoliceTrafficObstacle(p,p.x,p.y);
       if(!obstacle)continue;
-      p.x=p.prevX;p.y=p.prevY;p.angle=0;p.speedY=0;
-      p.blockedUntil=Math.max(Number(p.blockedUntil||0),vc.time+.24);
-      const current=vcPoliceNearestLane(p.x);
-      const alternatives=[0,1,2].filter(lane=>Math.abs(lane-current)<=1&&!vcPoliceLaneBlocked(p,lane,112));
-      if(alternatives.length){
-        alternatives.sort((a,b)=>Math.abs(a-p.targetLane)-Math.abs(b-p.targetLane));
-        p.targetLane=alternatives[0];
+
+      // The police car yields vertically to the obstacle while it steers out.
+      // Matching the traffic's relative road speed prevents a nose-to-tail hit.
+      const followDelta=vcClamp(vc.speed-Number(obstacle.speed||0),-45,105)*dt;
+      const relativeSide=p.prevY>=Number(obstacle.prevY??obstacle.y)?1:-1;
+      const minClearance=50;
+      const yieldY=p.prevY+followDelta;
+      const safeYieldY=relativeSide>0
+        ?Math.max(yieldY,Number(obstacle.y)+minClearance)
+        :Math.min(yieldY,Number(obstacle.y)-minClearance);
+      const currentLane=vcPoliceNearestLane(p.prevX);
+      const candidates=[p.targetLane,currentLane,currentLane-1,currentLane+1,0,1,2]
+        .filter((lane,index,array)=>lane>=0&&lane<=2&&array.indexOf(lane)===index);
+      candidates.sort((a,b)=>{
+        const da=Math.abs(a-p.targetLane),db=Math.abs(b-p.targetLane);
+        if(da!==db)return da-db;
+        return Math.abs(a-currentLane)-Math.abs(b-currentLane);
+      });
+
+      let chosen=null;
+      for(const lane of candidates){
+        if(lane!==currentLane&&vcPoliceLaneBlocked(p,lane,102))continue;
+        const steer=Math.min(1,dt*(p.phase==='pass'?5.4:6.2));
+        const candidateX=p.prevX+(VC_LANES[lane]-p.prevX)*steer;
+        if(!vcPoliceTrafficObstacle(p,candidateX,safeYieldY)){
+          chosen={lane,x:candidateX,y:safeYieldY};break;
+        }
+      }
+
+      if(chosen){
+        const oldX=p.x;
+        p.x=chosen.x;p.y=chosen.y;p.targetLane=chosen.lane;
+        p.angle+=(vcClamp((p.x-p.prevX)*.085,-.36,.36)-p.angle)*Math.min(1,dt*7);
+        // Let the car resume its overtake only after its path is clear again.
+        p.speedY=Math.min(Number(p.speedY)||0,Math.max(0,(p.prevY-p.y)/Math.max(dt,.001)));
+        p.blockedUntil=Math.max(Number(p.blockedUntil||0),vc.time+.10);
       }else{
-        // No safe lane yet: hold position until the traffic gap opens.
-        p.targetLane=current;
+        // No safe route this frame: hold position alongside the traffic flow.
+        // This is a yield, not a teleport or an overlap with the obstacle.
+        p.x=p.prevX;p.y=safeYieldY;p.angle*=Math.max(0,1-dt*7);p.speedY=0;
+        p.targetLane=currentLane;
+        p.blockedUntil=Math.max(Number(p.blockedUntil||0),vc.time+.16);
       }
     }
   }
@@ -9280,6 +9359,10 @@ async function initFarm(){
       }
     }
     vcResolveTrafficCollisions(dt);
+    // Traffic collision resolution may shift cars; expose their final positions
+    // to the police swept-path planner rather than stale pre-resolution points.
+    for(const o of vc.items){if(o.type==='traffic'){o.contactX=Number.isFinite(o.x)?o.x:VC_LANES[o.lane];o.contactY=o.y;}}
+    vcResolvePoliceTrafficCollisions(dt);
     for(let i=vc.items.length-1;i>=0;i--){
       const o=vc.items[i];
       if(o.type==='coin'&&o.lane===vc.lane&&Math.abs(o.y-VC_PLAYER_Y)<23&&Math.abs(vc.playerX-VC_LANES[o.lane])<22){
@@ -9299,9 +9382,8 @@ async function initFarm(){
         }
       }
     }
-    vcResolvePoliceTrafficCollisions(dt);
     for(let i=vc.particles.length-1;i>=0;i--){const p=vc.particles[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=30*dt;p.life-=dt;if(p.life<=0)vc.particles.splice(i,1);}
-    if(vc.time-vc.lastAudioUpdate>=.05){
+    if(vc.mode==='running'&&vc.audioOn&&vc.ambientAudioActive&&vc.time-vc.lastAudioUpdate>=.05){
       vc.lastAudioUpdate=vc.time;
       try{if(vc.audio){const now=vc.audio.ctx.currentTime,policeAlert=vc.policePhase==='approach'||vc.policePhase==='block'||vc.policePhase==='pass';vc.engineOsc.frequency.setTargetAtTime(54+vc.speed*.34,now,.08);vc.sirenOsc.frequency.setTargetAtTime((policeAlert?710:620)+Math.sin(vc.time*(policeAlert?9.2:5.8))*(policeAlert?340:285),now,.04);vc.engineGain.gain.setTargetAtTime(.055+Math.min(.025,difficulty*.025),now,.12);vc.sirenGain.gain.setTargetAtTime((policeAlert ? .075 : .045)+Math.min(.025,difficulty*.025),now,.12);}}catch(_){}
     }
