@@ -8274,6 +8274,9 @@ async function initFarm(){
   const VC_W = 180, VC_H = 320, VC_PLAYER_Y = 208;
   const VC_ROAD = { left: 28, width: 124 };
   const VC_LANES = [48.7, 90, 131.3];
+  // Player/traffic collision bounds follow the visible car body, not the
+  // larger safety margin used to separate two NPC traffic cars.
+  const VC_PLAYER_HIT_HALF_WIDTH = 22, VC_PLAYER_HIT_HALF_HEIGHT = 40;
   const VC_CAR_PALETTES=[['#e94e9b','#ff8ab7','#4dd4db'],['#37a9cf','#75e0e7','#f1c36e'],['#d8a348','#f5d08a','#e77988'],['#72c579','#b5eea1','#6dd5e4']];
   const VC_PLAYER_PALETTE=['#dc3e91','#ff78b3','#55e6e4'];
   const VC_PALM_FRONDS=[[-10,-7],[-7,-12],[0,-14],[7,-12],[10,-7],[-11,0],[11,0]];
@@ -8344,7 +8347,7 @@ async function initFarm(){
   }
   const vcGlowCache=new Map();
   const vc = {
-    open:false, mode:'ready', raf:0, last:0, lastDraw:0, accumulator:0, renderAccumulator:0, lastHudUpdate:-1, lastAudioUpdate:-1, time:0, distance:0, coins:0, score:0,
+    open:false, mode:'ready', raf:0, last:0, lastDraw:0, rafIntervalAvg:16.67, accumulator:0, renderAccumulator:0, lastHudUpdate:-1, lastAudioUpdate:-1, time:0, distance:0, coins:0, score:0,
     best:0, lives:3, lane:1, playerX:VC_LANES[1], playerPrevX:VC_LANES[1], inputPathX:VC_LANES[1], playerAngle:0, scroll:0,
     speed:104, cruiseSpeed:140, brakeHeld:false, items:[], particles:[], waveNo:0, waveTimer:2.0, nextCoin:.45,
     hitFlash:0, shake:0, runId:'', laneHistory:[{at:0,lane:1}],
@@ -8463,7 +8466,7 @@ async function initFarm(){
     const brakeBtn=vcEl('vcBrakeBtn');if(brakeBtn){brakeBtn.classList.remove('is-braking');brakeBtn.setAttribute('aria-pressed','false');}
     vc.waveNo=0; vc.waveTimer=2.15; vc.nextCoin=.95; vc.hitFlash=0; vc.shake=0; vc.accumulator=0;
     vc.laneHistory=[{at:0,lane:1}]; vc.police=[{type:'police',drawIndex:0,x:VC_LANES[0],target:0,targetLane:0,angle:0,y:274,lag:1.55,side:-1},{type:'police',drawIndex:1,x:VC_LANES[2],target:2,targetLane:2,angle:0,y:308,lag:2.45,side:1}];
-    vc.runId=''; vc.last=0; vc.accumulator=0; vc.renderAccumulator=0; vc.lastDraw=0; vc.lastSubmit=null; vc.exchangeBusy=false;
+    vc.runId=''; vc.last=0; vc.lastDraw=0; vc.rafIntervalAvg=16.67; vc.accumulator=0; vc.renderAccumulator=0; vc.lastSubmit=null; vc.exchangeBusy=false;
     const exchangeBtn=document.getElementById('vcExchangeBtn');if(exchangeBtn){exchangeBtn.disabled=true;exchangeBtn.textContent='ОБМЕНЯТЬ';}
     vcText('vcExchangeQuote','РАСЧЁТ НАГРАДЫ…');vcText('vcExchangeStatus','Награда будет зачислена на основной баланс RESSELL');vcUpdateHUD();
   }
@@ -8504,17 +8507,17 @@ async function initFarm(){
     const next=vcClamp(vc.lane+delta,0,2); if(next===vc.lane) return;
     const fromX=Number.isFinite(vc.inputPathX)?vc.inputPathX:vc.playerX;
     const toX=VC_LANES[next];
-    // Input events can arrive several times between simulation frames. Check
-    // each commanded lateral segment immediately so a rapid left-right flick
-    // cannot erase the intermediate path before the next physics step.
+    // Preserve rapid flick detection, but test the actual swept car boxes.
+    // The old broad +/-28 x +/-45 rectangle caused false hits near traffic.
     vc.inputPathX=toX;
-    const lo=Math.min(fromX,toX)-28,hi=Math.max(fromX,toX)+28;
     for(let i=vc.items.length-1;i>=0;i--){
       const car=vc.items[i];
       if(car.type!=='traffic')continue;
-      const carX=Number.isFinite(car.x)?car.x:VC_LANES[car.lane];
-      const carY=Number.isFinite(car.contactY)?car.contactY:car.y;
-      if(carX>=lo&&carX<=hi&&Math.abs(carY-VC_PLAYER_Y)<=45){
+      const carX0=Number.isFinite(car.prevX)?car.prevX:(Number.isFinite(car.x)?car.x:VC_LANES[car.lane]);
+      const carY0=Number.isFinite(car.prevY)?car.prevY:car.y;
+      const carX1=Number.isFinite(car.contactX)?car.contactX:(Number.isFinite(car.x)?car.x:VC_LANES[car.lane]);
+      const carY1=Number.isFinite(car.contactY)?car.contactY:car.y;
+      if(vcSweptAabb(fromX,VC_PLAYER_Y,toX,VC_PLAYER_Y,carX0,carY0,carX1,carY1,VC_PLAYER_HIT_HALF_WIDTH,VC_PLAYER_HIT_HALF_HEIGHT)){
         vcApplyPlayerTrafficHit(car);
         if(vc.mode!=='running')return;
       }
@@ -9051,7 +9054,7 @@ async function initFarm(){
     return vcSweptAabb(
       Number.isFinite(vc.playerPrevX)?vc.playerPrevX:vc.playerX,VC_PLAYER_Y,
       vc.playerX,VC_PLAYER_Y,
-      carX0,carY0,carX1,carY1,28,45
+      carX0,carY0,carX1,carY1,VC_PLAYER_HIT_HALF_WIDTH,VC_PLAYER_HIT_HALF_HEIGHT
     );
   }
   function vcUpdate(dt){
@@ -9119,7 +9122,13 @@ async function initFarm(){
   }
   function vcFrame(now){
     if(!vc.open){vc.raf=0;return;}
-    const elapsed=vc.last?Math.max(0,(now-vc.last)/1000):0;vc.last=now;
+    const frameMs=vc.last?Math.max(0,now-vc.last):16.67;
+    const elapsed=frameMs/1000;vc.last=now;
+    // Distinguish 60/75 Hz from 90/120 Hz screens. At 60 Hz we paint on
+    // every display refresh (even if the fixed-step accumulator is a fraction
+    // of a millisecond short); otherwise the previous gate caused judder.
+    // High-refresh displays still paint only when the 60 Hz simulation advances.
+    vc.rafIntervalAvg+=(Math.min(50,frameMs)-vc.rafIntervalAvg)*.12;
     let steps=0;
     if(vc.mode==='running'){
       vc.accumulator=Math.min(.16,vc.accumulator+Math.min(.16,elapsed));
@@ -9130,16 +9139,13 @@ async function initFarm(){
     }else{
       vc.accumulator=0;
     }
-    // The simulation is fixed at 60 Hz. Rendering more often on 90/120 Hz
-    // displays would repaint identical pixels between simulation steps.
-    // Draw once for each actual simulation advance, preserving the same scene.
-    if(vcCtx && (steps>0 || (vc.mode!=='running' && vc.lastDraw===0))){
-      vcCtx.imageSmoothingEnabled=false;
+    const isStandardRefresh=vc.rafIntervalAvg>=12.5;
+    const shouldDraw=vc.mode==='running'?(isStandardRefresh||steps>0):(vc.lastDraw===0);
+    if(vcCtx&&shouldDraw){
       vcDrawWorld(vcCtx);
       vc.lastDraw=now;
     }
-    // Intro, pause and result screens are static: render their canvas once and
-    // release the animation callback until the next state transition.
+    // Intro, pause and result screens are static: draw once and release RAF.
     if(vc.mode!=='running'){vc.raf=0;return;}
     vc.raf=requestAnimationFrame(vcFrame);
   }
