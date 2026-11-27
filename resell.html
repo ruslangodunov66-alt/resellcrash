@@ -8327,27 +8327,8 @@ async function initFarm(){
   document.documentElement.dataset.resellGraphics=vcGraphicsTier;
   document.documentElement.style.setProperty('--resell-ambient-opacity',vcGraphicsTier==='high'?'1':vcGraphicsTier==='medium'?'.72':'.48');
   let vcFixedStep=1/vcGraphicsProfile.simHz;
-  // A lightweight page-wide frame probe adapts visual detail to actual device load.
-  // It never reduces simulation frequency or imposes a render FPS cap.
-  let resellPerfLast=0,resellPerfSamples=[];
-  function resellGraphicsPerfProbe(now){
-    if(document.visibilityState==='visible'){
-      if(resellPerfLast){
-        resellPerfSamples.push(now-resellPerfLast);
-        if(resellPerfSamples.length>=60){
-          const sorted=resellPerfSamples.slice().sort((a,b)=>a-b);
-          const p90=sorted[Math.floor(sorted.length*.90)]||0;
-          const avg=resellPerfSamples.reduce((a,b)=>a+b,0)/resellPerfSamples.length;
-          if((avg>24||p90>42)&&vcGraphicsTier!=='low')vcSetGraphicsTier('low','runtime');
-          else if((avg>19||p90>30)&&vcGraphicsTier==='high')vcSetGraphicsTier('medium','runtime');
-          resellPerfSamples.length=0;
-        }
-      }
-      resellPerfLast=now;
-    }else{resellPerfLast=0;resellPerfSamples.length=0;}
-    requestAnimationFrame(resellGraphicsPerfProbe);
-  }
-  setTimeout(()=>requestAnimationFrame(resellGraphicsPerfProbe),2200);
+  // No permanent page-wide RAF monitor: quality is selected once per device.
+  // Keeping a second perpetual RAF loop provided no gameplay benefit.
   // Static post-processing is rasterized once instead of rebuilding scanlines
   // and a full-canvas gradient on every animation frame (helps slower Android GPUs).
   const vcEffectLayer=document.createElement('canvas');
@@ -8416,7 +8397,15 @@ async function initFarm(){
     vcFlushExitPromise=task.finally(()=>{vcFlushExitPromise=null;});
     return vcFlushExitPromise;
   }
-  function vcShowLayer(layer){ vc.lastDraw=0;vc.renderAccumulator=0; [vcIntro,vcGameOver,vcPauseLayer,vcLeaderboardLayer].forEach(el=>el?.classList.add('vc-hidden')); layer?.classList.remove('vc-hidden'); }
+  function vcEnsureFrameLoop(){
+    if(vc.open&&!vc.raf){vc.last=0;vc.raf=requestAnimationFrame(vcFrame);}
+  }
+  function vcShowLayer(layer){
+    vc.lastDraw=0;vc.renderAccumulator=0;
+    [vcIntro,vcGameOver,vcPauseLayer,vcLeaderboardLayer].forEach(el=>el?.classList.add('vc-hidden'));
+    layer?.classList.remove('vc-hidden');
+    vcEnsureFrameLoop();
+  }
   function vcOpenLeaderboard(){ if(vc.mode==='running'){vc.mode='paused';vcPersistRunSnapshot(true);vcPauseAudio();} vcShowLayer(vcLeaderboardLayer); vcLoadStats(); vcHaptic('light'); }
   function vcCloseLeaderboard(){ vcShowLayer(vc.mode==='paused'?vcPauseLayer:(vc.mode==='over'?vcGameOver:vcIntro)); }
 
@@ -8426,7 +8415,7 @@ async function initFarm(){
     document.body.dataset.vcOverflow=document.body.style.overflow||''; document.body.style.overflow='hidden';
     vcReset('ready'); vc.best=Math.max(vc.best,vcReadLocalBest()); vcText('vcBestValue',vcFmt(vc.best));
     vcShowLayer(vcIntro); vcResize(); vc.last=0;
-    if(!vc.raf) vc.raf=requestAnimationFrame(vcFrame);
+    vcEnsureFrameLoop();
     void vcFlushStoredLeave(true).then(()=>vcLoadStats()); vcHaptic('light');
   }
   function vcFinishClose(){
@@ -8494,12 +8483,12 @@ async function initFarm(){
       const resp=await apiFetch(`${API_BASE}/games/vice-city/start`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:String(userId),run_id:vc.runId})},2);
       const data=await resp.json().catch(()=>({}));
       if(!resp.ok||!data.success)throw new Error(data.error||'Не удалось начать забег');
-      vc.mode='running';vc.last=0;vc.accumulator=0;vc.renderAccumulator=0;vcPersistRunSnapshot(true);vcShowLayer(null);vcInitAudio();vcHaptic('medium');
+      vc.mode='running';vc.last=0;vc.accumulator=0;vc.renderAccumulator=0;vcPersistRunSnapshot(true);vcShowLayer(null);vcEnsureFrameLoop();vcInitAudio();vcHaptic('medium');
     }catch(err){vc.runId='';vc.mode='ready';vcStopAudio();showToast(err.message||'Не удалось начать забег Vice City');}
     finally{vc.startBusy=false;if(startBtn)startBtn.disabled=false;if(restartBtn)restartBtn.disabled=false;}
   }
   function vcPause(){ if(vc.mode!=='running') return; vcSetBrake(false); vc.mode='paused'; vcPersistRunSnapshot(true); vcPauseAudio(); vcShowLayer(vcPauseLayer); }
-  function vcResume(){ if(vc.mode!=='paused') return; vc.mode='running'; vcResumeAudio(); vcShowLayer(null); vc.last=0; vc.accumulator=0;vc.renderAccumulator=0; }
+  function vcResume(){ if(vc.mode!=='paused') return; vc.mode='running'; vcResumeAudio(); vc.last=0; vc.accumulator=0;vc.renderAccumulator=0;vcShowLayer(null);vcEnsureFrameLoop(); }
   function vcApplyPlayerTrafficHit(car){
     if(!car||vc.mode!=='running')return false;
     const hitIndex=vc.items.indexOf(car);
@@ -9131,9 +9120,9 @@ async function initFarm(){
   function vcFrame(now){
     if(!vc.open){vc.raf=0;return;}
     const elapsed=vc.last?Math.max(0,(now-vc.last)/1000):0;vc.last=now;
+    let steps=0;
     if(vc.mode==='running'){
       vc.accumulator=Math.min(.16,vc.accumulator+Math.min(.16,elapsed));
-      let steps=0;
       while(vc.accumulator>=vcFixedStep&&steps<10&&vc.mode==='running'){
         vcUpdate(vcFixedStep);vc.accumulator-=vcFixedStep;steps++;
       }
@@ -9141,11 +9130,17 @@ async function initFarm(){
     }else{
       vc.accumulator=0;
     }
-    // Never throttle rendering to a synthetic 30/45 FPS cadence. On 60/90/120 Hz
-    // screens the browser presents at its natural cadence; on slower devices it
-    // falls back only as far as the hardware actually manages. Low tier reduces
-    // scene complexity instead of deliberately making motion less fluid.
-    if(vcCtx){vcCtx.imageSmoothingEnabled=false;vcDrawWorld(vcCtx);vc.lastDraw=now;}
+    // The simulation is fixed at 60 Hz. Rendering more often on 90/120 Hz
+    // displays would repaint identical pixels between simulation steps.
+    // Draw once for each actual simulation advance, preserving the same scene.
+    if(vcCtx && (steps>0 || (vc.mode!=='running' && vc.lastDraw===0))){
+      vcCtx.imageSmoothingEnabled=false;
+      vcDrawWorld(vcCtx);
+      vc.lastDraw=now;
+    }
+    // Intro, pause and result screens are static: render their canvas once and
+    // release the animation callback until the next state transition.
+    if(vc.mode!=='running'){vc.raf=0;return;}
     vc.raf=requestAnimationFrame(vcFrame);
   }
   async function vcEnd(){
@@ -10557,12 +10552,25 @@ async function initFarm(){
     });
   }
 
-  let particleSleepTimer=0;
+  let particleSleepTimer=0,particleLoopRunning=false;
+  // The large-particle halo is identical on every frame; rasterize it once
+  // instead of allocating a new radial gradient for every halo on every tick.
+  const particleGlowSprite=document.createElement('canvas');
+  particleGlowSprite.width=18;particleGlowSprite.height=18;
+  const particleGlowCtx=particleGlowSprite.getContext('2d');
+  if(particleGlowCtx){
+    const glow=particleGlowCtx.createRadialGradient(9,9,0,9,9,9);
+    glow.addColorStop(0,'rgba(255,255,255,.58)');
+    glow.addColorStop(1,'rgba(255,255,255,0)');
+    particleGlowCtx.fillStyle=glow;particleGlowCtx.fillRect(0,0,18,18);
+  }
   function drawParticles(){
     if(document.visibilityState !== 'visible'){
-      particleSleepTimer=setTimeout(()=>requestAnimationFrame(drawParticles),500);
+      particleLoopRunning=false;
       return;
     }
+    particleLoopRunning=true;
+    const gfx=getResellGraphicsProfile();
     ctx.clearRect(0,0,innerWidth,innerHeight);
     const t=performance.now()/1000;
     for(let i=0;i<particles.length;i++){
@@ -10582,25 +10590,24 @@ async function initFarm(){
         ctx.strokeStyle=`rgba(255,255,255,${alpha*.48})`;
         ctx.beginPath(); ctx.moveTo(p.px,p.py); ctx.lineTo(p.x,p.y); ctx.stroke();
       }
-      if(p.big&&getResellGraphicsProfile().glow>=2){
-        const glow=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,9);
-        glow.addColorStop(0,`rgba(255,255,255,${alpha*.58})`);
-        glow.addColorStop(1,'rgba(255,255,255,0)');
-        ctx.fillStyle=glow; ctx.beginPath(); ctx.arc(p.x,p.y,9,0,Math.PI*2); ctx.fill();
+      if(p.big&&gfx.glow>=2&&particleGlowCtx){
+        ctx.globalAlpha=alpha;
+        ctx.drawImage(particleGlowSprite,p.x-9,p.y-9);
+        ctx.globalAlpha=1;
       }
       ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
       ctx.fillStyle=`rgba(255,255,255,${alpha})`; ctx.fill();
     }
     // Sparse moving links; they drift with the particles and remain very subtle.
-    const gfx=getResellGraphicsProfile();
     if(gfx.links){
       ctx.lineWidth=.4;
       for(let i=0;i<particles.length;i+=gfx.links){
         const a=particles[i];
         for(let j=i+1;j<Math.min(i+gfx.links+3,particles.length);j++){
           const b=particles[j];
-          const dist=Math.hypot(a.x-b.x,a.y-b.y);
-          if(dist<96){
+          const dx=a.x-b.x,dy=a.y-b.y,distSq=dx*dx+dy*dy;
+          if(distSq<9216){
+            const dist=Math.sqrt(distSq);
             const opacity=(1-dist/96)*.045;
             ctx.strokeStyle=`rgba(255,255,255,${opacity})`;
             ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
@@ -10608,9 +10615,16 @@ async function initFarm(){
         }
       }
     }
-    setTimeout(()=>requestAnimationFrame(drawParticles),getResellGraphicsProfile().particleMs);
+    particleSleepTimer=window.setTimeout(()=>{
+      particleSleepTimer=0;
+      if(document.visibilityState!=='visible'){particleLoopRunning=false;return;}
+      requestAnimationFrame(drawParticles);
+    },gfx.particleMs);
   }
 
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState==='visible'&&!particleLoopRunning&&!particleSleepTimer)drawParticles();
+  },{passive:true});
   addEventListener('resize',resizeCanvas,{passive:true});
   window.addEventListener('resell-graphics-change',resizeCanvas,{passive:true});
   resizeCanvas();
@@ -12401,7 +12415,12 @@ async function initFarm(){
     btn.type='button';
     input.addEventListener('input',()=>{input.value=input.value.replace(/^\s+/, '');});
   }
-  const obs=new MutationObserver(()=>bindFriendsSearchFix());
+  let friendsSearchFixQueued=false;
+  const obs=new MutationObserver(()=>{
+    if(friendsSearchFixQueued)return;
+    friendsSearchFixQueued=true;
+    requestAnimationFrame(()=>{friendsSearchFixQueued=false;bindFriendsSearchFix();});
+  });
   if(document.body) obs.observe(document.body,{childList:true,subtree:true});
   bindFriendsSearchFix();
 })();
@@ -12557,7 +12576,12 @@ async function initFarm(){
       card.setAttribute('aria-hidden',isNew?'false':'true');
     }
 
-    const observer=new MutationObserver(function(){moveKD();syncNextStep();});
+    let homeSyncQueued=false;
+    const observer=new MutationObserver(function(){
+      if(homeSyncQueued)return;
+      homeSyncQueued=true;
+      requestAnimationFrame(()=>{homeSyncQueued=false;moveKD();syncNextStep();});
+    });
     observer.observe(document.body,{subtree:true,childList:true});
     moveKD();syncNextStep();
     setTimeout(function(){moveKD();syncNextStep();},250);
@@ -12677,7 +12701,17 @@ html[lang="en"] #resellHomeMoney #mainAssetsSection .main-tycoon-card[data-main-
     setTimeout(()=>{bindFriends();forceHomeOrder();improveRHold();translateExtra(document.body);},250);
     setTimeout(()=>{bindFriends();forceHomeOrder();translateExtra(document.body);},1000);
   }
-  const mo=new MutationObserver(muts=>{for(const m of muts){if(m.addedNodes?.length){bindFriends();translateExtra(document.body);break;}}});
+  let dynamicUiSyncQueued=false;
+  const mo=new MutationObserver(muts=>{
+    for(const m of muts){
+      if(m.addedNodes?.length){
+        if(dynamicUiSyncQueued)break;
+        dynamicUiSyncQueued=true;
+        requestAnimationFrame(()=>{dynamicUiSyncQueued=false;bindFriends();translateExtra(document.body);});
+        break;
+      }
+    }
+  });
   if(document.body)mo.observe(document.body,{childList:true,subtree:true});
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',run,{once:true});else run();
   window.addEventListener('load',run,{once:true});
@@ -18406,7 +18440,12 @@ main.app{overflow-x:hidden!important;overscroll-behavior-x:none!important;touch-
   }
 
   bindSheets();
-  new MutationObserver(bindSheets).observe(document.body,{childList:true,subtree:true});
+  let sheetBindQueued=false;
+  new MutationObserver(()=>{
+    if(sheetBindQueued)return;
+    sheetBindQueued=true;
+    requestAnimationFrame(()=>{sheetBindQueued=false;bindSheets();});
+  }).observe(document.body,{childList:true,subtree:true});
 })();
 </script>
 
@@ -22161,7 +22200,12 @@ body.resell-avito-single-screen #modalBody .avx-review-sheet {
   document.addEventListener('focusin',e=>{
     if(e.target?.matches?.('#avitoDescription, .avx-chat-large input, .avx-chat-large textarea, .avx-chat-large [contenteditable="true"]'))focusIntoView(e.target);
   },true);
-  const observer=new MutationObserver(()=>{if(isAvitoOpen())syncViewport();});
+  let avitoViewportSyncQueued=false;
+  const observer=new MutationObserver(()=>{
+    if(!isAvitoOpen()||avitoViewportSyncQueued)return;
+    avitoViewportSyncQueued=true;
+    requestAnimationFrame(()=>{avitoViewportSyncQueued=false;if(isAvitoOpen())syncViewport();});
+  });
   observer.observe(modal,{attributes:true,attributeFilter:['class'],childList:true,subtree:true});
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',syncViewport,{once:true});else syncViewport();
 })();
