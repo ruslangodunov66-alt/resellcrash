@@ -3810,7 +3810,6 @@ html,body{max-width:100%;overflow-x:hidden!important;overscroll-behavior-x:none!
 #viceCityOverlay .vc-brake-infield span{font-size:19px!important;}
 #viceCityOverlay .vc-brake-infield:after{content:'УДЕРЖИВАЙ';font:800 5px/1 Montserrat,Arial,sans-serif;color:#c4a98f;letter-spacing:.45px;}
 #viceCityOverlay .vc-brake-infield.is-braking{opacity:1!important;}
-#viceCityOverlay .vc-brake-infield.is-cooldown{opacity:.48!important;filter:saturate(.55)!important;}
 #viceCityOverlay .vc-intro-guide{grid-template-columns:78px 1fr!important;}
 #viceCityOverlay .vc-intro-guide b{font-size:15px!important;letter-spacing:-1px!important;white-space:nowrap!important;}
 @media(max-height:690px){#viceCityOverlay .vc-controls.vc-swipe-footer{height:56px!important;min-height:56px!important;}}
@@ -7667,6 +7666,14 @@ async function initFarm(){
     })();
     try{return await avitoFetchPromise;}finally{avitoFetchPromise=null;}
   }
+  async function fetchAvitoFresh(){
+    // Wait for any older background poll, then always fetch a new snapshot.
+    // A pre-purchase GET must not replace the inventory just returned by POST /buy.
+    const pending=avitoFetchPromise;
+    if(pending){try{await pending;}catch(_){}}
+    avitoFetchPromise=null;
+    return await fetchAvito();
+  }
   const AVITO_UNLOCK_SEEN_KEY='resell_avito_unlock_seen_v61';
   function getAvitoUnlockSeen(){try{return Number(localStorage.getItem(AVITO_UNLOCK_SEEN_KEY)||0)}catch(_){return 0}}
   function setAvitoUnlockSeen(v){try{localStorage.setItem(AVITO_UNLOCK_SEEN_KEY,String(v))}catch(_){}}
@@ -7991,37 +7998,58 @@ async function initFarm(){
     }
     const tab=e.target.closest('[data-avito-tab]'); if(tab){avitoTab=tab.dataset.avitoTab;try{await fetchAvito();modalBody.innerHTML=renderAvito();showAvitoUnlockPopup()}catch(err){showToast(err.message||'Ошибка')}return;}
     const buy=e.target.closest('[data-avito-buy]'); if(buy){
+      e.preventDefault();e.stopPropagation();
+      if(buy.disabled)return;
       const originalLabel=buy.textContent;
+      const itemId=String(buy.dataset.avitoBuy||'').trim();
+      if(!itemId){showToast('Не удалось определить лот. Обнови поставку.');return;}
       buy.disabled=true;
       buy.textContent='ПОКУПКА…';
+      haptic('medium');
       let purchase;
       try{
         purchase=await tycoonFetch(`/avito/${encodeURIComponent(userId)}/buy`,{
           method:'POST',
           headers:{'Content-Type':'application/json','Accept':'application/json'},
-          body:JSON.stringify({item_id:buy.dataset.avitoBuy}),
+          body:JSON.stringify({item_id:itemId}),
           timeoutMs:40000
         },1);
+        if(!purchase || purchase.success!==true || !purchase.item || !purchase.item.uid){
+          throw new Error(purchase?.error||purchase?.message||'Сервер не подтвердил покупку. Деньги не списаны.');
+        }
       }catch(err){
         showToast(err.message||'Не удалось купить товар');
         buy.disabled=false;
         buy.textContent=originalLabel;
         return;
       }
-      // From this point the server has confirmed the atomic balance + inventory
-      // transaction. A later refresh failure must never be reported as a failed
-      // purchase or re-enable the old purchase button.
+      // Server confirmed a single atomic balance + inventory + supplier-lot
+      // transaction. Put the purchased record on screen immediately, even if
+      // the follow-up GET is delayed by mobile network / a background poll.
+      profileData=profileData||{};
       profileData.balance=purchase.balance??profileData.balance;
       setBalance(profileData.balance);
-      if(purchase?.item?.uid)markAvitoNewPurchase(purchase.item.uid);
-      showToast(purchase.message||'Товар закуплен');
-      avitoTab='buy';
+      markAvitoNewPurchase(purchase.item.uid);
+      avitoState=avitoState||{};
+      avitoState.balance=profileData.balance;
+      const currentInventory=Array.isArray(avitoState.inventory)?avitoState.inventory:[];
+      if(!currentInventory.some(x=>x && String(x.uid||'')===String(purchase.item.uid))){
+        avitoState.inventory=[...currentInventory,purchase.item];
+      }
+      avitoTab='sales';
+      modalBody.innerHTML=renderAvito();
+      modalBody.scrollTop=0;
+      showToast(purchase.message||'Товар куплен и добавлен на склад');
+      haptic('success');
       try{
-        await fetchAvito();
+        await fetchAvitoFresh();
+        avitoTab='sales';
         modalBody.innerHTML=renderAvito();
         showAvitoUnlockPopup();
       }catch(refreshErr){
-        showToast('Товар куплен. Не удалось обновить склад — открой Avito ещё раз.');
+        // The atomic purchase has already committed. Keep the locally confirmed
+        // item visible rather than making it look as if the lot vanished.
+        showToast('Покупка сохранена. Товар уже находится на складе Avito.');
       }
       return;
     }
@@ -8337,7 +8365,7 @@ async function initFarm(){
   const vc = {
     open:false, mode:'ready', raf:0, last:0, lastDraw:0, accumulator:0, renderAccumulator:0, lastHudUpdate:-1, lastAudioUpdate:-1, time:0, distance:0, coins:0, score:0,
     best:0, lives:3, lane:1, playerX:VC_LANES[1], playerPrevX:VC_LANES[1], inputPathX:VC_LANES[1], playerAngle:0, scroll:0,
-    speed:104, cruiseSpeed:140, brakeHeld:false, brakeStartedAt:0, brakeCooldownUntil:0, items:[], particles:[], waveNo:0, waveTimer:2.0, nextCoin:.45,
+    speed:104, cruiseSpeed:140, brakeHeld:false, items:[], particles:[], waveNo:0, waveTimer:2.0, nextCoin:.45,
     hitFlash:0, shake:0, runId:'', laneHistory:[{at:0,lane:1}],
     police:[{type:'police',drawIndex:0,x:VC_LANES[0],target:0,targetLane:0,angle:0,y:274,lag:1.55,side:-1},{type:'police',drawIndex:1,x:VC_LANES[2],target:2,targetLane:2,angle:0,y:308,lag:2.45,side:1}],
     audio:null, audioOn:true, engineOsc:null, engineGain:null, sirenOsc:null, sirenGain:null,
@@ -8442,13 +8470,10 @@ async function initFarm(){
   }
   function vcReset(mode='ready'){
     vc.mode=mode; vc.time=0; vc.distance=0; vc.coins=0; vc.score=0; vc.lives=3; vc.lane=1;
-    vc.playerX=VC_LANES[1]; vc.playerPrevX=VC_LANES[1]; vc.inputPathX=VC_LANES[1]; vc.playerAngle=0; vc.scroll=0; vc.speed=140; vc.cruiseSpeed=140; vc.brakeHeld=false; vc.brakeStartedAt=0; vc.brakeCooldownUntil=0; vc.items=[]; vc.particles=[];
-    const brakeBtn=vcEl('vcBrakeBtn');if(brakeBtn){brakeBtn.classList.remove('is-braking','is-cooldown');brakeBtn.setAttribute('aria-pressed','false');const label=brakeBtn.querySelector('b');if(label)label.textContent='ТОРМОЗ';}
+    vc.playerX=VC_LANES[1]; vc.playerPrevX=VC_LANES[1]; vc.inputPathX=VC_LANES[1]; vc.playerAngle=0; vc.scroll=0; vc.speed=140; vc.cruiseSpeed=140; vc.brakeHeld=false; vc.items=[]; vc.particles=[];
+    const brakeBtn=vcEl('vcBrakeBtn');if(brakeBtn){brakeBtn.classList.remove('is-braking');brakeBtn.setAttribute('aria-pressed','false');}
     vc.waveNo=0; vc.waveTimer=2.15; vc.nextCoin=.95; vc.hitFlash=0; vc.shake=0; vc.accumulator=0;
-    vc.laneHistory=[{at:0,lane:1}]; vc.police=[
-      {type:'police',drawIndex:0,x:VC_LANES[0],target:0,targetLane:0,angle:0,y:298,prevX:VC_LANES[0],prevY:298,lag:.35,side:-1,phase:'chase',phaseTime:0,hitCooldownUntil:0},
-      {type:'police',drawIndex:1,x:VC_LANES[2],target:2,targetLane:2,angle:0,y:350,prevX:VC_LANES[2],prevY:350,lag:1.05,side:1,phase:'chase',phaseTime:0,hitCooldownUntil:0}
-    ];
+    vc.laneHistory=[{at:0,lane:1}]; vc.police=[{type:'police',drawIndex:0,x:VC_LANES[0],target:0,targetLane:0,angle:0,y:274,lag:1.55,side:-1},{type:'police',drawIndex:1,x:VC_LANES[2],target:2,targetLane:2,angle:0,y:308,lag:2.45,side:1}];
     vc.runId=''; vc.last=0; vc.accumulator=0; vc.renderAccumulator=0; vc.lastDraw=0; vc.lastSubmit=null; vc.exchangeBusy=false;
     const exchangeBtn=document.getElementById('vcExchangeBtn');if(exchangeBtn){exchangeBtn.disabled=true;exchangeBtn.textContent='ОБМЕНЯТЬ';}
     vcText('vcExchangeQuote','РАСЧЁТ НАГРАДЫ…');vcText('vcExchangeStatus','Награда будет зачислена на основной баланс RESSELL');vcUpdateHUD();
@@ -8504,13 +8529,6 @@ async function initFarm(){
         vcApplyPlayerTrafficHit(car);
         if(vc.mode!=='running')return;
       }
-    }
-    for(let i=0;i<vc.police.length;i++){
-      const cop=vc.police[i];
-      if(vc.time<Number(cop.hitCooldownUntil||0))continue;
-      const cx=Number.isFinite(cop.x)?cop.x:VC_LANES[cop.targetLane||0];
-      const cy=Number.isFinite(cop.y)?cop.y:VC_H+40;
-      if(cx>=lo&&cx<=hi&&Math.abs(cy-VC_PLAYER_Y)<=45){vcApplyPoliceHit(cop);if(vc.mode!=='running')return;}
     }
     vc.lane=next; vc.laneHistory.push({at:vc.time,lane:next});
     if(vc.laneHistory.length>14) vc.laneHistory.splice(0,vc.laneHistory.length-14);
@@ -8766,97 +8784,38 @@ async function initFarm(){
     }
     for(let i=0;i<vc.police.length;i++){
       const other=vc.police[i];
-      if(other!==p&&Math.abs(other.y-p.y)<52&&Math.abs(other.x-x)<25)return true;
+      if(other!==p&&Math.abs(other.y-p.y)<45&&Math.abs(other.x-x)<25)return true;
     }
     return false;
-  }
-  function vcPolicePassLane(p,playerLane){
-    let preferred=playerLane+(p.side||1);
-    if(preferred<0||preferred>2||preferred===playerLane)preferred=playerLane-(p.side||1);
-    if(preferred<0||preferred>2||preferred===playerLane)preferred=playerLane===0?1:0;
-    if(!vcPoliceLaneBlocked(p,preferred,104))return preferred;
-    for(let lane=0;lane<3;lane++)if(lane!==playerLane&&!vcPoliceLaneBlocked(p,lane,82))return lane;
-    return preferred;
-  }
-  function vcPoliceFollowLane(p,playerLane){
-    if(!vcPoliceLaneBlocked(p,playerLane,76))return playerLane;
-    const side=vcPolicePassLane(p,playerLane);
-    return side;
   }
   function vcUpdatePolice(dt){
-    const difficulty=vcClamp(vc.time/95,0,1);
     for(let index=0;index<vc.police.length;index++){
       const p=vc.police[index];
-      p.prevX=Number.isFinite(p.x)?p.x:VC_LANES[p.targetLane||0];
-      p.prevY=Number.isFinite(p.y)?p.y:VC_H+40;
-      p.phase=p.phase||'chase';p.phaseTime=Number(p.phaseTime||0)+dt;
-      const playerLane=vcLaneAt(Math.max(0,vc.time-(p.phase==='block'?.28:(p.lag||.4))));
-      const passLane=vcPolicePassLane(p,playerLane);
-      if(p.phase==='chase'){
-        // Catch slowly from behind. Braking by the player gives the patrol a
-        // little extra closing speed, but never teleports the police forward.
-        p.targetLane=passLane;
-        p.y-=((index===0?9.5:8.2)+difficulty*3.2+(vc.brakeHeld?3.5:0))*dt;
-        if(p.y<=VC_PLAYER_Y+34){p.phase='pass';p.phaseTime=0;p.targetLane=passLane;}
-      }else if(p.phase==='pass'){
-        // Pull alongside in a clear lane before crossing the player's nose.
-        p.targetLane=passLane;
-        p.y-=(15.5+difficulty*2.5)*dt;
-        if(p.y<=VC_PLAYER_Y-58){p.y=VC_PLAYER_Y-58;p.phase='merge';p.phaseTime=0;p.targetLane=playerLane;}
-      }else if(p.phase==='merge'){
-        const mergeLane=vcPoliceFollowLane(p,playerLane);
-        p.targetLane=mergeLane;
-        p.y-=1.4*dt; // stay safely ahead while merging in front of the player
-        if(Math.abs(p.x-VC_LANES[p.targetLane])<3&&p.targetLane===playerLane&&!vcPoliceLaneBlocked(p,playerLane,68)){
-          p.phase='brake';p.phaseTime=0;
-        }else if(p.phaseTime>2.1){p.phase='pass';p.phaseTime=0;p.targetLane=passLane;}
-      }else if(p.phase==='brake'){
-        p.targetLane=vcPoliceFollowLane(p,playerLane);
-        const stopY=VC_PLAYER_Y-54;
-        p.y+=(stopY-p.y)*Math.min(1,dt*2.2);
-        if(p.phaseTime>.65){p.phase='block';p.phaseTime=0;}
-      }else if(p.phase==='block'){
-        // The interceptor holds position ahead and tracks the driver's lane;
-        // its presence automatically slows the player until they evade it.
-        p.targetLane=vcPoliceFollowLane(p,playerLane);
-        p.y+=(VC_PLAYER_Y-54-p.y)*Math.min(1,dt*2.8);
-        if(p.phaseTime>2.65){
-          p.phase='chase';p.phaseTime=0;p.y=VC_H+30+index*34;
-          p.targetLane=vcPolicePassLane(p,playerLane);
+      const historyLane=vcLaneAt(Math.max(0,vc.time-p.lag));
+      const preferred=vcClamp(historyLane+(p.side||0),0,2);
+      let chosen=null,bestDistance=Infinity,bestRank=Infinity;
+      // Evaluate the three lanes directly; no temporary candidate arrays or sort.
+      for(let lane=0;lane<3;lane++){
+        if(vcPoliceLaneBlocked(p,lane,126))continue;
+        const targetX=VC_LANES[lane],lo=Math.min(p.x,targetX)-24,hi=Math.max(p.x,targetX)+24;
+        let pathBlocked=false;
+        for(let oi=0;oi<vc.items.length;oi++){
+          const o=vc.items[oi];
+          if(o.type!=='traffic'||Math.abs(o.y-p.y)>=105)continue;
+          const ox=Number.isFinite(o.x)?o.x:VC_LANES[o.lane];
+          if(ox>=lo&&ox<=hi){pathBlocked=true;break;}
         }
-      }else{
-        p.phase='chase';p.phaseTime=0;p.y=VC_H+30+index*34;
+        if(pathBlocked)continue;
+        const distance=Math.abs(lane-preferred);
+        const rank=lane===preferred?0:lane===p.targetLane?1:2+lane;
+        if(distance<bestDistance||(distance===bestDistance&&rank<bestRank)){
+          chosen=lane;bestDistance=distance;bestRank=rank;
+        }
       }
+      if(chosen!==null)p.targetLane=chosen;
       const targetX=VC_LANES[p.targetLane];
-      const prev=p.x;p.x+=(targetX-p.x)*Math.min(1,dt*(p.phase==='pass'?3.0:4.2));
+      const prev=p.x;p.x+=(targetX-p.x)*Math.min(1,dt*(3.8+index*.25));
       p.angle+=(vcClamp((p.x-prev)*.09,-.42,.42)-p.angle)*Math.min(1,dt*8.5);
-    }
-  }
-  function vcPoliceAppliesStopPressure(){
-    for(let i=0;i<vc.police.length;i++){
-      const p=vc.police[i];
-      if(p.phase==='block'&&p.y<VC_PLAYER_Y-42&&p.y>VC_PLAYER_Y-92&&
-         Math.abs(p.x-vc.playerX)<18&&p.targetLane===vc.lane)return true;
-    }
-    return false;
-  }
-  function vcApplyPoliceHit(p){
-    if(!p||vc.mode!=='running'||vc.time<Number(p.hitCooldownUntil||0))return false;
-    const hit=vcApplyPlayerTrafficHit(p);
-    p.hitCooldownUntil=vc.time+1.8;p.phase='chase';p.phaseTime=0;
-    p.y=VC_H+34+(Number(p.drawIndex)||0)*28;
-    p.targetLane=vcPolicePassLane(p,vc.lane);
-    return hit;
-  }
-  function vcResolvePolicePlayerCollision(){
-    for(let i=0;i<vc.police.length;i++){
-      const p=vc.police[i];
-      if(vc.time<Number(p.hitCooldownUntil||0))continue;
-      const px0=Number.isFinite(p.prevX)?p.prevX:p.x,py0=Number.isFinite(p.prevY)?p.prevY:p.y;
-      if(vcSweptAabb(vc.playerPrevX,VC_PLAYER_Y,vc.playerX,VC_PLAYER_Y,px0,py0,p.x,p.y,28,45)){
-        vcApplyPoliceHit(p);
-        if(vc.mode!=='running')return;
-      }
     }
   }
   function vcResolvePoliceTrafficCollisions(){
@@ -8893,17 +8852,9 @@ async function initFarm(){
   }
   function vcTrafficLaneSafe(car,lane){
     const x=VC_LANES[lane];
-    for(let i=0;i<vc.items.length;i++){
-      const other=vc.items[i];if(other===car||other.type!=='traffic')continue;
-      const ox=Number.isFinite(other.x)?other.x:VC_LANES[other.lane];
-      const reserved=Number.isFinite(other.targetLane)?other.targetLane:other.lane;
-      if(Math.abs(other.y-car.y)<98&&(Math.abs(ox-x)<25||reserved===lane))return false;
-    }
-    for(let i=0;i<vc.police.length;i++){
-      const cop=vc.police[i];
-      if(Math.abs(cop.x-x)<23&&Math.abs(cop.y-car.y)<86)return false;
-    }
-    return true;
+    return !vc.items.some(other=>other!==car&&other.type==='traffic'&&
+      Math.abs((Number.isFinite(other.x)?other.x:VC_LANES[other.lane])-x)<25&&Math.abs(other.y-car.y)<108) &&
+      !vc.police.some(cop=>Math.abs(cop.x-x)<23&&Math.abs(cop.y-car.y)<86);
   }
   function vcUpdateTraffic(dt){
     const difficulty=vcClamp(vc.time/100,0,1);
@@ -8913,58 +8864,27 @@ async function initFarm(){
       const car=cars[ci];
       if(!Number.isFinite(car.x))car.x=VC_LANES[car.lane];
       if(!Number.isFinite(car.targetLane))car.targetLane=car.lane;
-      car.signal=car.signal||0;car.jamTime=Number(car.jamTime||0);
-      let frontGap=Infinity;
-      for(let bi=0;bi<cars.length;bi++){
-        const other=cars[bi];if(other===car)continue;
-        const ox=Number.isFinite(other.x)?other.x:VC_LANES[other.lane];
-        const sameCorridor=Math.abs(ox-car.x)<23||other.lane===car.lane||other.targetLane===car.lane;
-        const gap=car.y-other.y;
-        if(sameCorridor&&gap>0&&gap<104&&gap<frontGap)frontGap=gap;
-      }
-      if(frontGap<76)car.jamTime+=dt;else car.jamTime=Math.max(0,car.jamTime-dt*.8);
-      // A repeated queue/collision triggers a controlled yield into the clearest lane.
-      if((car.forceYield||car.jamTime>.72)&&vc.time>=Number(car.yieldCooldownUntil||0)){
-        let bestLane=-1,bestClearance=-Infinity;
-        for(let lane=0;lane<3;lane++){
-          if(lane===car.lane||!vcTrafficLaneSafe(car,lane))continue;
-          let clearance=180;
-          for(let bi=0;bi<cars.length;bi++){
-            const other=cars[bi];if(other===car)continue;
-            if(Math.abs((Number.isFinite(other.x)?other.x:VC_LANES[other.lane])-VC_LANES[lane])<28)
-              clearance=Math.min(clearance,Math.abs(other.y-car.y));
-          }
-          if(clearance>bestClearance){bestClearance=clearance;bestLane=lane;}
+      car.signal=car.signal||0;
+      if(car.targetLane===car.lane && Math.random()<dt*(.48+difficulty*.22)){
+        let blocker=false;
+        for(let bi=0;bi<cars.length;bi++){
+          const other=cars[bi];
+          if(other!==car&&other.lane===car.lane&&other.y<car.y&&car.y-other.y>52&&car.y-other.y<112&&other.speed<car.speed*.88){blocker=true;break;}
         }
-        if(bestLane>=0){
-          car.targetLane=bestLane;car.signal=bestLane>car.lane?1:-1;
-          car.signalUntil=vc.time+.18;car.yieldCooldownUntil=vc.time+1.05;car.jamTime=0;car.forceYield=false;car.changeBlockedFor=0;
-        }
-      }
-      if(car.targetLane===car.lane&&Math.random()<dt*(.48+difficulty*.22)){
-        let blocker=frontGap<112;
         if(blocker){
-          let nextLane=-1,bestClearance=-Infinity;
-          for(let lane=0;lane<3;lane++)if(lane!==car.lane&&vcTrafficLaneSafe(car,lane)){
-            let clearance=180;
-            for(let bi=0;bi<cars.length;bi++){
-              const other=cars[bi];if(other!==car&&Math.abs((Number.isFinite(other.x)?other.x:VC_LANES[other.lane])-VC_LANES[lane])<28)clearance=Math.min(clearance,Math.abs(other.y-car.y));
-            }
-            if(clearance>bestClearance){bestClearance=clearance;nextLane=lane;}
-          }
-          if(nextLane>=0){car.targetLane=nextLane;car.signal=nextLane>car.lane?1:-1;car.signalUntil=vc.time+.28;}
+          let nextLane=-1;
+          const leftLane=car.lane-1,rightLane=car.lane+1;
+          if(leftLane>=0&&vcTrafficLaneSafe(car,leftLane))nextLane=leftLane;
+          else if(rightLane<=2&&vcTrafficLaneSafe(car,rightLane))nextLane=rightLane;
+          if(nextLane>=0){car.targetLane=nextLane;car.signal=nextLane>car.lane?1:-1;car.signalUntil=vc.time+.52;}
         }
       }
       if(car.targetLane!==car.lane){
         const targetX=VC_LANES[car.targetLane];
-        if(!vcTrafficLaneSafe(car,car.targetLane)&&Math.abs(car.x-targetX)>10){
-          car.changeBlockedFor=Number(car.changeBlockedFor||0)+dt;
-          if(car.changeBlockedFor>.48){car.targetLane=car.lane;car.signal=0;car.signalUntil=0;car.changeBlockedFor=0;}
-          else{car.x+=(VC_LANES[car.lane]-car.x)*Math.min(1,dt*1.8);car.angle*=Math.max(0,1-dt*3);}
-        }else if(vc.time<(car.signalUntil||0)){
-          car.changeBlockedFor=0;car.x+=(VC_LANES[car.lane]-car.x)*Math.min(1,dt*2.2);car.angle*=Math.max(0,1-dt*4);
-        }else{
-          car.changeBlockedFor=0;car.signal=car.targetLane>car.lane?1:-1;
+        if(!vcTrafficLaneSafe(car,car.targetLane)&&Math.abs(car.x-targetX)>10){car.targetLane=car.lane;car.signal=0;car.signalUntil=0;}
+        else if(vc.time<(car.signalUntil||0)){car.x+=(VC_LANES[car.lane]-car.x)*Math.min(1,dt*3.2);car.angle*=Math.max(0,1-dt*5);}
+        else{
+          car.signal=car.targetLane>car.lane?1:-1;
           const oldX=car.x;car.x+=(targetX-car.x)*Math.min(1,dt*1.9);car.angle=vcClamp((car.x-oldX)*.078,-.30,.30);
           if(Math.abs(car.x-targetX)<1.8){car.x=targetX;car.lane=car.targetLane;car.signal=0;car.signalUntil=0;car.angle*=.35;}
         }
@@ -8994,8 +8914,7 @@ async function initFarm(){
 
           let trailing,leading;
           if(Math.abs(a.y-b.y)>1){
-            // Canvas Y grows downwards: the car with the larger Y is behind.
-            trailing=a.y>b.y?a:b;
+            trailing=a.y<b.y?a:b;
             leading=trailing===a?b:a;
           }else if(Number(a.speed||0)!==Number(b.speed||0)){
             // Lower-speed traffic has the greater relative closing speed on screen.
@@ -9005,10 +8924,8 @@ async function initFarm(){
             trailing=Number(a.wave||0)<=Number(b.wave||0)?a:b;
             leading=trailing===a?b:a;
           }
-          trailing.y=leading.y+52;
-          trailing.contactY=trailing.y;
-          trailing.collisionBrakeUntil=Math.max(Number(trailing.collisionBrakeUntil||0),vc.time+.22);
-          trailing.jamTime=Math.max(Number(trailing.jamTime||0),.78);trailing.forceYield=true;
+          trailing.y=leading.y-47;
+          trailing.collisionBrakeUntil=Math.max(Number(trailing.collisionBrakeUntil||0),vc.time+.28);
           changed=true;
         }
       }
@@ -9032,7 +8949,7 @@ async function initFarm(){
       if(laneBusy)return false;
       vc.items.push({
         type:'traffic',lane,targetLane:lane,x:VC_LANES[lane],y,prevX:VC_LANES[lane],prevY:y,
-        speed:vc.cruiseSpeed*vcRand(.66,.84),collisionBrakeUntil:0,jamTime:0,yieldCooldownUntil:0,forceYield:false,changeBlockedFor:0,
+        speed:vc.cruiseSpeed*vcRand(.66,.84),collisionBrakeUntil:0,
         variant:vcInt(0,3),angle:vcRand(-.015,.015),signal:0,difficulty:vcClamp(vc.time/120,0,1),wave,row
       });
       return true;
@@ -9160,25 +9077,16 @@ async function initFarm(){
     }
     vc.time+=dt;
     const difficulty=vcClamp(vc.time/100,0,1);
-    // The brake is a short evasive tool, not a way to freeze the chase forever.
-    if(vc.brakeHeld&&vc.time-vc.brakeStartedAt>=2.35){
-      vc.brakeHeld=false;vc.brakeStartedAt=0;vc.brakeCooldownUntil=vc.time+3.0;
-      const brakeBtn=vcEl('vcBrakeBtn');if(brakeBtn){brakeBtn.classList.remove('is-braking');brakeBtn.classList.add('is-cooldown');brakeBtn.setAttribute('aria-pressed','false');const label=brakeBtn.querySelector('b');if(label)label.textContent='ПЕРЕЗАРЯДКА';}
-    }
-    if(!vc.brakeHeld&&vc.brakeCooldownUntil>0&&vc.time>=vc.brakeCooldownUntil){
-      vc.brakeCooldownUntil=0;const brakeBtn=vcEl('vcBrakeBtn');if(brakeBtn){brakeBtn.classList.remove('is-cooldown');const label=brakeBtn.querySelector('b');if(label)label.textContent='ТОРМОЗ';}
-    }
     vc.cruiseSpeed=Math.min(270,140+vc.time*1.22);
+    const targetSpeed=vc.cruiseSpeed*(vc.brakeHeld?.58:1);
+    vc.speed+=(targetSpeed-vc.speed)*Math.min(1,dt*(vc.brakeHeld?3.8:2.2));
+    vc.scroll+=vc.speed*dt;
+    vc.distance+=vc.speed*dt*.035; vc.score=Math.floor(vc.distance*12+vc.coins*100);
     const targetX=VC_LANES[vc.lane], oldX=vc.playerX; vc.playerX+=(targetX-vc.playerX)*Math.min(1,dt*12);
     vc.inputPathX=vc.playerX;
     const dx=vc.playerX-oldX; vc.playerAngle+=(vcClamp(dx*.11,-.34,.34)-vc.playerAngle)*Math.min(1,dt*11);
-    vcUpdatePolice(dt);
-    const policePressure=vcPoliceAppliesStopPressure();
-    const targetSpeed=vc.cruiseSpeed*(vc.brakeHeld?.58:(policePressure?.38:1));
-    vc.speed+=(targetSpeed-vc.speed)*Math.min(1,dt*(vc.brakeHeld?3.8:(policePressure?3.0:2.2)));
-    vc.scroll+=vc.speed*dt;
-    vc.distance+=vc.speed*dt*.035; vc.score=Math.floor(vc.distance*12+vc.coins*100);
     vcUpdateTraffic(dt);
+    vcUpdatePolice(dt);
     vcUpdateTrafficWaves(dt);
     vc.nextCoin-=dt; if(vc.nextCoin<=0){vcSpawnCoin();vc.nextCoin=vcRand(.98,1.28)+difficulty*.18;}
     vc.hitFlash=Math.max(0,vc.hitFlash-dt*2.8); vc.shake=Math.max(0,vc.shake-dt*2.2);
@@ -9205,7 +9113,6 @@ async function initFarm(){
       if(o.y>VC_H+35) vc.items.splice(i,1);
     }
     vcResolvePoliceTrafficCollisions();
-    vcResolvePolicePlayerCollision();if(vc.mode!=='running')return;
     for(let i=vc.particles.length-1;i>=0;i--){const p=vc.particles[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=30*dt;p.life-=dt;if(p.life<=0)vc.particles.splice(i,1);}
     if(vc.time-vc.lastAudioUpdate>=.05){
       vc.lastAudioUpdate=vc.time;
@@ -9346,16 +9253,12 @@ async function initFarm(){
   // Swipe steers; holding the dedicated brake pedal reduces the player's speed.
   const vcBrakeBtn=vcEl('vcBrakeBtn');
   const vcSetBrake=held=>{
-    let active=Boolean(held&&vc.mode==='running');
-    if(active&&vc.brakeCooldownUntil>vc.time)active=false;
-    if(active&&!vc.brakeHeld)vc.brakeStartedAt=vc.time;
-    if(!active&&vc.brakeHeld)vc.brakeStartedAt=0;
+    const active=Boolean(held&&vc.mode==='running');
     vc.brakeHeld=active;
     if(vcBrakeBtn){vcBrakeBtn.classList.toggle('is-braking',active);vcBrakeBtn.setAttribute('aria-pressed',active?'true':'false');}
-    return active;
   };
   if(vcBrakeBtn){
-    vcBrakeBtn.addEventListener('pointerdown',e=>{if(vc.mode!=='running')return;e.preventDefault();try{vcBrakeBtn.setPointerCapture(e.pointerId);}catch(_){}if(vcSetBrake(true))vcHaptic('light');},{passive:false});
+    vcBrakeBtn.addEventListener('pointerdown',e=>{if(vc.mode!=='running')return;e.preventDefault();try{vcBrakeBtn.setPointerCapture(e.pointerId);}catch(_){}vcSetBrake(true);vcHaptic('light');},{passive:false});
     ['pointerup','pointercancel','lostpointercapture','pointerleave'].forEach(type=>vcBrakeBtn.addEventListener(type,()=>vcSetBrake(false),{passive:true}));
     vcBrakeBtn.addEventListener('contextmenu',e=>e.preventDefault());
   }
