@@ -9589,7 +9589,7 @@ async function initFarm(){
 
 
   // Short character-led Vice City onboarding, shown once per Telegram account and rollout.
-  const VC_EVENT_ANNOUNCEMENT_KEY = 'resell_vc_event_story_2026_11_v2';
+  const VC_EVENT_ANNOUNCEMENT_KEY = 'resell_vc_prize_announcement_2026_11_29_v1';
   const vcEventAnnouncement = document.getElementById('vcEventAnnouncement');
   const vceaText = document.getElementById('vceaText');
   const vceaChoices = document.getElementById('vceaChoices');
@@ -9598,9 +9598,27 @@ async function initFarm(){
   let vceaStep = 0, vceaTypingToken = 0, vcCoachShown = false;
   // Character cutouts are embedded in the page; no additional image files are required.
   const vcStoryStages = [
-    {parts:[{text:'Привет! В RESSELL стартовал новый ивент — '},{text:'Vice City',cls:'accent'},{text:'. Сейчас объясню всё за пару секунд.'}],choices:['Слушаю','Давай!']},
-    {parts:[{text:'Садись за руль, уворачивайся от '},{text:'полиции',cls:'accent-cyan'},{text:' и собирай '},{text:'Coins',cls:'accent'},{text:' по дороге. Чем дольше продержишься, тем больше монет заберёшь.'}],choices:['Звучит круто','Что дальше?']},
-    {parts:[{text:'Твои Coins поднимают тебя в '},{text:'еженедельном лидерборде',cls:'accent'},{text:'. Каждый понедельник рейтинг обновляется, а лучшие игроки получают '},{text:'награды',cls:'accent-cyan'},{text:'.'}],choices:['Понял / поняла','Готов / готова']}
+    {parts:[
+      {text:'ВОСКРЕСЕНЬЕ, '},
+      {text:'29 НОЯБРЯ · 21:00',cls:'accent'},
+      {text:' ПО МОСКВЕ — ЗАЛЕТАЙ В VICE CITY! Поборись за первое место и забери крупную награду.'}
+    ],choices:['Как получить награду?','Я в деле!']},
+    {parts:[
+      {text:'Ничего покупать не нужно. '},
+      {text:'Просто играй',cls:'accent'},
+      {text:', проходи заезды, уворачивайся от полиции и собирай '},
+      {text:'Coins',cls:'accent-cyan'},
+      {text:'. Чем больше Coins соберёшь, тем выше поднимешься в лидерборде. Играй и получай деньги на баланс RESSELL.'}
+    ],choices:['Покажи награду','Дальше']},
+    {parts:[
+      {text:'ПЕРВОЕ МЕСТО — '},
+      {text:'28% ОТ ИМУЩЕСТВА ПОБЕДИТЕЛЯ',cls:'accent'},
+      {text:'. Твой текущий расчёт появится здесь. Например, при имуществе '},
+      {text:'25 000 000 000 ₽',cls:'accent-cyan'},
+      {text:' награда составит '},
+      {text:'7 000 000 000 ₽',cls:'accent'},
+      {text:'. Финальная сумма рассчитывается по имуществу победителя на момент начисления.'}
+    ],choices:['ОТКРЫТЬ VICE CITY','Понятно']}
   ];
   // Character cutouts are embedded in the page; no extra image hosting is required.
   function vcStoryImageForStep(step){
@@ -9679,10 +9697,49 @@ async function initFarm(){
     if(card){card.classList.remove('vc-event-card-highlight');}
     vcOpen();
   }
-  function showViceCityEventAnnouncement(){
+  async function showViceCityEventAnnouncement(){
     if(!vcEventAnnouncement || !userId || !profileData) return;
+    // Do not show a stale "tomorrow" promotion after the announced start time.
+    const vcEventStartAt=Date.parse('2026-11-29T21:00:00+03:00');
+    if(Number.isFinite(vcEventStartAt) && Date.now()>=vcEventStartAt) return;
     const accountKey=VC_EVENT_ANNOUNCEMENT_KEY+'_'+String(userId);
     try{if(localStorage.getItem(accountKey)==='1')return;}catch(_){}
+
+    // Load the player's own live wealth quote. If the endpoint is temporarily
+    // unavailable, the card still shows the verified 25B -> 7B example.
+    let wealthQuote=0, prizeQuote=0, hasPersonalQuote=false;
+    try{
+      const response=await apiFetch(
+        `${API_BASE}/games/vice-city/stats/${encodeURIComponent(userId)}?t=${Date.now()}`,
+        {method:'GET'},2
+      );
+      const data=await response.json().catch(()=>({}));
+      if(response.ok && data?.success
+        && data.current_wealth_quote!==undefined && data.current_wealth_quote!==null
+        && data.first_place_prize_quote!==undefined && data.first_place_prize_quote!==null){
+        wealthQuote=Math.max(0,Math.floor(Number(data.current_wealth_quote)||0));
+        prizeQuote=Math.max(0,Math.floor(Number(data.first_place_prize_quote)||0));
+        hasPersonalQuote=Number.isFinite(wealthQuote)&&Number.isFinite(prizeQuote);
+      }
+    }catch(_){}
+
+    const fullRubles=value=>Math.max(0,Math.floor(Number(value)||0))
+      .toLocaleString('ru-RU').replace(/\u00a0|\u202f/g,' ');
+    if(hasPersonalQuote){
+      vcStoryStages[2].parts=[
+        {text:'ПЕРВОЕ МЕСТО — '},
+        {text:'28% ОТ ИМУЩЕСТВА ПОБЕДИТЕЛЯ',cls:'accent'},
+        {text:'. ТВОЙ ТЕКУЩИЙ РАСЧЁТ: '},
+        {text:`${fullRubles(wealthQuote)} ₽ × 28% = `},
+        {text:`${fullRubles(prizeQuote)} ₽`,cls:'accent'},
+        {text:'. Это твоя предварительная сумма по текущей стоимости имущества. Например, при имуществе '},
+        {text:'25 000 000 000 ₽',cls:'accent-cyan'},
+        {text:' награда составляет '},
+        {text:'7 000 000 000 ₽',cls:'accent'},
+        {text:'. Итог зависит от имущества победителя на момент начисления.'}
+      ];
+    }
+
     vcCoachShown=false;vceaStep=0;
     vcEventAnnouncement.classList.add('open');
     vcEventAnnouncement.setAttribute('aria-hidden','false');
